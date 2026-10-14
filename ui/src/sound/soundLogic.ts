@@ -24,26 +24,46 @@ export type SoundEvent =
   | { type: 'deny' }
   | { type: 'switch'; on: boolean };
 
+export type EventKey = SoundEvent['type'];
+/** What the owner changed for one event: `enabled` false is silent; `sound` plays that cue of that pack instead of the pack's own. */
+export interface EventChoice { enabled?: boolean; sound?: { pack: string; cue: string } }
+
 export interface SoundPrefs {
   enabled: boolean;
   /** 0 to 1. */
   volume: number;
   pack: string;
   quiet?: QuietView;
-  /** The "run started" cue. Off by default: it is the chattiest one. */
-  queuedCue: boolean;
+  /** Per-event changes. An event with no entry plays the pack's own cue (the "run started" event is off until its row is switched on). */
+  events: Partial<Record<EventKey, EventChoice>>;
 }
 export interface SoundCtx { now: number; focused: boolean; prefs: SoundPrefs }
+/** The sound to play: which event asked, and the pack and cue that answers it. */
+export interface Sound { event: EventKey; pack: string; cue: string }
 
 /** Defaults for a person who never opened the setting. The core keeps the same values (src/core/away/store.ts). */
-export const DEFAULT_SOUND_PREFS: SoundPrefs = { enabled: true, volume: 0.6, pack: 'forge', queuedCue: false };
+export const DEFAULT_SOUND_PREFS: SoundPrefs = { enabled: true, volume: 0.6, pack: 'forge', events: {} };
 
-/** Attention cues play without focus; the rest answer your own click. */
-const ATTENTION = new Set<SoundEvent['type']>(['ask', 'run-done', 'run-failed']);
-/** When several cues compete in one moment, the first in this list is the only one heard. Bad news beats good. */
-const PRIORITY: readonly Cue[] = ['error', 'notification', 'cancel', 'success', 'complete', 'check', 'deselect', 'queued'];
+/** The events a person can set one by one, in the order Settings lists them, with the plain words for each. */
+export const EVENT_ROWS: ReadonlyArray<{ key: EventKey; label: string; hint: string }> = [
+  { key: 'ask', label: 'Something needs you', hint: 'An approval or a question arrives.' },
+  { key: 'run-done', label: 'A run finished', hint: 'Many runs finishing together make one sound.' },
+  { key: 'run-failed', label: 'A run failed', hint: 'A run stopped with an error.' },
+  { key: 'allow', label: 'Allow sent', hint: 'You pressed Allow.' },
+  { key: 'deny', label: 'Deny sent', hint: 'You pressed Deny.' },
+  { key: 'switch', label: 'A setting switched', hint: 'You turned a switch in Settings on or off.' },
+  { key: 'run-started', label: 'A run started or queued', hint: 'Off until you switch it on: it is the chattiest.' },
+];
+/** Is the event's sound on when the owner has not touched its row? */
+export const eventDefaultOn = (k: EventKey): boolean => k !== 'run-started';
 
-function cueOf(e: SoundEvent, prefs: SoundPrefs): Cue | null {
+/** Attention events play without focus; the rest answer your own click. */
+const ATTENTION = new Set<EventKey>(['ask', 'run-done', 'run-failed']);
+/** When several events compete in one moment, the first in this list is the only one heard. Bad news beats good. */
+const PRIORITY: readonly EventKey[] = ['run-failed', 'ask', 'deny', 'allow', 'run-done', 'switch', 'run-started'];
+
+/** The pack's own cue for an event. */
+export function defaultCue(e: SoundEvent): string {
   switch (e.type) {
     case 'ask': return 'notification';
     case 'run-done': return 'complete';
@@ -51,36 +71,57 @@ function cueOf(e: SoundEvent, prefs: SoundPrefs): Cue | null {
     case 'allow': return 'success';
     case 'deny': return 'cancel';
     case 'switch': return e.on ? 'check' : 'deselect';
-    case 'run-started': return prefs.queuedCue ? 'queued' : null;
+    case 'run-started': return 'queued';
   }
 }
 
-/** The one cue to play for a batch of events that happened together, or null for silence. */
-export function cueFor(events: readonly SoundEvent[], ctx: SoundCtx): Cue | null {
+/** Which sound one event gives: the pack default, the owner's chosen sound, or null when its row is off. */
+export function resolveEvent(e: SoundEvent, prefs: SoundPrefs): Sound | null {
+  const c = prefs.events[e.type];
+  if ((c?.enabled ?? eventDefaultOn(e.type)) === false) return null;
+  if (c?.sound) return { event: e.type, pack: c.sound.pack, cue: c.sound.cue };
+  return { event: e.type, pack: prefs.pack, cue: defaultCue(e) };
+}
+
+/**
+ * A row's new choice after the owner changed it, or null when the row is back to its default (so the core keeps nothing for it).
+ * `enabled` is stored only when it differs from the event's default; `sound` null returns to the pack's own cue.
+ */
+export function withChoice(key: EventKey, prev: EventChoice | undefined, change: { enabled?: boolean; sound?: { pack: string; cue: string } | null }): EventChoice | null {
+  const enabled = 'enabled' in change ? change.enabled : prev?.enabled;
+  const sound = 'sound' in change ? change.sound ?? undefined : prev?.sound;
+  const out: EventChoice = {};
+  if (enabled !== undefined && enabled !== eventDefaultOn(key)) out.enabled = enabled;
+  if (sound) out.sound = { pack: sound.pack, cue: sound.cue };
+  return out.enabled === undefined && !out.sound ? null : out;
+}
+
+/** The one sound to play for a batch of events that happened together, or null for silence. */
+export function cueFor(events: readonly SoundEvent[], ctx: SoundCtx): Sound | null {
   const { prefs } = ctx;
   if (!prefs.enabled || !(prefs.volume > 0)) return null;
   if (isQuietAt(ctx.now, prefs.quiet)) return null;
-  let best: Cue | null = null;
+  let best: Sound | null = null;
   for (const e of events) {
     if (!ctx.focused && !ATTENTION.has(e.type)) continue;
-    const c = cueOf(e, prefs);
-    if (c && (best === null || PRIORITY.indexOf(c) < PRIORITY.indexOf(best))) best = c;
+    const s = resolveEvent(e, prefs);
+    if (s && (best === null || PRIORITY.indexOf(s.event) < PRIORITY.indexOf(best.event))) best = s;
   }
   return best;
 }
 
 /** Per-cue cooldown in ms. The library has its own guard too; this one also keeps the choice of cue stable. */
-export const COOLDOWN_MS: Record<Cue, number> = { notification: 2000, complete: 2000, error: 2000, queued: 1500, success: 150, cancel: 150, check: 80, deselect: 80 };
+export const COOLDOWN_MS: Record<string, number> = { notification: 2000, complete: 2000, error: 2000, queued: 1500, success: 150, cancel: 150, check: 80, deselect: 80 };
 /** No two cues closer than this, whatever they are. */
 export const MIN_GAP_MS = 120;
 
 export class CueGate {
-  private last = new Map<Cue, number>();
+  private last = new Map<string, number>();
   private any = -Infinity;
-  admit(cue: Cue, now: number): boolean {
+  admit(cue: string, now: number): boolean {
     if (now - this.any < MIN_GAP_MS) return false;
     const at = this.last.get(cue);
-    if (at !== undefined && now - at < COOLDOWN_MS[cue]) return false;
+    if (at !== undefined && now - at < (COOLDOWN_MS[cue] ?? 1000)) return false;
     this.last.set(cue, now);
     this.any = now;
     return true;

@@ -183,20 +183,38 @@ test('the doc comment says the truth about the file', () => {
 test('sounds: defaults on, Forge, 60 percent; a patch is validated and kept across a restart', async () => {
   const d = dir();
   const s = new AwayStore(d);
-  assert.deepEqual(s.app().sounds, { enabled: true, pack: 'forge', volume: 0.6 });
-  s.patchApp({ sounds: { enabled: false, pack: 'zen', volume: 0.25 } });
+  assert.deepEqual(s.app().sounds, { enabled: true, pack: 'forge', volume: 0.6, events: {} });
+  s.patchApp({ sounds: { enabled: false, pack: 'zen', volume: 0.25, events: {} } });
   await s.flush();
-  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: false, pack: 'zen', volume: 0.25 });
+  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: false, pack: 'zen', volume: 0.25, events: {} });
   s.patchApp({ sounds: { volume: 1 } });
-  assert.deepEqual(s.app().sounds, { enabled: false, pack: 'zen', volume: 1 });
+  assert.deepEqual(s.app().sounds, { enabled: false, pack: 'zen', volume: 1, events: {} });
   for (const bad of [{ sounds: 'on' }, { sounds: { enabled: 'yes' } }, { sounds: { volume: 1.5 } }, { sounds: { volume: -0.1 } }, { sounds: { volume: Number.NaN } }, { sounds: { pack: '../x' } }, { sounds: { pack: '' } }, { sounds: { pack: 5 } }]) {
     assert.throws(() => s.patchApp(bad as never), (e: unknown) => e instanceof AwayError && e.status === 400, JSON.stringify(bad));
   }
-  assert.deepEqual(s.app().sounds, { enabled: false, pack: 'zen', volume: 1 });
+  assert.deepEqual(s.app().sounds, { enabled: false, pack: 'zen', volume: 1, events: {} });
 });
 
 test('sounds: a damaged stored value falls back to the defaults', () => {
   const d = dir(); mkd(d);
   write(d, { version: 1, app: { sounds: { enabled: 'x', pack: 7, volume: 9 } }, projects: {} });
-  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: true, pack: 'forge', volume: 0.6 });
+  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: true, pack: 'forge', volume: 0.6, events: {} });
+});
+
+test('sounds: a per-event choice (off, or a chosen sound) is validated, merged, removable and kept across a restart', async () => {
+  const d = dir();
+  const s = new AwayStore(d);
+  assert.deepEqual(s.app().sounds.events, {});
+  s.patchApp({ sounds: { events: { 'run-failed': { enabled: false }, ask: { sound: { pack: 'zen', cue: 'success' } } } } });
+  s.patchApp({ sounds: { events: { allow: { enabled: true } } } });
+  await s.flush();
+  const again = new AwayStore(d).app().sounds.events;
+  assert.deepEqual(again, { 'run-failed': { enabled: false }, ask: { sound: { pack: 'zen', cue: 'success' } }, allow: { enabled: true } });
+  s.patchApp({ sounds: { events: { ask: null } } });                      // null = back to the pack's own sound
+  assert.deepEqual(Object.keys(s.app().sounds.events).sort(), ['allow', 'run-failed']);
+  s.patchApp({ sounds: { events: null } });                                // null = reset all
+  assert.deepEqual(s.app().sounds.events, {});
+  for (const bad of [{ events: 'x' }, { events: { nope: { enabled: false } } }, { events: { ask: { enabled: 'no' } } }, { events: { ask: { sound: { pack: '../x', cue: 'a' } } } }, { events: { ask: { sound: { pack: 'zen', cue: 'A B' } } } }, { events: { ask: { sound: 'zen' } } }, { events: { ask: { extra: 1 } } }]) {
+    assert.throws(() => s.patchApp({ sounds: bad } as never), (e: unknown) => e instanceof AwayError && e.status === 400, JSON.stringify(bad));
+  }
 });

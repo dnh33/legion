@@ -97,7 +97,7 @@ export interface AwayProject {
   budgetOverrideUntil?: string;
   notify: 'problems' | 'everything' | 'nothing';
 }
-export interface AwaySounds { enabled: boolean; pack: string; volume: number }
+export interface AwaySounds { enabled: boolean; pack: string; volume: number; events?: Partial<Record<string, { enabled?: boolean; sound?: { pack: string; cue: string } }>> }
 export interface AwayView { app: { quiet: { enabled: boolean; from: string; to: string }; notify: { enabled: boolean; returnSummary: boolean }; sounds?: AwaySounds }; projects: Record<string, AwayProject>; looked: Record<string, string> }
 export interface ProjectSpend {
   week: number; today: number;

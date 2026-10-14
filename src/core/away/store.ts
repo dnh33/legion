@@ -37,19 +37,37 @@ export interface ProjectAway {
   notify: NotifyLevel;
 }
 /** UI sounds (0.3.0). The window plays them; the core only keeps the choice. `pack` is a pack id the window knows (an unknown id falls back to Minimal there). */
-export interface SoundsConfig { enabled: boolean; pack: string; volume: number }
+export const SOUND_EVENTS = ['ask', 'run-done', 'run-failed', 'allow', 'deny', 'switch', 'run-started'] as const;
+export type SoundEventKey = (typeof SOUND_EVENTS)[number];
+/** What one event does when the owner changed it: `enabled` false is silent; `sound` plays that cue of that pack instead of the pack's own. */
+export interface SoundEventChoice { enabled?: boolean; sound?: { pack: string; cue: string } }
+export interface SoundsConfig { enabled: boolean; pack: string; volume: number; events: Partial<Record<SoundEventKey, SoundEventChoice>> }
 export interface AppAway { quiet: QuietConfig; notify: { enabled: boolean; returnSummary: boolean }; sounds: SoundsConfig }
 /** The settings an owner PATCH may carry. */
 export type ProjectAwayPatch = Partial<Pick<ProjectAway, 'onSilence' | 'paused' | 'budget' | 'notify'>>;
-export type AppAwayPatch = { quiet?: QuietConfig; notify?: Partial<AppAway['notify']>; sounds?: Partial<SoundsConfig> };
+export type AppAwayPatch = { quiet?: QuietConfig; notify?: Partial<AppAway['notify']>; sounds?: Partial<Omit<SoundsConfig, 'events'>> & { events?: Partial<Record<SoundEventKey, SoundEventChoice | null>> | null } };
 
 export const PARK_MIN = 1;
 export const PARK_MAX = 120;
 export const DEFAULT_QUIET: QuietConfig = { enabled: false, from: '22:00', to: '07:00' };
 export const DEFAULT_PROJECT_AWAY: ProjectAway = { onSilence: { mode: 'deny', parkMinutes: 3 }, paused: false, budget: null, notify: 'problems' };
-export const DEFAULT_SOUNDS: SoundsConfig = { enabled: true, pack: 'forge', volume: 0.6 };
+export const DEFAULT_SOUNDS: SoundsConfig = { enabled: true, pack: 'forge', volume: 0.6, events: {} };
 const DEFAULT_APP: AppAway = { quiet: DEFAULT_QUIET, notify: { enabled: true, returnSummary: true }, sounds: DEFAULT_SOUNDS };
 const PACK_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const CUE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+/** One event's choice, or undefined when it is not valid. Unknown fields are refused, not kept. */
+function parseChoice(v: unknown): SoundEventChoice | undefined {
+  if (!isObj(v) || Object.keys(v).some((k) => k !== 'enabled' && k !== 'sound')) return undefined;
+  const out: SoundEventChoice = {};
+  if ('enabled' in v) { if (typeof v.enabled !== 'boolean') return undefined; out.enabled = v.enabled; }
+  if ('sound' in v) {
+    const s = v.sound;
+    if (!isObj(s) || typeof s.pack !== 'string' || typeof s.cue !== 'string' || !PACK_ID.test(s.pack) || !CUE_ID.test(s.cue)) return undefined;
+    out.sound = { pack: s.pack, cue: s.cue };
+  }
+  return out;
+}
+const isEventKey = (k: string): k is SoundEventKey => (SOUND_EVENTS as readonly string[]).includes(k);
 const validVolume = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -163,10 +181,25 @@ export class AwayStore {
     if ('sounds' in patch) {
       const n = patch.sounds;
       if (!isObj(n)) throw new AwayError(400, 'sounds must be an object');
-      const sounds = { ...next.sounds };
+      const sounds: SoundsConfig = { ...next.sounds };
       if ('enabled' in n) { if (typeof n.enabled !== 'boolean') throw new AwayError(400, 'sounds.enabled must be true or false'); sounds.enabled = n.enabled; }
       if ('pack' in n) { if (typeof n.pack !== 'string' || !PACK_ID.test(n.pack)) throw new AwayError(400, 'sounds.pack must be a pack id'); sounds.pack = n.pack; }
       if ('volume' in n) { if (!validVolume(n.volume)) throw new AwayError(400, 'sounds.volume must be a number from 0 to 1'); sounds.volume = n.volume; }
+      if ('events' in n) {
+        if (n.events === null) sounds.events = {};
+        else {
+          if (!isObj(n.events)) throw new AwayError(400, 'sounds.events must be an object');
+          const events = { ...sounds.events };
+          for (const [k, v] of Object.entries(n.events)) {
+            if (!isEventKey(k)) throw new AwayError(400, `sounds.events: unknown event "${k}"`);
+            if (v === null) { delete events[k]; continue; }
+            const c = parseChoice(v);
+            if (!c) throw new AwayError(400, `sounds.events.${k} must be {enabled?, sound?: {pack, cue}}`);
+            events[k] = c;
+          }
+          sounds.events = events;
+        }
+      }
       next.sounds = sounds;
     }
     this.appPolicy = next;
@@ -224,6 +257,7 @@ export class AwayStore {
           enabled: isObj(sounds) && typeof sounds.enabled === 'boolean' ? sounds.enabled : DEFAULT_SOUNDS.enabled,
           pack: isObj(sounds) && typeof sounds.pack === 'string' && PACK_ID.test(sounds.pack) ? sounds.pack : DEFAULT_SOUNDS.pack,
           volume: isObj(sounds) && validVolume(sounds.volume) ? sounds.volume : DEFAULT_SOUNDS.volume,
+          events: isObj(sounds) && isObj(sounds.events) ? Object.fromEntries(Object.entries(sounds.events).flatMap(([k, v]) => { const c = isEventKey(k) ? parseChoice(v) : undefined; return c ? [[k, c]] : []; })) : {},
         },
       };
     }

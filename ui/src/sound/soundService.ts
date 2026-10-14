@@ -7,7 +7,7 @@ import type { UISFXPlayer, PackName, CueName } from './vendor/uisfx/index.js';
 import { getState, subscribeStore, tapDecisions } from '../store';
 import { getAway, initAway } from '../projects/awayStore';
 import { CueGate, DEFAULT_SOUND_PREFS, cueFor, diffSnapshots } from './soundLogic';
-import type { Cue, SoundEvent, SoundPrefs, SoundSnapshot } from './soundLogic';
+import type { SoundEvent, SoundPrefs, SoundSnapshot } from './soundLogic';
 import { CUSTOM_PACKS, PREVIEW_SEQUENCE, packOrDefault } from './soundPacks';
 
 /** Events that arrive within this window are one moment: ten runs finishing together make one cue. */
@@ -33,7 +33,7 @@ export function currentPrefs(): SoundPrefs {
   const s = app?.sounds;
   return {
     ...DEFAULT_SOUND_PREFS,
-    ...(s ? { enabled: s.enabled, volume: s.volume, pack: packOrDefault(s.pack) } : {}),
+    ...(s ? { enabled: s.enabled, volume: s.volume, pack: packOrDefault(s.pack), events: s.events ?? {} } : {}),
     ...(app?.quiet ? { quiet: app.quiet } : {}),
   };
 }
@@ -41,9 +41,9 @@ export function currentPrefs(): SoundPrefs {
 const customPack = (id: string) => CUSTOM_PACKS.find((p) => p.id === id);
 
 /** Cues that happen often get a tiny pitch change (about 1 percent either way) so repeats do not sound mechanical; the urgent ones never do. */
-const VARIED = new Set<Cue>(['complete', 'success', 'cancel', 'check', 'deselect', 'queued']);
+const VARIED = new Set<string>(['complete', 'success', 'cancel', 'check', 'deselect', 'queued']);
 
-function playCustom(packId: string, cue: Cue, volume: number): void {
+function playCustom(packId: string, cue: string, volume: number): void {
   const pack = customPack(packId);
   const c = audio();
   if (!pack || !c) return;
@@ -67,7 +67,7 @@ function playCustom(packId: string, cue: Cue, volume: number): void {
   src.start();
 }
 
-function playNow(cue: Cue, pack: string, volume: number, p: UISFXPlayer | null): void {
+function playNow(cue: string, pack: string, volume: number, p: UISFXPlayer | null): void {
   try {
     if (customPack(pack)) { playCustom(pack, cue, volume); return; }
     if (!p) return;
@@ -87,9 +87,9 @@ const mainPlayer = (): UISFXPlayer | null => (player ??= makePlayer());
 function emitCue(events: SoundEvent[]): void {
   const prefs = currentPrefs();
   const now = Date.now();
-  const cue = cueFor(events, { now, focused: typeof document === 'undefined' || document.hasFocus(), prefs });
-  if (!cue || !gate.admit(cue, now)) return;
-  playNow(cue, prefs.pack, prefs.volume, mainPlayer());
+  const snd = cueFor(events, { now, focused: typeof document === 'undefined' || document.hasFocus(), prefs });
+  if (!snd || !gate.admit(snd.cue, now)) return;
+  playNow(snd.cue, packOrDefault(snd.pack), prefs.volume, mainPlayer());
 }
 
 let queue: SoundEvent[] = [];
@@ -113,8 +113,15 @@ export function previewPack(pack: string, volume: number): void {
   previewTimers = PREVIEW_SEQUENCE.map(({ cue, at }) => setTimeout(() => playNow(cue, id, volume, previewPlayer), at));
 }
 
+/** One sound now, for a Settings row's Play button: exactly the pack and cue the row would play. */
+export function previewSound(pack: string, cue: string, volume: number): void {
+  void audio()?.resume?.();
+  previewPlayer ??= makePlayer();
+  playNow(cue, packOrDefault(pack), volume, previewPlayer);
+}
+
 /** The sound of the Settings sounds switch itself (the shared switch listener skips it, so it plays whatever was just chosen). */
-export function playFeedback(cue: Cue, volume: number, pack: string): void {
+export function playFeedback(cue: string, volume: number, pack: string): void {
   void audio()?.resume?.();
   playNow(cue, packOrDefault(pack), volume, mainPlayer());
 }

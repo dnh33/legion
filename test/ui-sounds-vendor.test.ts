@@ -45,11 +45,14 @@ test('the pack picker lists every built-in pack, no placeholder for the lore pac
   assert.equal(m.defaultPack(builtOnly), 'minimal'); // Forge missing: Minimal stands in
   assert.equal(m.packOrDefault('forge', builtOnly), 'minimal');
   assert.equal(m.packOrDefault('zen', packs), 'zen');
-  const withCustom = m.listPacks([{ id: 'forge', label: 'Forge', description: 'x', render: () => null }, { id: 'minimal', label: 'Dup', description: 'x', render: () => null }]);
+  const withCustom = m.listPacks([{ id: 'forge', label: 'Forge', description: 'x', cues: [], render: () => null }, { id: 'minimal', label: 'Dup', description: 'x', cues: [], render: () => null }]);
   assert.equal(m.defaultPack(withCustom), 'forge');
   assert.equal(m.packOrDefault('gone', withCustom), 'forge');
   assert.equal(withCustom.length, 13);
   assert.equal(withCustom[0]!.id, 'forge');
+  const g = m.listCueGroups();
+  assert.deepEqual(g.slice(0, 2).map((x) => x.pack), ['forge', 'reliquary']);
+  assert.ok(g[0]!.cues.some((c) => c.id === 'notification') && g[2]!.cues.length > 50 && g[2]!.cues.every((c) => c.label));
   assert.equal(withCustom.filter((p) => p.id === 'minimal').length, 1);
 });
 
