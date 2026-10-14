@@ -27,7 +27,9 @@ import type { GhArea } from './github/client.js';
 import { isTicked, masterOn, readAllowlist } from './github/allowlist.js';
 import { GITHUB_READ_TOOLS } from './github/tools.js';
 import type { GhApi, ToolCtx, ToolOut } from './github/tools.js';
-import { GITHUB_WRITE_TOOLS } from './github/write-tools.js';
+import { GITHUB_WRITE_TOOLS, WriteStopped } from './github/write-tools.js';
+import type { WriteCtx } from './github/write-tools.js';
+import type { ApprovalBroker } from '../approvals.js';
 import { GITHUB_AGENTS_OFF_TEXT, GITHUB_NOT_SIGNED_FOR_WRITE_TEXT, GITHUB_UNTICKED_TEXT, GITHUB_WRITE_NEEDS_ACCESS_TEXT, GITHUB_WRITE_NOT_GRANTED_TEXT } from '../../shared/connectors-view.js';
 import { normRepo } from '../../shared/github-area.js';
 
@@ -54,7 +56,9 @@ export interface GatewayDeps {
   /** The core's data folder: the repo allowlist and the master switch live under it. Missing means nothing is turned on (fail closed). */
   dataDir?: string;
   /** The signed-in write app, or undefined (not signed in). Default: not signed in, so every write is refused in plain words. */
-  writeApp?: () => WriteApp | undefined;
+  writeApp?: () => WriteApp | undefined | Promise<WriteApp | undefined>;
+  /** Raises the owner's cards. A write handler raises its own card through it, in every approval mode. Missing: no write can ask, so none is sent. */
+  approvals?: Pick<ApprovalBroker, 'request'>;
 }
 
 /** What a write needs from the write app: the client and its permission answer (`GitHubClient.can`). */
@@ -68,6 +72,8 @@ const WRITE_AREA: Readonly<Record<string, GhArea>> = {
   github_issue_write: 'issues', github_comment: 'issues', github_create_pr: 'pull_requests', github_review: 'pull_requests',
   github_ci_rerun: 'actions', github_ci_cancel: 'actions',
 };
+/** The full tool names of the six writes, as the engine sees them. Each raises its own card, so a Gates `ask` rule must not add a second. */
+export const CARDED_CONNECTOR_WRITES: ReadonlySet<string> = new Set(Object.keys(WRITE_AREA).map((n) => `mcp__${CONNECTORS_SERVER_NAME}__${n}`));
 /** Tools that take no repo: nothing to check against the allowlist. */
 const NO_REPO = new Set(['github_status', 'github_repo_list']);
 
@@ -85,6 +91,7 @@ export function wrapGithub(tool: string, out: ToolOut): string {
 
 /** An error as fixed text: the kind's own message (no URL, header or body), plus the reset time for a rate limit. Never `e.message` of an unknown error. */
 export function errorText(e: unknown): string {
+  if (e instanceof WriteStopped) return e.message;
   if (e instanceof GhError) {
     const more = e.kind === 'rate-limited' && e.resetAt ? ` It resets at ${e.resetAt}.` : e.kind === 'forbidden' && e.needs ? ` It needs ${e.needs} access.` : '';
     return `GitHub error (${e.kind}): ${e.message}${more}`;
@@ -144,13 +151,32 @@ export function buildConnectorsServer(agent: AgentProfile, job: ModuleJob, d: Ga
     const scoped = scope(name, args, isWrite);
     if (scoped) return text(scoped, true);
     if (wfn) {
-      const w = d.writeApp?.();
+      const w = await d.writeApp?.();
       if (!w) return text(GITHUB_NOT_SIGNED_FOR_WRITE_TEXT, true);
       if (w.can(WRITE_AREA[name]!, 'write') !== 'yes') return text(GITHUB_WRITE_NEEDS_ACCESS_TEXT, true);
+      // the card can stay open for minutes: the handler calls this after Allow and before it sends, so a switch turned off meanwhile still stops the write
+      const recheck = async (): Promise<string | undefined> => {
+        const g = gate() ?? scope(name, args, true);
+        if (g) return g;
+        const w2 = await d.writeApp?.();
+        if (!w2) return GITHUB_NOT_SIGNED_FOR_WRITE_TEXT;
+        if (w2.can(WRITE_AREA[name]!, 'write') !== 'yes') return GITHUB_WRITE_NEEDS_ACCESS_TEXT;
+        return undefined;
+      };
+      // read the run's taint BEFORE this call marks it: the card warns when the run had read outside text already (a failed read counts as yes)
+      let wasTainted = true;
+      try { wasTainted = job.taint() === true; } catch { wasTainted = true; }
       taint();
       try { job.markConnectorData?.(); } catch { /* bookkeeping only */ }
       const live = d.agent(agent.id) ?? agent;
-      try { return text(wrapGithub(name, await wfn(w.api, args, { ...ctxFor(extra), agent: { id: live.id, name: live.name } }))); } catch (e) { return text(errorText(e), true); }
+      const o = job.origin;
+      const approvals = d.approvals;
+      const wctx: WriteCtx = {
+        ...ctxFor(extra), agent: { id: live.id, name: live.name }, tainted: wasTainted, recheck,
+        // the card is raised here, by the handler, in every mode (approvals.ts, exception 2026-10-15): never through guardAsk
+        ...(approvals ? { ask: (c) => approvals.request(job.taskId, live.id, `mcp__${CONNECTORS_SERVER_NAME}__${c.tool}`, c.input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, { summary: c.summary, noRemember: true, ...(job.projectId ? { projectId: job.projectId } : {}) }) } : {}),
+      };
+      try { return text(wrapGithub(name, await wfn(w.api, args, wctx))); } catch (e) { return text(errorText(e), true); }
     }
     const fn = Object.hasOwn(tools, name) ? tools[name] : undefined;
     if (!fn) return text('That GitHub tool is not available.', true);

@@ -11,6 +11,7 @@ import { CONNECTORS_SERVER_NAME, NOT_ENABLED, CLIENT_REFUSED } from '../src/core
 import type { ReadTool } from '../src/core/connectors/gateway.js';
 import { GhError, GitHubClient } from '../src/core/connectors/github/client.js';
 import { CI_WAIT_CAP_SEC, GITHUB_READ_TOOLS } from '../src/core/connectors/github/tools.js';
+import { GITHUB_WRITE_TOOLS } from '../src/core/connectors/github/write-tools.js';
 import type { GhApi, ToolCtx } from '../src/core/connectors/github/tools.js';
 import { createConnectorsModule } from '../src/core/connectors/index.js';
 import { ConnectorKeyring } from '../src/core/connectors/keyring.js';
@@ -67,14 +68,16 @@ test('classOf: the shipped READ tools are READ; writes are WRITE; anything unkno
   assert.equal(classOf('__proto__', 'x'), 'WRITE');
 });
 
-test('every tool the gateway registers for GitHub is a READ tool with a handler, and no WRITE tool has one', async () => {
+test('every READ tool the gateway registers for GitHub has a read handler; the WRITE tools are exactly the carded write table and never read handlers', async () => {
   const r = await mk();
   const names: string[] = Object.keys(r.server().instance._registeredTools);
   const gh = names.filter((n) => n.startsWith('github_'));
-  assert.ok(gh.length >= 14);
-  for (const n of gh) { assert.equal(classOf('github', n), 'READ', n); assert.ok(typeof GITHUB_READ_TOOLS[n] === 'function', n); }
+  const reads = gh.filter((n) => classOf('github', n) === 'READ');
+  assert.ok(reads.length >= 14);
+  for (const n of reads) assert.ok(typeof GITHUB_READ_TOOLS[n] === 'function', n);
+  assert.deepEqual(gh.filter((n) => classOf('github', n) !== 'READ').sort(), Object.keys(GITHUB_WRITE_TOOLS).sort(), 'the registered write tools are the write table');
   assert.deepEqual(names.filter((n) => !n.startsWith('github_')).sort(), ['connector_call_read', 'connector_list']);
-  for (const [n, c] of Object.entries(SHIPPED_CLASSES.github!)) if (c !== 'READ') assert.equal(names.includes(n) || Object.hasOwn(GITHUB_READ_TOOLS, n), false, `${n} must have no handler in slice 1b`);
+  for (const [n, c] of Object.entries(SHIPPED_CLASSES.github!)) if (c !== 'READ') assert.equal(Object.hasOwn(GITHUB_READ_TOOLS, n), false, `${n} must have no read handler`);
 });
 
 test('a write through the read door is refused: a WRITE-class name and an unknown name never reach a handler', async () => {
