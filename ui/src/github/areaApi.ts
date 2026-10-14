@@ -1,7 +1,7 @@
 /** What the GitHub area routes say, as the editor and the project page need it: a loading and an error state apart from an empty list, and the project's own repo. */
 import type { GithubAreaView } from '../../../src/shared/github-area';
-import { areaStateOf } from './areaState';
-import type { AreaState, ProjectRepo } from './areaState';
+import { areaStateOf } from './accessState';
+import type { AreaState, ProjectRepo } from './accessState';
 
 /** api.ts reads window at load, so it is imported only when a call is made in the browser (keeps server-side renders and tests free of it). */
 const req = async <T>(m: string, p: string, body?: unknown): Promise<T> => (await import('../api')).request<T>(m, p, body);

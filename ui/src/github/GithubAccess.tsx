@@ -2,8 +2,8 @@
 import { normRepo } from '../../../src/shared/github-area';
 import type { GithubLevel } from '../../../src/shared/github-area';
 import { GITHUB_WRITE_MAX, tickedRepoNames, unticked, WRITE_NOTE } from './agentAccess';
-import { areaNotice } from './areaState';
-import type { AreaState } from './areaState';
+import { areaNotice } from './accessState';
+import type { AreaState } from './accessState';
 import { AreaNoticeLine } from './AreaNotice';
 import { openSettings } from '../store';
 import './github-access.css';

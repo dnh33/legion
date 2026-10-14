@@ -2,6 +2,8 @@ import type { Project } from '../../src/shared/projects';
 import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
+import type { GithubAreaView } from '../../src/shared/github-area';
+import type { CreateRepoBody } from './github/types';
 import type {
   SettingsView, SettingsPatch, McpStatusView, GateRule,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TasksPage, VmRecord,
@@ -112,6 +114,17 @@ export type NewAgent = Partial<AgentProfile> & { name: string };
 export const api = {
   /** `slim=1`: the window's working set (running tasks, the newest per agent), not the whole history; the history list pages through `tasksPage`. */
   state: (archived = false) => request<StateSnapshot>('GET', `/api/state?slim=1${archived ? '&archived=1' : ''}`),
+  /** GitHub area: the routes in src/core/connectors/index.ts. Answers are checked by github/githubRoutes.ts before the UI uses them. */
+  githubArea: (force = false) => request<GithubAreaView>('GET', `/api/github/area${force ? '?force=1' : ''}`),
+  githubTick: (repo: string, on: boolean) => request<GithubAreaView>('PUT', `/api/github/repos/${repo}/tick`, { on }),
+  githubAgentsSwitch: (on: boolean) => request<GithubAreaView>('PUT', '/api/github/agents-switch', { on }),
+  githubConnectWrite: () => request<unknown>('POST', '/api/github/apps/write/connect'),
+  githubCancelWrite: () => request<{ ok: true }>('POST', '/api/github/apps/write/cancel'),
+  githubDisconnectWrite: () => request<{ ok: true; revokeUrl?: string }>('POST', '/api/github/apps/write/disconnect'),
+  githubCreateRepo: (b: CreateRepoBody) => request<unknown>('POST', '/api/github/repos', b),
+  githubOrgs: () => request<unknown>('GET', '/api/github/orgs'),
+  githubProjectsUsing: (repo: string) => request<unknown>('GET', `/api/github/projects-using/${repo}`),
+  githubProjectAccess: (projectId: string, level: 'read' | 'write') => request<{ ok: true }>('PUT', `/api/github/projects/${encodeURIComponent(projectId)}/access`, { level }),
   /** The /names this agent may not type (the core's own refusal rule), for the composer's / menu. */
   armorySlash: (agentId: string) => request<{ agent: string; refused: string[] }>('GET', `/api/armory/slash?agent=${encodeURIComponent(agentId)}`),
   tasksPage: (p: { agentId?: string; projectId?: string; q?: string; cursor?: string | null; limit?: number; archived?: boolean }) => {

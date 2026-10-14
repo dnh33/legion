@@ -57,7 +57,7 @@ test('confirm copy names how many agents change, and says nothing changes when n
 
 // ---- review fixes: the area states, the project's own repo, one access call, the 100-repo cap
 import { accessRefusal, GITHUB_WRITE_MAX, unticked } from '../ui/src/github/agentAccess.js';
-import { areaNotice, areaStateOf, projectRepoNotice } from '../ui/src/github/areaState.js';
+import { areaNotice, areaStateOf, projectRepoNotice } from '../ui/src/github/accessState.js';
 import type { GithubAreaView } from '../src/shared/github-area.js';
 
 const view = (o: Partial<GithubAreaView> = {}): GithubAreaView => ({ registered: { read: true, write: true }, signedIn: { read: true, write: true }, agentsEnabled: true, selection: 'selected', repos: [{ fullName: 'a/one', private: false, installedRead: true, installedWrite: true, ticked: true, htmlUrl: '', installationSettingsUrl: '' }], truncated: false, ...o });

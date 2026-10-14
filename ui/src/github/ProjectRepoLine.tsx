@@ -5,8 +5,8 @@ import { agentGithubLevel, githubAgentsFor } from '../../../src/shared/github-ar
 import { openSettings, useStore } from '../store';
 import { accessRefusal, grantCopy, planProjectGrant } from './agentAccess';
 import { loadProjectRepo, putProjectAccess } from './areaApi';
-import { projectRepoNotice } from './areaState';
-import type { ProjectRepo } from './areaState';
+import { projectRepoNotice } from './accessState';
+import type { ProjectRepo } from './accessState';
 import './github-access.css';
 
 export function ProjectRepoLine({ project }: { project: Project }) {

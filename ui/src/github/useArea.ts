@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { loadArea } from './areaApi';
-import { AREA_LOADING } from './areaState';
-import type { AreaState } from './areaState';
+import { AREA_LOADING } from './accessState';
+import type { AreaState } from './accessState';
 
 /** The GitHub area list with its loading and error states; `retry` asks again. */
 export function useArea(): [AreaState, () => void] {

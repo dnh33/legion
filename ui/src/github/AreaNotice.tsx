@@ -1,5 +1,5 @@
 /** One plain line for an area state, with the way forward: Try again, or open Settings, GitHub. */
-import type { AreaNotice } from './areaState';
+import type { AreaNotice } from './accessState';
 
 export function AreaNoticeLine({ notice, onRetry, onSettings }: { notice: AreaNotice; onRetry?: () => void; onSettings: () => void }) {
   return (

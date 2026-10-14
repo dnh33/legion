@@ -8,7 +8,7 @@ import { pickReturnFocus } from './focusReturn';
 import { cancelRun, closeCi, connectGithub, describeCounts, dismissCi, failureView, refreshCi, restoreCi, rerunFailed, saveRepo, toggleLog, toggleRun, useCi } from './ciStore';
 import './ci.css';
 
-function Glyph({ tone }: { tone: Tone }) {
+export function Glyph({ tone }: { tone: Tone }) {
   const p = { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
   if (tone === 'ok') return <svg {...p}><circle cx="8" cy="8" r="6" /><path d="M5.2 8.2l2 2 3.6-4" /></svg>;
   if (tone === 'bad') return <svg {...p}><circle cx="8" cy="8" r="6" /><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" /></svg>;
