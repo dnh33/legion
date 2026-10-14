@@ -160,3 +160,19 @@ test('a 401 on the write client refreshes once with the write token and retries'
   assert.notEqual(next?.access, rec!.access);
   assert.equal(await r.store.get('github-read'), undefined);
 });
+
+test('a refused call logs GitHub\'s own short reason, never a token (mutation: drop the reason from the log)', async () => {
+  const dir = tempDir('legion-gha-');
+  const fake = await new FakeGitHub().start();
+  fakes.push(fake);
+  const lines: string[] = [];
+  const client = new GitHubClient({ app: 'read', tokens: newStore(dir), fetchFn: fake.fetchFn(), clientId: FAKE_CLIENT_ID, sleep: async () => undefined, log: (l) => lines.push(l) });
+  await (await client.startDeviceFlow()).poll();
+  fake.override = (_h, _m, path) => path.split('?')[0] === '/user/installations'
+    ? [403, { message: 'You must authenticate with an access token authorized to a GitHub App in order to list installations\u0007', documentation_url: 'https://docs.github.com/x' }, rate] : undefined;
+  await assert.rejects(client.installations(), (e: Error & { kind?: string }) => e.kind === 'forbidden');
+  const why = lines.find((l) => l.startsWith('github: refused: '));
+  assert.ok(why, lines.join(' | '));
+  assert.match(why!, /authorized to a GitHub App in order to list installations$/);
+  assert.doesNotMatch(why!, /\u0007|gh[uprs]_/);
+});
