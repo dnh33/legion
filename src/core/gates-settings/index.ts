@@ -28,7 +28,11 @@ const PART_ONE_PRESETS = ['ask'] as const;
 
 export function createGatesCore(o: { dataDir: string; projects?: ProjectStore }): GatesCore {
   const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PART_ONE_PRESETS });
-  try { if (o.projects) store.prune(o.projects.list().map((p) => p.id)); } catch { /* the settings stay as they are */ }
+  // An empty list is never a reason to prune: a failed projects.json load must not delete every cap.
+  try {
+    const ids = o.projects ? o.projects.list().map((p) => p.id) : [];
+    if (ids.length > 0) store.prune(ids);
+  } catch { /* the settings stay as they are */ }
   const resolver: ModeResolver = {
     mode({ agentMode, source, startProjectId, ceiling }) {
       const ps = startProjectId ? store.project(startProjectId) : undefined;

@@ -7,7 +7,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GATES, PRESETS, isPreset } from '../../shared/gates-registry.js';
+import { GATES, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 
@@ -20,6 +20,10 @@ const DEBOUNCE_MS = 400;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permission').map((g) => g.id));
 const blank = (): GateSettings => ({ version: 1 });
+/** What a damaged or unreadable file reads as (spec 4.1). A missing file is blank, not this. */
+const damaged = (): GateSettings => ({ version: 1, preset: 'ask' });
+/** The default when the caller names no presets: only Ask until a later part widens it. */
+const ASK_ONLY: readonly Preset[] = ['ask'];
 
 export class GatesStore {
   readonly folder: string;
@@ -32,7 +36,7 @@ export class GatesStore {
 
   constructor(dir: string, opts: { allowed?: readonly Preset[] } = {}) {
     this.folder = dir;
-    this.allowed = opts.allowed ?? PRESETS;
+    this.allowed = opts.allowed ?? ASK_ONLY;
     this.reload();
   }
 
@@ -130,7 +134,7 @@ export class GatesStore {
     } catch {
       this.unreadable.add(name);
       try { renameSync(file, `${file}.bad-${Date.now()}`); } catch { /* left in place; still read as Ask */ }
-      return undefined;
+      return damaged();
     }
   }
 

@@ -21,8 +21,8 @@ test('a damaged file reads as Ask, is kept aside and is listed as unreadable', (
   writeFileSync(join(d, `${P1}.json`), '{not json');
   writeFileSync(join(d, 'app.json'), JSON.stringify({ version: 1, preset: 'yolo', overrides: { 'no-such': false } }));
   const s = new GatesStore(d);
-  assert.deepEqual(s.project(P1), { version: 1 });
-  assert.deepEqual(s.app(), { version: 1 });
+  assert.deepEqual(s.project(P1), { version: 1, preset: 'ask' });
+  assert.deepEqual(s.app(), { version: 1, preset: 'ask' });
   assert.ok(readdirSync(d).some((n) => n.startsWith(`${P1}.json.bad-`)), 'the damaged file is kept aside');
   assert.deepEqual(s.view([P1]).unreadable.sort(), ['app', P1]);
 });
@@ -30,7 +30,7 @@ test('a damaged file reads as Ask, is kept aside and is listed as unreadable', (
 test('a file over 64 KB is treated as damaged', () => {
   const d = dir(); mkdirSync(d, { recursive: true });
   writeFileSync(join(d, `${P1}.json`), JSON.stringify({ version: 1, pad: 'x'.repeat(70_000) }));
-  assert.deepEqual(new GatesStore(d).project(P1), { version: 1 });
+  assert.deepEqual(new GatesStore(d).project(P1), { version: 1, preset: 'ask' });
 });
 
 test('in this part only Ask is accepted; anything else is a 400 with a plain reason', () => {
@@ -59,7 +59,20 @@ test('the core trusts memory: a file changed on disk is ignored until reload', a
   writeFileSync(join(d, `${P1}.json`), JSON.stringify({ version: 1, preset: 'bypass' }));
   assert.equal(s.project(P1).preset, 'ask');
   s.reload();
-  assert.deepEqual(s.project(P1), { version: 1 }, 'bypass is not allowed in this part, so the reloaded file reads as Ask');
+  assert.deepEqual(s.project(P1), { version: 1, preset: 'ask' }, 'bypass is not allowed in this part, so the reloaded file is damaged and reads as Ask');
+});
+
+test('a missing file is blank, not Ask: no preset means no cap', () => {
+  const s = new GatesStore(dir());
+  assert.deepEqual(s.project(P1), { version: 1 });
+  assert.deepEqual(s.app(), { version: 1 });
+});
+
+test('the default allowed presets are Ask only: bypass is refused without passing allowed', () => {
+  const s = new GatesStore(dir());
+  for (const preset of ['accept-edits', 'smart', 'bypass'] as const) {
+    assert.throws(() => s.patchProject(P1, { preset }), (e: unknown) => e instanceof GatesError && e.status === 400, preset);
+  }
 });
 
 test('prune drops files for projects that no longer exist', async () => {

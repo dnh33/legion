@@ -1,6 +1,7 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isClientRoute } from '../src/core/admin.js';
 import { createGatesCore, createGatesModule } from '../src/core/gates-settings/index.js';
@@ -66,4 +67,27 @@ test('the resolver: Per agent gives the agent own mode; Ask with its limit caps 
     assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { limit: false })).status, 200);
     assert.equal(r.core.resolver.mode({ agentMode: 'full', startProjectId: r.pid }), 'full');
   } finally { await r.close(); }
+});
+
+test('a damaged project gates file caps a full own agent to Ask from the first call', () => {
+  const data = join(cleanupTemp('legion-gates-damaged-'), 'data');
+  const projects = new ProjectStore(data, join(data, 'ws'));
+  const p = projects.create({ name: 'Shop' });
+  mkdirSync(join(data, 'gates'), { recursive: true });
+  writeFileSync(join(data, 'gates', `${p.id}.json`), '{not json');
+  const core = createGatesCore({ dataDir: data, projects });
+  assert.equal(core.resolver.mode({ agentMode: 'full', startProjectId: p.id }), 'ask');
+});
+
+test('an empty project list does not prune the gates files: a failed projects.json load must not delete the caps', async () => {
+  const data = join(cleanupTemp('legion-gates-noprune-'), 'data');
+  mkdirSync(join(data, 'gates'), { recursive: true });
+  const file = join(data, 'gates', 'proj_000000000001.json');
+  writeFileSync(file, JSON.stringify({ version: 1, preset: 'ask' }));
+  const projects = new ProjectStore(data, join(data, 'ws'));
+  assert.deepEqual(projects.list(), []);
+  const core = createGatesCore({ dataDir: data, projects });
+  await core.store.flush();
+  assert.equal(existsSync(file), true, 'the cap file is kept');
+  assert.deepEqual(core.store.project('proj_000000000001'), { version: 1, preset: 'ask' });
 });
