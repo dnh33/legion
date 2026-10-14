@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { ago, clampGeometry, formatDuration, problemText, runLook } from '../src/shared/ci-view.js';
+import { activeFailures, ago, clampGeometry, dismissFailures, dismissKey, formatDuration, problemText, readDismissed, runLook, writeDismissed } from '../src/shared/ci-view.js';
+import type { CiRun } from '../src/shared/ci.js';
 import type { PanelGeometry } from '../src/shared/ci-view.js';
 import { pickReturnFocus, RETURN_SELECTORS } from '../ui/src/ci/focusReturn.js';
 
@@ -115,5 +116,36 @@ describe('focus return', () => {
   it('the panel uses it for returnFocus', () => {
     assert.match(read('CiPanel.tsx'), /pickReturnFocus\(/);
     assert.ok(!/querySelector<HTMLElement>\('\.tb-ci'\)/.test(read('CiPanel.tsx')));
+  });
+});
+
+describe('failure badge: dismiss', () => {
+  const mk = (id: number, o: Partial<CiRun> = {}): CiRun => ({ id, workflow: 'CI', branch: 'main', sha: 'a', title: '', status: 'completed', conclusion: 'failure', url: '', event: 'push', attempt: 1, createdAt: `2026-10-07T0${id}:00:00Z`, startedAt: `2026-10-07T0${id}:00:00Z`, updatedAt: `2026-10-07T0${id}:05:00Z`, durationMs: null, ...o });
+  const mem = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } }; };
+  it('lists only the failing latest runs, per workflow, on the branch', () => {
+    const runs = [mk(1), mk(2, { conclusion: 'success' }), mk(3, { workflow: 'Smoke' }), mk(4, { workflow: 'Other', branch: 'dev' })];
+    assert.deepEqual(activeFailures(runs, 'main', null).map((r) => r.id), [3]);
+  });
+  it('(d) dismiss hides the current failures, a newer failure shows again, and it survives a reload', () => {
+    const storage = mem();
+    const key = dismissKey('o/r', 'main');
+    const one = [mk(1)];
+    assert.equal(activeFailures(one, 'main', readDismissed(storage)[key] ?? null).length, 1);
+    writeDismissed(storage, dismissFailures(readDismissed(storage), key, activeFailures(one, 'main', null)));
+    // "reload": a fresh read of the same storage
+    assert.equal(activeFailures(one, 'main', readDismissed(storage)[key] ?? null).length, 0, 'still hidden after reload');
+    // the same failures a poll later: still hidden
+    assert.equal(activeFailures([mk(1)], 'main', readDismissed(storage)[key] ?? null).length, 0);
+    // a new failure (another workflow) arrives
+    const later = [mk(1), mk(5, { workflow: 'Smoke' })];
+    assert.deepEqual(activeFailures(later, 'main', readDismissed(storage)[key] ?? null).map((r) => r.id), [5]);
+    // another branch is untouched
+    assert.equal(activeFailures([mk(6, { branch: 'dev' })], 'dev', readDismissed(storage)[dismissKey('o/r', 'dev')] ?? null).length, 1);
+  });
+  it('reads broken or missing storage as nothing dismissed', () => {
+    assert.deepEqual(readDismissed({ getItem: () => '{nope', setItem: () => {} }), {});
+    assert.deepEqual(readDismissed({ getItem: () => { throw new Error('blocked'); }, setItem: () => {} }), {});
+    assert.deepEqual(readDismissed(null), {});
+    assert.doesNotThrow(() => writeDismissed({ getItem: () => null, setItem: () => { throw new Error('full'); } }, { a: 'b' }));
   });
 });

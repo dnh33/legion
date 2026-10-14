@@ -5,6 +5,7 @@
  * Also here: log text handling (cap, strip control characters, mask secret-shaped values).
  */
 import type { CiCounts, CiJob, CiRun, RunSummary } from '../../shared/ci.js';
+import { latestRuns } from '../../shared/ci-view.js';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown, max = 500): string => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max) : '');
@@ -79,14 +80,9 @@ export function summarizeRun(run: Pick<CiRun, 'status' | 'conclusion' | 'url'>, 
 
 /** Chip counts for one branch: the latest run of each workflow on it. */
 export function countsFor(runs: CiRun[], branch: string | null): CiCounts {
-  const latest = new Map<string, CiRun>();
-  for (const r of runs) {
-    if (branch !== null && r.branch !== branch) continue;
-    const cur = latest.get(r.workflow);
-    if (!cur || r.createdAt > cur.createdAt || (r.createdAt === cur.createdAt && r.id > cur.id)) latest.set(r.workflow, r);
-  }
+  const latest = latestRuns(runs, branch);
   const c: CiCounts = { success: 0, failure: 0, running: 0 };
-  for (const r of latest.values()) {
+  for (const r of latest) {
     if (isRunning(r.status)) c.running++;
     else if (isFailure(r.conclusion)) c.failure++;
     else if (r.conclusion === 'success') c.success++;

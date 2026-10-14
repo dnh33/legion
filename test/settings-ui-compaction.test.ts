@@ -122,7 +122,7 @@ test('the longest values the ranges allow are accepted; one past the top is not'
 });
 
 test('the section is reachable from the nav and wired to the settings and reset routes', () => {
-  assert.match(SRC, /\{ id: 'compaction', label: 'Compaction', hint: '[^']+' \}/, 'a Compaction entry in the NAV list');
+  assert.match(readFileSync(join(process.cwd(), 'ui/src/components/settingsNav.ts'), 'utf8'), /compaction: { label: 'Compaction', hint: '[^']+' }/, 'a Compaction entry in the NAV list');
   assert.match(SRC, /section === 'compaction' \? <CompactionSection s=\{settings\} \/>/, 'the section renders in the settings body');
   assert.match(SRC, /<SaveBar dirty=\{dirty\} busy=\{busy\} error=\{error\} onSave=\{\(\) => void save\(\)\} onReset=\{reset\} \/>/, 'the compaction SaveBar');
   assert.match(SRC, /await saveSettings\(\{ compaction: \{ \.\.\.r\.patch, enabled: on \} \}\)/, 'save writes a compaction patch through saveSettings');
