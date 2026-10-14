@@ -461,7 +461,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .arg-hint { display: flex; align-items: baseline; gap: 10px; padding: 8px 14px 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
 .arg-hint code { color: var(--text); font-size: 12px; }
 .arg-hint span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.model-pill { gap: 6px; white-space: nowrap; min-width: 0; max-width: min(320px, 45%); flex: 0 1 auto; }
+.model-pill { gap: 6px; white-space: nowrap; min-width: 84px; max-width: min(320px, 45%); flex: 0 1 auto; }
+/* the model's short name never shrinks to "A...": it keeps this floor while the optional hint and the Stop buttons share the row */
 /* a long, provider-qualified name is cut here, not wrapped into the send button; the whole name is in the pill's title */
 .model-pill .mp-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .model-pill .icon { flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
@@ -705,6 +706,12 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .send.queue:disabled { color: var(--faint); }
 .composer-bar .send { flex: none; }
 .composer-bar .composer-hint { min-width: 0; overflow: hidden; }
+/* the key hint is optional: it goes first, in steps, as the composer narrows while Queue / Stop all / Stop are showing (widths are the composer's own, not the window's) */
+.composer-wrap { container: composer / inline-size; }
+@container composer (max-width: 600px) { .composer-bar.busy .hint-long { display: none; } }
+@container composer (max-width: 800px) { .composer-bar.has-team .hint-long { display: none; } }
+@container composer (max-width: 440px) { .composer-bar.busy .composer-hint { display: none; } }
+@container composer (max-width: 540px) { .composer-bar.has-team .composer-hint { display: none; } }
 .q-resume { color: var(--text); border-color: var(--line-strong); }
 .q-resume:hover:not(:disabled) { border-color: var(--accent-line); }
 

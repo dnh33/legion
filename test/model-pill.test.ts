@@ -15,7 +15,9 @@ test('the model pill stays one line: nowrap, a width cap, and an ellipsis on its
   const rules = [...css.matchAll(/(^|\n)\s*\.model-pill\s*\{([^}]*)\}/g)].map((m) => m[2]!).join(';');
   assert.match(rules, /white-space:\s*nowrap/);
   assert.match(rules, /max-width:\s*\S+/);
-  assert.match(rules, /min-width:\s*0/);
+  // the pill keeps a pixel floor so a short name ("Auto") always shows when the composer is crowded (Stop all); the label inside still shrinks with an ellipsis
+  const floor = /min-width:\s*(\d+)px/.exec(rules);
+  assert.ok(floor && Number(floor[1]) >= 60, 'the pill has a pixel floor of at least 60px');
   const label = /\.model-pill \.mp-label\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
   assert.match(label, /overflow:\s*hidden/);
   assert.match(label, /text-overflow:\s*ellipsis/);

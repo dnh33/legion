@@ -68,6 +68,7 @@ function makeDb(flags) {
   if (f('bridge')) {
     db.tasks.push({ id: 't7', agentId: 'builder', title: 'Marshal: Migrate the auth module to the new session API and keep the tests green', status: f('bridge-run') ? 'running' : 'done', source: 'agent', fromAgentId: 'zealot', parentTaskId: 't1', requestedModel: 'auto', model: 'sonnet', costUsd: 0.09, turns: 6, createdAt: ago(20), updatedAt: ago(f('bridge-run') ? 0 : 15) });
   }
+  if (f('team-run')) db.tasks.push({ id: 't8', agentId: 'zealot', title: 'Check the deploy script', status: 'running', source: 'agent', fromAgentId: 'builder', parentTaskId: 't3', requestedModel: 'auto', model: 'sonnet', costUsd: 0.01, turns: 2, createdAt: ago(3), updatedAt: ago(0) });
   db.messages = {
     t1: [
       { id: 'm1', taskId: 't1', role: 'user', text: 'Audit the auth flow and refactor the token refresh so it cannot race.', at: ago(40) },
