@@ -37,13 +37,16 @@ export class GhError extends Error {
   readonly needs?: 'read' | 'write';
   readonly resetAt?: string;
   readonly retryable?: boolean;
-  constructor(kind: GhErrorKind, extra: { needs?: 'read' | 'write'; resetAt?: string; retryable?: boolean } = {}) {
+  /** The HTTP status of a refusal that has no kind of its own (422 on a repo create). Never a body. */
+  readonly status?: number;
+  constructor(kind: GhErrorKind, extra: { needs?: 'read' | 'write'; resetAt?: string; retryable?: boolean; status?: number } = {}) {
     super(MESSAGES[kind]);
     this.name = 'GhError';
     this.kind = kind;
     if (extra.needs) this.needs = extra.needs;
     if (extra.resetAt) this.resetAt = extra.resetAt;
     if (kind === 'network') this.retryable = extra.retryable ?? true;
+    if (extra.status !== undefined) this.status = extra.status;
   }
 }
 
@@ -399,7 +402,7 @@ export class GitHubClient {
       }
       throw new GhError('forbidden', { needs: isRead(method) ? 'read' : 'write' });
     }
-    throw new GhError('network', { retryable: res.status >= 500 });
+    throw new GhError('network', { retryable: res.status >= 500, status: res.status });
   }
 
   // ---------------------------------------------------------------------------------------------- connection and permissions
