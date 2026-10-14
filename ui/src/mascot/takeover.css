@@ -1,5 +1,5 @@
 /* The title-bar easter egg (Takeover.tsx): fixed colours on purpose, it is the same art in both themes. */
-.takeover { position: fixed; top: 48px; left: 14px; z-index: 45; /* under the modal scrim (50): never over a dialog or a card */ display: flex; gap: 16px; align-items: stretch; pointer-events: none;
+.takeover { position: fixed; top: calc(var(--titlebar-h) + 8px); left: 14px; z-index: 45; /* under the modal scrim (50): never over a dialog or a card */ display: flex; gap: 16px; align-items: stretch; pointer-events: none;
   animation: tk-in 200ms ease-out; transition: opacity 400ms ease; }
 .takeover.leaving { opacity: 0; }
 .takeover-stage { background: #0b0f12; border-radius: 16px; padding: 6px; line-height: 0; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }

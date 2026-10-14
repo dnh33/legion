@@ -392,6 +392,7 @@ function createWindow(showOnReady: boolean): void {
     title: 'Legion',
     icon: existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    // height 40 = --titlebar-h in ui/src/styles/tokens.css: change both together
     ...(isWin ? { titleBarOverlay: { color: '#0b0d10', symbolColor: '#e6e9ef', height: 40 } } : {}),
     webPreferences: {
       preload: join(here, 'preload.cjs'),
