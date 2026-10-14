@@ -72,3 +72,9 @@ Artwork
 -------
 The Relic mascot, the app icon and the other artwork under docs/art/ and assets/ are original to this project
 and are covered by the Apache License, Version 2.0.
+
+UI sounds (ui/src/sound/vendor/uisfx/)
+--------------------------------------
+Legion's interface sounds are made by a vendored copy of the uisfx runtime (https://github.com/romainsimon/uisfx), version 0.4.0.
+Copyright (c) 2026 Yuki Capital. MIT License, text in ui/src/sound/vendor/uisfx/LICENSE. The sounds are synthesised in the window
+by that code; the upstream audio files are CC0 (ui/src/sound/vendor/uisfx/LICENSE-AUDIO). It is copied into the repository, not installed from npm.

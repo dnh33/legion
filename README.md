@@ -15,7 +15,7 @@
 
 ## Status
 
-Legion is in beta: expect rough edges and the odd bug. This is the one place for caveats.
+Legion is in beta: expect rough edges and the odd bug.
 
 - **Releases:** prebuilt Windows releases are on [GitHub Releases](https://github.com/dnh33/legion/releases). A release install updates itself ([Updates](#updates)).
 - **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
@@ -605,6 +605,8 @@ assets/       app icon, tray icons, splash
 ## Contributing
 
 Bug reports, ideas and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Changes are tracked in the [changelog](CHANGELOG.md).
+
+If Legion is useful to you, a star on GitHub helps other people find it.
 
 ## Licence and credits
 

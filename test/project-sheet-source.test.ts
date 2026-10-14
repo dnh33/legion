@@ -23,7 +23,7 @@ test('Start task and Confirm are neutral: only the page\'s New task button is mi
 });
 
 test('settings controls are real switches and radios with names', () => {
-  const s = read('SettingsTab.tsx');
+  const s = read('SettingsTab.tsx') + read('Switch.tsx');
   assert.match(s, /role="switch"/);
   assert.match(s, /role="radiogroup"/);
   assert.match(s, /aria-label="Minutes before the run parks"/);
