@@ -96,6 +96,11 @@ jobs:
         include:
           - { name: Windows PowerShell 5.1, shell: powershell, exe: powershell.exe }
           - { name: PowerShell 7, shell: pwsh, exe: pwsh }
+    env:
+      # scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set, and GitHub sets CI=true.
+      # The package ships that Electron, so both are cleared here (as in release-build.yml).
+      CI: ""
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ""
     defaults:
       run:
         shell: pwsh

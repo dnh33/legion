@@ -92,6 +92,7 @@ test('install.yml installs the package built from the checkout (not the live rel
   assert.match(job, /LEGION_INSTALL_BASE: http:\/\/127\.0\.0\.1:8099/);
   assert.doesNotMatch(job, /releases\/latest/, 'it must not look at the live release');
   assert.doesNotMatch(job, /Add-MpPreference/, 'Defender stays on, as on a user PC');
+  assert.match(job, /^ {6}CI: ""$/m, 'the Electron download must not be skipped');
   assert.match(job, /default_app\.asar/);
   assert.match(job, /runtime\\electron\\electron\.exe/);
   assert.match(job, /\/health/);
