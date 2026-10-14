@@ -81,8 +81,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .rail-list { flex: 1; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
 .agent { position: relative; display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px; border-radius: var(--r); border: 1px solid transparent; background: transparent; transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
 .agent:hover { background: var(--surface); }
-.agent.sel { background: var(--surface-2); border-color: var(--line-strong); }
-.agent.sel::before { content: ''; position: absolute; left: -9px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.agent.sel { background: var(--surface-2); border-color: var(--accent-line); }
 .agent.skeleton { height: 50px; background: linear-gradient(90deg, var(--surface), var(--surface-2), var(--surface)); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; pointer-events: none; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .avatar, .mini-avatar { font-family: 'Segoe UI Symbol', 'Noto Sans Symbols 2', sans-serif; line-height: 1; text-align: center; font-weight: 400; }

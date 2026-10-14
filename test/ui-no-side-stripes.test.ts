@@ -71,9 +71,38 @@ describe('ui stylesheets: no accent side stripes', () => {
     for (const h of rails) assert.match(h.decl, /var\(--line-strong\)\s*$/, `${h.selector} must be a neutral rail: ${h.decl}`);
   });
 
+  it('no pseudo-element draws a narrow accent bar down an edge', () => {
+    const bars: string[] = [];
+    for (const f of cssFiles(UI)) {
+      const css = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const m of css.matchAll(/([^{}]+)::(?:before|after)\s*\{([^{}]*)\}/g)) {
+        const body = m[2]!;
+        const narrow = /(?:^|;)\s*width\s*:\s*[2-4]px/.test(body) && /(?:^|;)\s*(?:top|bottom)\s*:/.test(body);
+        if (narrow && /background\s*:\s*var\(--(?:accent|live|ok|warn|danger|chain)/.test(body)) bars.push(relative(REPO, f).split(sep).join('/') + ': ' + m[1]!.trim());
+      }
+    }
+    assert.deepEqual(bars, [], 'a 2-4px accent bar on a pseudo-element is a side stripe');
+  });
+
   it('the detector sees the shapes it is meant to catch', () => {
     const sample = ['border-left: 3px solid var(--accent)', 'border-inline-start: 2px dashed red', 'box-shadow: inset 2px 0 0 var(--accent)', 'border-left-width: 4px'];
     for (const s of sample) assert.ok(STRIPE_DECL.some((re) => ((re.lastIndex = 0), re.test(s))), s);
     assert.ok(!STRIPE_DECL.some((re) => ((re.lastIndex = 0), re.test('border-left: 1px solid var(--line)'))));
+  });
+});
+
+describe('ui strings: no em dashes in user-facing text', () => {
+  const sources = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => {
+      const p = join(dir, n);
+      return statSync(p).isDirectory() ? sources(p) : /.(ts|tsx)$/.test(n) ? [p] : [];
+    });
+  it('no string in ui/src contains an em dash (comments are exempt)', () => {
+    const bad: string[] = [];
+    for (const f of sources(UI)) {
+      const code = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '$1')).join('\n');
+      code.split('\n').forEach((l, i) => { if (l.includes('\u2014')) bad.push(relative(REPO, f).split(sep).join('/') + ':' + (i + 1)); });
+    }
+    assert.deepEqual(bad, [], 'em dash in UI text; rewrite the sentence plainly');
   });
 });
