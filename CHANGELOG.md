@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Banners, notices, tips and selected rows no longer use a coloured stripe down their left edge. They now show their state with a full outline, a soft tint and a small icon. A board card that read outside content carries an "Outside content, not reviewed" label with an amber outline.
+
 ### Added
 
 - **GitHub area, behind the scenes.** Legion can now list the repos both of its GitHub apps reach (read and write together), remember which ones you turned on, show each repo's latest CI result without asking GitHub again, and give a project's agents read or write access in one step. If GitHub asks you to wait, or your computer is offline, you keep the last list and see why. Signing in the write app works like signing in the read app.

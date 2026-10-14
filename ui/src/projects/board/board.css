@@ -20,10 +20,10 @@
 .bd-card[draggable="true"] { cursor: grab; }
 /* an agent wrote it and you have not marked it reviewed: its own dashed marker, so it never looks like your own item, but not amber
    (agents file most items, and amber on all of them turned the board yellow). The run it starts already asks before every action. */
-.bd-card.untrusted { border-left: 3px dashed var(--muted); }
+.bd-card.untrusted { border: 1px dashed var(--muted); }
 /* written by a run that had read outside content (web, shell, other tools): the real prompt-injection risk, so it asks to be read first */
-.bd-card.tainted { border-left: 3px solid var(--warn); }
-.bd-taint { color: var(--warn); font-weight: 600; }
+.bd-card.tainted { border: 1px solid var(--warn-line); }
+.bd-taint { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border: 1px solid var(--warn-line); border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: 11.5px; font-weight: 600; }
 .bd-title { background: transparent; border: 0; padding: 0; text-align: left; color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
 .bd-title.static { cursor: default; margin: 0; }
 .bd-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; color: var(--muted); }
@@ -53,7 +53,7 @@
 .bd-leader label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .bd-leader select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; min-height: 30px; }
 :root[data-kbd-nav] .bd-leader select:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
-.bd-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-soft); font-size: 13px; }
+.bd-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--accent-soft); font-size: 13px; }
 .bd-learn { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); }
 .bd-learn label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .bd-learn :is(input, textarea) { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; }

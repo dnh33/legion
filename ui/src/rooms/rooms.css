@@ -22,8 +22,7 @@
 
 .rm-row { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 8px 8px 10px; border: 1px solid transparent; border-radius: var(--r); background: transparent; transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
 .rm-row:hover { background: var(--surface); }
-.rm-row.sel { background: var(--surface-2); border-color: var(--line-strong); }
-.rm-row.sel::before { content: ''; position: absolute; left: -9px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.rm-row.sel { background: var(--surface-2); border-color: var(--accent-line); }
 .rm-row-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .rm-row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rm-row-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -125,7 +124,7 @@
 .rm-reply .icon { align-self: center; }
 .rm-reply b { flex: none; color: var(--text-2); font-weight: 600; }
 .rm-reply span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-button.rm-reply:hover { color: var(--text); border-left-color: var(--accent); }
+button.rm-reply:hover { color: var(--text); border-left-color: var(--muted); }
 .rm-reply.gone { font-style: italic; color: var(--faint); }
 
 .rm-msg.human { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
@@ -186,7 +185,7 @@ button.rm-reply:hover { color: var(--text); border-left-color: var(--accent); }
 .rm-composer-wrap textarea:disabled { cursor: not-allowed; opacity: .6; }
 .rm-mentionmenu { padding: 4px; max-height: 280px; overflow-y: auto; }
 .rm-opt { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; }
-.rm-opt.hl { background: var(--surface-3); box-shadow: inset 2px 0 0 var(--accent); }
+.rm-opt.hl { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .rm-opt-all { width: 22px; height: 22px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; }
 .rm-opt-name { font-weight: 600; white-space: nowrap; }
 .rm-opt-sub { min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

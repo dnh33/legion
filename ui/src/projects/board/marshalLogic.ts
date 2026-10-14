@@ -29,7 +29,7 @@ export function draftErrors(d: MarshalDraft): string[] {
   const out: string[] = [];
   const wave = Number(d.waveSize.trim());
   if (!Number.isInteger(wave) || wave < WAVE_BOUNDS[0] || wave > WAVE_BOUNDS[1]) {
-    out.push(`Wave size must be a whole number between ${WAVE_BOUNDS[0]} and ${WAVE_BOUNDS[1]} — that is how many items one pass may start.`);
+    out.push(`Wave size must be a whole number between ${WAVE_BOUNDS[0]} and ${WAVE_BOUNDS[1]} That is how many items one pass may start.`);
   }
   const stall = Number(d.stallMinutes.trim());
   if (!Number.isInteger(stall) || stall < STALL_BOUNDS[0] || stall > STALL_BOUNDS[1]) {
