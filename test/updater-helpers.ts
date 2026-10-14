@@ -68,7 +68,7 @@ export function packageFiles(version: string, over: { lock?: string; extra?: Zip
 }
 
 /** The two executables a Legion full package must ship (mirrors scripts/lib/package-lib.mjs ELECTRON_REL / CLAUDE_REL). */
-const FULL_EXES = ['runtime/electron/electron.exe', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe'];
+const FULL_EXES = ['runtime/electron/electron.exe', 'runtime/electron/resources/app/package.json', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe'];
 /** The files of a valid FULL package for `version`: the app files plus node_modules, runtime and PACKAGE-FILES.json. */
 export function fullPackageFiles(version: string, over: { lock?: string; extra?: ZipFile[]; drop?: string[]; pkgVersion?: string } = {}): ZipFile[] {
   const top = `legion-${version}/`;
@@ -77,6 +77,7 @@ export function fullPackageFiles(version: string, over: { lock?: string; extra?:
     { name: `${top}node_modules/electron/index.js`, data: '// electron' },
     { name: `${top}node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe`, data: 'MZ claude' },
     { name: `${top}runtime/electron/electron.exe`, data: 'MZ electron' },
+    { name: `${top}runtime/electron/resources/app/package.json`, data: '{}' },
     { name: `${top}PACKAGE-FILES.json`, data: JSON.stringify({ schema: 1, files: FULL_EXES.map((p) => ({ path: p, size: 1, sha256: '0'.repeat(64) })) }) },
   ];
   return files.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d));

@@ -47,7 +47,7 @@ export async function fakePackage(opts: FakePkgOpts = {}): Promise<string> {
   put(root, 'node_modules/zod/index.js', 'z');
   put(root, 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe', opts.claude ?? FAKE_CLAUDE, true);
   put(root, 'runtime/electron/electron.exe', FAKE_ELECTRON, true);
-  put(root, 'runtime/electron/resources/default_app.asar', 'asar');
+  put(root, 'runtime/electron/resources/app/package.json', JSON.stringify({ name: 'legion', version: v, main: '../../../../dist/src/electron/main.js' }));
   for (const [k, b] of Object.entries(opts.extra ?? {})) put(root, k, b);
   if (!opts.skipList) {
     const { makeFilesList } = await lib();

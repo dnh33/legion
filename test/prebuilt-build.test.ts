@@ -31,6 +31,19 @@ test('build: layout, build-info, file list, sums; no src, no tests, no .bin, no 
   assert.ok(!existsSync(join(out, '.work')), 'scratch removed');
 });
 
+test('build: no default_app.asar; resources/app/package.json boots the installed main (the folder argument is still passed)', async () => {
+  const { r } = await build();
+  const zip = readFileSync(r.zip); const names: string[] = listZipNames(zip);
+  const top = 'legion-0.9.0/';
+  assert.ok(!names.some((n) => /default_app/i.test(n)), 'the default app is never shipped (antivirus removes it)');
+  assert.ok(names.includes(top + 'runtime/electron/resources/app/package.json'));
+  const shim = JSON.parse(readZipEntry(zip, top + 'runtime/electron/resources/app/package.json').toString());
+  assert.deepEqual(shim, { name: 'legion', version: '0.9.0', main: '../../../../dist/src/electron/main.js' });
+  // the main path climbs resources/app -> resources -> electron -> runtime -> the install root
+  const files = JSON.parse(readZipEntry(zip, top + 'PACKAGE-FILES.json').toString()).files.map((f: { path: string }) => f.path);
+  assert.ok(files.includes('runtime/electron/resources/app/package.json') && !files.some((p: string) => /default_app/i.test(p)));
+});
+
 test('build: the update zip is a byte-exact subset of the full zip (one format), and the manifest matches the update zip', async () => {
   const { r, out } = await build();
   const full = readFileSync(r.zip); const app = readFileSync(r.appZip);

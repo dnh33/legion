@@ -187,6 +187,8 @@ test('C25: a full package missing node_modules, runtime or its executable list i
   assert.equal(code((await runFull(missingRuntime)).err), 'content');
   const badList = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V).map((f) => (f.name.endsWith('PACKAGE-FILES.json') ? { ...f, data: JSON.stringify({ schema: 1, files: [{ path: 'dist/x', size: 1, sha256: '0'.repeat(64) }] }) } : f)) } });
   assert.equal(code((await runFull(badList)).err), 'content', 'the file list must name the bundled executables');
+  const noShim = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V).map((f) => (f.name.endsWith('PACKAGE-FILES.json') ? { ...f, data: JSON.stringify({ schema: 1, files: ['runtime/electron/electron.exe', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe'].map((path) => ({ path, size: 1, sha256: '0'.repeat(64) })) }) } : f)) } });
+  assert.equal(code((await runFull(noShim)).err), 'content', 'the file list must name resources/app/package.json, or electron.exe cannot boot Legion');
 });
 
 test('C25: a full package whose own package-lock differs from the signed depsSha256 is refused', async () => {
