@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>Legion</title>
+  <defs>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e242c"/><stop offset=".2" stop-color="#6c7585"/>
+      <stop offset=".38" stop-color="#d3d9e3"/><stop offset=".5" stop-color="#a7b0bf"/>
+      <stop offset=".64" stop-color="#6d7686"/><stop offset="1" stop-color="#1b2027"/>
+    </linearGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6e5320"/><stop offset=".45" stop-color="#f0d98c"/><stop offset="1" stop-color="#6a4f1d"/>
+    </linearGradient>
+    <filter id="bloom" x="-40%" y="-200%" width="180%" height="500%"><feGaussianBlur stdDeviation="4"/></filter>
+  </defs>
+  <!-- domed great-helm: rounded crown, straight cheeks, jaw drawn in -->
+  <path id="shell" d="M100 22 C134 22 154 40 156 70 L157 120 C157 146 140 166 116 176 L84 176 C60 166 43 146 43 120 L44 70 C46 40 66 22 100 22 Z" fill="url(#steel)"/>
+  <path d="M100 22 C134 22 154 40 156 70 L157 120 C157 146 140 166 116 176 L84 176 C60 166 43 146 43 120 L44 70 C46 40 66 22 100 22 Z" fill="url(#shade)"/>
+  <!-- centre crest ridge -->
+  <path d="M96 24 Q100 21 104 24 L106 168 Q100 172 94 168 Z" fill="#e9edf3" opacity=".55"/>
+  <path d="M100 22 L100 172" stroke="#2a3038" stroke-width="1.2" opacity=".6"/>
+  <!-- gold brow band following the dome -->
+  <path d="M45 66 C60 58 140 58 155 66 L155 76 C140 68 60 68 45 76 Z" fill="url(#gold)" stroke="#3a2b0e" stroke-width="1.2"/>
+  <!-- eye slit: dark channel, mint light, soft bloom -->
+  <path d="M52 92 C72 86 128 86 148 92 L148 106 C128 100 72 100 52 106 Z" fill="#05070a"/>
+  <path d="M60 95 C78 90 122 90 140 95 L140 102 C122 97 78 97 60 102 Z" fill="#7CFFB2" filter="url(#bloom)" opacity=".9"/>
+  <path d="M60 95 C78 90 122 90 140 95 L140 102 C122 97 78 97 60 102 Z" fill="#7CFFB2"/>
+  <path d="M66 96 C82 92.5 118 92.5 134 96" stroke="#e9fff2" stroke-width="1.4" fill="none" opacity=".8"/>
+  <!-- breathing holes, two fans -->
+  <g fill="#0a0d11">
+    <circle cx="80" cy="128" r="3"/><circle cx="72" cy="137" r="3"/><circle cx="82" cy="141" r="3"/><circle cx="74" cy="150" r="3"/>
+    <circle cx="120" cy="128" r="3"/><circle cx="128" cy="137" r="3"/><circle cx="118" cy="141" r="3"/><circle cx="126" cy="150" r="3"/>
+  </g>
+  <!-- outline -->
+  <path d="M100 22 C134 22 154 40 156 70 L157 120 C157 146 140 166 116 176 L84 176 C60 166 43 146 43 120 L44 70 C46 40 66 22 100 22 Z" fill="none" stroke="#0e1216" stroke-width="3"/>
+</svg>
