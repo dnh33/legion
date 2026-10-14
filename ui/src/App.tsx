@@ -5,6 +5,8 @@ import { initHouse } from './house/houseStore';
 import { EnableBlenderDialog } from './blender/EnableBlenderDialog';
 import { initBsv } from './bsv/bsvStore';
 import { CiPanel } from './ci/CiPanel';
+import { GithubArea } from './github/GithubArea';
+import { initGithub } from './github/githubStore';
 import { ciProjectChanged, initCi } from './ci/ciStore';
 import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
@@ -75,7 +77,7 @@ export function App() {
   useWindowAway();
 
   useEffect(() => { reopenGithubAfterReload(); }, []);
-  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); initGithub(); }, []);
   const projectFilter = useStore((s) => s.projectFilter);
   useEffect(() => { ciProjectChanged(); }, [projectFilter]);
 
@@ -142,6 +144,7 @@ export function App() {
       <LiveRegion />
       <ChainOverlay />
       <CiPanel />
+      <GithubArea />
       <EnableBlenderDialog />
       <Takeover />
       <WhatsNew />

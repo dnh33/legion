@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { openExternal, request } from '../api';
 import { errText, REOPEN_GITHUB_KEY } from '../store';
+import { Switch } from '../projects/page/SettingsTab';
+import { setIconShown, useGithub } from '../github/githubStore';
 import { storageLine } from '../../../src/shared/connectors-view';
 import type { GithubConnectionView, GithubStatusView } from '../../../src/shared/connectors-view';
 
@@ -14,6 +16,7 @@ export function GithubSection() {
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState(false);
+  const iconShown = useGithub((g) => g.iconShown);
   const load = useCallback(async () => {
     try {
       const s = await request<GithubStatusView>('GET', '/api/connectors/github');
@@ -53,6 +56,10 @@ export function GithubSection() {
     <div className="set-section" aria-label="GitHub">
       <div className="set-head"><h3>GitHub</h3><p>Let agents read your repositories, issues, pull requests and CI runs. Read only.</p></div>
       <p className="set-note">An agent can use GitHub only after you turn it on for that agent (agent editor, Connectors). Everything GitHub returns is text other people wrote, so a run that reads it is marked as having read outside content. Runs started from Claude Code, Cowork or another MCP client cannot use connectors.</p>
+      <div className="set-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <label htmlFor="gh-icon-switch">Show the GitHub icon in the title bar</label>
+        <Switch id="gh-icon-switch" on={iconShown} label="Show the GitHub icon" onChange={setIconShown} />
+      </div>
       {err && <p className="set-error" role="alert">{err}</p>}
       {note && <p className="set-note" role="status">{note}</p>}
       {!st.available && !st.signedIn && (
