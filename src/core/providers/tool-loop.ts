@@ -34,6 +34,73 @@ function withoutTaskList(row: ChatMessage): ChatMessage {
 }
 
 export const MAX_ARG_BYTES = 64 * 1024;
+
+/**
+ * Tool-call markup that came back as plain text: some models write `<tool_call>{...}</tool_call>` or
+ * `<function=name><parameter=x>..</parameter></function>` into the reply instead of making a call. That is not an
+ * answer, so it is cut out of the text the owner sees. A block that never closes (the reply was cut) goes to the end.
+ * Only the tag forms are matched; prose that mentions the words is left alone.
+ */
+export function hideLeakedToolCalls(text: string): { text: string; hidden: boolean } {
+  const cleaned = text
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+    .replace(/<function=[^>\n]*>[\s\S]*?<\/function>/g, '')
+    .replace(/<(?:tool_call>|function=[^>\n]*>)[\s\S]*$/, '')
+    .replace(/<\/?(?:tool_call|function)>/g, '');
+  return cleaned === text ? { text, hidden: false } : { text: cleaned.replace(/\n{3,}/g, '\n\n'), hidden: true };
+}
+
+/**
+ * The live-stream twin of hideLeakedToolCalls: text goes to `emit` as it arrives, except that from a possible opener
+ * (`<tool_call>`, `<function=`) the text is held back until the block closes (then dropped) or the next characters rule
+ * markup out (then released). A plain `<` in prose waits only for the characters that decide it. `flush` ends the turn:
+ * an unclosed block is dropped, a held partial opener is released.
+ */
+export function streamWithoutLeakedCalls(emit: (text: string) => void): { push(chunk: string): void; flush(): void } {
+  const OPENERS: Array<[string, string]> = [['<tool_call>', '</tool_call>'], ['<function=', '</function>']];
+  let buf = '';
+  let closer = '';
+  const say = (t: string) => { if (t) emit(t); };
+  const drain = () => {
+    for (;;) {
+      if (closer) {
+        const at = buf.indexOf(closer);
+        if (at < 0) { buf = buf.slice(Math.max(0, buf.length - (closer.length - 1))); return; }
+        buf = buf.slice(at + closer.length); closer = '';
+        continue;
+      }
+      const lt = buf.indexOf('<');
+      if (lt < 0) { say(buf); buf = ''; return; }
+      say(buf.slice(0, lt)); buf = buf.slice(lt);
+      const open = OPENERS.find(([o]) => buf.startsWith(o));
+      if (open) { buf = buf.slice(open[0].length); closer = open[1]; continue; }
+      if (OPENERS.some(([o]) => o.startsWith(buf))) return; // could still become an opener: wait for more
+      say('<'); buf = buf.slice(1);
+    }
+  };
+  return {
+    push(chunk) { buf += chunk; drain(); },
+    flush() { if (!closer) say(buf); buf = ''; closer = ''; },
+  };
+}
+
+/**
+ * The arguments of a native tool call as one object, or the precise problem. The one repair is a JSON string that holds
+ * a JSON object (the model encoded twice): that has a single reading, so it is accepted. Nothing else is guessed.
+ */
+export function parseToolArguments(raw: string): { input: Record<string, unknown> } | { problem: string } {
+  if (raw.length > MAX_ARG_BYTES) return { problem: `they are over the ${MAX_ARG_BYTES / 1024} KB size limit` };
+  if (!raw.trim()) return { input: {} };
+  const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch (e) { return { problem: `they are not valid JSON (${e instanceof Error ? e.message.slice(0, 120) : 'parse error'})` }; }
+  if (typeof v === 'string') {
+    try { const inner = JSON.parse(v); if (isObject(inner)) return { input: inner }; } catch { /* not a doubled-up object */ }
+    return { problem: 'they are a JSON string, not an object' };
+  }
+  if (isObject(v)) return { input: v };
+  return { problem: Array.isArray(v) ? 'they are a JSON array, not an object' : `they are a JSON ${v === null ? 'null' : typeof v}, not an object` };
+}
 export const MAX_TOOL_RESULT_CHARS = 12_000;
 const FN_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const REPEAT_FAIL_LIMIT = 3;
@@ -783,6 +850,12 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     // small model. See turnToolBudget for the shape and the arithmetic at both ends.
     const turnBudget = turnToolBudget(opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW);
     let spent = 0;
+    // one model call whose live text never shows leaked tool-call markup (the stored answer is cleaned the same way below)
+    const streamedTurn = async (): Promise<ChatTurnResult> => {
+      const live = streamWithoutLeakedCalls(host.onDelta);
+      try { return await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: live.push }); }
+      finally { live.flush(); }
+    };
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
       spent = 0;
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
@@ -790,7 +863,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       host.onTurn?.(turn, opts.maxTurns);
       let r: ChatTurnResult;
       try {
-        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: host.onDelta });
+        r = await streamedTurn();
       } catch (e) {
         // The provider refused the request for size. That is the one error worth a second attempt: compact hard and retry
         // ONCE. Retrying without compacting fails identically, and retrying more than once turns one refusal into a loop
@@ -803,18 +876,24 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         const forced = await compactMessages(turnFn, target, model, opts, host, redact, messages, window, true, true);
         if (!forced) throw e; // nothing smaller to send; the original error is the honest one to report
         messages = forced;
-        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: host.onDelta });
+        r = await streamedTurn();
       }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }
       if (r.toolsPrompted && !noticedRefused) { noticedRefused = true; host.onNotice('This model has no native tool calling, so Legion is describing the tools in the prompt and reading its calls from the reply. Tool calls still go through the same approvals.'); }
-      const text = redact(r.text).trim();
+      const shownRaw = hideLeakedToolCalls(redact(r.text));
+      const text = shownRaw.text.trim();
+      if (shownRaw.hidden && r.toolCalls.length === 0) host.onNotice('The model wrote a tool call as plain text instead of calling the tool, so it did not run. The call was hidden from the answer.');
       if (text) { host.onAssistantText(text); lastText = text; }
       if (r.toolCalls.length === 0) {
         // "Empty answer" used to be the whole message, which is why a real cause reached the owner as a shrug: a model
         // that spends its whole budget reasoning, one that was cut at its output limit, and one whose tool calls Legion
         // failed to parse all landed on the same sentence. Say which.
         if (!text) {
+          if (shownRaw.hidden) return {
+            ...res, usage, isError: true, subtype: 'error_during_execution',
+            errorText: `The model wrote a tool call as plain text${res.turns > 1 ? ` on turn ${res.turns}` : ''} instead of calling the tool, so nothing ran and there is no answer. Try again, or pick a model that supports tool calls.`,
+          };
           return {
             ...res, usage, isError: true, subtype: 'error_during_execution',
             errorText: emptyAnswerReason(r.finishReason, res.turns),
@@ -826,7 +905,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       // The window was checked once, before turn 1. Everything since then is tool output the check never saw, so a run
       // can grow past the window entirely inside itself. Checked here, on the LIVE conversation, and summarised when
       // over — otherwise the only thing left is the rescue below, which is a failed request away.
-      messages.push({ role: 'assistant', content: r.text || null, tool_calls: r.toolCalls.map((c, i) => ({ ...c, id: used.has(c.id) ? `${c.id}_${turn}_${i}` : c.id })) });
+      messages.push({ role: 'assistant', content: hideLeakedToolCalls(r.text).text || null, tool_calls: r.toolCalls.map((c, i) => ({ ...c, id: used.has(c.id) ? `${c.id}_${turn}_${i}` : c.id })) });
       const calls = messages[messages.length - 1]!.tool_calls!;
       for (const c of calls) used.add(c.id);
       for (let i = 0; i < calls.length; i++) {
@@ -835,16 +914,14 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         let out: { text: string; isError: boolean };
         if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
         let input: Record<string, unknown> = {};
-        let parseFailed = false;
-        if (call.function.arguments.length > MAX_ARG_BYTES) { parseFailed = true; }
-        else if (call.function.arguments.trim()) {
-          try { const v = JSON.parse(call.function.arguments); if (v && typeof v === 'object' && !Array.isArray(v)) input = v as Record<string, unknown>; else parseFailed = true; } catch { parseFailed = true; }
-        }
+        let problem: string | undefined;
+        const parsedArgs = parseToolArguments(call.function.arguments);
+        if ('input' in parsedArgs) input = parsedArgs.input; else problem = parsedArgs.problem;
         host.onToolCall(name, call.id, input);
         const entry = tools.offered.get(name);
         if (i >= opts.maxToolCallsPerTurn) out = { text: `Error: too many tool calls in one turn (limit ${opts.maxToolCallsPerTurn}); this one was not run.`, isError: true };
         else if (!entry) out = { text: `Error: ${name.slice(0, 80)} is not a tool you have. Your tools are: ${[...tools.offered.keys()].slice(0, 40).join(', ') || 'none'}.`, isError: true };
-        else if (parseFailed) out = { text: 'Error: the arguments were not a JSON object within the size limit; the tool was not run.', isError: true };
+        else if (problem) out = { text: `Error: the arguments for ${name} were not a JSON object: ${problem}. Send it as one JSON object, for example {"path": "a.txt"}. The tool was not run.`, isError: true };
         else {
           host.noteToolUse(name, call.id, input);
           const decision = await host.authorize(name, input);
