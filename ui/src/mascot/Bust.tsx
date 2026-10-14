@@ -87,8 +87,10 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
       rail: !stage, railCrop: stage, cropRail: p.cropRail, persona: p, quips: p.quips, annoyedQuip: p.annoyedQuip,
       hoverEl: (h.closest('.agent') as HTMLElement | null) ?? undefined,
     });
-    setLive(true);
-    return () => { m.current?.destroy(); m.current = null; setLive(false); };
+    // the still stays under the live bust until the engine has had two frames to paint, so waking never flashes an empty tile
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => setLive(true)); });
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); m.current?.destroy(); m.current = null; setLive(false); };
   }, [asset, stage]);
   useEffect(() => { m.current?.setState(state); }, [state, asset, stage]);
   useEffect(() => { m.current?.setVm(vm); }, [vm, asset, stage]);
