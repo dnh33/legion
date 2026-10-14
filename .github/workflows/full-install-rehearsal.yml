@@ -11,6 +11,8 @@ name: Full-install rehearsal
 #   vanished-live  the same from the live release, whose own helper does the swap (reported, does not gate)
 #   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered a code-only stone under the OLD manifest name, applies it, then reaches the
 #             full candidate through the second name. stone-direct: a build with the new updater goes straight to the full candidate by the second name.
+#   stone-later   a code-only release published after the full one: the old name still carries the stone, the second name the newer release; the live
+#             release reaches the stone, then the newest release.
 #   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 #             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
@@ -96,7 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct]
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later]
     defaults:
       run:
         shell: pwsh
