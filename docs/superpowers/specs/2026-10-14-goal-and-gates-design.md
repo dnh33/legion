@@ -1,6 +1,6 @@
 # Goals and gates (Legion 0.3.x): design spec
 
-Date 2026-10-14. Revision 3. Revision 2 answered an adversarial review of revision 1 (6 must-fix, 11 should-fix; section 13). Revision 3 makes parallel work, the goal branch and re-approval user options, after research on how established tools run agents in parallel and what their users report (section 3; vault note `goal-research-parallel-agents-2026-10-14.md`). Status: proposal for the owner. Base: `main` at 95b97a2 (0.3.0). Nothing in this spec is built yet. File:line references come from reads at 95b97a2; `~` marks an approximate line.
+Date 2026-10-14. Revision 3. Revision 2 answered an adversarial review of revision 1 (6 must-fix, 11 should-fix; section 13). Revision 3 makes parallel work, the goal branch and re-approval user options, after research on how established tools run agents in parallel and what their users report (section 3; vault note `goal-research-parallel-agents-2026-10-14.md`). Status: approved by the owner (2026-10-14). Base: `main` at 95b97a2 (0.3.0). Nothing in this spec is built yet. File:line references come from reads at 95b97a2; `~` marks an approximate line.
 
 Sources (the owner's vault, `06-projects/legion/`): `goal-groundwork-2026-10-14.md` (code map), `gate-inventory-2026-10-14.md` (every gate), `goal-research-anthropic-done-2026-10-14.md` (Anthropic: long-running harnesses, building effective agents, agent evals, Claude Code best practices, multi-agent research, prompting guides), `goal-research-reference-and-skills-2026-10-14.md` (a reference agent's goal loop read from its source; the superpowers skill chain), `goal-council-synthesis-2026-10-14.md` (council of four and the owner's decisions).
 
@@ -405,7 +405,9 @@ Settings, Spending: **Show costs** (on by default). Off hides every dollar figur
 3. Full autonomy may close a goal by itself when every check passes: optional per goal, off by default.
 4. Similarity to how Claude Code and the reference agent solve this is wanted; the reference agent is never named in code, comments, the changelog or PRs.
 
-Open: the app default for new projects is Ask. Should a new user be offered the choice of preset on first run instead?
+5. First run offers the choice of preset: one screen with Ask, Accept edits, Smart and Bypass, Ask preselected, each with its one line from section 6. Enter keeps Ask. Changeable later in Settings, Gates. Built in PR 2.
+
+Status: approved by the owner on 2026-10-14 (revision 3).
 
 ## 12. Out of scope for this release
 
