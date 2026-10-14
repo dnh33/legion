@@ -8,6 +8,7 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { classifySafe } from '../shared/consequence.js';
 import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
@@ -1319,6 +1320,16 @@ export class Engine {
   }
 
   /**
+   * What every card raised inside a run carries for the away features: the task's project (so the ask is counted where the work is, with no
+   * task join) and what saying yes would do. The classifier is fail-safe: anything it cannot read is level 3, not certain.
+   */
+  private askExtras(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): { projectId?: string; consequence: ReturnType<typeof classifySafe> } {
+    const projectId = this.store.getTask(job.taskId)?.projectId;
+    const folder = this.projectOf(job.taskId, agent.id)?.folder;
+    return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }) };
+  }
+
+  /**
    * Maintainer decision 2026-10-07: in a run that read connector data AND is tainted, WebFetch and WebSearch need an approval card even in
    * full mode: web access could carry that data out. Like the connector gateway's writes this raises its own card (never through guardAsk).
    * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
@@ -1334,6 +1345,7 @@ export class Engine {
     let timedOut = false;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
       onTimeout: () => { timedOut = true; },
+      ...this.askExtras(job, agent, toolName, input),
       summary: `${toolName}: ${target}
 This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
     }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this web request was not run.` : 'The user denied this web request.' });
@@ -1377,6 +1389,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
       onTimeout: () => { timedOut = true; },
+      ...this.askExtras(job, agent, toolName, input),
       noRemember: true,
       summary: `Legion cannot read what this command will run.\n${shown}\nWhy: ${why}.\nThe safety check cannot judge it by reading it, so you are asked in every approval mode. Allow it only if you know what it does.`,
     }).then((allowed) => {
@@ -1416,7 +1429,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const allowed = await this.approvals.request(
         job.taskId, agent.id, toolName, input,
         o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-        { onTimeout: () => { timedOut = true; } },
+        { onTimeout: () => { timedOut = true; }, ...this.askExtras(job, agent, toolName, input) },
       );
       if (allowed) return { allow: true };
       // The tool_use already set the mood to 'hacking'; after a deny nothing else would move it until the run ends, so the Relic
@@ -1746,7 +1759,17 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
       ...(!r.isError && r.resultText !== undefined ? { result: this.keepResult(taskId, r.resultText) } : {}),
     });
+    if (r.costUsd !== undefined) this.noteSpend(taskId, r.costUsd);
     return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
+  }
+
+  /** Writes one cost to the spend ledger (the away module). Never throws: a failing ledger cannot fail a run. */
+  private noteSpend(taskId: string, usd: number): void {
+    if (!this.away || !(usd > 0) || !Number.isFinite(usd)) return;
+    try {
+      const t = this.store.getTask(taskId);
+      this.away.recordSpend({ taskId, agentId: t?.agentId ?? '', ...(t?.projectId ? { projectId: t.projectId } : {}), usd });
+    } catch { /* the ledger is advisory */ }
   }
 
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
@@ -2004,6 +2027,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
           ...(!isError && text !== undefined ? { result: this.keepResult(taskId, text) } : {}),
         });
+        this.noteSpend(taskId, spent);
         return { subtype: String(msg.subtype), isError, errorText: isError ? text : undefined };
       }
       default:
