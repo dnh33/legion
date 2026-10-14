@@ -548,8 +548,11 @@ const decisionTaps = new Set<(allow: boolean) => void>();
 /** Plain subscription to the owner's own Allow or Deny (the sounds listen here). */
 export function tapDecisions(fn: (allow: boolean) => void): () => void { decisionTaps.add(fn); return () => { decisionTaps.delete(fn); }; }
 
-export function settleApproval(id: string, allow: boolean) {
-  decisionTaps.forEach((t) => { try { t(allow); } catch { /* a tap never breaks the store */ } });
+const tellDecision = (allow: boolean): void => decisionTaps.forEach((t) => { try { t(allow); } catch { /* a tap never breaks the store */ } });
+
+/** `announce: false` is for the chat's optimistic settle: it tells the taps itself once the send worked. */
+export function settleApproval(id: string, allow: boolean, announce = true) {
+  if (announce) tellDecision(allow);
   setState((s) => {
     const card = s.approvals.find((a) => a.id === id);
     return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
@@ -557,8 +560,8 @@ export function settleApproval(id: string, allow: boolean) {
 }
 
 export async function decide(id: string, allow: boolean) {
-  settleApproval(id, allow); // optimistic
-  try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  settleApproval(id, allow, false); // optimistic; the sound waits for the send
+  try { await api.decide(id, allow); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**
