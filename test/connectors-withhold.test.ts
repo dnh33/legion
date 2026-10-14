@@ -5,7 +5,7 @@ import { WITHHELD } from '../src/core/connector-withhold.js';
 import { CONNECTORS_SERVER_NAME } from '../src/core/connectors/gateway.js';
 import { createConnectorsModule } from '../src/core/connectors/index.js';
 import type { FakeGitHub } from './connectors-fake-github.js';
-import { signedInGitHub } from './connectors-rig.js';
+import { signedInGitHub, tickedDataDir } from './connectors-rig.js';
 import { init, ok, toolUse } from './library-fakes.js';
 import { asClient, AUTH } from './helpers-c.js';
 import { closeAll, mk, mount, startedTask } from './token-harness.js';
@@ -25,7 +25,7 @@ async function rig() {
     const r = await c.options.mcpServers[CONNECTORS_SERVER_NAME].instance._registeredTools.github_issue_get.handler({ repo: 'o/r', number: 1 }, {});
     yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: r.content[0].text }] } };
     yield ok(`summary: ${FINAL}`, 's-r');
-  })() : undefined, { extraModules: (deps) => [createConnectorsModule(deps, { keys: gh.keys, client: () => gh.client })] });
+  })() : undefined, { extraModules: (deps) => [createConnectorsModule({ ...deps, dataDir: tickedDataDir() }, { keys: gh.keys, client: () => gh.client })] });
   m.store.upsertAgent({ ...mk('reader', 'Reader', 'full'), connectors: ['github'] });
   return m;
 }

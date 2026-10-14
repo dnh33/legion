@@ -19,6 +19,7 @@ import type { ModuleJob, ModuleDeps } from '../src/core/modules.js';
 import type { AgentProfile } from '../src/shared/types.js';
 import { FAKE_CLIENT_ID, FakeGitHub } from './connectors-fake-github.js';
 import { mkAgent } from './armory-rig.js';
+import { tickedDataDir } from './connectors-rig.js';
 import { tempDir } from './tmp-cleanup.js';
 
 const fakes: FakeGitHub[] = [];
@@ -41,7 +42,7 @@ async function mk(o: { agent?: Partial<AgentProfile>; tools?: Record<string, Rea
   fake.requests.length = 0;
   const agents = new Map<string, AgentProfile>([['alpha', mkAgent('alpha', { connectors: ['github'], mcpServers: ['*'], ...o.agent })], ['plain', mkAgent('plain', { mcpServers: ['*'] })]]);
   const tasks = new Map<string, { status?: string; origin?: { viaMcpClient?: boolean } }>();
-  const deps = { store: { getAgent: (id: string) => agents.get(id), getTask: (id: string) => tasks.get(id) } } as unknown as ModuleDeps;
+  const deps = { dataDir: tickedDataDir(), store: { getAgent: (id: string) => agents.get(id), getTask: (id: string) => tasks.get(id) } } as unknown as ModuleDeps;
   const mod = createConnectorsModule(deps, { keys: kr, client: () => (o.noClient ? undefined : client), now: () => clock.t, sleep: async (ms) => { sleeps.push(ms); clock.t += ms; }, ...(o.tools ? { tools: o.tools } : {}) });
   const state = { tainted: false };
   const job = { taskId: 't1', runtime: 'claude', taint: () => state.tainted, markTainted: () => { state.tainted = true; }, ...o.job } as ModuleJob;
@@ -86,7 +87,7 @@ test('a write through the read door is refused: a WRITE-class name and an unknow
     assert.match(out.text, /not a read tool|not available|not valid/, t);
   }
   assert.deepEqual(hits, [], 'no handler ran for a non-READ name');
-  assert.equal((await r.call('connector_call_read', { connector: 'github', tool: 'github_repo_get', args: {} })).isError, false);
+  assert.equal((await r.call('connector_call_read', { connector: 'github', tool: 'github_repo_get', args: { repo: 'o/r' } })).isError, false);
   assert.deepEqual(hits, ['github_repo_get']);
   assert.equal(r.fake.requests.length, 0, 'no request left the core for a refused call');
 });

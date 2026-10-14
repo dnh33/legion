@@ -34,6 +34,10 @@ export interface ConnectorsOptions {
   log?: (line: string) => void;
   /** Tests inject tool spies here (see GatewayDeps.tools). */
   tools?: Record<string, ReadTool>;
+  /** The signed-in write app (plugged in by the writes unit); undefined means not signed in. */
+  writeApp?: GatewayDeps['writeApp'];
+  /** Tests inject write-tool spies here (see GatewayDeps.writeTools). */
+  writeTools?: Record<string, ReadTool>;
 }
 
 export interface ConnectorsModule extends CoreModule {
@@ -51,6 +55,9 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
     agent: (id) => deps.store.getAgent(id),
     task: (id) => deps.store.getTask(id) as { status?: string; origin?: { viaMcpClient?: boolean } } | undefined,
     github: () => client(),
+    dataDir: deps.dataDir,
+    ...(opts.writeApp ? { writeApp: opts.writeApp } : {}),
+    ...(opts.writeTools ? { writeTools: opts.writeTools } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.sleep ? { sleep: opts.sleep } : {}),
     ...(opts.tools ? { tools: opts.tools } : {}),
