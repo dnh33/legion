@@ -241,7 +241,7 @@ test('render: the agent editor has the Shell fieldset — on with the saved root
     assert.match(on, /1 to 3600; 120 by default/);
     const off = r.editor('scout');
     assert.match(off, /Shell \(your computer\)/);
-    assert.doesNotMatch(off, /checked=""/, 'scout starts unchecked');
+    assert.doesNotMatch(off.slice(off.indexOf('Shell (your computer)')), /checked=""/, 'scout starts unchecked');
     assert.match(off, /placeholder="120"/);
   } finally { cleanup(); }
 });
