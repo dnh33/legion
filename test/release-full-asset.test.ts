@@ -37,10 +37,10 @@ function release(mode: 'full' | 'code'): { dir: string; tm: string; full: string
   const tm = trustModule(readFileSync(join(keys, 'legion-update-k1.pub.pem'), 'utf8'));
   const key = join(keys, 'legion-update-k1.key.pem');
   if (mode === 'full') {
-    // a full-install release names a signed stepping stone (docs/SHIPPING.md): a code-only 0.2.8 published and signed first
+    // a full-install release names a signed stepping stone (docs/SHIPPING.md): a code-only 0.3.0 published and signed first
     const sd = tempDir('fa-stone-');
-    assert.equal(run('release-package.mjs', ['--root', pkgTree('0.2.8'), '--out', sd, '--published-at', '2026-10-19T10:00:00Z']).status, 0);
-    assert.equal(run('release-manifest.mjs', ['--zip', join(sd, 'legion-0.2.8-app.zip'), '--out', sd]).status, 0);
+    assert.equal(run('release-package.mjs', ['--root', pkgTree('0.3.0'), '--out', sd, '--published-at', '2026-10-19T10:00:00Z']).status, 0);
+    assert.equal(run('release-manifest.mjs', ['--zip', join(sd, 'legion-0.3.0-app.zip'), '--out', sd]).status, 0);
     assert.equal(run('release-sign.mjs', ['--key', key, '--manifest', join(sd, 'legion-update-manifest-2.json'), '--trust-module', tm]).status, 0);
     m.push('--full-zip', full, '--requires-full-install', '--stepping-stone', sd);
   }

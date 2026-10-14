@@ -1,4 +1,4 @@
 {
   "note": "Releases that are stepping stones. Never delete one, its tag or any of its assets (docs/SHIPPING.md, Stepping stones). The newest entry is the one a full-install release names.",
-  "stones": ["0.2.8"]
+  "stones": ["0.3.0"]
 }

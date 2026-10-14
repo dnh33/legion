@@ -27,7 +27,7 @@ export async function hashUrl(url) {
 /**
  * Plain-language problems with the pair of manifests of one release (empty = fine).
  *  oldBytes/oldSig  what is published under the OLD name (what 0.2.7 reads)
- *  newBytes         what is published under the second name (what 0.2.8 and later read)
+ *  newBytes         what is published under the second name (what 0.3.0 and later read)
  *  fetchAsset(url)  optional, async: {size, sha256} of the old-name package as the world gets it; when given it must equal the SIGNED size and hash
  *  stones           optional list of stepping-stone versions (scripts/stepping-stones.json); a full release's old-name version must be one of them
  */

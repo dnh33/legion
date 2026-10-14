@@ -369,7 +369,7 @@ test('a rolled-back version recorded by the helper is never offered again', asyn
   } finally { await r.srv.close(); }
 });
 
-// ---- the stepping stone: a second manifest name, an updater generation and `minUpdater` (0.2.8)
+// ---- the stepping stone: a second manifest name, an updater generation and `minUpdater` (0.3.0)
 const asManifest2 = (r: Release): { manifest: Buffer; sig: string } => ({ manifest: r.manifest, sig: r.sig });
 /** The signed stone a full release names: a code-only release's own version, publish date, asset and deps hash. */
 const stoneOf = (r: Release): Record<string, unknown> => ({ version: r.version, publishedAt: r.manifestObj.publishedAt, depsSha256: r.manifestObj.depsSha256, asset: r.manifestObj.asset });

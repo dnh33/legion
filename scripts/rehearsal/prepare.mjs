@@ -5,6 +5,8 @@
 //         (an install of a published release always swaps with the helper of that older release)
 //   codeonly: the base version as a CODE-ONLY release (app.zip, no full package), signed like the others: the first hop of the chain
 //         scenario (live release -> code-only candidate -> full-package candidate)
+//   stone: the stepping-stone layout of a full-install release (docs/SHIPPING.md): the OLD manifest name carries the code-only candidate's own
+//         signed manifest (what the live 0.2.7 reads), the SECOND name carries the full candidate 0.99.0 and names that stone (what 0.3.0 and later read)
 //   bad:  version 0.99.1, the same but its Electron main exits at once, so the first start fails and must be rolled back
 // usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo> [--good 0.99.0] [--bad 0.99.1] [--base 0.98.0]
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -67,9 +69,22 @@ for (const name of ['base', 'good', 'bad']) {
   }
   const notes = join(pkg, 'notes.txt'); writeFileSync(notes, `Rehearsal build ${version}. Not a release.\n`);
   const full = join(pkg, `legion-${version}-win-x64.zip`);
-  run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--full-zip', full, '--requires-full-install', '--notes', notes, '--out', pkg]);
-  run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(pkg, 'legion-update-manifest.json'), '--trust-module', trustFile]);
-  run('release-verify.mjs', ['--dir', pkg, '--trust-module', trustFile]);
+  const key = join(keys, 'legion-update-k1.key.pem');
+  const manifestArgs = ['--zip', join(pkg, `legion-${version}-app.zip`), '--full-zip', full, '--requires-full-install', '--notes', notes, '--out', pkg];
+  if (name === 'good') {
+    // The stepping-stone layout first: old name = the code-only candidate's own signed manifest, second name = this full candidate. Verified
+    // with the real release-verify (offline, and with the throwaway stone version declared), so the layout the scenarios serve is the one the tooling accepts.
+    run('release-manifest.mjs', [...manifestArgs, '--stepping-stone', join(served, 'codeonly')]);
+    run('release-sign.mjs', ['--key', key, '--manifest', join(pkg, 'legion-update-manifest-2.json'), '--trust-module', trustFile]);
+    run('release-verify.mjs', ['--dir', pkg, '--trust-module', trustFile, '--no-network', '--stones', versions.base]);
+    const sd = join(served, 'stone'); mkdirSync(sd, { recursive: true });
+    for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', 'legion-update-manifest-2.json', 'legion-update-manifest-2.json.sig', `legion-${version}-win-x64.zip`]) cpSync(join(pkg, f), join(sd, f));
+    cpSync(join(served, 'codeonly', `legion-${versions.base}-app.zip`), join(sd, `legion-${versions.base}-app.zip`));
+  }
+  // The direct layout (a full release whose old name is the release itself, served WITHOUT the second name, so updaters fall back to the old one):
+  // what the scenarios that prove a direct jump use. The tooling refuses to publish this layout, so it is not verified with release-verify.
+  run('release-manifest.mjs', manifestArgs);
+  run('release-sign.mjs', ['--key', key, '--manifest', join(pkg, 'legion-update-manifest.json'), '--trust-module', trustFile]);
   const dest = join(served, name);
   mkdirSync(dest, { recursive: true });
   for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${version}-win-x64.zip`]) cpSync(join(pkg, f), join(dest, f));
@@ -77,6 +92,7 @@ for (const name of ['base', 'good', 'bad']) {
   const listed = readZipEntry(readFileSync(full), `legion-${version}/PACKAGE-FILES.json`);
   if (!listed) die('the full package has no PACKAGE-FILES.json');
   writeFileSync(join(dest, 'PACKAGE-FILES.json'), listed);
+  if (name === 'good') writeFileSync(join(served, 'stone', 'PACKAGE-FILES.json'), listed);
   rmSync(tree, { recursive: true, force: true });
   console.log(`prepared ${name} ${version}`);
 }

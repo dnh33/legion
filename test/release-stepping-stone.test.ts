@@ -43,7 +43,7 @@ function pkg(version: string, full: boolean, lock = '{"lockfileVersion":3}\n'): 
   return dir;
 }
 /** The signed stone: a published code-only release folder holding its manifest and .sig under the old name. */
-function stone(t: { key: string; trust: string }, version = '0.2.8'): string {
+function stone(t: { key: string; trust: string }, version = '0.3.0'): string {
   const d = pkg(version, false);
   assert.equal(sh('release-manifest.mjs', '--zip', join(d, `legion-${version}-app.zip`), '--notes', join(d, 'notes.txt'), '--out', d).code, 0);
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(d, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
@@ -111,7 +111,7 @@ function pair(): { oldB: Buffer; newB: Buffer; asset: { size: number; sha256: st
 }
 test('stone rules: a good pair passes; the signed size and hash of the stone package must come back exactly', async () => {
   const { L, parseManifest, trust } = await lib(); const p = pair();
-  const base = { oldBytes: p.oldB, oldSig: 'x', newBytes: p.newB, trust, parseManifest, stones: ['0.2.8'] };
+  const base = { oldBytes: p.oldB, oldSig: 'x', newBytes: p.newB, trust, parseManifest, stones: ['0.3.0'] };
   assert.deepEqual(await L.stoneProblems({ ...base, fetchAsset: async () => p.asset }), []);
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...p.asset, size: p.asset.size + 1 }) })).join(), /returns \d+ bytes/);
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...p.asset, sha256: 'a'.repeat(64) }) })).join(), /returns sha256/);

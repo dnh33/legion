@@ -9,6 +9,8 @@ name: Full-install rehearsal
 #   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
 #   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
 #   vanished-live  the same from the live release, whose own helper does the swap (reported, does not gate)
+#   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered a code-only stone under the OLD manifest name, applies it, then reaches the
+#             full candidate through the second name. stone-direct: a build with the new updater goes straight to the full candidate by the second name.
 #   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 #             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
@@ -33,6 +35,8 @@ on:
       - scripts/lib/package-lib.mjs
       - scripts/lib/release-lib.mjs
       - scripts/lib/full-asset-check.mjs
+      - scripts/lib/stepping-stone.mjs
+      - scripts/stepping-stones.json
       - scripts/rehearsal/**
       - .github/workflows/full-install-rehearsal.yml
 
@@ -81,9 +85,10 @@ jobs:
           compression-level: 0
 
   scenario:
-    name: ${{ matrix.scenario }}
+    name: ${{ matrix.scenario == 'vanished-live' && 'vanished-live (INFORMATIONAL: the known old-helper case)' || matrix.scenario }}
     needs: prepare
-    # vanished-live documents a known limit of the LIVE release (its helper predates the staged-folder check). Its result is read, it does not gate.
+    # vanished-live is the KNOWN old-helper case: the live release's own helper predates the staged-folder check, which is exactly why a full-install release
+    # is reached through a stepping stone (stone-walk). Its result is read, it does not gate.
     continue-on-error: ${{ matrix.scenario == 'vanished-live' }}
     if: github.repository == 'dnh33/legion'
     runs-on: windows-latest
@@ -91,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain]
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct]
     defaults:
       run:
         shell: pwsh
@@ -115,7 +120,7 @@ jobs:
           "BASELINE=$($Matches[1])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "baseline is $($Matches[1])"
       - name: Baseline built from this checkout (scenarios that must run the new swap helper)
-        if: matrix.scenario == 'vanished'
+        if: matrix.scenario == 'vanished' || matrix.scenario == 'stone-direct'
         run: |
           $z = Join-Path $env:RUNNER_TEMP 'prepared\served\base\legion-0.98.0-win-x64.zip'
           $x = Join-Path $env:RUNNER_TEMP 'base-extract'
@@ -123,7 +128,7 @@ jobs:
           Move-Item -LiteralPath (Join-Path $x 'legion-0.98.0') -Destination (Join-Path $env:RUNNER_TEMP 'legion-install')
           "BASELINE=0.98.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install the baseline with install.ps1, as a user does (no launch)
-        if: matrix.scenario != 'vanished'
+        if: matrix.scenario != 'vanished' && matrix.scenario != 'stone-direct'
         run: |
           & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version $env:BASELINE -InstallDir "$env:RUNNER_TEMP\legion-install"
           if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }

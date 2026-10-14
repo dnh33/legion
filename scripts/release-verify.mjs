@@ -10,7 +10,7 @@ import { args, die, loadDist, REPO } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 
-const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag' });
+const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag', stones: 'v' });
 if (!a.dir) die('usage: node scripts/release-verify.mjs --dir <folder>');
 const dir = resolve(a.dir);
 const trust = await import(pathToFileURL(a['trust-module'] ? resolve(a['trust-module']) : join(REPO, 'dist/src/core/updater/trust.js')).href);
@@ -22,7 +22,7 @@ const v = trust.verifyManifestSignature(m, readFileSync(join(dir, `${NEW_NAME}.s
 if (!v.ok) die(`signature: ${v.reason}`);
 const man = parseManifest(m);
 // The old name must be a signed stepping stone (full-install release) or the same manifest (code-only); its package must still be served as signed.
-const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: readStones(), ...(man.requiresFullInstall && !a['no-network'] ? { fetchAsset: hashUrl } : {}) });
+const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: a.stones ? a.stones.split(',') : readStones(), ...(man.requiresFullInstall && !a['no-network'] ? { fetchAsset: hashUrl } : {}) });
 if (stoneErr.length) die(`stepping stone: ${stoneErr.join('; ')}`);
 const zip = readFileSync(join(dir, man.asset.name));
 if (zip.length !== man.asset.size) die('the zip size differs from the manifest');

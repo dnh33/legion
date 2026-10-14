@@ -2,7 +2,7 @@
 // Builds the manifests and SHA256SUMS.txt from a package made by release-package.mjs. It does NOT sign: the owner signs by hand
 // with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only] [--stepping-stone <folder>]
 //
-// TWO manifest names (docs/SHIPPING.md, Stepping stones). legion-update-manifest-2.json is this release's own manifest and is what 0.2.8 and later read
+// TWO manifest names (docs/SHIPPING.md, Stepping stones). legion-update-manifest-2.json is this release's own manifest and is what 0.3.0 and later read
 // first. legion-update-manifest.json is what 0.2.7 reads: for a code-only release the same bytes; for a full-install release the STONE's own signed
 // manifest and .sig from --stepping-stone, copied byte for byte (never re-signed), while the own manifest names the stone and sets minUpdater 2.
 import { createHash } from 'node:crypto';
