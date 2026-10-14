@@ -3,7 +3,7 @@ import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
-  SettingsView, SettingsPatch, McpStatusView,
+  SettingsView, SettingsPatch, McpStatusView, GateRule,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TasksPage, VmRecord,
 } from '../../src/shared/types';
 
@@ -121,6 +121,7 @@ export const api = {
   },
   settings: () => request<SettingsView>('GET', '/api/settings'),
   patchSettings: (p: SettingsPatch) => request<SettingsView>('PATCH', '/api/settings', p),
+  editGateRules: (b: { add?: GateRule[]; remove?: string[] }) => request<SettingsView>('POST', '/api/settings/gates/rules', b),
   testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string; warnings?: string[] }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
   patchTask: (id: string, b: { archived?: boolean; title?: string }) => request<Task>('PATCH', `/api/tasks/${encodeURIComponent(id)}`, b),
   deleteTask: (id: string) => request<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),

@@ -715,11 +715,11 @@ export async function dismissGateSuggestion(key: string): Promise<void> {
   await request('POST', '/api/gates/suggestions/dismiss', { key });
 }
 
-/** The approval card's "Remember": appends one gate rule to the rules as stored now (read first, so no other rule is lost). */
+/** The approval card's "Remember": appends one gate rule to the rules as stored now (the core does the append in one step, so no other rule is lost). */
 export async function rememberGate(rule: NonNullable<SettingsView['gates']>['rules'][number]): Promise<void> {
-  const cur = await api.settings();
-  const gates = cur.gates ?? { rules: [], presetsVersion: 0 };
-  await saveSettings({ gates: { ...gates, rules: [...gates.rules, rule] } }, true);
+  const view = await api.editGateRules({ add: [rule] });
+  setState({ settings: view, boatConfigured: view.boat.apiKeySet, auth: view.claude.auth });
+  void runDoctor();
   toast(`Remembered: ${rule.label}`);
 }
 

@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeGates, writeConfigFile } from '../shared/config.js';
 import { budgetCap } from '../shared/continue.js';
-import type { CompactionSettings, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
+import type { CompactionSettings, GateRule, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
 import { sanitizeRates } from '../shared/vm-usage.js';
 import { BoatClient } from './boat.js';
 import type { EventBus } from './bus.js';
@@ -253,6 +253,25 @@ export class SettingsService {
       try { this.deps.onBoatChange?.(); } catch { /* ignore */ }
     }
     return view;
+  }
+
+  /**
+   * POST /api/settings/gates/rules: add and remove individual gate rules against the rules as stored at this moment.
+   * Sync end to end, so two edits cannot interleave: nothing another writer saved a moment ago is lost, which a
+   * "read the list, change it, send the whole list back" round trip from the window cannot promise. A rule id that is
+   * already there is not added twice; an id that is not there is ignored. Goes through patch(), so it is validated and persisted the same way.
+   */
+  editGateRules(raw: unknown): SettingsView {
+    if (!isObj(raw)) throw new SettingsError('JSON object body required');
+    const { add, remove } = raw as { add?: unknown; remove?: unknown };
+    if (add !== undefined && !Array.isArray(add)) throw new SettingsError('add must be an array of rules');
+    if (remove !== undefined && (!Array.isArray(remove) || remove.some((x) => typeof x !== 'string'))) throw new SettingsError('remove must be an array of rule ids');
+    const cur = this.deps.config.gates ?? DEFAULT_GATES;
+    const drop = new Set(remove as string[] | undefined);
+    const kept = cur.rules.filter((r) => !drop.has(r.id));
+    const have = new Set(kept.map((r) => r.id));
+    const fresh = ((add ?? []) as Array<{ id?: unknown }>).filter((r) => !(isObj(r) && typeof r.id === 'string' && have.has(r.id)));
+    return this.patch({ gates: { rules: [...kept, ...fresh] as GateRule[], presetsVersion: cur.presetsVersion } });
   }
 
   /**

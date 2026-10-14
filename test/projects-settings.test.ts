@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { decideGate } from '../src/core/gates.js';
 import type { GateRule } from '../src/shared/types.js';
 import {
-  PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, folderGlob, parseBudget, parseParkMinutes, readsGrantRule,
+  PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, folderGlob, parseBudget, parseParkMinutes, readsGrantRule, staleReadsGrants,
 } from '../ui/src/projects/page/settingsLogic.js';
 
 const DEFAULT = { onSilence: { mode: 'deny' as const, parkMinutes: 3 }, paused: false, budget: null, notify: 'problems' as const };
@@ -84,6 +84,20 @@ test('finding the grant: this project\'s reads rule, nothing else; a disabled co
   assert.equal(findReadsGrant([other, typed], project), undefined);
   assert.equal(findReadsGrant([other, typed, mine], project)?.id, 'gr_000000000001');
   assert.equal(findReadsGrant([{ ...mine, enabled: false }], project), undefined);
+});
+
+test('after a folder change: the old folder reads rule is stale; the current one, other projects and hand-typed rules are not', () => {
+  const was = { id: 'proj_aaaaaaaaaaaa', folder: '/old' };
+  const now = { id: 'proj_aaaaaaaaaaaa', folder: '/new' };
+  const oldRule = readsGrantRule(was, 'gr_000000000001');
+  const newRule = readsGrantRule(now, 'gr_000000000002');
+  const otherProject = readsGrantRule({ id: 'proj_bbbbbbbbbbbb', folder: '/old' }, 'gr_000000000003');
+  const typed: GateRule = { id: 'gr_000000000004', enabled: true, then: 'allow', when: { projects: [now.id], tools: ['reads'], paths: ['/old/**'] }, label: 'my own rule', source: 'user' };
+  const wider: GateRule = { ...oldRule, id: 'gr_000000000005', when: { ...oldRule.when, tools: ['reads', 'shell'] } };
+  assert.deepEqual(staleReadsGrants([oldRule, newRule, otherProject, typed, wider], now).map((r) => r.id), ['gr_000000000001']);
+  assert.equal(findReadsGrant([oldRule], now), undefined, 'the old rule never reads as the new folder grant (the grant does not move)');
+  assert.deepEqual(staleReadsGrants([oldRule], was), [], 'nothing is stale while the folder is unchanged');
+  assert.deepEqual(staleReadsGrants([{ ...oldRule, enabled: false }], now).map((r) => r.id), ['gr_000000000001'], 'a switched-off leftover is cleaned up too');
 });
 
 test('no em or en dash and no "this computer" in the settings copy', () => {

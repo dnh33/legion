@@ -307,6 +307,8 @@ export function createServer(ctx: CoreContext): Server {
   // ---- settings --------------------------------------------------------
   route('GET', '/api/settings', () => ctx.settings.view());
   route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
+  // Add/remove single gate rules in one synchronous step (no lost update). Admin-only by default-deny, like every settings route.
+  route('POST', '/api/settings/gates/rules', ({ body }) => ctx.settings.editGateRules(body));
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
   // Restores the shipped compaction defaults. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES), like every settings route.
   route('POST', '/api/settings/compaction/reset', () => ctx.settings.resetCompaction());

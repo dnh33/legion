@@ -61,15 +61,30 @@ export function awayFormModel(caps: CoreCaps, stored: 'deny' | 'park' = 'deny'):
 /** `C:\Users\Dan\My Shop\` -> `C:/Users/Dan/My Shop/**`: the gate matches forward slashes. */
 export const folderGlob = (folder: string): string => `${folder.replace(/\\/g, '/').replace(/\/+$/, '')}/**`;
 
+const GRANT_LABEL = 'Agents may read files in this project without asking';
+
 /** One allow rule for reads inside this project's folder. Writes, commands and other projects still ask. */
 export function readsGrantRule(project: { id: string; folder: string }, id: string = newGateId()): GateRule {
-  return { id, enabled: true, then: 'allow', source: 'card', label: 'Agents may read files in this project without asking', when: { projects: [project.id], tools: ['reads'], paths: [folderGlob(project.folder)] } };
+  return { id, enabled: true, then: 'allow', source: 'card', label: GRANT_LABEL, when: { projects: [project.id], tools: ['reads'], paths: [folderGlob(project.folder)] } };
+}
+
+/** The exact shape `readsGrantRule` writes for this project, in any folder. A rule typed by hand, or one with extra conditions, is never taken for it. */
+function isGrantShape(r: GateRule, projectId: string): string | undefined {
+  const w = r.when;
+  const ok = r.then === 'allow' && r.source === 'card' && r.label === GRANT_LABEL && w.projects?.length === 1 && w.projects[0] === projectId
+    && w.tools?.length === 1 && w.tools[0] === 'reads' && w.paths?.length === 1
+    && !w.agents?.length && !w.commands?.length && !w.exceptPaths?.length && !w.contexts?.length;
+  return ok ? w.paths![0] : undefined;
 }
 
 /** This project's grant, if it is switched on: the same shape as `readsGrantRule`, so a rule typed by hand is never taken for it. */
 export function findReadsGrant(rules: readonly GateRule[], project: { id: string; folder: string }): GateRule | undefined {
   const want = folderGlob(project.folder);
-  return rules.find((r) => r.enabled && r.then === 'allow' && r.when.projects?.length === 1 && r.when.projects[0] === project.id
-    && r.when.tools?.length === 1 && r.when.tools[0] === 'reads' && r.when.paths?.length === 1 && r.when.paths[0] === want
-    && !r.when.agents?.length && !r.when.commands?.length && !r.when.exceptPaths?.length && !r.when.contexts?.length);
+  return rules.find((r) => r.enabled && isGrantShape(r, project.id) === want);
+}
+
+/** Grants this project once gave for a folder it no longer has. Removed after a folder change (the grant never moves to the new folder). */
+export function staleReadsGrants(rules: readonly GateRule[], project: { id: string; folder: string }): GateRule[] {
+  const want = folderGlob(project.folder);
+  return rules.filter((r) => { const p = isGrantShape(r, project.id); return p !== undefined && p !== want; });
 }
