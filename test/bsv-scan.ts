@@ -63,6 +63,8 @@ const NET_LITERAL_MEMBER = /\.\s*(?:main|mainnet|test|testnet|live)\b(?!\s*\()/i
 export const ALLOWLIST: Allow = {
   'src/core/boat.ts': { kinds: ['fetch'], reason: "the boat.dev REST client: the user's own cloud VMs, host taken from config.boat.baseUrl" },
   'src/core/server.ts': { kinds: ['inbound-http'], reason: 'the local HTTP, SSE and MCP API; it listens on 127.0.0.1 only and makes no outbound call' },
+  'src/electron/signals.ts': { kinds: ['fetch'], reason: 'the desktop signals follower in the main process: reads /api/events and /api/attention from the local core on 127.0.0.1 only (admin header, 4 s timeout) to drive the taskbar mark, tray and notifications' },
+  'src/electron/signals-logic.ts': { kinds: ['fetch'], reason: 'the testable follow loop behind signals.ts: calls an injected fetch only for http://127.0.0.1:<core port>/api/events and /api/attention' },
   'src/electron/main.ts': { kinds: ['fetch', 'child-process'], reason: 'probes the core it starts on 127.0.0.1 (/health) and spawns that core as a child process' },
   'src/bin/legion-mcp-stdio.ts': { kinds: ['fetch', 'child-process'], reason: 'the stdio MCP proxy: talks only to the local core on 127.0.0.1 and starts that core (node dist/src/bin/legion-core.js) when it is not running' },
   'ui/src/api.ts': { kinds: ['fetch'], reason: "the UI's client of the local core (fetch and EventSource on the core base URL)" },

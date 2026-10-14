@@ -8,6 +8,7 @@ export interface AwayState { loaded: boolean; view: AwayView | null; spend: Reco
 let state: AwayState = { loaded: false, view: null, spend: {} };
 const subs = new Set<() => void>();
 const set = (p: Partial<AwayState> | ((s: AwayState) => Partial<AwayState>)): void => { state = { ...state, ...(typeof p === 'function' ? p(state) : p) }; subs.forEach((f) => f()); };
+export const getAway = (): AwayState => state;
 export function useAway<T>(sel: (s: AwayState) => T): T { return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => sel(state)); }
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 

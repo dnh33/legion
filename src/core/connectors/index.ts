@@ -8,13 +8,21 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentProfile } from '../../shared/types.js';
+import type { GithubActivityItem, GithubApp } from '../../shared/github-area.js';
+import type { Project } from '../../shared/projects.js';
+import { readRepoInfo } from '../ci/repo.js';
+import type { RepoRef } from '../ci/repo.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
 import { CONNECTORS_PREAMBLE, CONNECTORS_SERVER_NAME, buildConnectorsServer } from './gateway.js';
+import type { WriteApp } from './gateway.js';
 import type { GatewayDeps, ReadTool } from './gateway.js';
+import { GithubArea } from './github/area.js';
 import { DeviceFlowError, getGitHubClient } from './github/client.js';
 import type { GitHubClient } from './github/client.js';
 import { GITHUB_APPS_SETTINGS_URL } from './github/hosts.js';
+import { addRepoAdminRoutes } from './github/repo-admin-routes.js';
+import { addRepoPickerRoutes } from './github/repo-picker-routes.js';
 import type { KeySource, StoreStatus } from './store.js';
 
 export { CONNECTORS_SERVER_NAME } from './gateway.js';
@@ -24,16 +32,35 @@ export type FlowView =
   | { phase: 'pending'; userCode: string; verificationUri: string; expiresAt: number }
   | { phase: 'failed'; reason: string; message: string };
 
+/** `{ on: boolean }` and nothing else. */
+const onOf = (body: unknown): boolean => {
+  const on = body && typeof body === 'object' ? (body as { on?: unknown }).on : undefined;
+  if (typeof on !== 'boolean') throw new HttpError(400, 'on must be true or false');
+  return on;
+};
+
 export interface ConnectorsOptions {
   /** The core's data key holder: the flow refuses to start without a key unless the caller said memoryOnly. */
   keys: Pick<KeySource, 'get'>;
-  /** Defaults to the core's one GitHub client. */
-  client?: () => GitHubClient | undefined;
+  /** Defaults to the core's GitHub clients: read (the default) and write. */
+  client?: (app?: GithubApp) => GitHubClient | undefined;
+  /** The projects, for "which projects use this repo" and "let this project's agents read or write". Absent: no project is known. */
+  projects?: { list(): Project[]; get(id: string): Project | undefined };
+  /** The GitHub repo a project folder's git remote names. Default: read from the folder's .git. */
+  repoOf?: (folder: string) => RepoRef | null;
+  /** What agents did per repo through Legion, newest first. Default: nothing recorded yet. */
+  activity?: () => GithubActivityItem[];
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
   /** Tests inject tool spies here (see GatewayDeps.tools). */
   tools?: Record<string, ReadTool>;
+  /** The signed-in write app. Default: the "Legion (write)" client, signed in, with its permissions read once. Tests inject their own. */
+  writeApp?: GatewayDeps['writeApp'];
+  /** Defaults to the core's "Legion (write)" client (getGitHubClient('write')). */
+  writeClient?: () => GitHubClient | undefined;
+  /** Tests inject write-tool spies here (see GatewayDeps.writeTools). */
+  writeTools?: Record<string, ReadTool>;
 }
 
 export interface ConnectorsModule extends CoreModule {
@@ -43,14 +70,44 @@ export interface ConnectorsModule extends CoreModule {
 
 export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions): ConnectorsModule {
   const log = opts.log ?? (() => undefined);
-  const client = (): GitHubClient | undefined => (opts.client ?? getGitHubClient)();
+  const clientOf = (app: GithubApp = 'read'): GitHubClient | undefined => (opts.client ? opts.client(app) : getGitHubClient(app));
+  const client = (): GitHubClient | undefined => clientOf('read');
+  // one sign-in flow per App; `view` and `abort` are the read App's, the one Settings shows
   let view: FlowView = { phase: 'idle' };
   let abort: AbortController | undefined;
+  const writeFlow: { view: FlowView; abort: AbortController | undefined } = { view: { phase: 'idle' }, abort: undefined };
+  const now = (): number => (opts.now ?? Date.now)();
+  const area = new GithubArea({
+    dataDir: deps.dataDir, client: clientOf, now, ...(deps.bus ? { bus: deps.bus } : {}),
+    agents: {
+      list: () => deps.store.listAgents(),
+      save: (a) => { const saved = deps.store.upsertAgent({ ...a, updatedAt: new Date(now()).toISOString() }); deps.bus.emit({ type: 'agent.updated', agent: saved }); },
+    },
+    ...(opts.projects ? { projects: opts.projects } : {}),
+    repoOf: opts.repoOf ?? ((folder) => readRepoInfo(folder).repo),
+    activity: opts.activity ?? (() => []),
+    log,
+  });
+
+  /**
+   * The real write check (design 4.3): the write client exists, is signed in, and its permissions are known (read once, on the first write).
+   * Anything short of that is `undefined`, which the gateway turns into plain words with no card. `can` is asked per tool by the gateway.
+   */
+  const writeApp = async (): Promise<WriteApp | undefined> => {
+    const w = (opts.writeClient ?? (() => getGitHubClient('write')))();
+    if (!w || !(await w.signedIn())) return undefined;
+    if (w.can('issues', 'read') === 'unknown') { try { await w.connection(); } catch { return undefined; } }
+    return { api: w, can: (area, level) => w.can(area, level) };
+  };
 
   const gatewayDeps = (): GatewayDeps => ({
     agent: (id) => deps.store.getAgent(id),
     task: (id) => deps.store.getTask(id) as { status?: string; origin?: { viaMcpClient?: boolean } } | undefined,
     github: () => client(),
+    dataDir: deps.dataDir,
+    writeApp: opts.writeApp ?? writeApp,
+    approvals: deps.approvals,
+    ...(opts.writeTools ? { writeTools: opts.writeTools } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.sleep ? { sleep: opts.sleep } : {}),
     ...(opts.tools ? { tools: opts.tools } : {}),
@@ -76,11 +133,40 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
     view = { phase: 'pending', userCode: f.userCode, verificationUri: f.verificationUri, expiresAt: f.expiresAt };
     const mine = view;
     void f.poll(ac.signal).then(
-      () => { if (abort === ac) { abort = undefined; view = { phase: 'idle' }; } log('connectors: github signed in'); },
+      () => { if (abort === ac) { abort = undefined; view = { phase: 'idle' }; } area.invalidate(); log('connectors: github signed in'); },
       (e: unknown) => {
         if (abort !== ac) return; // cancelled or replaced: the newer state stands
         abort = undefined;
         view = e instanceof DeviceFlowError && e.kind !== 'cancelled' ? { phase: 'failed', reason: e.kind, message: e.message } : { phase: 'idle' };
+      },
+    );
+    return mine;
+  };
+
+  /** The write App's sign-in: the same device flow, its own state. The area re-reads GitHub once it is done. */
+  const startWriteFlow = async (memoryOnly: boolean): Promise<FlowView> => {
+    const c = clientOf('write');
+    if (!c || !c.deviceFlowAvailable()) throw new HttpError(409, 'not-available');
+    if (!opts.keys.get() && !memoryOnly) throw new HttpError(409, 'needs-key');
+    if (writeFlow.view.phase === 'pending' && writeFlow.view.expiresAt > now()) return writeFlow.view;
+    writeFlow.abort?.abort();
+    writeFlow.abort = undefined;
+    let f: Awaited<ReturnType<GitHubClient['startDeviceFlow']>>;
+    try { f = await c.startDeviceFlow(); } catch (e) {
+      const kind = e instanceof DeviceFlowError ? e.kind : 'failed';
+      writeFlow.view = { phase: 'failed', reason: kind, message: e instanceof DeviceFlowError ? e.message : 'GitHub did not accept the sign-in.' };
+      return writeFlow.view;
+    }
+    const ac = new AbortController();
+    writeFlow.abort = ac;
+    writeFlow.view = { phase: 'pending', userCode: f.userCode, verificationUri: f.verificationUri, expiresAt: f.expiresAt };
+    const mine = writeFlow.view;
+    void f.poll(ac.signal).then(
+      () => { if (writeFlow.abort === ac) { writeFlow.abort = undefined; writeFlow.view = { phase: 'idle' }; } area.invalidate(); log('connectors: github write signed in'); },
+      (e: unknown) => {
+        if (writeFlow.abort !== ac) return;
+        writeFlow.abort = undefined;
+        writeFlow.view = e instanceof DeviceFlowError && e.kind !== 'cancelled' ? { phase: 'failed', reason: e.kind, message: e.message } : { phase: 'idle' };
       },
     );
     return mine;
@@ -108,10 +194,12 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
         const storage: StoreStatus | 'unavailable' = c ? await c.storageStatus() : 'unavailable';
         return {
           available: !!c && c.deviceFlowAvailable(),
+          writeAvailable: !!clientOf('write')?.deviceFlowAvailable(),
           key: opts.keys.get() ? 'installed' : 'missing',
           storage,
           signedIn: c ? await c.signedIn() : false,
           flow: view,
+          writeFlow: writeFlow.view,
           revokeUrl: GITHUB_APPS_SETTINGS_URL,
         };
       });
@@ -130,11 +218,37 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
         cancelFlow();
         view = { phase: 'idle' };
         await client()?.disconnect();
+        area.invalidate();
         return { ok: true, revokeUrl: GITHUB_APPS_SETTINGS_URL };
       });
+
+      // ---- the GitHub area (admin-only like the routes above; none is on the MCP client route list)
+      add('GET', '/api/github/area', ({ url }) => area.view(url.searchParams.get('force') === '1'));
+      add('PUT', '/api/github/repos/:owner/:name/tick', ({ params, body }) => area.tick(params[0] ?? '', params[1] ?? '', onOf(body)));
+      add('PUT', '/api/github/agents-switch', ({ body }) => area.agentsSwitch(onOf(body)));
+      add('POST', '/api/github/apps/write/connect', ({ body }) => startWriteFlow(!!body && typeof body === 'object' && (body as { memoryOnly?: unknown }).memoryOnly === true));
+      add('POST', '/api/github/apps/write/cancel', () => {
+        writeFlow.abort?.abort();
+        writeFlow.abort = undefined;
+        if (writeFlow.view.phase === 'pending') writeFlow.view = { phase: 'idle' };
+        return { ok: true };
+      });
+      add('POST', '/api/github/apps/write/disconnect', async () => {
+        writeFlow.abort?.abort();
+        writeFlow.abort = undefined;
+        writeFlow.view = { phase: 'idle' };
+        await clientOf('write')?.disconnect();
+        area.invalidate();
+        return { ok: true, revokeUrl: GITHUB_APPS_SETTINGS_URL };
+      });
+      add('GET', '/api/github/projects-using/:owner/:name', ({ params }) => area.projectsUsing(params[0] ?? '', params[1] ?? ''));
+      add('GET', '/api/github/projects/:id/repo', ({ params }) => area.projectRepo(params[0] ?? ''));
+      add('PUT', '/api/github/projects/:id/access', ({ params, body }) => area.projectAccess(params[0] ?? '', (body as { level?: unknown } | null)?.level));
+      addRepoAdminRoutes(add, { dataDir: deps.dataDir, client: clientOf, area });
+      addRepoPickerRoutes(add, { client: clientOf, invalidate: () => area.invalidate() });
     },
 
-    dispose() { cancelFlow(); },
+    dispose() { cancelFlow(); writeFlow.abort?.abort(); area.dispose(); },
   };
   return mod;
 }

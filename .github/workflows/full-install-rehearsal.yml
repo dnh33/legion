@@ -1,0 +1,152 @@
+name: Full-install rehearsal
+
+# Proves, on a Windows runner and without touching any real infrastructure, that a release which changes dependencies can be
+# self-applied by an install made the way users make it: install the latest published release with install.ps1 into a temp folder,
+# build two candidate full packages from this checkout (versions 0.99.0 and 0.99.1) and sign their manifests with a THROWAWAY key,
+# then let the installed app find, download, stage, swap in and start the candidate from a loopback server.
+#   success   the new version starts and reports health, its files match the package list, user data survives, the old copy is cleaned
+#   rollback  a first start that fails puts the previous version back byte for byte
+#   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
+#   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
+#   vanished-live  the same from the live release, whose own helper does the swap (reported, does not gate)
+#   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered a code-only stone under the OLD manifest name, applies it, then reaches the
+#             full candidate through the second name. stone-direct: a build with the new updater goes straight to the full candidate by the second name.
+#   stone-later   a code-only release published after the full one: the old name still carries the stone, the second name the newer release; the live
+#             release reaches the stone, then the newest release.
+#   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
+#   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
+#             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
+# How the installed app is steered without any production switch: it is started with NODE_OPTIONS="--import scripts/rehearsal/preload.mjs"
+# (runner only), which in memory sends the app's GitHub requests to loopback and trusts the throwaway key. No source file reads those
+# variables (test/rehearsal-preload.test.ts pins that). The real signing key is not used, read or reachable here: no secrets, a
+# read-only token, nothing is published, and the workflow runs on the plain pull_request trigger, never the privileged one.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build the candidates from (empty = the branch you run this from).
+        required: false
+        default: ''
+  pull_request:
+    paths:
+      - src/core/updater/**
+      - src/electron/updater-main.ts
+      - scripts/build-package.mjs
+      - scripts/package-install.mjs
+      - scripts/release-*.mjs
+      - scripts/lib/package-lib.mjs
+      - scripts/lib/release-lib.mjs
+      - scripts/lib/full-asset-check.mjs
+      - scripts/lib/stepping-stone.mjs
+      - scripts/stepping-stones.json
+      - scripts/rehearsal/**
+      - .github/workflows/full-install-rehearsal.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rehearsal-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prepare:
+    name: build and sign the candidates (throwaway key)
+    if: github.repository == 'dnh33/legion'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # scripts/postinstall.mjs skips the Electron download when CI is set; the packages ship that Electron.
+      CI: ""
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ""
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.13.1
+      - run: npm ci
+      - run: npm run build
+      - name: Build and sign the candidates
+        env:
+          LEGION_REHEARSAL: "1" # throwaway stones: the release-check skip flags are allowed here only
+        run: node scripts/rehearsal/prepare.mjs --out "$env:RUNNER_TEMP\rehearsal"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rehearsal-candidates
+          # The public key, the manifest list and the served folders only. The throwaway private key stays on this runner.
+          path: |
+            ${{ runner.temp }}/rehearsal/served
+            ${{ runner.temp }}/rehearsal/prepared.json
+            ${{ runner.temp }}/rehearsal/legion-update-k1.pub.pem
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  scenario:
+    name: ${{ matrix.scenario == 'vanished-live' && 'vanished-live (informational, the known old-helper case)' || matrix.scenario }}
+    needs: prepare
+    # vanished-live is the KNOWN old-helper case: the live release's own helper predates the staged-folder check, which is exactly why a full-install release
+    # is reached through a stepping stone (stone-walk). Its result is read, it does not gate.
+    continue-on-error: ${{ matrix.scenario == 'vanished-live' }}
+    if: github.repository == 'dnh33/legion'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.13.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rehearsal-candidates
+          path: ${{ runner.temp }}/prepared
+      - name: Latest published release (the baseline users have)
+        run: |
+          $h = curl.exe -sSI https://github.com/dnh33/legion/releases/latest
+          $loc = ($h | Where-Object { $_ -match '^(?i)location:' } | Select-Object -Last 1)
+          if ($loc -notmatch '/releases/tag/v(\S+)') { throw "no version in: $loc" }
+          $base = $Matches[1]
+          # The stone walks start from the last release BEFORE the stone (0.3.0): a 0.3.0 install is the stone itself and goes
+          # straight to a full package by the second name, which chain and the full update above already cover from the live release.
+          if ('${{ matrix.scenario }}' -in 'stone-walk', 'stone-later') { $base = '0.2.7' }
+          "BASELINE=$base" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "baseline is $base"
+      - name: Baseline built from this checkout (scenarios that must run the new swap helper)
+        if: matrix.scenario == 'vanished' || matrix.scenario == 'stone-direct'
+        run: |
+          $z = Join-Path $env:RUNNER_TEMP 'prepared\served\base\legion-0.98.0-win-x64.zip'
+          $x = Join-Path $env:RUNNER_TEMP 'base-extract'
+          Expand-Archive -LiteralPath $z -DestinationPath $x -Force
+          Move-Item -LiteralPath (Join-Path $x 'legion-0.98.0') -Destination (Join-Path $env:RUNNER_TEMP 'legion-install')
+          "BASELINE=0.98.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install the baseline with install.ps1, as a user does (no launch)
+        if: matrix.scenario != 'vanished' && matrix.scenario != 'stone-direct'
+        run: |
+          & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version $env:BASELINE -InstallDir "$env:RUNNER_TEMP\legion-install"
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+      - name: Run the scenario
+        run: node scripts/rehearsal/run-scenario.mjs --scenario ${{ matrix.scenario }} --install "$env:RUNNER_TEMP\legion-install" --prepared "$env:RUNNER_TEMP\prepared" --work "$env:RUNNER_TEMP\work" --baseline $env:BASELINE
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rehearsal-logs-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/work/artifacts
+          if-no-files-found: ignore
+          retention-days: 7

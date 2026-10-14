@@ -1,0 +1,18 @@
+{
+  "note": "Releases that are stepping stones. Never delete one, its tag or any of its assets (docs/SHIPPING.md, Stepping stones). The newest entry is the one a full-install release names.",
+  "stones": [
+    "0.3.0"
+  ],
+  "pins": {
+    "0.3.0": {
+      "published": "2026-10-14",
+      "release": "https://github.com/dnh33/legion/releases/tag/v0.3.0",
+      "files": {
+        "legion-update-manifest.json": "c7a854f55036bbbcf1dfadb98f2e3c6e2fb55cbcc3683b372695b0c6dc67990c",
+        "legion-update-manifest.json.sig": "fb353d1e99148a0cd85121e9d85b7263a669a29fdabde1ef50d6e3b2d04a7725",
+        "legion-0.3.0-app.zip": "00f2e535e6bcd51de84ccce294431e90a4dcd0702f9f4ebbd474fed21b57bbe7"
+      }
+    }
+  },
+  "pinNote": "sha256 of the stone as published, recorded after release. Every later release must carry the first two byte for byte under the old name. Nothing reads pins yet: enforcing them in stone-check is a follow-up."
+}

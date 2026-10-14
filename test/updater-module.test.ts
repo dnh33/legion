@@ -10,6 +10,8 @@ import { ApprovalBroker } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import { createUpdaterModule, installMode, type UpdaterModule } from '../src/core/updater/index.js';
 import { FULL_PACKAGE_SET } from '../src/core/updater/apply.js';
+import { UPDATER_GENERATION } from '../src/core/updater/config.js';
+import { ManifestError, parseManifest } from '../src/core/updater/manifest.js';
 import type { ModuleDeps, RouteAdder } from '../src/core/modules.js';
 import { Store } from '../src/core/store.js';
 import type { Task } from '../src/shared/types.js';
@@ -365,4 +367,100 @@ test('a rolled-back version recorded by the helper is never offered again', asyn
     assert.equal(s.available, undefined); assert.match(s.check.lastResult!, /failed its first start/);
     assert.equal(s.outcome?.result, 'rolled-back');
   } finally { await r.srv.close(); }
+});
+
+// ---- the stepping stone: a second manifest name, an updater generation and `minUpdater` (0.3.0)
+const asManifest2 = (r: Release): { manifest: Buffer; sig: string } => ({ manifest: r.manifest, sig: r.sig });
+/** The signed stone a full release names: a code-only release's own version, publish date, asset and deps hash. */
+const stoneOf = (r: Release): Record<string, unknown> => ({ version: r.version, publishedAt: r.manifestObj.publishedAt, depsSha256: r.manifestObj.depsSha256, asset: r.manifestObj.asset });
+const stoneHits = (r: Rig) => r.srv.hits.map((h) => (h.includes('manifest-2.json.sig') ? 'sig2' : h.includes('manifest-2.json') ? 'm2' : h.includes('manifest.json.sig') ? 'sig1' : h.includes('manifest.json') ? 'm1' : h));
+
+test('stone: the second manifest name is read first and wins over the old name', async () => {
+  const r = await rig(makeRelease(k, '0.2.1'));
+  try {
+    r.srv.setManifest2(asManifest2(makeRelease(k, '0.2.5')));
+    await r.mod.check(true);
+    assert.equal((await r.mod.status()).available?.version, '0.2.5');
+    assert.deepEqual(stoneHits(r), ['m2', 'sig2'], 'the old name is not even requested');
+  } finally { await r.srv.close(); }
+});
+test('stone: the old name is used only when the new one is absent (404)', async () => {
+  const r = await rig(makeRelease(k, '0.2.1'));
+  try {
+    await r.mod.check(true);
+    assert.equal((await r.mod.status()).available?.version, '0.2.1');
+    assert.deepEqual(stoneHits(r), ['m2', 'm1', 'sig1']);
+  } finally { await r.srv.close(); }
+});
+test('stone: a bad signature, a signed non-manifest or a missing .sig on the new name fails closed, with no fallback to the old name', async () => {
+  const garbage = Buffer.from('{ not a manifest');
+  const cases: Array<[string, { manifest: Buffer; sig: string | null }]> = [
+    ['signed with another key', asManifest2(makeRelease(k, '0.2.5', { signWith: makeKey('zzz') }))],
+    ['signed but not parseable', { manifest: garbage, sig: JSON.stringify({ keyId: k.id, alg: 'ed25519', sig: k.sign(garbage) }) }],
+    ['no .sig published', { manifest: makeRelease(k, '0.2.5').manifest, sig: null }],
+  ];
+  for (const [name, m2] of cases) {
+    const r = await rig(makeRelease(k, '0.2.1'));
+    try {
+      r.srv.setManifest2(m2);
+      await r.mod.check(true);
+      const s = await r.mod.status();
+      assert.equal(s.available, undefined, name);
+      assert.ok(!stoneHits(r).includes('m1'), `${name}: the old name must not be tried`);
+    } finally { await r.srv.close(); }
+  }
+});
+test('stone: minUpdater above this updater and no stone: nothing is offered, and the message says why', async () => {
+  const r = await rig(null);
+  try {
+    r.srv.setManifest2(asManifest2(makeRelease(k, '0.5.0', { manifest: { minUpdater: 3 } })));
+    await r.mod.check(true);
+    const s = await r.mod.status();
+    assert.equal(s.available, undefined);
+    assert.match(s.check.lastResult!, /needs a newer updater/);
+  } finally { await r.srv.close(); }
+});
+test('stone: minUpdater above this updater with a signed stone: the stone is offered, as a code-only update', async () => {
+  const stone = makeRelease(k, '0.2.3');
+  const r = await rig(null);
+  try {
+    r.srv.setManifest2(asManifest2(makeRelease(k, '0.5.0', { manifest: { minUpdater: 3, steppingStone: stoneOf(stone) } })));
+    await r.mod.check(true);
+    const a = (await r.mod.status()).available!;
+    assert.equal(a.version, '0.2.3');
+    assert.equal(a.canFullInstall, false);
+    assert.equal(a.requiresFullInstall, false);
+    assert.equal(a.size, stone.zip.length);
+  } finally { await r.srv.close(); }
+});
+test('stone: a stone that is not newer than what runs is not offered (no downgrade, no loop)', async () => {
+  const stone = makeRelease(k, '0.2.0');
+  const r = await rig(null);
+  try {
+    r.srv.setManifest2(asManifest2(makeRelease(k, '0.5.0', { manifest: { minUpdater: 3, steppingStone: stoneOf(stone) } })));
+    await r.mod.check(true);
+    const s = await r.mod.status();
+    assert.equal(s.available, undefined);
+    assert.match(s.check.lastResult!, /needs a newer updater/);
+  } finally { await r.srv.close(); }
+});
+test('stone: minUpdater at or below this updater applies the release itself and ignores any stone', async () => {
+  const r = await rig(null);
+  try {
+    r.srv.setManifest2(asManifest2(makeRelease(k, '0.5.0', { manifest: { minUpdater: UPDATER_GENERATION, steppingStone: stoneOf(makeRelease(k, '0.2.3')) } })));
+    await r.mod.check(true);
+    assert.equal((await r.mod.status()).available?.version, '0.5.0');
+  } finally { await r.srv.close(); }
+});
+test('stone: this build is updater generation 2, and a malformed minUpdater or stone is a rejected manifest', () => {
+  assert.equal(UPDATER_GENERATION, 2);
+  const base = makeRelease(k, '0.5.0').manifestObj;
+  const good = parseManifest(Buffer.from(JSON.stringify({ ...base, minUpdater: 3, steppingStone: stoneOf(makeRelease(k, '0.2.3')) })));
+  assert.equal(good.minUpdater, 3);
+  assert.equal(good.steppingStone?.version, '0.2.3');
+  for (const bad of [{ minUpdater: 0 }, { minUpdater: 1.5 }, { minUpdater: '3' }, { steppingStone: 'x' }, { steppingStone: { ...stoneOf(makeRelease(k, '0.2.3')), version: '0.2.4' } }, { steppingStone: { ...stoneOf(makeRelease(k, '0.2.3')), asset: { name: 'x.zip', size: 1, sha256: 'a'.repeat(64) } } }]) {
+    assert.throws(() => parseManifest(Buffer.from(JSON.stringify({ ...base, ...bad }))), ManifestError, JSON.stringify(bad).slice(0, 60));
+  }
+  // what a 0.2.7 updater parses must keep parsing: none of the new fields is required
+  assert.equal(parseManifest(Buffer.from(JSON.stringify(base))).minUpdater, undefined);
 });

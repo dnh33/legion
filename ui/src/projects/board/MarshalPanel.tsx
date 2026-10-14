@@ -75,7 +75,7 @@ export function MarshalPanel({ view, busy, readOnly, onSave }: {
                   <p className="bd-marshal-line">{runLine(r)}</p>
                   <p className="field-note">
                     Why this bot: {r.why}
-                    {r.irreversible.length > 0 && `. Irreversible: ${r.irreversible.join(', ')}${r.gated ? ' — the approval card will gate it' : ''}`}
+                    {r.irreversible.length > 0 && `. Irreversible: ${r.irreversible.join(', ')}${r.gated ? '; the approval card will gate it' : ''}`}
                   </p>
                   <p className="muted-s">{r.rankWhy}</p>
                 </li>

@@ -200,7 +200,7 @@ test('render: the tester readout prints the verdict and the rules that matched, 
     assert.match(html, /1 matching gate/);
     const base = r.testOut(gateTestResult([], { toolName: 'Bash', input: { command: 'ls' }, agentId: 'zealot', mode: 'ask' }));
     assert.match(base, /BASELINE/);
-    assert.match(base, /No gate matched — your mode decides/);
+    assert.match(base, /No gate matched\. Your mode decides/);
   } finally { cleanup(); }
 });
 
@@ -241,7 +241,7 @@ test('render: the agent editor has the Shell fieldset — on with the saved root
     assert.match(on, /1 to 3600; 120 by default/);
     const off = r.editor('scout');
     assert.match(off, /Shell \(your computer\)/);
-    assert.doesNotMatch(off, /checked=""/, 'scout starts unchecked');
+    assert.doesNotMatch(off.slice(off.indexOf('Shell (your computer)')), /checked=""/, 'scout starts unchecked');
     assert.match(off, /placeholder="120"/);
   } finally { cleanup(); }
 });

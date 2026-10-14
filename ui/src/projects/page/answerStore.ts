@@ -16,16 +16,19 @@ export interface Answer {
   key: string; row: AskRow; b: RowButton; projectId: string;
   kind: 'holding' | 'sent' | 'final' | 'refused';
   text: string; view?: HoldView; height: number; doneAt?: number; hold?: Hold;
+  /** After "Allow all" on merged reads: the row stays until the owner answers the Confirm question (spec 3.2). */
+  offer?: 'pending';
 }
 let answers = new Map<string, Answer>();
 const holds = new Map<string, Hold>();
 const subs = new Set<() => void>();
-/** The rows the digest is showing right now. An answer whose row is not among them (another tab, view or project) is shown by the app-level chip instead. */
-let visible = new Set<string>();
+/** The rows on screen right now, by who shows them (the digest, the task sheet). An answer whose row is on no screen (other tab, view, project) is shown by the app-level chip instead. */
+const shownBy = new Map<string, ReadonlySet<string>>();
 let offscreen: Answer[] = [];
+const isShown = (key: string): boolean => { for (const set of shownBy.values()) if (set.has(key)) return true; return false; };
 const emit = (): void => {
   answers = new Map(answers);
-  offscreen = [...answers.values()].filter((a) => !visible.has(a.key));
+  offscreen = [...answers.values()].filter((a) => !isShown(a.key));
   subs.forEach((f) => f());
 };
 export function useAnswers(): ReadonlyMap<string, Answer> { return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => answers); }
@@ -33,10 +36,12 @@ export const getAnswers = (): ReadonlyMap<string, Answer> => answers;
 /** Answers in flight (or just finished) whose row is not on screen: what the app-level chip lists. */
 export const getOffscreen = (): Answer[] => offscreen;
 export function useOffscreenAnswers(): Answer[] { return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => offscreen); }
-/** The digest calls this with the keys of the rows it shows (and [] when it unmounts). */
-export function setVisibleRows(keys: readonly string[]): void {
-  if (keys.length === visible.size && keys.every((k) => visible.has(k))) return;
-  visible = new Set(keys);
+/** A surface calls this with the keys of the rows it shows (and [] when it goes away). */
+export function setVisibleRows(keys: readonly string[], source = 'digest'): void {
+  const had = shownBy.get(source);
+  if (had && keys.length === had.size && keys.every((k) => had.has(k))) return;
+  if (!had && !keys.length) return;
+  if (keys.length) shownBy.set(source, new Set(keys)); else shownBy.delete(source);
   emit();
 }
 
@@ -83,7 +88,7 @@ export function startAnswer(o: StartArgs): void {
       if (!cur || cur.hold !== hold) return;
       if (v.phase === 'counting') { settle(key, { view: v }); return; }
       holds.delete(key);
-      if (v.phase === 'sent') { settle(key, { kind: 'sent', view: v, text: doneText(row, b), doneAt: Date.now() }); announce(doneText(row, b)); }
+      if (v.phase === 'sent') { settle(key, { kind: 'sent', view: v, text: doneText(row, b), doneAt: Date.now(), ...(row.kind === 'reads' && b.act === 'allow-all' ? { offer: 'pending' as const } : {}) }); announce(doneText(row, b)); }
       else if (v.phase === 'refused') { const t = v.reason ?? 'The answer was not sent.'; settle(key, { kind: 'refused', view: v, text: t, doneAt: Date.now() }); announce(t); }
       else if (v.phase === 'undone') { answers.delete(key); emit(); announce('Undone. Nothing was sent.'); }
     },
@@ -102,4 +107,6 @@ export function sendNowAnswer(key: string): void { holds.get(key)?.sendNow(); }
 export function holdPointer(key: string, inside: boolean): void { const h = holds.get(key); if (!h) return; if (inside) h.pointerEnter(); else h.pointerLeave(); }
 export function holdFocus(key: string, visible: boolean): void { holds.get(key)?.focus(visible); }
 /** The row has been shown long enough; nothing is under the pointer: it may leave. */
-export function dismissAnswer(key: string): void { const a = answers.get(key); if (a && a.kind !== 'holding') { answers.delete(key); emit(); } }
+export function dismissAnswer(key: string): void { const a = answers.get(key); if (a && a.kind !== 'holding' && !a.offer) { answers.delete(key); emit(); } }
+/** The owner answered the Confirm question (either way): the row may go. */
+export function resolveOffer(key: string): void { const a = answers.get(key); if (!a) return; const { offer: _offer, ...rest } = a; answers.set(key, { ...rest, doneAt: Date.now() }); emit(); }

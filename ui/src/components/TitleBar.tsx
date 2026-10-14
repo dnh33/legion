@@ -2,6 +2,7 @@ import { platform } from '../api';
 import { BlenderChip } from '../blender/BlenderChip';
 import { BsvChip } from '../bsv/BsvChip';
 import { CiChip } from '../ci/CiChip';
+import { GithubChip } from '../github/GithubChip';
 import { RelicGlyph } from '../mascot/Relic';
 import { useTripleClick } from '../mascot/Takeover';
 import { useL } from '../library/libraryStore';
@@ -33,7 +34,7 @@ export function TitleBar() {
   const pending = useL((s) => s.inbox?.length ?? 0);
   const roomAttn = useRooms((s) => s.rooms.filter((r) => r.paused || isUnread(s, r)).length);
   const bad = doctor ? doctor.filter((c) => !c.ok).length : 0;
-  const connLabel = conn === 'online' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Offline — retrying';
+  const connLabel = conn === 'online' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Offline, retrying';
   const padRight = platform === 'darwin' || platform === 'linux' ? 16 : 140;
   const padLeft = platform === 'darwin' ? 84 : 14;
   return (
@@ -65,6 +66,7 @@ export function TitleBar() {
         <span className={`conn conn-${conn}`} title={connLabel}><i className="conn-dot" /> <span className="conn-label">{connLabel}</span></span>
         <BsvChip />
         <BlenderChip />
+        <GithubChip />
         <CiChip />
         <UpdateBadge />
         <UsageButton />

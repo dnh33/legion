@@ -141,9 +141,9 @@ function WorkChip({ f, agentId }: { f: PageFacts; agentId: string }) {
 }
 
 /** The "N runs" menu: grouped by project, the current one first; Stop only on a run that is not waiting on you (spec 3.7). */
-export function RunsMenuView({ anchor, f, agentId, onClose }: { anchor: React.RefObject<HTMLElement | null>; f: PageFacts; agentId: string; onClose: () => void }) {
+export function RunsMenuView({ anchor, f, agentId, onClose, onOpen }: { anchor: React.RefObject<HTMLElement | null>; f: PageFacts; agentId: string; onClose: () => void; onOpen?: (taskId: string, projectId: string | undefined) => void }) {
   const m = runsMenu(f, agentId);
-  const go = (taskId: string, projectId: string | undefined): void => { onClose(); if (projectId && projectId !== f.project.id) setProjectFilter(projectId); openTask(taskId); };
+  const go = (taskId: string, projectId: string | undefined): void => { onClose(); if (onOpen) { onOpen(taskId, projectId); return; } if (projectId && projectId !== f.project.id) setProjectFilter(projectId); openTask(taskId, anchor.current); };
   return (
     <Menu anchor={anchor} label={`${f.agents.find((a) => a.id === agentId)?.name ?? agentId} runs`} onClose={onClose} minWidth={320}>
       <div className="head">{m.header}</div>
@@ -165,7 +165,7 @@ export function RunsMenuView({ anchor, f, agentId, onClose }: { anchor: React.Re
   );
 }
 
-export function RunsButton({ f, agentId, runs }: { f: PageFacts; agentId: string; runs: number }) {
+export function RunsButton({ f, agentId, runs, onOpen }: { f: PageFacts; agentId: string; runs: number; onOpen?: (taskId: string, projectId: string | undefined) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const name = f.agents.find((a) => a.id === agentId)?.name ?? agentId;
@@ -174,7 +174,7 @@ export function RunsButton({ f, agentId, runs }: { f: PageFacts; agentId: string
       <button ref={ref} type="button" className="pg-runsbtn" data-fk={`rb:${agentId}`} aria-haspopup="menu" aria-expanded={open} aria-label={`${name}: ${runs} runs. Show runs`} onClick={() => setOpen((v) => !v)}>
         {runs} runs <PIcon name="chev" size={10} />
       </button>
-      {open && <RunsMenuView anchor={ref} f={f} agentId={agentId} onClose={() => setOpen(false)} />}
+      {open && <RunsMenuView anchor={ref} f={f} agentId={agentId} onClose={() => setOpen(false)} {...(onOpen ? { onOpen } : {})} />}
     </>
   );
 }

@@ -63,7 +63,7 @@ test('C19 every control on the project UI has a visible label or aria-label, sel
   const settings = src('page/SettingsTab.tsx');
   assert.match(settings, /aria-label=\{'Remove ' \+ a\.name \+ ' from this project'\}/);
   assert.match(src('page/ProjectPage.tsx'), /aria-labelledby="pg-title"/);
-  assert.equal((settings.match(/<section [^>]*aria-labelledby=/g) ?? []).length, 3, 'every settings card is named by its heading');
+  assert.equal((settings.match(/<section [^>]*aria-labelledby=/g) ?? []).length, 8, 'every settings section is named by its heading');
   assert.match(src('NewProjectDialog.tsx'), /<Modal title="New project"/);
   for (const f of ['ProjectSwitcher.tsx', 'ProjectView.tsx', 'NewProjectDialog.tsx', 'page/SettingsTab.tsx', 'page/Digest.tsx', 'page/Overview.tsx']) assert.doesNotMatch(src(f), /cannot be bypassed|guarantee|100 ?%|fully safe|impossible/i, f);
 });
@@ -170,7 +170,8 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /Needs you in other projects/);
   // the project switch lives in selectTask (one function for every way to open a task), not in the row
   assert.doesNotMatch(rail, /setProjectFilter/);
-  assert.match(rail, /selectTask\(row\.taskId\)/);
+  // and every way to open an ask (this row, a notification, the tray) is the one openAsk
+  assert.match(rail, /openAsk\(\{ taskId: row\.taskId \}\)/);
   assert.match(rail, /aria-live="polite"/);
 });
 
@@ -239,7 +240,7 @@ test('C2 defaultStarter: the selected agent when it is a member, else the first 
   assert.equal(defaultStarter([], 'scout'), undefined);
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const view = readFileSync(join(root, 'ui', 'src', 'projects', 'page', 'ProjectPage.tsx'), 'utf8');
-  assert.match(view, /defaultStarter\(project\.members, selected\)/, 'New task starts with the agent in view when it is a member');
+  assert.doesNotMatch(view, /defaultStarter/, 'the New task sheet picks who starts it (Best fit or the To: pill)');
   assert.doesNotMatch(view, /const first = project\.members\[0\];/, 'no longer always the first member');
 });
 

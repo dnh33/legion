@@ -5,10 +5,10 @@ import { ago, formatDuration, problemText, runLook } from '../../../src/shared/c
 import type { Tone } from '../../../src/shared/ci-view';
 import { FloatPanel } from './FloatPanel';
 import { pickReturnFocus } from './focusReturn';
-import { cancelRun, closeCi, connectGithub, describeCounts, refreshCi, rerunFailed, saveRepo, toggleLog, toggleRun, useCi } from './ciStore';
+import { cancelRun, closeCi, connectGithub, describeCounts, dismissCi, failureView, refreshCi, restoreCi, rerunFailed, saveRepo, toggleLog, toggleRun, useCi } from './ciStore';
 import './ci.css';
 
-function Glyph({ tone }: { tone: Tone }) {
+export function Glyph({ tone }: { tone: Tone }) {
   const p = { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
   if (tone === 'ok') return <svg {...p}><circle cx="8" cy="8" r="6" /><path d="M5.2 8.2l2 2 3.6-4" /></svg>;
   if (tone === 'bad') return <svg {...p}><circle cx="8" cy="8" r="6" /><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" /></svg>;
@@ -128,6 +128,8 @@ function PanelBody() {
   const runs = useCi((s) => s.runs);
   const offline = useCi((s) => s.offline);
   const loaded = useCi((s) => s.loaded);
+  const active = useCi((s) => failureView(s).active);
+  const all = useCi((s) => failureView(s).all);
   if (!loaded) return <p className="ci-note" role="status">Loading&hellip;</p>;
   if (!state) return <p className="ci-note">{offline ? 'Cannot reach Legion. Trying again.' : 'CI is not available in this build.'}</p>;
   if (!state.available) return <p className="ci-note">GitHub support arrives with Connectors.</p>;
@@ -148,6 +150,8 @@ function PanelBody() {
       {offline && <p className="ci-banner warn" role="status">Cannot reach Legion. Trying again.</p>}
       {problem && <div className={`ci-banner ${privateRepo ? '' : 'warn'}`} role="status"><span>{problemText(problem)}</span>{(privateRepo || problem.kind === 'auth-expired') && <button type="button" className="btn sm" onClick={connectGithub}>Connect GitHub</button>}</div>}
       {anon && !problem && <p className="ci-banner" role="status"><span>Connect GitHub for live updates. Without it, runs refresh when you open this panel, return to the window or press Refresh.</span><button type="button" className="btn sm" onClick={connectGithub}>Connect GitHub</button></p>}
+      {active > 0 && <p className="ci-banner" role="status"><span>{active === 1 ? '1 workflow is failing' : `${active} workflows are failing`}{state.branch ? ` on ${state.branch}` : ''}. A later passing run clears it.</span><button type="button" className="btn sm" onClick={dismissCi}>Dismiss</button></p>}
+      {active === 0 && all > 0 && <p className="ci-banner" role="status"><span>Failures dismissed. A new failing run brings them back.</span><button type="button" className="btn sm" onClick={restoreCi}>Show again</button></p>}
       {!problem && list.length === 0 && <p className="ci-note">No runs yet for {state.branch ? `${state.branch} or ` : ''}main.</p>}
       {list.length > 0 && <ul className="ci-runs" aria-label="Workflow runs">{list.map((r) => <RunRow key={r.id} run={r} canWrite={state.canWrite} />)}</ul>}
       {list.length === 0 && problem && !privateRepo && null}

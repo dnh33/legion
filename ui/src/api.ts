@@ -2,8 +2,10 @@ import type { Project } from '../../src/shared/projects';
 import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
+import type { GithubAreaView } from '../../src/shared/github-area';
+import type { CreateRepoBody } from './github/types';
 import type {
-  SettingsView, SettingsPatch, McpStatusView,
+  SettingsView, SettingsPatch, McpStatusView, GateRule,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TasksPage, VmRecord,
 } from '../../src/shared/types';
 
@@ -17,6 +19,10 @@ declare global {
       providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       onBsvChanged?(cb: () => void): () => void;
+      /** Tells the desktop which project page and thread this window shows (ids only), so it does not notify for what you are looking at. */
+      reportView?(v: { pageProjectId: string | null; threadTaskId: string | null }): void;
+      /** A notification or the tray asked to open an ask. */
+      onOpenAsk?(cb: (ref: { projectId?: string; taskId?: string }) => void): () => void;
       /** Project folder and member changes: main shows the native confirmation (and the folder chooser) and calls the core with a secret this window never holds. */
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
     };
@@ -93,7 +99,8 @@ export interface AwayProject {
   budgetOverrideUntil?: string;
   notify: 'problems' | 'everything' | 'nothing';
 }
-export interface AwayView { app: { quiet: { enabled: boolean; from: string; to: string }; notify: { enabled: boolean; returnSummary: boolean } }; projects: Record<string, AwayProject>; looked: Record<string, string> }
+export interface AwaySounds { enabled: boolean; pack: string; volume: number; events?: Partial<Record<string, { enabled?: boolean; sound?: { pack: string; cue: string } }>> }
+export interface AwayView { app: { quiet: { enabled: boolean; from: string; to: string }; notify: { enabled: boolean; returnSummary: boolean }; sounds?: AwaySounds }; projects: Record<string, AwayProject>; looked: Record<string, string> }
 export interface ProjectSpend {
   week: number; today: number;
   byAgent: Array<{ agentId: string; usd: number }>;
@@ -107,6 +114,21 @@ export type NewAgent = Partial<AgentProfile> & { name: string };
 export const api = {
   /** `slim=1`: the window's working set (running tasks, the newest per agent), not the whole history; the history list pages through `tasksPage`. */
   state: (archived = false) => request<StateSnapshot>('GET', `/api/state?slim=1${archived ? '&archived=1' : ''}`),
+  /** GitHub area: the routes in src/core/connectors/index.ts. Answers are checked by github/githubRoutes.ts before the UI uses them. */
+  githubArea: (force = false) => request<GithubAreaView>('GET', `/api/github/area${force ? '?force=1' : ''}`),
+  githubTick: (repo: string, on: boolean) => request<GithubAreaView>('PUT', `/api/github/repos/${repo}/tick`, { on }),
+  /** The repos one App can be installed on, with the owner's search (q) applied by the core. */
+  githubPicker: (app: 'read' | 'write', q: string) => request<unknown>('GET', `/api/github/apps/${app}/repos${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  /** Add (on) or remove (off) one repo on that App's installation. The core sends it once and never retries. */
+  githubPickerSet: (app: 'read' | 'write', repoId: number, on: boolean) => request<{ ok: true }>(on ? 'PUT' : 'DELETE', `/api/github/apps/${app}/repos/${repoId}`),
+  githubAgentsSwitch: (on: boolean) => request<GithubAreaView>('PUT', '/api/github/agents-switch', { on }),
+  githubConnectWrite: () => request<unknown>('POST', '/api/github/apps/write/connect'),
+  githubCancelWrite: () => request<{ ok: true }>('POST', '/api/github/apps/write/cancel'),
+  githubDisconnectWrite: () => request<{ ok: true; revokeUrl?: string }>('POST', '/api/github/apps/write/disconnect'),
+  githubCreateRepo: (b: CreateRepoBody) => request<unknown>('POST', '/api/github/repos', b),
+  githubOrgs: () => request<unknown>('GET', '/api/github/orgs'),
+  githubProjectsUsing: (repo: string) => request<unknown>('GET', `/api/github/projects-using/${repo}`),
+  githubProjectAccess: (projectId: string, level: 'read' | 'write') => request<{ ok: true }>('PUT', `/api/github/projects/${encodeURIComponent(projectId)}/access`, { level }),
   /** The /names this agent may not type (the core's own refusal rule), for the composer's / menu. */
   armorySlash: (agentId: string) => request<{ agent: string; refused: string[] }>('GET', `/api/armory/slash?agent=${encodeURIComponent(agentId)}`),
   tasksPage: (p: { agentId?: string; projectId?: string; q?: string; cursor?: string | null; limit?: number; archived?: boolean }) => {
@@ -121,6 +143,7 @@ export const api = {
   },
   settings: () => request<SettingsView>('GET', '/api/settings'),
   patchSettings: (p: SettingsPatch) => request<SettingsView>('PATCH', '/api/settings', p),
+  editGateRules: (b: { add?: GateRule[]; remove?: string[] }) => request<SettingsView>('POST', '/api/settings/gates/rules', b),
   testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string; warnings?: string[] }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
   patchTask: (id: string, b: { archived?: boolean; title?: string }) => request<Task>('PATCH', `/api/tasks/${encodeURIComponent(id)}`, b),
   deleteTask: (id: string) => request<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
@@ -157,7 +180,7 @@ export const api = {
   /** The checks that decide one item (done_when): written before the Marshal may dispatch it. */
   boardDispatch: (pid: string, id: string, doneWhen: string[]) => request<{ itemId: string; doneWhen: string[] }>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/dispatch`, { doneWhen }),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
-  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
+  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string; startAfter?: true }) => request<Task>('POST', '/api/tasks', b),
   /** One window of a conversation (newest by default; `before` pages back, `from` opens a window at a position) and its search (`q`). */
   taskMessages: (id: string, o: { before?: number; from?: number; limit?: number }) => {
     const sp = new URLSearchParams();

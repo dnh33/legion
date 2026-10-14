@@ -10,14 +10,16 @@
  *
  * No write methods here: writes.ts is slice 2.
  */
-import { GITHUB_API_ORIGIN, GITHUB_DEVICE_PAGE, GITHUB_LOG_STORAGE_HOSTS, GITHUB_READ_APP_CLIENT_ID, GITHUB_WEB_ORIGIN, looksLikeClientId } from './hosts.js';
+import { GITHUB_API_ORIGIN, GITHUB_DEVICE_PAGE, GITHUB_LOG_STORAGE_HOSTS, GITHUB_READ_APP_CLIENT_ID, GITHUB_WEB_ORIGIN, GITHUB_WRITE_APP_CLIENT_ID, looksLikeClientId } from './hosts.js';
 import type { StoreStatus, TokenStore } from '../store.js';
 
 export const GITHUB_TOKEN_ID = 'github-read';
+export const GITHUB_WRITE_TOKEN_ID = 'github-write';
+export type GhAppKind = 'read' | 'write';
 
 // ------------------------------------------------------------------------------------------------ errors
 
-export type GhErrorKind = 'not-connected' | 'auth-expired' | 'forbidden' | 'rate-limited' | 'not-found' | 'logs-unavailable' | 'network';
+export type GhErrorKind = 'not-connected' | 'auth-expired' | 'forbidden' | 'rate-limited' | 'not-found' | 'logs-unavailable' | 'network' | 'moved';
 
 const MESSAGES: Record<GhErrorKind, string> = {
   'not-connected': 'GitHub is not connected.',
@@ -27,6 +29,7 @@ const MESSAGES: Record<GhErrorKind, string> = {
   'not-found': 'GitHub did not find that.',
   'logs-unavailable': 'The job log is not available.',
   network: 'Could not reach GitHub.',
+  moved: 'GitHub moved this repo. Turn the new name on in Legion to use it.',
 };
 
 /** A typed failure. The message is fixed text per kind; no request address, header or response body is ever attached. */
@@ -35,13 +38,16 @@ export class GhError extends Error {
   readonly needs?: 'read' | 'write';
   readonly resetAt?: string;
   readonly retryable?: boolean;
-  constructor(kind: GhErrorKind, extra: { needs?: 'read' | 'write'; resetAt?: string; retryable?: boolean } = {}) {
-    super(MESSAGES[kind]);
+  /** The HTTP status of a refusal that has no kind of its own (422 on a repo create). Never a body. */
+  readonly status?: number;
+  constructor(kind: GhErrorKind, extra: { needs?: 'read' | 'write'; resetAt?: string; retryable?: boolean; status?: number; movedTo?: string } = {}) {
+    super(kind === 'moved' && extra.movedTo ? `GitHub moved this repo to ${extra.movedTo}. Turn the new name on in Legion to use it.` : MESSAGES[kind]);
     this.name = 'GhError';
     this.kind = kind;
     if (extra.needs) this.needs = extra.needs;
     if (extra.resetAt) this.resetAt = extra.resetAt;
     if (kind === 'network') this.retryable = extra.retryable ?? true;
+    if (extra.status !== undefined) this.status = extra.status;
   }
 }
 
@@ -65,6 +71,7 @@ export class DeviceFlowError extends Error {
 export interface GhRate { limit: number; remaining: number; resetAt: string }
 /** Pinned 2026-10-07 with the house/skills session. */
 export interface GhResponse { status: number; json: unknown; etag?: string; notModified?: boolean; rate: GhRate; /** Only for a `raw` request: the response body as text (a file's contents). */ text?: string }
+export interface GhInstallation { id: number; account: { login: string; type: 'User' | 'Organization' }; repositorySelection: 'all' | 'selected'; permissions: Record<string, string>; appSlug: string }
 export type GhArea = 'contents' | 'issues' | 'pull_requests' | 'actions';
 export interface Connection {
   auth: 'github-app' | 'pat' | 'anonymous';
@@ -83,6 +90,8 @@ interface GhTokenRecord { access: string; refresh?: string; expiresAt?: number; 
 type FetchFn = typeof fetch;
 
 export interface GhClientDeps {
+  /** Which GitHub App this client signs in as. Default 'read'. Each app has its own sign-in and token id. */
+  app?: GhAppKind;
   tokens: TokenStore;
   /** Defaults to the global fetch. Tests pass one that maps the GitHub hosts to a local fake. */
   fetchFn?: FetchFn;
@@ -101,6 +110,7 @@ export interface GhClientDeps {
 const API_VERSION = '2022-11-28';
 const MAX_BODY = 8 * 1024 * 1024;
 const MAX_LOG = 2 * 1024 * 1024;
+const REPO_PAGES = 10;
 const REFRESH_SKEW_MS = 60_000;
 /** GitHub's explicit refusals of a refresh token. */
 const REFUSALS = new Set(['bad_refresh_token', 'invalid_grant', 'refresh_token_expired', 'incorrect_client_credentials']);
@@ -111,11 +121,15 @@ export const validRepo = (repo: unknown): repo is string => typeof repo === 'str
 const isRead = (m: string) => m === 'GET' || m === 'HEAD';
 const num = (v: string | null): number | undefined => { if (v === null || v === '') return undefined; const n = Number(v); return Number.isFinite(n) ? n : undefined; };
 const asRec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+/** The lower-case `owner/name` of a `/repos/{owner}/{name}` path, or undefined for any other path. */
+const repoOf = (p: string): string | undefined => { const m = /^\/repos\/([^/?#]+)\/([^/?#]+)/.exec(p); return m ? `${m[1]}/${m[2]}`.toLowerCase() : undefined; };
 const redirectStatus = (s: number) => s === 301 || s === 302 || s === 303 || s === 307 || s === 308;
 
 export class GitHubClient {
   private readonly tokens: TokenStore;
   private readonly doFetch: FetchFn;
+  private readonly app: GhAppKind;
+  private readonly tokenId: string;
   private readonly clientId: string;
   private readonly anonymous: boolean;
   private readonly storageHosts: readonly string[];
@@ -131,8 +145,11 @@ export class GitHubClient {
   constructor(deps: GhClientDeps) {
     this.tokens = deps.tokens;
     this.doFetch = deps.fetchFn ?? ((u, i) => fetch(u, i));
-    this.clientId = deps.clientId ?? GITHUB_READ_APP_CLIENT_ID;
-    this.anonymous = deps.anonymous ?? true;
+    this.app = deps.app ?? 'read';
+    this.tokenId = this.app === 'write' ? GITHUB_WRITE_TOKEN_ID : GITHUB_TOKEN_ID;
+    this.clientId = deps.clientId ?? (this.app === 'write' ? GITHUB_WRITE_APP_CLIENT_ID : GITHUB_READ_APP_CLIENT_ID);
+    // the write app never reads anonymously: its job starts with a sign-in
+    this.anonymous = deps.anonymous ?? this.app === 'read';
     this.storageHosts = deps.storageHosts ?? GITHUB_LOG_STORAGE_HOSTS;
     this.now = deps.now ?? Date.now;
     this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -171,7 +188,7 @@ export class GitHubClient {
         const j = asRec(r);
         if (typeof j.access_token === 'string' && j.access_token) {
           const rec = this.recordFrom(j);
-          await this.tokens.set(GITHUB_TOKEN_ID, rec);
+          await this.tokens.set(this.tokenId, rec);
           this.needsSignIn = false;
           this.perms = undefined;
           this.logLine('github: signed in');
@@ -222,11 +239,11 @@ export class GitHubClient {
   storageStatus(): Promise<StoreStatus> { return this.tokens.status(); }
 
   /** Whether a sign-in is stored (no network). */
-  async signedIn(): Promise<boolean> { const r = await this.tokens.get<GhTokenRecord>(GITHUB_TOKEN_ID); return !!r && typeof r.access === 'string'; }
+  async signedIn(): Promise<boolean> { const r = await this.tokens.get<GhTokenRecord>(this.tokenId); return !!r && typeof r.access === 'string'; }
 
   /** Forgets the stored sign-in locally. (Revoking at GitHub is the owner's step: github.com/settings/applications.) */
   async disconnect(): Promise<void> {
-    await this.tokens.remove(GITHUB_TOKEN_ID);
+    await this.tokens.remove(this.tokenId);
     this.perms = undefined;
     this.needsSignIn = false;
   }
@@ -234,7 +251,7 @@ export class GitHubClient {
   // ---------------------------------------------------------------------------------------------- tokens
 
   private async currentToken(): Promise<GhTokenRecord | undefined> {
-    let rec = await this.tokens.get<GhTokenRecord>(GITHUB_TOKEN_ID);
+    let rec = await this.tokens.get<GhTokenRecord>(this.tokenId);
     if (rec && typeof rec.access !== 'string') rec = undefined;
     if (rec?.expiresAt !== undefined && rec.expiresAt - REFRESH_SKEW_MS <= this.now()) rec = await this.refresh(rec);
     return rec;
@@ -248,7 +265,7 @@ export class GitHubClient {
     if (this.refreshing) return this.refreshing;
     const attempt = (async (): Promise<GhTokenRecord> => {
       // Another refresh may have finished and rotated the tokens since the caller read its record: use what is stored now.
-      const stored = await this.tokens.get<GhTokenRecord>(GITHUB_TOKEN_ID);
+      const stored = await this.tokens.get<GhTokenRecord>(this.tokenId);
       if (!stored || typeof stored.access !== 'string') throw new GhError('auth-expired');
       if (stored.refresh !== rec.refresh) return stored;
       if (!rec.refresh || (rec.refreshExpiresAt !== undefined && rec.refreshExpiresAt <= this.now())) return this.signInAgain();
@@ -264,7 +281,7 @@ export class GitHubClient {
       const next = this.recordFrom(j);
       if (!next.refresh && rec.refresh) next.refresh = rec.refresh;
       if (rec.login) next.login = rec.login;
-      try { await this.tokens.set(GITHUB_TOKEN_ID, next); } catch {
+      try { await this.tokens.set(this.tokenId, next); } catch {
         this.logLine('github: a refreshed token could not be saved; the old sign-in is kept and may now be spent');
         throw new GhError('network', { retryable: false });
       }
@@ -278,7 +295,7 @@ export class GitHubClient {
   }
 
   private async signInAgain(): Promise<never> {
-    await this.tokens.remove(GITHUB_TOKEN_ID);
+    await this.tokens.remove(this.tokenId);
     this.needsSignIn = true;
     this.perms = undefined;
     this.logLine('github: sign-in could not be renewed');
@@ -360,6 +377,10 @@ export class GitHubClient {
       let to: URL | undefined;
       try { to = loc ? new URL(loc, GITHUB_API_ORIGIN) : undefined; } catch { to = undefined; }
       if (!to || to.origin !== GITHUB_API_ORIGIN) throw new GhError('network', { retryable: false });
+      // a rename or transfer must not carry a read to a repo the owner did not turn on: a different repo path is refused
+      const from = repoOf(path);
+      const dest = repoOf(to.pathname);
+      if (from && dest !== from) throw new GhError('moved', { ...(dest && /^[\w.-]+\/[\w.-]+$/.test(dest) ? { movedTo: dest } : {}) });
       res = await this.exchange(to.pathname + to.search, ex);
     }
     return this.classify(res, method, init.raw === true);
@@ -386,9 +407,20 @@ export class GitHubClient {
         const reset = retryAfter !== undefined ? this.now() + retryAfter * 1000 : (num(res.headers.get('x-ratelimit-reset')) ?? 0) * 1000;
         throw new GhError('rate-limited', { resetAt: new Date(reset).toISOString() });
       }
+      await this.logRefusal(res);
       throw new GhError('forbidden', { needs: isRead(method) ? 'read' : 'write' });
     }
-    throw new GhError('network', { retryable: res.status >= 500 });
+    throw new GhError('network', { retryable: res.status >= 500, status: res.status });
+  }
+
+  /** GitHub's own short reason for a refusal goes to the log (printable text only, capped), so "403" can be told apart from "403 because". */
+  private async logRefusal(res: Response): Promise<void> {
+    try {
+      const m = (JSON.parse(await this.readText(res, 4096)) as { message?: unknown }).message;
+      // plain words only: anything that could carry a URL, a query, an address or a value (= / ? @ :) is never logged
+      const words = typeof m === 'string' ? m.replace(/[^\x20-\x7e]/g, '').trim().slice(0, 200) : '';
+      if (/^[A-Za-z0-9 .,'()-]+$/.test(words) && !/gh[uprs]_/.test(words)) this.logLine(`github: refused: ${words}`);
+    } catch { /* no readable reason */ }
   }
 
   // ---------------------------------------------------------------------------------------------- connection and permissions
@@ -429,6 +461,61 @@ export class GitHubClient {
     const have = this.perms[area];
     if (have === undefined) return 'no';
     return level === 'read' || have === 'write' ? 'yes' : 'no';
+  }
+
+  // ---------------------------------------------------------------------------------------------- installations
+
+  /** Answers kept per request path, so the next ask can send If-None-Match and a 304 costs no rate limit. Memory only, bounded. */
+  private readonly kept = new Map<string, { etag: string; json: unknown }>();
+
+  private async getKept(path: string): Promise<unknown> {
+    const prev = this.kept.get(path);
+    const r = await this.request(path, prev ? { ifNoneMatch: prev.etag } : {});
+    if (r.notModified) {
+      if (prev) return prev.json;
+      throw new GhError('network', { retryable: true });
+    }
+    if (r.etag) {
+      this.kept.delete(path);
+      this.kept.set(path, { etag: r.etag, json: r.json });
+      if (this.kept.size > 64) this.kept.delete(this.kept.keys().next().value as string);
+    }
+    return r.json;
+  }
+
+  /** The accounts this App is installed on for the signed-in owner. */
+  async installations(): Promise<GhInstallation[]> {
+    const list = asRec(await this.getKept('/user/installations?per_page=100')).installations;
+    const out: GhInstallation[] = [];
+    for (const raw of Array.isArray(list) ? list : []) {
+      const i = asRec(raw);
+      const acct = asRec(i.account);
+      if (typeof i.id !== 'number' || typeof acct.login !== 'string') continue;
+      const permissions: Record<string, string> = {};
+      for (const [k, v] of Object.entries(asRec(i.permissions))) if (typeof v === 'string') permissions[k] = v;
+      out.push({
+        id: i.id, account: { login: acct.login, type: acct.type === 'Organization' ? 'Organization' : 'User' },
+        repositorySelection: i.repository_selection === 'all' ? 'all' : 'selected', permissions, appSlug: typeof i.app_slug === 'string' ? i.app_slug : '',
+      });
+    }
+    return out;
+  }
+
+  /** The repositories one installation lets this App reach: 100 per page, at most 10 pages (`truncated` when GitHub had more). */
+  async installationRepos(id: number): Promise<{ repos: { fullName: string; private: boolean; htmlUrl: string }[]; truncated: boolean }> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new GhError('not-found');
+    const repos: { fullName: string; private: boolean; htmlUrl: string }[] = [];
+    for (let page = 1; page <= REPO_PAGES; page++) {
+      const rows = asRec(await this.getKept(`/user/installations/${id}/repositories?per_page=100&page=${page}`)).repositories;
+      const list = Array.isArray(rows) ? rows : [];
+      for (const raw of list) {
+        const r = asRec(raw);
+        if (typeof r.full_name !== 'string' || !validRepo(r.full_name)) continue;
+        repos.push({ fullName: r.full_name, private: r.private === true, htmlUrl: typeof r.html_url === 'string' ? r.html_url : `${GITHUB_WEB_ORIGIN}/${r.full_name}` });
+      }
+      if (list.length < 100) return { repos, truncated: false };
+    }
+    return { repos, truncated: true };
   }
 
   // ---------------------------------------------------------------------------------------------- job logs
@@ -480,12 +567,25 @@ export class GitHubClient {
 // ------------------------------------------------------------------------------------------------ the one instance
 
 let instance: GitHubClient | undefined;
-/** Core startup calls this once. A second call returns the existing instance, so one client does every token refresh. */
+let writeInstance: GitHubClient | undefined;
+let writeDeps: GhClientDeps | undefined;
+/**
+ * Core startup calls this once. A second call returns the existing read client, so one client does every token refresh. The write client
+ * shares the token store and the other settings; it is made on first ask and signs in as its own App (its own token id).
+ */
 export function createGitHubClient(deps: GhClientDeps): GitHubClient {
-  instance ??= new GitHubClient(deps);
+  if (!instance) {
+    instance = new GitHubClient({ ...deps, app: 'read' });
+    const { clientId: _c, anonymous: _a, app: _p, ...shared } = deps;
+    writeDeps = shared;
+  }
   return instance;
 }
-/** Everyone else uses only this: the single instance, or undefined before core start or with no connectors. */
-export function getGitHubClient(): GitHubClient | undefined { return instance; }
-/** Tests only: forget the instance. */
-export function resetGitHubClientForTests(): void { instance = undefined; }
+/** Everyone else uses only this: the single client for an App (default read), or undefined before core start or with no connectors. */
+export function getGitHubClient(kind: GhAppKind = 'read'): GitHubClient | undefined {
+  if (kind === 'read') return instance;
+  if (!instance || !writeDeps) return undefined;
+  return (writeInstance ??= new GitHubClient({ ...writeDeps, app: 'write' }));
+}
+/** Tests only: forget the instances. */
+export function resetGitHubClientForTests(): void { instance = undefined; writeInstance = undefined; writeDeps = undefined; }

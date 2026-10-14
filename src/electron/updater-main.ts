@@ -8,8 +8,9 @@ import { spawn } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
-import { markCommitted, readJournal, recoverInterrupted, UPDATE_DIR } from '../core/updater/apply.js';
+import { cleanStaleApplyCopies, confirmWhenHealthy, recoverInterrupted, UPDATE_DIR } from '../core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../core/updater/main-logic.js';
 import { trustedSender } from './admin-logic.js';
 
@@ -30,6 +31,8 @@ const helperSource = join(here, '..', 'core', 'updater', 'apply.js');
 /** Before the core starts: finish or undo an update that was cut off. */
 export async function recoverAtStart(installDir: string): Promise<void> {
   try { await recoverInterrupted(installDir, { runningVersion: VERSION }); } catch { /* never blocks the start */ }
+  // A full update leaves a copy of the Electron folder in the temp folder (the helper cannot delete the folder it ran from).
+  try { cleanStaleApplyCopies(tmpdir(), { maxAgeMs: 24 * 3600_000, nowMs: Date.now() }); } catch { /* best effort */ }
 }
 
 let applying = false;
@@ -77,13 +80,16 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
   } finally { applying = false; }
 }
 
-/** After the core proved healthy: a freshly swapped-in build confirms itself, so a dead helper cannot leave it unconfirmed. */
-function confirmIfNew(installDir: string): void {
-  try { const j = readJournal(installDir); if (j && j.state === 'awaiting-health' && j.to === VERSION) markCommitted(installDir); } catch { /* ignore */ }
+/**
+ * A freshly swapped-in build confirms itself, so a dead helper cannot leave it unconfirmed, but ONLY once its core answers
+ * /health with this version. Call it after a boot whose core came up; a slow or failed core start leaves the decision (and the
+ * previous copy, which is the rollback) to the helper.
+ */
+export async function confirmAfterBoot(installDir: string, getHealth: () => Promise<{ ok?: boolean; version?: string } | null>): Promise<void> {
+  try { await confirmWhenHealthy(installDir, VERSION, getHealth); } catch { /* ignore */ }
 }
 
 export function initUpdater(h: UpdaterHost): void {
-  confirmIfNew(h.installDir);
   ipcMain.handle('legion:update-restart-now', async (e): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> => {
     const win = h.getWin();
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;

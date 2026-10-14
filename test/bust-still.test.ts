@@ -57,9 +57,9 @@ test('Bust renders the still at rest and wakes the engine only on pointer or key
   assert.match(bust, /pointerleave/);
   assert.match(bust, /focusin/);
   assert.match(bust, /:focus-visible/);
-  // the engine is created only while active (stage, or awake at rest) and always destroyed on cleanup
+  // the engine is created only while active (stage, or awake at rest, through the wake gate in bustWake.ts) and always destroyed on cleanup
   assert.match(bust, /m\.current\?\.destroy\(\)/);
-  assert.match(bust, /const active = !rest \|\| awake/);
+  assert.match(bust, /const active = !rest \|\| engineMounted\(phase\)/);
 });
 
 test('the stage and busts without a still keep the live engine (rest is only for busts that have a still)', () => {

@@ -57,6 +57,7 @@ import { renderCapabilities } from './agent-facts.js';
 import { renderTeamwork } from './teamwork.js';
 import type { ProjectStore } from './projects/store.js';
 import { tmpdir } from 'node:os';
+import { CARDED_CONNECTOR_WRITES } from './connectors/gateway.js';
 
 /** On Windows the agent shell and Git Bash read `/tmp` as the user's temp folder: gates check both spellings there. */
 const GATE_TMP_DIR = process.platform === 'win32' ? tmpdir() : undefined;
@@ -1465,6 +1466,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
       if (gate.verdict === 'allow') return { allow: true };
+      // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
+      if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
       if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
@@ -1541,7 +1544,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // auto-approves them, so a Gates rule for them does not apply — harmless: they are notes (READ_ONLY), never carded.
       // Off, the old TodoWrite goes too.
       ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
-      disallowedTools: ['SendMessage', 'ListAgents', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
+      // Claude Code's own AskUserQuestion is off: in an ask-mode run it surfaced as an approval card with raw JSON. Legion's ask_user_question (mcp__legion__) raises the question card.
+      disallowedTools: ['SendMessage', 'ListAgents', 'AskUserQuestion', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),

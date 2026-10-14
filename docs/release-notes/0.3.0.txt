@@ -1,0 +1,17 @@
+GitHub, inside Legion
+A GitHub icon in the title bar opens one panel: your repos, which ones Legion may use, and the latest CI runs. Agents see only the repos you turn on. You choose each agent's access: none, read, or read and write. Every write an agent makes (a comment, an issue, a pull request, a CI re-run) shows you a card first, even in Full access. Say no and nothing is sent. You can also create a repo from the panel.
+
+The project page opens on what needs you
+Overview shows who is working now, then the riskiest asks first. Allow, deny or answer right there. An Allow waits a few seconds so you can take it back. Tasks open in a side sheet, and New task asks what should happen, who does it and in which project.
+
+Also new:
+- Quiet sounds when something needs you or a run ends. Pick a pack in Settings, Notifications, or turn them off.
+- Quiet hours, a taskbar mark while something waits on you, and a summary when you come back.
+- A few short tips after an update. Skip them, or turn them off in Settings, About.
+- Settings has short headings and the sections you use most come first.
+- Settings, Spending shows what your agents cost.
+Fixed:
+- The CI badge no longer sticks on "failing" after later runs pass, and you can dismiss it.
+- Updates that need a bigger install now apply by themselves, and an update that fails to start puts your last good version back.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

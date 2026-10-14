@@ -90,3 +90,12 @@ export function listZipNames(zip) {
   for (let n = 0; n < total; n++) { const nl = zip.readUInt16LE(p + 28); names.push(zip.subarray(p + 46, p + 46 + nl).toString('utf8')); p += 46 + nl + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32); }
   return names;
 }
+
+/**
+ * Flags that skip the stepping-stone byte and hash checks (--no-network, --stones, --trust-module) exist for the rehearsal
+ * workflow and the tests. A real release run must never use them, so they refuse unless LEGION_REHEARSAL=1 is set.
+ */
+export function requireRehearsalFor(a, flags) {
+  if (process.env.LEGION_REHEARSAL === '1') return;
+  for (const f of flags) if (a[f] !== undefined) die(`--${f} skips the release checks and only works in a rehearsal (set LEGION_REHEARSAL=1). Remove it for a real release.`);
+}

@@ -1,0 +1,31 @@
+name: Stepping stone check
+
+# Daily. A 0.2.7 install reads only the OLD manifest name of the latest release and builds its package address from the version in it, so the stepping
+# stone's package (docs/SHIPPING.md, Stepping stones) must stay downloadable exactly as signed. This fetches the live latest release's old-name manifest,
+# verifies its signature with the app's own verifier, follows the package URL and compares size and sha256. A red run means a stone is damaged or gone.
+# No secrets, a read-only token, nothing is published.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stone:
+    name: the live stepping stone still downloads as signed
+    if: github.repository == 'dnh33/legion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.13.1
+      - run: npm ci --ignore-scripts
+      - run: npm run build:ts
+      - name: Check the live release
+        run: node scripts/stone-check.mjs

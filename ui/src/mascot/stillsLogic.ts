@@ -14,3 +14,12 @@ export const stillState = (s: string): StillState => ((STILL_STATES as readonly 
 
 /** Path of one still, relative to the stills folder. */
 export const stillFile = (bust: string, state: StillState, theme: StillTheme): string => `${theme}/${bust}-${state}.webp`;
+
+/** The square slot the stills were painted in (css px, scripts/build-bust-stills.mjs). The live bust at rest is laid out by the same maths so both land on the same pixels. */
+export const STILL_SLOT = 80;
+/** Host box of a live resting bust, scaled from the box the still was painted in: the still's host is rounded at SLOT px, so the live one is that, scaled to `size` (not rounded again). */
+export function stillBox(frame: readonly number[], size: number): { w: number; h: number } {
+  const k = Math.min(STILL_SLOT / frame[2], STILL_SLOT / frame[3]);
+  const f = size / STILL_SLOT;
+  return { w: Math.round(frame[2] * k) * f, h: Math.round(frame[3] * k) * f };
+}

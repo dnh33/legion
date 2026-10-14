@@ -13,7 +13,10 @@ import { AgentBust } from './AgentBust';
 import { announce } from './announce';
 import { buildAskRows, reconcileShown } from './askLogic';
 import type { AskRow } from './askLogic';
-import { dismissAnswer, holdFocus, holdPointer, sendNowAnswer, setVisibleRows, startAnswer, undoAnswer, useAnswers } from './answerStore';
+import { dismissAnswer, holdFocus, holdPointer, resolveOffer, sendNowAnswer, setVisibleRows, startAnswer, undoAnswer, useAnswers } from './answerStore';
+import { grantReads } from './readsGrant';
+import { findReadsGrant } from './settingsLogic';
+import { loadSettings, useStore } from '../../store';
 import type { Answer } from './answerStore';
 import { digestHeader, foldedLine, hhmm, money, projectTasks, reviewItems, sinceFor, stopDetail } from './pageLogic';
 import type { PageFacts } from './pageLogic';
@@ -203,7 +206,7 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   );
 }
 
-function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (row: AskRow, act: string, b: AskRow['buttons'][number], li: HTMLElement | null) => void }) {
+export function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (row: AskRow, act: string, b: AskRow['buttons'][number], li: HTMLElement | null) => void }) {
   return (
     <li className={`pg-row${row.untrusted ? ' untrusted' : ''}`} data-row={row.key} data-fk={row.key} tabIndex={-1}>
       <AgentBust agentId={row.agentId} size={28} />
@@ -231,7 +234,7 @@ function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (r
   );
 }
 
-function AnsweredRow({ a }: { a: Answer }) {
+export function AnsweredRow({ a }: { a: Answer }) {
   const v = a.view;
   const left = v?.leftMs ?? 0;
   const secs = Math.ceil(left / 1000);
@@ -252,6 +255,7 @@ function AnsweredRow({ a }: { a: Answer }) {
             <div className="pg-holdbar" aria-hidden="true"><i style={{ transform: `scaleX(${v && v.totalMs ? left / v.totalMs : 0})`, transition: 'transform 100ms linear' }} /></div>
           </>
         ) : <div className="what">{a.text}</div>}
+        {a.offer === 'pending' && <ReadsOffer a={a} />}
       </div>
       {holding ? (
         <div className="pg-acts2">
@@ -272,5 +276,26 @@ function FoldedLine({ text }: { text: string }) {
       {head.split(', ').map((part, k) => <span key={part}>{k > 0 && ', '}<b>{part}</b></span>)}
       {i < 0 ? null : text.slice(i)}
     </>
+  );
+}
+
+/** After "Allow all": one project-wide question. Nothing is granted by the first click; Confirm creates the rule, Not now leaves asking as it was. */
+function ReadsOffer({ a }: { a: Answer }) {
+  const project = useStore((s) => s.projects.find((p) => p.id === a.projectId));
+  const settings = useStore((s) => s.settings);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!settings) void loadSettings(); }, [settings]);
+  const granted = !!project && !!findReadsGrant(settings?.gates?.rules ?? [], project);
+  useEffect(() => { if (granted || !project) resolveOffer(a.key); }, [granted, project, a.key]);
+  if (!project || granted) return null;
+  return (
+    <div className="pg-offer" role="group" aria-label="Stop asking for reads in this project?" data-testid="reads-offer">
+      <b>Stop asking for reads in this project?</b>
+      <p>Agents will read files in this project without asking. Writes and commands still ask. You can turn this off in Settings, Safety.</p>
+      <div className="row">
+        <button type="button" className="pg-btn sm strong" disabled={busy} data-fk={`${a.key}:grant`} onClick={() => { setBusy(true); void grantReads(project).then((ok) => { setBusy(false); if (ok) { announce('Done. Agents read files in this project without asking.'); resolveOffer(a.key); } }); }}>Confirm</button>
+        <button type="button" className="pg-btn sm ghost" onClick={() => resolveOffer(a.key)}>Not now</button>
+      </div>
+    </div>
   );
 }

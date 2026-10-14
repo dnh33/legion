@@ -15,7 +15,8 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'gates' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
+import type { SettingsSection } from './components/settingsNav';
+export type { SettingsSection };
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -477,7 +478,7 @@ export type SendResult = { ok: true; task: Task } | { ok: false; status: number;
  * Sends a prompt to a given thread (a task to continue, or null for a new task of `agentId`). The composer uses it for the selected thread; the
  * message queue uses it for any thread, so it never reads the selection. `select` moves the view to the task the send created/continued.
  */
-export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean; projectId?: string | null } = {}): Promise<SendResult> {
+export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean; projectId?: string | null; startAfter?: true } = {}): Promise<SendResult> {
   const s = getState();
   const text = prompt.trim();
   if (!text) return { ok: false, status: 400, message: 'Prompt is empty' };
@@ -490,7 +491,7 @@ export async function sendPromptTo(target: { agentId: string; taskId: string | n
   // on the wire ONLY when it differs from the configured model, so Settings stays the authority: an equal value
   // would just restate what the engine already does, and it would be recorded as a request the owner never made.
   const want = opts.model || (target.agentId === s.selectedAgentId ? effectiveModel(s) : configured);
-  const body = { agentId: target.agentId, prompt: text, ...(want && want !== configured ? { model: want } : {}), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}) };
+  const body = { agentId: target.agentId, prompt: text, ...(want && want !== configured ? { model: want } : {}), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}), ...(opts.startAfter && !cont ? { startAfter: true as const } : {}) };
   // optimistic echo for follow-ups (replaced when the real user message arrives)
   if (cont) {
     const tmp: ChatMessage = { id: 'tmp-' + Date.now(), taskId: cont.id, role: 'user', text, at: new Date().toISOString() };
@@ -544,7 +545,15 @@ export async function compactNow(taskId: string, focus?: string): Promise<{ ok: 
 }
 
 /** The window's own bookkeeping when a card is answered: the card leaves, a denial is noted, the mascot reacts. The project page calls it after its own send succeeded. */
-export function settleApproval(id: string, allow: boolean) {
+const decisionTaps = new Set<(allow: boolean) => void>();
+/** Plain subscription to the owner's own Allow or Deny (the sounds listen here). */
+export function tapDecisions(fn: (allow: boolean) => void): () => void { decisionTaps.add(fn); return () => { decisionTaps.delete(fn); }; }
+
+const tellDecision = (allow: boolean): void => decisionTaps.forEach((t) => { try { t(allow); } catch { /* a tap never breaks the store */ } });
+
+/** `announce: false` is for the chat's optimistic settle: it tells the taps itself once the send worked. */
+export function settleApproval(id: string, allow: boolean, announce = true) {
+  if (announce) tellDecision(allow);
   setState((s) => {
     const card = s.approvals.find((a) => a.id === id);
     return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
@@ -552,8 +561,8 @@ export function settleApproval(id: string, allow: boolean) {
 }
 
 export async function decide(id: string, allow: boolean) {
-  settleApproval(id, allow); // optimistic
-  try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  settleApproval(id, allow, false); // optimistic; the sound waits for the send
+  try { await api.decide(id, allow); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**
@@ -715,11 +724,11 @@ export async function dismissGateSuggestion(key: string): Promise<void> {
   await request('POST', '/api/gates/suggestions/dismiss', { key });
 }
 
-/** The approval card's "Remember": appends one gate rule to the rules as stored now (read first, so no other rule is lost). */
+/** The approval card's "Remember": appends one gate rule to the rules as stored now (the core does the append in one step, so no other rule is lost). */
 export async function rememberGate(rule: NonNullable<SettingsView['gates']>['rules'][number]): Promise<void> {
-  const cur = await api.settings();
-  const gates = cur.gates ?? { rules: [], presetsVersion: 0 };
-  await saveSettings({ gates: { ...gates, rules: [...gates.rules, rule] } }, true);
+  const view = await api.editGateRules({ add: [rule] });
+  setState({ settings: view, boatConfigured: view.boat.apiKeySet, auth: view.claude.auth });
+  void runDoctor();
   toast(`Remembered: ${rule.label}`);
 }
 

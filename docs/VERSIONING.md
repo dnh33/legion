@@ -88,7 +88,7 @@ release that cannot self-apply is never a plain PATCH.
    `dist` ("dist looks older than src").
 4. `node scripts/build-package.mjs --out D:/bots/<pkg-dir> --skip-build`
    (out-dir must be **outside** the repo; use a native `D:/...` path, never `/d/...`).
-5. `node scripts/release-manifest.mjs --zip ... --out ... --notes ...`
+5. `node scripts/release-deps-decision.mjs --lock package-lock.json --previous-lock <the last release's lock>` says whether the dependency tree changed (CI does this for you, see docs/SHIPPING.md 4a). Then `node scripts/release-manifest.mjs --zip ... --out ... --notes ...`, and when it said yes add `--full-zip <legion-<version>-win-x64.zip> --requires-full-install` (both; the second alone is refused).
 6. `node scripts/release-sign.mjs --key ... --manifest ...`
 7. `gh release create v<version> --target main` with all six assets.
 8. Confirm `releases/latest/download/legion-update-manifest.json` serves the new version.

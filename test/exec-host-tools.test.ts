@@ -179,9 +179,13 @@ test('the direct-host backend runs a command with the environment it was given, 
 });
 
 test('the guard stays fast on a command of 100 000 rm words (no rescan per word)', () => {
-  const t = Date.now();
-  refuseCatastrophic('rm '.repeat(100_000));
-  assert.ok(Date.now() - t < 1000, `took ${Date.now() - t} ms`);
+  // growth, not a wall clock: a shared CI runner can be slow for a moment, but a rescan per word makes 10x the words cost ~100x the time
+  const time = (n: number): number => { const t = process.hrtime.bigint(); refuseCatastrophic('rm '.repeat(n)); return Number(process.hrtime.bigint() - t) / 1e6; };
+  const median = (n: number): number => [time(n), time(n), time(n)].sort((a, b) => a - b)[1]!;
+  time(10_000); // warm up
+  const small = Math.max(median(10_000), 1);
+  const big = median(100_000);
+  assert.ok(big < small * 30 + 250, `10k words ${small.toFixed(1)} ms, 100k words ${big.toFixed(1)} ms`);
 });
 
 test('a protected target is recognised however it is spelled: dot segments, macOS homes, System32', () => {

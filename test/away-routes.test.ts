@@ -279,3 +279,20 @@ test('queue.updated on the event stream leaves out a hidden agent\'s tasks, like
     assert.ok(!text.includes('task_h'), 'the hidden agent\'s task is not in the stream');
   } finally { await r.close(); }
 });
+
+test('the app can start a task "after" the agent\'s other run (startAfter); a bearer-only client cannot, and a non-boolean is refused', async () => {
+  const r = await boot();
+  try {
+    const seen: Array<{ startAfter?: unknown; source?: string }> = [];
+    const real = (r.f.ctx.engine as unknown as { startTask: (p: unknown) => unknown }).startTask.bind(r.f.ctx.engine);
+    (r.f.ctx.engine as unknown as Record<string, unknown>).startTask = (p: { startAfter?: unknown; source?: string }) => { seen.push({ startAfter: p.startAfter, source: p.source }); return real(p); };
+    const ok = await r.call('POST', '/api/tasks', { agentId: 'zealot', prompt: 'second', projectId: r.pid, startAfter: true });
+    assert.equal(ok.status, 201);
+    assert.deepEqual(seen[0], { startAfter: true, source: 'ui' });
+    const plain = await r.call('POST', '/api/tasks', { agentId: 'zealot', prompt: 'plain', projectId: r.pid });
+    assert.equal(plain.status, 201);
+    assert.equal(seen[1]!.startAfter, undefined, 'absent stays absent');
+    assert.equal((await r.client('POST', '/api/tasks', { agentId: 'zealot', prompt: 'x', startAfter: true })).status, 403, 'a token client cannot queue behind a run');
+    assert.equal((await r.call('POST', '/api/tasks', { agentId: 'zealot', prompt: 'x', startAfter: 'yes' })).status, 400);
+  } finally { await r.close(); }
+});

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { openEditor, selectAgent, selectTask, setView, useStore } from '../store';
+import { openEditor, selectAgent, useStore } from '../store';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
@@ -9,8 +9,10 @@ import { railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
 import { useAllProposals } from '../projects/useProposals';
-import { openProjectBoard } from '../projects/projectsStore';
+import { openAsk, openProjectBoard } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
+import { githubTag } from '../github/agentAccess';
+import '../github/github-access.css';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
 
 /** The rail shows at most this many "needs you elsewhere" rows; the rest sit behind "N more" (which opens the project menu). */
@@ -59,7 +61,7 @@ export function AgentRail() {
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.slice(0, WAIT_CAP).map((row) => (
             <button key={row.id} type="button" className="rail-wait-row" title={row.label}
-              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else { setView('chat'); selectTask(row.taskId); } }}>
+              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else openAsk({ taskId: row.taskId }); }}>
               <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}
@@ -88,6 +90,7 @@ export function AgentRail() {
               <span className="agent-main">
                 <span className="agent-name">{a.name}</span>
                 <span className={`agent-sub${line.tone === 'attn' && !queuedHeld ? ' attn' : line.tone === 'work' && !queuedHeld ? ' also' : queuedHeld ? ' warn' : ''}`} title={full} data-testid="rail-subline">{subText}</span>
+                {githubTag(a) && <span className="agent-gh" data-testid="rail-github-tag">{githubTag(a)}</span>}
               </span>
               <span className="agent-meta">
                 {a.vm.enabled && <i className={`pip pip-${tone}`} title={`VM: ${vm ? vmLabel[vm.state] : 'No VM'}`} />}

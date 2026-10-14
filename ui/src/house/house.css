@@ -113,7 +113,7 @@
 .house-search input::placeholder { color: var(--muted); opacity: 1; }
 .house-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
 
-.house-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: 8px; background: var(--warn-soft); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.house-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--warn-line); border-radius: 8px; background: var(--warn-soft); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 .house-empty { padding: 10px 0; }
 .house-about { margin: 4px 0 0; }
 

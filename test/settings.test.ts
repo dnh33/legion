@@ -125,7 +125,7 @@ test('compaction: reset restores the shipped defaults, on disk and live', () => 
 });
 
 test('compaction routes stay admin-only: default-deny refuses a token-only caller', () => {
-  for (const [method, path] of [['GET', '/api/settings'], ['PATCH', '/api/settings'], ['POST', '/api/settings/compaction/reset']] as const) {
+  for (const [method, path] of [['GET', '/api/settings'], ['PATCH', '/api/settings'], ['POST', '/api/settings/compaction/reset'], ['POST', '/api/settings/gates/rules']] as const) {
     assert.equal(isClientRoute(method, path), false, `${method} ${path} is not a client route`);
     assert.deepEqual(
       gate({ method, path, adminOk: false, bearerOk: true, hasSecret: true }),

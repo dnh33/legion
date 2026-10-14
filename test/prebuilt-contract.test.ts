@@ -80,7 +80,8 @@ test('swap: a full-package install may name node_modules and runtime, never .upd
   put(staged, 'package.json', '{"v":2}'); put(staged, 'dist/a.js', 'new');
   for (const bad of ['..', '.', 'a/b', 'a\\b', 'C:x', '.update', '']) await assert.rejects(swapIn({ installDir: dest, stagedDir: staged, from: '1', to: '2', names: ['dist', 'package.json', bad] }), /refusing to swap/, bad || '(empty)');
   put(dest, 'package.json', '{"v":1}'); put(dest, 'dist/a.js', 'old'); put(dest, 'node_modules/old/i.js', 'old'); put(staged, 'node_modules/new/i.js', 'new');
-  await assert.rejects(swapIn({ installDir: dest, stagedDir: staged, from: '1', to: '2', names: ['dist', 'package.json', 'node_modules'], retryMs: 10, step: (l) => { if (l === 'before-install:node_modules') throw new Error('boom'); } }), /boom/);
+  put(dest, 'dist-ui/index.html', 'old'); put(dest, 'runtime/electron/e.exe', 'old'); put(staged, 'dist-ui/index.html', 'new'); put(staged, 'runtime/electron/e.exe', 'new'); // a full job stages the whole full set
+  await assert.rejects(swapIn({ installDir: dest, stagedDir: staged, from: '1', to: '2', names: ['dist', 'dist-ui', 'package.json', 'node_modules', 'runtime'], retryMs: 10, step: (l) => { if (l === 'before-install:node_modules') throw new Error('boom'); } }), /boom/);
   assert.equal(readFileSync(join(dest, 'node_modules/old/i.js'), 'utf8'), 'old'); assert.equal(readFileSync(join(dest, 'dist/a.js'), 'utf8'), 'old'); assert.equal(readFileSync(join(dest, 'package.json'), 'utf8'), '{"v":1}');
 });
 

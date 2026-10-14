@@ -5,6 +5,8 @@ import { initHouse } from './house/houseStore';
 import { EnableBlenderDialog } from './blender/EnableBlenderDialog';
 import { initBsv } from './bsv/bsvStore';
 import { CiPanel } from './ci/CiPanel';
+import { GithubArea } from './github/GithubArea';
+import { initGithub } from './github/githubStore';
 import { ciProjectChanged, initCi } from './ci/ciStore';
 import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
@@ -24,7 +26,8 @@ import { LibraryView } from './library/LibraryView';
 import { ProjectView } from './projects/ProjectView';
 import { LiveRegion } from './projects/page/announce';
 import { HoldChip } from './projects/page/HoldChip';
-import { initProjects } from './projects/projectsStore';
+import { WhatsNew } from './whatsnew/WhatsNew';
+import { initProjects, openAsk } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
 import {
@@ -74,9 +77,20 @@ export function App() {
   useWindowAway();
 
   useEffect(() => { reopenGithubAfterReload(); }, []);
-  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); initGithub(); }, []);
   const projectFilter = useStore((s) => s.projectFilter);
   useEffect(() => { ciProjectChanged(); }, [projectFilter]);
+
+  // The desktop (taskbar, notifications) needs two things from this window: where to go when a notification is clicked, and what is on
+  // screen now, so it stays quiet about what you are already looking at.
+  useEffect(() => window.legion?.onOpenAsk?.(openAsk), []);
+  const selectedTaskId = useStore((s) => s.selectedTaskId);
+  useEffect(() => {
+    window.legion?.reportView?.({
+      pageProjectId: !settingsOpen && view === 'project' ? projectFilter : null,
+      threadTaskId: !settingsOpen && view === 'chat' ? selectedTaskId : null,
+    });
+  }, [view, projectFilter, selectedTaskId, settingsOpen]);
 
   // F1/F2/F3 switch the main views. Renderer-level on purpose - see ui/src/viewKeys.ts for why this must not be an
   // OS-level registration. Repeat presses are harmless: setView to the view already shown is a no-op.
@@ -111,6 +125,7 @@ export function App() {
       <TitleBar />
       <AgentRail />
       <main className="center">
+        <HoldChip />
         {settingsOpen ? <SettingsPanel /> : (
           <>
             {view === 'chat' && <><Thread /><Composer /></>}
@@ -126,12 +141,13 @@ export function App() {
       {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} {...(editor.focus ? { focus: editor.focus } : {})} />}
       <TaskMenu />
       <Toasts />
-      <HoldChip />
       <LiveRegion />
       <ChainOverlay />
       <CiPanel />
+      <GithubArea />
       <EnableBlenderDialog />
       <Takeover />
+      <WhatsNew />
     </div>
   );
 }

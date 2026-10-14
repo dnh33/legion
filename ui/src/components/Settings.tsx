@@ -17,22 +17,11 @@ import { ArmorySection } from '../armory/ArmorySection';
 import { GithubSection } from '../connectors/GithubSection';
 import { LogsSection } from '../logs/LogsSection';
 import { GatesSection } from '../gates/GatesSection';
-
-const NAV: { id: SettingsSection; label: string; hint: string }[] = [
-  { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
-  { id: 'gates', label: 'Gates', hint: 'When agents need your OK' },
-  { id: 'providers', label: 'Providers', hint: 'Other models, optional' },
-  { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
-  { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
-  { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
-  { id: 'compaction', label: 'Compaction', hint: 'Context limits for long runs' },
-  { id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' },
-  { id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' },
-  { id: 'github', label: 'GitHub', hint: 'Connector: read repos and CI' },
-  { id: 'connections', label: 'Use from Claude', hint: 'Drive Legion from Claude Code' },
-  { id: 'logs', label: 'Logs', hint: 'What Legion did, on your computer' },
-  { id: 'about', label: 'About', hint: 'Version and folders' },
-];
+import { NotificationsSection } from '../away/NotificationsSection';
+import { SoundsSection } from '../sound/SoundsSection';
+import { SpendingSection } from '../away/SpendingSection';
+import { NAV, groupNav } from './settingsNav';
+import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
 
 export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
@@ -42,6 +31,7 @@ export function SettingsPanel() {
   const provView = useProviders((x) => x.view);
   useEffect(() => { void loadProviders(); }, []);
   const nav = provView ? NAV : NAV.filter((n) => n.id !== 'providers');
+  const groups = groupNav(nav);
   // In the narrow tab strip the selected tab can sit off-screen (Doctrine is far along the row): bring it into view.
   // Narrowing the window moves the tab again, so the strip's own size is watched too (one frame at most per change).
   const navEl = useRef<HTMLElement>(null);
@@ -64,10 +54,15 @@ export function SettingsPanel() {
       <nav ref={navEl} className="set-nav" aria-label="Settings sections">
         <button className="set-back" onClick={closeSettings} aria-label="Back to chat" title="Back to chat (Esc)"><Icon name="chevron" size={13} /> <span>Back to chat</span></button>
         <h2>Settings</h2>
-        {nav.map((n) => (
-          <button key={n.id} className={`set-link${section === n.id ? ' sel' : ''}`} aria-current={section === n.id} onClick={() => setSection(n.id)}>
-            <b>{n.label}</b><span>{n.hint}</span>
-          </button>
+        {groups.map((g, gi) => (
+          <div key={g.heading ?? 'more'} className={`set-group${g.heading ? '' : ' bare'}`} role="group" aria-labelledby={g.heading ? `set-grp-${gi}` : undefined} aria-label={g.heading ? undefined : 'More'}>
+            {g.heading && <h3 id={`set-grp-${gi}`} className="set-group-h">{g.heading}</h3>}
+            {g.items.map((n) => (
+              <button key={n.id} className={`set-link${section === n.id ? ' sel' : ''}`} aria-current={section === n.id} onClick={() => setSection(n.id)}>
+                <b>{n.label}</b><span>{n.hint}</span>
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
       <div ref={scrollEl} className="set-scroll scroll-cue">
@@ -75,6 +70,8 @@ export function SettingsPanel() {
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
               : section === 'gates' ? <GatesSection s={settings} />
+              : section === 'notifications' ? <><NotificationsSection /><SoundsSection /></>
+              : section === 'spending' ? <SpendingSection />
               : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
@@ -803,8 +800,23 @@ function AboutSection({ s }: { s: SettingsView }) {
           <div key={k}><dt>{k}</dt><dd><code>{v}</code>{copy && <button type="button" className="btn-ghost sm" onClick={() => void copyText(v).then((ok) => ok && toast('Copied'))}><Icon name="copy" size={12} /> Copy</button>}</dd></div>
         ))}
       </dl>
+      <TipsRow version={version} />
       <UpdatePanel />
       <BrowserSection />
+    </div>
+  );
+}
+
+/** What's new: the switch for tips after an update, and a button that shows this release's tips again. */
+function TipsRow({ version }: { version: string }) {
+  const { enabled } = useTips();
+  return (
+    <div className="set-group">
+      <label className="set-check">
+        <input type="checkbox" checked={enabled} onChange={(e) => setTipsEnabled(e.target.checked)} />
+        <span><b>Show tips after updates</b><em>A few short notes about what changed, shown once when it is quiet. You can end them at any time.</em></span>
+      </label>
+      <button type="button" className="btn sm" disabled={!version} onClick={() => { if (replayTips(version)) { toast('The tips show as you open each page.'); closeSettings(); } else toast('This version has no tips.'); }}>What's new</button>
     </div>
   );
 }

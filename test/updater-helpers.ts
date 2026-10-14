@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { deflateRawSync } from 'node:zlib';
 import type { AddressInfo } from 'node:net';
-import { assetNameFor, fullAssetNameFor, MANIFEST_NAME, SIG_NAME, type UpdateSource } from '../src/core/updater/config.js';
+import { assetNameFor, fullAssetNameFor, MANIFEST_NAME, MANIFEST2_NAME, SIG_NAME, SIG2_NAME, type UpdateSource } from '../src/core/updater/config.js';
 import type { UpdateKey } from '../src/core/updater/trust.js';
 
 export const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
@@ -67,20 +67,21 @@ export function packageFiles(version: string, over: { lock?: string; extra?: Zip
   return [...f.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d)), ...(over.extra ?? [])];
 }
 
-/** The two executables a Legion full package must ship (mirrors scripts/lib/package-lib.mjs ELECTRON_REL / CLAUDE_REL). */
-const FULL_EXES = ['runtime/electron/electron.exe', 'runtime/electron/resources/app/package.json', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe'];
 /** The files of a valid FULL package for `version`: the app files plus node_modules, runtime and PACKAGE-FILES.json. */
-export function fullPackageFiles(version: string, over: { lock?: string; extra?: ZipFile[]; drop?: string[]; pkgVersion?: string } = {}): ZipFile[] {
+export function fullPackageFiles(version: string, over: { lock?: string; extra?: ZipFile[]; drop?: string[]; pkgVersion?: string; /** Applied AFTER the file list is computed: what a bad extraction or an antivirus would do to the tree. */ after?: (files: ZipFile[]) => ZipFile[] } = {}): ZipFile[] {
   const top = `legion-${version}/`;
-  const files: ZipFile[] = [
+  const body: ZipFile[] = [
     ...packageFiles(version, over),
     { name: `${top}node_modules/electron/index.js`, data: '// electron' },
     { name: `${top}node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe`, data: 'MZ claude' },
     { name: `${top}runtime/electron/electron.exe`, data: 'MZ electron' },
     { name: `${top}runtime/electron/resources/app/package.json`, data: '{}' },
-    { name: `${top}PACKAGE-FILES.json`, data: JSON.stringify({ schema: 1, files: FULL_EXES.map((p) => ({ path: p, size: 1, sha256: '0'.repeat(64) })) }) },
   ];
-  return files.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d));
+  // The list names every file with its real size and sha256, as scripts/build-package.mjs writes it.
+  const list = { schema: 1, files: body.map((f) => ({ path: f.name.slice(top.length), size: Buffer.byteLength(f.data ?? ''), sha256: sha256(Buffer.from(f.data ?? '')) })) };
+  const files: ZipFile[] = [...body, { name: `${top}PACKAGE-FILES.json`, data: JSON.stringify(list) }]
+    .filter((x) => !(over.drop ?? []).some((d) => x.name === top + d));
+  return over.after ? over.after(files) : files;
 }
 
 export interface Release { version: string; zip: Buffer; fullZip?: Buffer; manifest: Buffer; sig: string; manifestObj: Record<string, unknown> }
@@ -101,16 +102,19 @@ export function makeRelease(k: TestKey, version: string, o: { files?: ZipFile[];
   return { version, zip, ...(fullZip ? { fullZip } : {}), manifest, manifestObj, sig: JSON.stringify({ keyId: signer.id, alg: 'ed25519', sig: signer.sign(manifest) }) };
 }
 
-export interface FakeServer { url: string; source: UpdateSource; hits: string[]; close(): Promise<void>; setRelease(r: Release | null): void; handler: { custom?: (req: IncomingMessage, res: ServerResponse) => boolean } }
+export interface FakeServer { url: string; source: UpdateSource; hits: string[]; close(): Promise<void>; setRelease(r: Release | null): void; /** The second manifest name (generation 2 updaters read it first); null = not published (404). A null sig = manifest without a .sig. */ setManifest2(m: { manifest: Buffer; sig: string | null } | null): void; handler: { custom?: (req: IncomingMessage, res: ServerResponse) => boolean } }
 /** A fake GitHub on loopback: /releases/latest/download/<manifest|sig>, /releases/download/v<ver>/<asset>. `custom` can take over any request. */
 export async function startFakeServer(initial: Release | null): Promise<FakeServer> {
   let rel = initial;
+  let m2: { manifest: Buffer; sig: string | null } | null = null;
   const hits: string[] = [];
   const handler: FakeServer['handler'] = {};
   const srv: Server = createServer((req, res) => {
     hits.push(`${req.method} ${req.url}`);
     if (handler.custom?.(req, res)) return;
     const u = req.url ?? '';
+    if (m2 && u === `/releases/latest/download/${MANIFEST2_NAME}`) { res.writeHead(200, { 'content-length': m2.manifest.length }); res.end(m2.manifest); return; }
+    if (m2 && m2.sig !== null && u === `/releases/latest/download/${SIG2_NAME}`) { res.writeHead(200); res.end(m2.sig); return; }
     if (rel && u === `/releases/latest/download/${MANIFEST_NAME}`) { res.writeHead(200, { 'content-length': rel.manifest.length }); res.end(rel.manifest); return; }
     if (rel && u === `/releases/latest/download/${SIG_NAME}`) { res.writeHead(200); res.end(rel.sig); return; }
     if (rel && u === `/releases/download/v${rel.version}/${assetNameFor(rel.version)}`) { res.writeHead(200, { 'content-length': rel.zip.length }); res.end(rel.zip); return; }
@@ -124,6 +128,7 @@ export async function startFakeServer(initial: Release | null): Promise<FakeServ
     url, hits, handler,
     source: { base: url, policy: { hosts: ['127.0.0.1'], allowLoopbackHttp: true } },
     setRelease: (r) => { rel = r; },
+    setManifest2: (m) => { m2 = m; },
     close: () => new Promise<void>((r) => { srv.closeAllConnections?.(); srv.close(() => r()); }),
   };
 }

@@ -1,0 +1,26 @@
+.away-quiet { border: 1px solid var(--line-strong); border-radius: var(--r, 8px); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.away-quiet legend { padding: 0 6px; font-size: 12.5px; color: var(--muted); }
+.away-times { display: flex; flex-wrap: wrap; gap: 16px; padding-left: 25px; }
+.away-times label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.away-times input[type=time] { min-height: 30px; padding: 3px 8px; background: var(--surface); color: var(--text); border: 1px solid var(--control-line); border-radius: 6px; font: inherit; }
+.away-times input[type=time]:disabled { opacity: .5; }
+.away-quiet .set-hint, .away-quiet .set-error { margin: 0 0 0 25px; }
+
+.spend-totals { display: flex; flex-wrap: wrap; gap: 28px; }
+.spend-totals > div { display: flex; flex-direction: column; gap: 2px; }
+.spend-big { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.spend-h { margin: 6px 0 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.spend-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 520px; }
+.spend-rows li { display: grid; grid-template-columns: minmax(90px, 160px) 1fr auto; align-items: center; gap: 10px; font-size: 13px; }
+.spend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spend-track { height: 6px; border-radius: 3px; background: var(--surface); overflow: hidden; }
+.spend-track > span { display: block; height: 100%; background: var(--muted); border-radius: 3px; }
+.spend-usd { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.spend-days { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 4px; max-width: 520px; }
+.spend-days li { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.spend-bar-wrap { display: flex; align-items: flex-end; width: 100%; height: 72px; }
+.spend-bar { display: block; width: 100%; min-height: 0; background: var(--muted); border-radius: 2px 2px 0 0; }
+.spend-bar.today { background: var(--text-2); }
+.spend-day { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.spend-days li:not(:first-child):not(:last-child) .spend-day { visibility: hidden; }
+:root[data-kbd-nav] .away-section input:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }

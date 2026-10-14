@@ -8,6 +8,8 @@ import type {
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
+import { normRepo } from '../shared/github-area.js';
+import { validRepoString } from './ci/repo.js';
 import { withholdEvent, withholdMessage, withholdTask } from './connector-withhold.js';
 import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
 import type { ApprovalBroker } from './approvals.js';
@@ -160,6 +162,15 @@ function parseConnectors(v: unknown): string[] | undefined {
   return [...new Set(v as string[])];
 }
 
+/** Repos an agent may write to: owner/name, at most 100, each valid once a .git suffix and case are dropped. Stored lower-case. */
+function parseGithubWrite(v: unknown): string[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string' || x.length > 200 || !validRepoString(normRepo(x)))) {
+    throw new HttpError(400, 'githubWrite must be an array of repositories written owner/name');
+  }
+  return [...new Set((v as string[]).map(normRepo))];
+}
+
 function parseSkills(v: unknown): 'inherit' | string[] | undefined {
   if (v === undefined) return undefined;
   if (v === 'inherit') return 'inherit';
@@ -211,6 +222,7 @@ function parseAgentFields(b: Record<string, unknown>) {
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
     connectors: parseConnectors(b.connectors),
+    githubWrite: parseGithubWrite(b.githubWrite),
     skills: parseSkills(b.skills),
     // null clears the setting back to the default
     taskList: b.taskList === null ? null : oneOf(b.taskList, 'taskList', ['on', 'off']),
@@ -307,6 +319,8 @@ export function createServer(ctx: CoreContext): Server {
   // ---- settings --------------------------------------------------------
   route('GET', '/api/settings', () => ctx.settings.view());
   route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
+  // Add/remove single gate rules in one synchronous step (no lost update). Admin-only by default-deny, like every settings route.
+  route('POST', '/api/settings/gates/rules', ({ body }) => ctx.settings.editGateRules(body));
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
   // Restores the shipped compaction defaults. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES), like every settings route.
   route('POST', '/api/settings/compaction/reset', () => ctx.settings.resetCompaction());
@@ -332,6 +346,7 @@ export function createServer(ctx: CoreContext): Server {
       approval: f.approval ?? 'ask',
       mcpServers: f.mcpServers ?? ['*'],
       ...(f.connectors?.length ? { connectors: f.connectors } : {}),
+      ...(f.githubWrite?.length ? { githubWrite: f.githubWrite } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
       ...(f.host ? { host: f.host } : {}),
@@ -358,6 +373,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.approval ? { approval: f.approval } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
       ...(f.connectors ? { connectors: f.connectors } : {}),
+      ...(f.githubWrite ? { githubWrite: f.githubWrite } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
       // The whole host block is replaced, never merged: the editor always sends enabled + both optional fields.
@@ -367,6 +383,7 @@ export function createServer(ctx: CoreContext): Server {
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };
     if (f.taskList === null) delete next.taskList;
+    if (f.githubWrite && f.githubWrite.length === 0) delete next.githubWrite;
     const saved = ctx.store.upsertAgent(next);
     ctx.bus.emit({ type: 'agent.updated', agent: saved });
     return saved;
@@ -404,7 +421,10 @@ export function createServer(ctx: CoreContext): Server {
     // Only the app starts a task inside a project: a token client cannot put a run in a project (it can continue one, which keeps its project).
     const projectId = str(body.projectId, 'projectId');
     if (projectId !== undefined && !admin) throw new HttpError(403, 'admin_required: only the Legion app can start a task inside a project');
-    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId, ...(projectId ? { projectId } : {}) });
+    // "Queue after it" (the composer's second-run box): wait for this agent's other live runs in the project. The app's own choice.
+    if (body.startAfter !== undefined && typeof body.startAfter !== 'boolean') throw new HttpError(400, 'startAfter must be true or false');
+    if (body.startAfter === true && !admin) throw new HttpError(403, 'admin_required: only the Legion app can queue a task after another');
+    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId, ...(projectId ? { projectId } : {}), ...(body.startAfter === true ? { startAfter: true as const } : {}) });
   }, 201);
   route('GET', '/api/tasks/:id/wait', async ({ params, url, req }) => {
     const raw = url.searchParams.get('timeoutMs');

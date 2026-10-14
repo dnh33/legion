@@ -4,6 +4,9 @@ import { api, ApiError } from '../api';
 import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
 import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
+import { dropStaleReads } from './page/readsGrant';
+import { resolveAsk } from './openAsk';
+import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -38,6 +41,13 @@ export function openProjectBoard(id: string): void {
   enterProject(id);
   setTab('board');
   openProject(id);
+}
+/** The one way to open an ask: the rail row, a notification click and the tray item all end here (the choice is `resolveAsk`). */
+export function openAsk(ref: AskRef): void {
+  const s = getState();
+  const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
+  const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id));
+  if (act.kind === 'thread') { setView('chat'); selectTask(act.taskId); } else if (act.kind === 'project') openProject(act.projectId);
 }
 export const closeProjectPage = (): void => setView('chat');
 
@@ -81,8 +91,15 @@ async function viaMain(change: unknown): Promise<boolean> {
   } catch (e) { toast(errText(e), 'error'); return false; }
 }
 export const changeMembers = (id: string, members: string[]): Promise<boolean> => viaMain({ kind: 'members', id, members });
-export const chooseFolder = (id: string): Promise<boolean> => viaMain({ kind: 'folder', id, mode: 'pick' });
-export const useDefaultFolder = (id: string): Promise<boolean> => viaMain({ kind: 'folder', id, mode: 'default' });
+/** A changed folder ends the reads grant for the old one (it is not moved): see dropStaleReads. */
+async function changeFolder(id: string, mode: 'pick' | 'default'): Promise<boolean> {
+  const ok = await viaMain({ kind: 'folder', id, mode });
+  const p = getState().projects.find((x) => x.id === id);
+  if (ok && p) await dropStaleReads(p);
+  return ok;
+}
+export const chooseFolder = (id: string): Promise<boolean> => changeFolder(id, 'pick');
+export const useDefaultFolder = (id: string): Promise<boolean> => changeFolder(id, 'default');
 
 export async function assignRoom(roomId: string, projectId: string | null): Promise<boolean> {
   try { await api.patchRoomProject(roomId, projectId); return true; } catch (e) { toast(errText(e), 'error'); return false; }
