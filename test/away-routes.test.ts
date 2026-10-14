@@ -159,6 +159,20 @@ test('spend: the project scope carries the budget verdict the page needs', async
   } finally { await r.close(); }
 });
 
+test('spend: the project scope can say what was spent since a moment (the digest header)', async () => {
+  const now = new Date(2026, 9, 14, 15).getTime();
+  const r = await boot({ now: () => now });
+  try {
+    r.mod.service.recordSpend({ taskId: 't', agentId: 'zealot', projectId: r.pid, usd: 2 });
+    const since = encodeURIComponent(new Date(now - 3600_000).toISOString());
+    const get = async (q: string) => (await (await r.call('GET', `/api/spend?scope=project&project=${r.pid}${q}`)).json() as { sinceUsd?: number }).sinceUsd;
+    assert.equal(await get(''), undefined);
+    assert.equal(await get(`&since=${since}`), 2);
+    assert.equal(await get(`&since=${encodeURIComponent(new Date(now + 3600_000).toISOString())}`), 0);
+    assert.equal((await r.call('GET', `/api/spend?scope=project&project=${r.pid}&since=notatime`)).status, 400);
+  } finally { await r.close(); }
+});
+
 test('hold route: body validated, forwards to the broker', async () => {
   const r = await boot();
   try {
