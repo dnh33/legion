@@ -176,6 +176,7 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
           storage,
           signedIn: c ? await c.signedIn() : false,
           flow: view,
+          writeFlow: writeFlow.view,
           revokeUrl: GITHUB_APPS_SETTINGS_URL,
         };
       });
@@ -203,6 +204,12 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
       add('PUT', '/api/github/repos/:owner/:name/tick', ({ params, body }) => area.tick(params[0] ?? '', params[1] ?? '', onOf(body)));
       add('PUT', '/api/github/agents-switch', ({ body }) => area.agentsSwitch(onOf(body)));
       add('POST', '/api/github/apps/write/connect', ({ body }) => startWriteFlow(!!body && typeof body === 'object' && (body as { memoryOnly?: unknown }).memoryOnly === true));
+      add('POST', '/api/github/apps/write/cancel', () => {
+        writeFlow.abort?.abort();
+        writeFlow.abort = undefined;
+        if (writeFlow.view.phase === 'pending') writeFlow.view = { phase: 'idle' };
+        return { ok: true };
+      });
       add('POST', '/api/github/apps/write/disconnect', async () => {
         writeFlow.abort?.abort();
         writeFlow.abort = undefined;

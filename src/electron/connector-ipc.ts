@@ -31,6 +31,7 @@ let busy = false;
 
 /** `app` picks which GitHub App signs in: read (the default, as before) or write. Each has its own sign-in route on the core. */
 export async function connectGithub(deps: ConnectorIpcDeps, app: GithubApp = 'read'): Promise<ConnectResult> {
+  if (app !== 'read' && app !== 'write') return { ok: false, error: 'That GitHub App cannot be signed in here.' };
   if (busy) return { ok: false, error: 'A connect is already in progress.' };
   busy = true;
   try {

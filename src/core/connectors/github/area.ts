@@ -15,11 +15,12 @@ import type { Project } from '../../../shared/projects.js';
 import type { AgentProfile } from '../../../shared/types.js';
 import { agentGithubLevel, normRepo } from '../../../shared/github-area.js';
 import type { GithubActivityItem, GithubApp, GithubAreaView, GithubLevel, GithubRepoCi, GithubRepoRow } from '../../../shared/github-area.js';
-import { readAllowlist, setMaster, setTicked } from './allowlist.js';
+import { MAX_TICKED, readAllowlist, setMaster, setTicked } from './allowlist.js';
 import type { GitHubClient } from './client.js';
 import { githubInstallSettingsUrl } from './hosts.js';
 
 const CACHE_MS = 60_000;
+const FORCE_FLOOR_MS = 10_000;
 const APPS: GithubApp[] = ['read', 'write'];
 const MAX_CI = 50;
 
@@ -95,16 +96,24 @@ export class GithubArea {
 
   private async refresh(): Promise<Remote> {
     const prev = this.remote;
-    const next: Remote = { at: this.d.now(), apps: { ...prev?.apps }, ...(prev?.login ? { login: prev.login } : {}) };
+    const next: Remote = { at: this.d.now(), apps: { ...prev?.apps }, ...(prev?.login ? { login: prev.login } : {}), ...(prev?.rate ? { rate: prev.rate } : {}) };
     let signedInAny = false;
     for (const app of APPS) {
       const c = this.d.client(app);
-      if (!c || !(await c.signedIn())) { delete next.apps[app]; continue; }
+      let signed = false;
+      try { signed = !!c && (await c.signedIn()); } catch (e) {
+        // the token store could not be read: say so, and keep what this App showed last time
+        const p = problemOf(e);
+        if (!next.problem) next.problem = p;
+        this.d.log(`github area: could not check the ${app} sign-in (${p.kind})`);
+        continue;
+      }
+      if (!c || !signed) { delete next.apps[app]; continue; }
       signedInAny = true;
       try {
         next.apps[app] = await this.loadApp(app, c);
-        if (!next.login && app === 'read') {
-          // one more request: who is signed in, and what is left of the rate limit
+        if (app === 'read') {
+          // one more request: who is signed in, and (from the newest response headers) what is left of the rate limit
           const u = await c.request('/user');
           const login = (u.json as { login?: unknown } | null)?.login;
           if (typeof login === 'string') next.login = login;
@@ -115,9 +124,11 @@ export class GithubArea {
         const p = problemOf(e);
         if (!next.problem || p.kind === 'rate-limited') next.problem = p;
         this.d.log(`github area: could not read the ${app} installations (${p.kind})`);
+        // GitHub asked us to wait: the other App shares the owner's limit, so it is not asked now
+        if (p.kind === 'rate-limited') break;
       }
     }
-    if (!signedInAny) next.problem = { kind: 'not-connected' };
+    if (!signedInAny && !next.problem) next.problem = { kind: 'not-connected' };
     return next;
   }
 
@@ -126,6 +137,8 @@ export class GithubArea {
     const now = this.d.now();
     if (r) {
       if (!force && now - r.at < CACHE_MS) return r;
+      // a forced read is the owner's refresh button: at most one round of calls per FORCE_FLOOR_MS
+      if (force && now - r.at < FORCE_FLOOR_MS) return r;
       // GitHub asked us to wait: no request until then, forced or not
       if (r.problem?.kind === 'rate-limited' && r.problem.resetAt && Date.parse(r.problem.resetAt) > now) return r;
     }
@@ -156,7 +169,10 @@ export class GithubArea {
     const clients = { read: this.d.client('read'), write: this.d.client('write') };
     const signed = { read: !!r.apps.read, write: !!r.apps.write };
     // an App that is signed in but failed this time has no data: ask the client rather than guess
-    for (const app of APPS) if (!signed[app] && clients[app]) signed[app] = await clients[app]!.signedIn();
+    for (const app of APPS) {
+      if (signed[app] || !clients[app]) continue;
+      try { signed[app] = await clients[app]!.signedIn(); } catch { signed[app] = false; }
+    }
     return {
       registered: { read: !!clients.read?.deviceFlowAvailable(), write: !!clients.write?.deviceFlowAvailable() },
       signedIn: signed,
@@ -176,7 +192,11 @@ export class GithubArea {
     const full = `${owner}/${name}`;
     if (!validRepoString(full)) throw new HttpError(400, 'That is not a repository name.');
     if (on && !(await this.view(false)).repos.some((x) => normRepo(x.fullName) === normRepo(full))) throw new HttpError(404, 'not-installed');
-    setTicked(this.d.dataDir, full, on);
+    try { setTicked(this.d.dataDir, full, on); } catch (e) {
+      // the only way this fails for a valid name is the cap on turned-on repos
+      if (on && readAllowlist(this.d.dataDir).ticked.length >= MAX_TICKED) throw new HttpError(409, 'too-many-ticked');
+      throw e;
+    }
     return this.view(false);
   }
 

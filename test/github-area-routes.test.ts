@@ -157,7 +157,13 @@ test('60 s cache: a second read costs no GitHub call, a forced one does, and a t
   assert.ok(apiCalls(r) > first, 'the cache ran out');
   const n = apiCalls(r);
   await r.get(true);
-  assert.ok(apiCalls(r) > n, '?force=1 asks again');
+  assert.equal(apiCalls(r), n, '?force=1 inside the 10 s floor serves the cache');
+  r.tick(11_000);
+  await r.get(true);
+  const one = apiCalls(r) - n;
+  assert.ok(one > 0, '?force=1 asks again after the floor');
+  for (let i = 0; i < 5; i++) await r.get(true);
+  assert.equal(apiCalls(r) - n, one, 'a burst of forced reads costs one round of calls');
 });
 
 test('a rate limit becomes problem rate-limited with the reset time, keeps the list, and a forced read does not ask GitHub again', async () => {
@@ -166,6 +172,7 @@ test('a rate limit becomes problem rate-limited with the reset time, keeps the l
   assert.ok(good.repos.length > 0);
   const resetSec = Math.floor(Date.now() / 1000) + 3600;
   r.fake.override = () => [403, { message: 'API rate limit exceeded' }, { ...rate, 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetSec) }];
+  r.tick(11_000);
   const v = await r.get(true);
   assert.equal(v.problem?.kind, 'rate-limited');
   assert.equal(v.problem?.resetAt, new Date(resetSec * 1000).toISOString());
@@ -179,10 +186,12 @@ test('offline keeps the cached list and says network', async () => {
   const r = await rig();
   const good = await r.get();
   r.setOffline(true);
+  r.tick(11_000);
   const v = await r.get(true);
   assert.equal(v.problem?.kind, 'network');
   assert.equal(v.repos.length, good.repos.length);
   r.setOffline(false);
+  r.tick(11_000);
   assert.equal((await r.get(true)).problem, undefined, 'back online, the problem clears');
 });
 
@@ -297,4 +306,66 @@ test('connectGithub(write) signs in the write App through its own route and open
   assert.ok(log.includes('POST /api/github/apps/write/connect'));
   assert.ok(!log.includes('POST /api/connectors/github/connect'));
   assert.deepEqual(log.filter((l) => l.startsWith('open')), ['open https://github.com/login/device']);
+});
+
+test('the rate limit stays on the view after a second refresh and follows the newest headers', async () => {
+  const r = await rig();
+  let left = 4990;
+  const inner = r.fake.override!;
+  r.fake.override = (h, m, p) => {
+    const hit = inner(h, m, p);
+    const hdr = { ...rate, 'x-ratelimit-remaining': String(left) };
+    if (hit) return [hit[0], hit[1], hdr];
+    if (p.split('?')[0] === '/user') return [200, { login: 'dnh33' }, hdr];
+    return undefined;
+  };
+  const a = await r.get();
+  assert.equal(a.login, 'dnh33');
+  assert.ok(a.rate, 'rate on the first refresh');
+  left = 4900;
+  r.tick(61_000);
+  const b = await r.get();
+  assert.equal(b.login, 'dnh33');
+  assert.equal(b.rate?.remaining, 4900, 'rate present and updated after the second refresh');
+});
+
+test('after a rate limit from one App, the other App is not asked in the same refresh', async () => {
+  const r = await rig();
+  const writeBearer = `Bearer ${[...r.fake.access.keys()][1]}`;
+  const resetSec = Math.floor(Date.now() / 1000) + 3600;
+  r.fake.override = () => [403, { message: 'API rate limit exceeded' }, { ...rate, 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetSec) }];
+  const v = await r.get();
+  assert.equal(v.problem?.kind, 'rate-limited');
+  assert.equal(r.fake.requests.filter((q) => q.auth === writeBearer).length, 0, 'the write App was not asked');
+});
+
+test('a sign-in check that throws becomes a problem on the view, not a failed request', async () => {
+  const r = await rig();
+  r.read.signedIn = async () => { throw new Error('keystore is locked'); };
+  const v = await r.get();
+  assert.equal(v.problem?.kind, 'network');
+  assert.equal(v.signedIn.read, false);
+});
+
+test('turning on a 501st repo is a plain 409, not a server error', async () => {
+  const r = await rig();
+  for (let i = 0; i < 500; i++) setTicked(r.dataDir, `x/repo${i}`, true);
+  assert.deepEqual(await r.refused('PUT', '/api/github/repos/:owner/:name/tick', { on: true }, ['dnh33', 'legion']), { status: 409, message: 'too-many-ticked' });
+  assert.equal((await r.call('PUT', '/api/github/repos/:owner/:name/tick', { on: false }, ['x', 'repo0'])).repos.length > 0, true, 'turning off still works');
+});
+
+test('write App sign-in shows its own flow state and can be cancelled', async () => {
+  const r = await rig({ write: false });
+  r.fake.script = ['pending'];
+  await r.call('POST', '/api/github/apps/write/connect', {});
+  const st1 = await r.call('GET', '/api/connectors/github');
+  assert.equal(st1.writeFlow.phase, 'pending');
+  assert.equal(st1.flow.phase, 'idle', 'the read flow is separate');
+  assert.deepEqual(await r.call('POST', '/api/github/apps/write/cancel', {}), { ok: true });
+  assert.equal((await r.call('GET', '/api/connectors/github')).writeFlow.phase, 'idle');
+});
+
+test('connectGithub refuses an App that is not read or write', async () => {
+  const out = await connectGithub({ async call() { throw new Error('must not be reached'); }, confirm: async () => true, ensureKey: async () => undefined, restartCore: async () => null, openExternal: () => undefined }, 'create' as never);
+  assert.equal(out.ok, false);
 });
