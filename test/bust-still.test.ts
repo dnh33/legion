@@ -47,3 +47,37 @@ test('poses without their own picture rest on the idle one; the six that have on
 test('still file names are theme/bust-state.webp', () => {
   assert.equal(stillFile('zealot', 'idle', 'dark'), 'dark/zealot-idle.webp');
 });
+
+// ---- the component: rest renders the picture, the engine wakes on hover or keyboard focus (source checks, no DOM runner) ----
+const bust = read('ui', 'src', 'mascot', 'Bust.tsx');
+
+test('Bust renders the still at rest and wakes the engine only on pointer or keyboard focus', () => {
+  assert.match(bust, /className="bust-still"/);
+  assert.match(bust, /pointerenter/);
+  assert.match(bust, /pointerleave/);
+  assert.match(bust, /focusin/);
+  assert.match(bust, /:focus-visible/);
+  // the engine is created only while active (stage, or awake at rest) and always destroyed on cleanup
+  assert.match(bust, /m\.current\?\.destroy\(\)/);
+  assert.match(bust, /const active = !rest \|\| awake/);
+});
+
+test('the stage and busts without a still keep the live engine (rest is only for busts that have a still)', () => {
+  assert.match(bust, /const rest = !stage && hasStill\(agentId\)/);
+  assert.match(read('ui', 'src', 'mascot', 'BustStage.tsx'), /\bstage\b/);
+});
+
+test('needs-you ring is static: no animation on the resting ring, and it is driven by the awaiting pose only', () => {
+  const css = read('ui', 'src', 'mascot', 'bust.css');
+  const ring = /\.bust\.bust-rest\.needs::after \{[^}]*\}/.exec(css)?.[0] ?? '';
+  assert.ok(ring.includes('var(--warn)'));
+  assert.ok(!/animation|transition|will-change/.test(ring));
+  assert.match(bust, /const needs = state === 'awaiting'/);
+});
+
+test('stills are never inlined into the bundle as data URIs (the IIFE bundle would bloat) and load by relative URL', () => {
+  const cfg = read('ui', 'vite.config.ts');
+  assert.match(cfg, /assetsInlineLimit/);
+  assert.match(cfg, /mascot\/stills/);
+  assert.match(cfg, /base: '\.\/'/);
+});

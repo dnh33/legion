@@ -28,6 +28,8 @@ export default defineConfig({
     emptyOutDir: true,
     target: 'chrome130',
     modulePreload: false,
+    // the bust stills are real files next to the bundle (a few KB each would otherwise become data URIs and fatten the IIFE)
+    assetsInlineLimit: (file) => (file.includes('mascot/stills') ? false : undefined),
     rollupOptions: { output: { format: 'iife', inlineDynamicImports: true } },
   },
   server: { port: 5173, strictPort: true },

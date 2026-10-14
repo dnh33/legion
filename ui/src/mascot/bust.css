@@ -25,4 +25,4 @@
 /* needs you: a static amber ring, painted once and never animated, so it costs the compositor nothing */
 .bust.bust-rest.needs { border-radius: 28%; overflow: visible; }
 .bust.bust-rest.needs::after { content: ''; position: absolute; inset: 0; border-radius: inherit; border: 2px solid var(--warn); opacity: .9; pointer-events: none; }
-.bust-rest .bust-still-wrap { display: block; width: 100%; height: 100%; }
+.bust-rest > * { grid-area: 1 / 1; } /* the live bust paints in the same cell, over the still, until the still steps aside */
