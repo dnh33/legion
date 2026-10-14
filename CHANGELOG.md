@@ -13,6 +13,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   own card now, with a note on what you need to run or paste. A local server's card has an optional key field, for a
   server you started with a key.
 
+### Changed
+
+- **Messages say "your computer".** Dialogs, warnings and status lines that said "this computer" or "this machine" now
+  say "your computer".
+
 ### Fixed
 
 - **A tool call written as plain text is no longer shown as the answer.** Some models write `<tool_call>` markup into
@@ -20,11 +25,6 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   a tool call as text.
 - **A tool call with bad arguments now says what is wrong.** The model is told if the arguments were not valid JSON, an
   array, a string, or too large, and is asked to send one JSON object. A JSON object sent inside a string is accepted.
-
-### Changed
-
-- **Messages say "your computer".** Dialogs, warnings and status lines that said "this computer" or "this machine" now
-  say "your computer".
 
 ## [0.2.6] - 2026-10-13
 
