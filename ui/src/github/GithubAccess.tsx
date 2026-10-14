@@ -45,7 +45,7 @@ export function GithubAccess({ level, onLevel, repos, onRepos, area, onRetry }: 
           )}
           <div className="gha-list">
             {/* saved repos that are not ticked come first: they are the ones the owner must act on */}
-            {stale.map((r) => <label key={r} className="check-row"><input type="checkbox" checked onChange={() => flip(r)} /> <span className="gha-repo">{r}</span> {staleKeys.has(normRepo(r)) && <span className="field-note">Not ticked in Legion, so writes here are refused.</span>}</label>)}
+            {stale.map((r) => <label key={r} className="check-row"><input type="checkbox" checked onChange={() => flip(r)} /> <span className="gha-repo">{r}</span> {staleKeys.has(normRepo(r)) && <span className="field-note">Not turned on in Legion, so writes here are refused.</span>}</label>)}
             {ticked.map((r) => <label key={r} className="check-row"><input type="checkbox" checked={has(r)} disabled={!has(r) && full} onChange={() => flip(r)} /> <span className="gha-repo">{r}</span></label>)}
           </div>
           {full && <span className="field-note">An agent can write to at most {GITHUB_WRITE_MAX} repositories. Untick one to pick another.</span>}
