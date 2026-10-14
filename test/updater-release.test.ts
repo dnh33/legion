@@ -75,7 +75,10 @@ test('C22b: release-manifest --full-zip signs the full package; a wrong-named on
   const manifestPath = join(out, 'legion-update-manifest.json');
   // Without --full-zip a --requires-full-install release carries no fullAsset: the manifest declares the dependency
   // change but the app can only notify (the deliberate fallback).
-  assert.equal(run('release-manifest.mjs', ['--zip', app, '--out', out, '--requires-full-install']).status, 0);
+  // ... but it is no longer the default path: the owner must ask for the notify-only fallback by name.
+  const trap = run('release-manifest.mjs', ['--zip', app, '--out', out, '--requires-full-install']);
+  assert.notEqual(trap.status, 0); assert.match(trap.stderr, /--notify-only/);
+  assert.equal(run('release-manifest.mjs', ['--zip', app, '--out', out, '--requires-full-install', '--notify-only']).status, 0);
   let m = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
   assert.equal(m.requiresFullInstall, true);
   assert.equal(m.fullAsset, undefined);

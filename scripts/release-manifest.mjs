@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Builds legion-update-manifest.json and SHA256SUMS.txt from a package made by release-package.mjs. It does NOT sign: the owner signs by hand
-// with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--requires-full-install]
+// with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only]
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry } from './lib/release-lib.mjs';
 
-const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag' });
-if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--full-zip <file>] [--requires-full-install]');
+const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag', 'notify-only': 'flag' });
+if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only]');
 const zip = readFileSync(resolve(a.zip));
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 // Read the version out of the package's own top folder. Kept as its own literal (and checked against the shared rule below)
@@ -52,7 +52,13 @@ if (a['full-zip']) {
   if (basename(a['full-zip']) !== wantName) die(`the full package must be named ${wantName}`);
   fullAsset = { name: wantName, size: fz.length, sha256: sha(fz) };
 }
-if (a['requires-full-install'] && !fullAsset) console.error('warning: --requires-full-install without --full-zip: installs get a notice only, this release cannot self-apply');
+// A dependency change without the signed full package is a release that only notifies. That used to be what a forgotten --full-zip
+// produced silently (exit 0), so it now needs --notify-only to be asked for by name.
+if (a['requires-full-install'] && !fullAsset) {
+  if (!a['notify-only']) die('--requires-full-install needs --full-zip <legion-<version>-win-x64.zip>, or the release cannot self-apply. Pass --notify-only if a notice-only release is what you want.');
+  console.error('warning: --notify-only: installs get a notice only, this release cannot self-apply');
+}
+if (a['notify-only'] && fullAsset) die('--notify-only and --full-zip contradict each other');
 if (fullAsset && !a['requires-full-install']) console.error('warning: --full-zip without --requires-full-install: the manifest will not declare the dependency change, so installs treat it as a code-only update');
 const manifest = {
   schema: 1, product: 'legion', channel: 'stable', version, publishedAt: info.publishedAt,
