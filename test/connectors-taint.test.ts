@@ -10,7 +10,7 @@ import { createConnectorsModule } from '../src/core/connectors/index.js';
 import { CONNECTORS_SERVER_NAME } from '../src/core/connectors/gateway.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import type { FakeGitHub } from './connectors-fake-github.js';
-import { lateModule, signedInGitHub } from './connectors-rig.js';
+import { lateModule, signedInGitHub, tickedDataDir } from './connectors-rig.js';
 import { init, mkAgent, ok, setup, toolUse, waitDone } from './library-fakes.js';
 import { replyText, replyTools, startFake } from './providers-fakes.js';
 import type { FakeReq } from './providers-fakes.js';
@@ -85,7 +85,7 @@ test('provider path: the same read taints the provider run, and the model sees t
   });
   try {
     const h = provSetup(f, { agent: { approval: 'ask', id: 'alpha', connectors: ['github'] } });
-    h.engine.setModules([createConnectorsModule({ store: h.store } as unknown as ModuleDeps, { keys: gh.keys, client: () => gh.client })]);
+    h.engine.setModules([createConnectorsModule({ store: h.store, dataDir: tickedDataDir() } as unknown as ModuleDeps, { keys: gh.keys, client: () => gh.client })]);
     const t = await run(h);
     assert.equal(t.status, 'done');
     const offered = (f.requests[0]!.body.tools as Array<{ function: { name: string } }>).map((x) => x.function.name);
@@ -96,7 +96,7 @@ test('provider path: the same read taints the provider run, and the model sees t
     assert.equal(t.tainted, true, 'the provider run is tainted');
     // control: an agent that has not opted in is offered none of these tools
     const h2 = provSetup(f, { agent: { approval: 'ask', id: 'plain', mcpServers: ['*'] } });
-    h2.engine.setModules([createConnectorsModule({ store: h2.store } as unknown as ModuleDeps, { keys: gh.keys, client: () => gh.client })]);
+    h2.engine.setModules([createConnectorsModule({ store: h2.store, dataDir: tickedDataDir() } as unknown as ModuleDeps, { keys: gh.keys, client: () => gh.client })]);
     n = 1;
     await run(h2);
     const last = f.requests.at(-1)!.body.tools as Array<{ function: { name: string } }> | undefined;
