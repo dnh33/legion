@@ -241,7 +241,8 @@ try {
     const line2 = log2.split('\n').find((l) => l.includes(`apply ${co} -> ${good}`)) ?? '';
     check(!!stampNow && line2.includes(`[${stampNow}]`), `hop 2 was done by the NEW helper: ${line2.trim()}`);
     check(log2.includes('re-running the swap helper'), 'hop 2 used the full-package swap (runtime re-exec)');
-    check(readJson(join(up, 'journal.json'))?.state === 'committed', 'hop 2 is committed');
+    // the journal commits only after the healthy start is confirmed, so wait for it like hop 1 does (reading it at once raced the commit)
+    check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === good ? true : null), 120000) !== null, 'hop 2 is committed');
     const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));
     const wrong = [];
     for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
