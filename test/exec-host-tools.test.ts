@@ -468,13 +468,24 @@ test('a command substitution is a command too: $(…) and backticks are judged',
 test('the guard stays fast on a huge command with an unclosed quote (it runs on the core\'s event loop)', () => {
   // Measured on 2026-10-14 (Node 22 and 24, 50 KB to 800 KB): linear, about 2 us per byte, so 200 KB takes 330 to 440 ms on a quiet PC. The old 500 ms
   // ceiling failed on a loaded CI runner (539 ms) without any super-linear growth. A quadratic scan would need many seconds at 200 KB, so the ceiling is
-  // 2 s (like the sibling test above), best of three runs.
+  // 2 s (like the sibling test above), best of three runs. Wall time still failed on a busy CI shard (2.1 s best of three, 2026-10-14): test files run
+  // in parallel there, so this measures the guard's own CPU time (process.cpuUsage) and checks growth, not the clock: four 50 KB runs against one
+  // 200 KB run is the same work, so linear gives a ratio near 1 and quadratic near 4. A case fails only if all three attempts look quadratic.
+  const cpuMs = (fn: () => void): number => { const a = process.cpuUsage(); fn(); const d = process.cpuUsage(a); return (d.user + d.system) / 1000; };
   for (const q of ['"', "'"]) {
-    const cmd = `echo ${q}` + 'a '.repeat(100_000);
-    assert.equal(refuseCatastrophic(cmd), undefined);
-    let best = Infinity;
-    for (let i = 0; i < 3; i++) { const t = Date.now(); refuseCatastrophic(cmd); best = Math.min(best, Date.now() - t); }
-    assert.ok(best < 2_000, `200 KB with an open ${q} took ${best} ms at best of three`);
+    const big = `echo ${q}` + 'a '.repeat(100_000);
+    const small = `echo ${q}` + 'a '.repeat(25_000);
+    assert.equal(refuseCatastrophic(big), undefined);
+    const tries: string[] = [];
+    let ok = false;
+    for (let i = 0; i < 3 && !ok; i++) {
+      const s = cpuMs(() => { for (let k = 0; k < 4; k++) refuseCatastrophic(small); });
+      const b = cpuMs(() => refuseCatastrophic(big));
+      const ratio = b / Math.max(s, 15); // Windows counts CPU in ~15 ms ticks
+      tries.push(`${s.toFixed(0)} ms for 4 x 50 KB, ${b.toFixed(0)} ms for 200 KB (x${ratio.toFixed(1)})`);
+      ok = ratio < 2.5 || b < 1_500;
+    }
+    assert.ok(ok, `the guard grows faster than linear with an open ${q}: ${tries.join('; ')}`);
   }
 });
 
