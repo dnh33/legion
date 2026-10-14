@@ -125,7 +125,7 @@
 .rm-reply .icon { align-self: center; }
 .rm-reply b { flex: none; color: var(--text-2); font-weight: 600; }
 .rm-reply span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-button.rm-reply:hover { color: var(--text); border-left-color: var(--accent); }
+button.rm-reply:hover { color: var(--text); border-left-color: var(--muted); }
 .rm-reply.gone { font-style: italic; color: var(--faint); }
 
 .rm-msg.human { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }

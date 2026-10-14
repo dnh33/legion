@@ -545,7 +545,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .msg.from-agent { display: flex; flex-direction: column; gap: 4px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
 .via-tag { border-style: dashed; }
 .fa-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
-.msg.from-agent.failed { border-left-color: var(--danger); }
+.msg.from-agent.failed { padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line-strong)); border-radius: var(--r-sm); background: var(--danger-soft); }
 .fa-body.err-s { margin: 0; font-size: inherit; color: var(--danger); }
 .bridge-detail p.err-s { font-size: inherit; }
 .chip.bridge b { font-family: var(--font); font-weight: 600; font-size: 12px; }
