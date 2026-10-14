@@ -6,6 +6,16 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
+- **Legion now knows why a task is waiting.** A queued task says whether it waits for a free slot, for the project's budget,
+  for new starts to be unpaused, or for another run of the same agent. Nothing changes on screen yet; the next release shows it.
+- **Choose what happens when you are away (settings only for now).** Per project: pause new starts (your own clicks still run),
+  a day, week or month budget (new runs wait at the cap, running work finishes), and a notification level. App-wide quiet hours
+  stop the 10 minute countdown on an unanswered ask while you are away, so an ask is never denied overnight. Nothing is ever
+  allowed for you: an ask you do not answer is denied (or waits), never approved. All of it is off by default.
+- **Every ask now carries what saying yes would do.** Legion sorts a command into read only, a local change, or something that
+  leaves your computer, deletes files or costs money. A command it cannot read is treated as the riskiest.
+- **Spending is counted per run.** Legion keeps a small ledger of what each run cost, by project and agent, for the week and
+  the last 14 days.
 - **Stop a team.** When a task has started other tasks, you can stop it and everything it started in one click ("Stop
   this and the 2 tasks it started", in the task menu and next to Stop). Their late answers no longer wake the task you
   stopped.

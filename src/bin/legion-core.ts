@@ -35,6 +35,8 @@ import { createWritesResolver, resolveGitHub } from '../core/ci/wiring.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
+import { createAwayCore, createAwayModule } from '../core/away/index.js';
+import { agentIdVisible } from '../core/visibility.js';
 import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
@@ -91,7 +93,11 @@ async function main() {
   const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  // the away features (0.3.0): the owner's absence settings, the spend ledger, pause and budget. The brokers and the engine read them; with no settings they behave as before
+  const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects });
+  approvals.setPolicy(awayCore.service.policy());
+  questions.setPolicy(awayCore.service.policy());
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -124,19 +130,25 @@ async function main() {
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
-  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service })] : [];
+  const away = createAwayModule(moduleDeps, {
+    projects, core: awayCore, questions,
+    agentOk: (id) => agentIdVisible({ bsvEnabled, store }, id),
+    // proposals waiting in the project Inboxes count as asks
+    ...(board ? { inbox: () => projects.list().filter((p) => p.status === 'active').flatMap((p) => { try { return board.view(p).inbox; } catch { return []; } }) } : {}),
+  });
   // connectors: the gateway tools (an agent must opt in) and the Settings routes; GitHub reads only in this build
   const connectors = createConnectorsModule(moduleDeps, { keys: connectorKeyring, log });
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret, projects, ...(board ? { board } : {}),
+    settings, adminSecret, projects, away: awayCore.service, ...(board ? { board } : {}),
   });
 
   restartReaper();

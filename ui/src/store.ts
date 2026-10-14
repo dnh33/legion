@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type {
-  AgentProfile, ApprovalRequest, BoatHealthView, GateSuggestion, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TaskProgress, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, GateSuggestion, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, QueueSnapshot, ParkedAsk, CoreCaps, Task, TaskProgress, VmRecord,
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { loadProviders } from './providers/providersStore';
@@ -35,6 +35,12 @@ export interface AppState {
   approvals: ApprovalRequest[];
   /** Structured questions waiting for the owner's answer (the question card). Admin only; empty in a window without the admin key. */
   questions: PendingQuestion[];
+  /** Who waits in the queue and why (the core's snapshot, kept current by `queue.updated`). Null in a core that does not send it. */
+  queue: QueueSnapshot | null;
+  /** Asks parked for the owner (admin only). */
+  parked: ParkedAsk[];
+  /** What this core can do; a setting for a missing feature stays hidden. */
+  caps: CoreCaps;
   /** Per task: the `at` of the newest approval card that was denied (by the user or the timeout), so the busts do not read the denied call as work. */
   denials: Record<string, string>;
   messages: Record<string, ChatMessage[]>;
@@ -87,7 +93,7 @@ const initialTheme = ((): 'dark' | 'light' => {
 
 let state: AppState = {
   loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
-  agents: [], tasks: [], vms: {}, approvals: [], questions: [], denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
+  agents: [], tasks: [], vms: {}, approvals: [], questions: [], queue: null, parked: [], caps: {}, denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
   opsOpen: ls('legion.ops') !== '0', theme: initialTheme,
@@ -283,6 +289,9 @@ export function handleEvent(e: LegionEvent) {
         denials: noteDenial(s.denials, s.approvals.find((a) => a.id === e.approvalId), e.allowed),
       }));
       break;
+    case 'queue.updated':
+      setState({ queue: e.queue });
+      break;
     case 'question.requested':
       setState((s) => (s.questions.some((q) => q.id === e.question.id) ? {} : { questions: [...s.questions, e.question] }));
       break;
@@ -318,6 +327,7 @@ export async function refresh() {
         agents: snap.agents, tasks: keepTasks(s.tasks, snap.tasks, new Set(s.selectedTaskId ? [s.selectedTaskId] : [])), vms, approvals: dedupeById(snap.approvals), questions: dedupeById(snap.questions ?? s.questions),
         // opened mid-run: show the run's turn, tool and checklist now, not after its next event
         progress: snap.progress ?? s.progress,
+        queue: snap.queue ?? null, parked: snap.parked ?? [], caps: snap.caps ?? {},
         selectedAgentId: sel,
         selectedTaskId: first ? null : s.selectedTaskId,
       };

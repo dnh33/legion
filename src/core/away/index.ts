@@ -85,8 +85,26 @@ export class AwayService implements AwayHooks {
   parked(): ParkedAsk[] { return []; }
 }
 
+/** The part the engine and the brokers need before the module exists: the settings, the ledger and the service over them. */
+export interface AwayCore { store: AwayStore; ledger: SpendLedger; service: AwayService }
+export function createAwayCore(o: {
+  dataDir: string; bus: EventBus; now?: () => number;
+  /** Used to find a task's project for an ask a module raised without one. */
+  tasks: { getTask(id: string): { projectId?: string } | undefined };
+  projects?: ProjectStore;
+}): AwayCore {
+  const dir = join(o.dataDir, 'away');
+  const store = new AwayStore(dir);
+  try { if (o.projects) store.prune(o.projects.list().map((p) => p.id)); } catch { /* the settings stay as they are */ }
+  const ledger = new SpendLedger(dir, o.now);
+  const service = new AwayService({ store, ledger, bus: o.bus, ...(o.now ? { now: o.now } : {}), projectOfTask: (id) => o.tasks.getTask(id)?.projectId });
+  return { store, ledger, service };
+}
+
 export interface AwayModuleOpts {
   projects: ProjectStore;
+  /** Built earlier when the engine needs it at construction (the composition root). Absent: built here. */
+  core?: AwayCore;
   /** Proposals waiting in the project Inboxes (board items with a `proposal`). */
   inbox?: () => Array<Pick<WorkItem, 'id' | 'projectId' | 'createdAt' | 'createdBy'>>;
   /** The structured-question broker, so a waiting question counts as an ask. */
@@ -97,11 +115,8 @@ export interface AwayModuleOpts {
 export interface AwayModule extends CoreModule { service: AwayService; store: AwayStore; ledger: SpendLedger; attention: AttentionTracker }
 
 export function createAwayModule(deps: ModuleDeps, opts: AwayModuleOpts): AwayModule {
-  const dir = join(deps.dataDir, 'away');
-  const store = new AwayStore(dir);
-  try { store.prune(opts.projects.list().map((p) => p.id)); } catch { /* the settings stay as they are */ }
-  const ledger = new SpendLedger(dir, opts.now);
-  const service = new AwayService({ store, ledger, bus: deps.bus, ...(opts.now ? { now: opts.now } : {}), projectOfTask: (id) => deps.store.getTask(id)?.projectId });
+  const core = opts.core ?? createAwayCore({ dataDir: deps.dataDir, bus: deps.bus, tasks: deps.store, projects: opts.projects, ...(opts.now ? { now: opts.now } : {}) });
+  const { store, ledger, service } = core;
   const attention = new AttentionTracker({
     bus: deps.bus, approvals: deps.approvals, store: deps.store,
     ...(opts.questions ? { questions: opts.questions } : {}),
