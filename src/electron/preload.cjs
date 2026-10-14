@@ -43,6 +43,17 @@ contextBridge.exposeInMainWorld('legion', {
   connectorConnect() {
     return ipcRenderer.invoke('legion:connector-connect');
   },
+  // Which project page and thread the window shows (ids only), so main never notifies for what you are looking at.
+  reportView(v) {
+    try { ipcRenderer.send('legion:view', { pageProjectId: v && v.pageProjectId, threadTaskId: v && v.threadTaskId }); } catch (_) { /* ignore */ }
+  },
+  // A notification or the tray asked to open an ask: { projectId?, taskId? } (an empty one means the first waiting).
+  onOpenAsk(cb) {
+    if (typeof cb !== 'function') return () => undefined;
+    const h = (_e, ref) => { try { cb(ref && typeof ref === 'object' ? ref : {}); } catch (_) { /* ignore */ } };
+    ipcRenderer.on('legion:open-ask', h);
+    return () => ipcRenderer.removeListener('legion:open-ask', h);
+  },
   openLogsFolder() {
     return ipcRenderer.invoke('legion:open-logs');
   },

@@ -85,7 +85,7 @@ const prRow = (p: unknown, body: boolean) => {
   };
 };
 
-type Run = (c: GhApi, a: Record<string, unknown>, x: ToolCtx) => Promise<ToolOut>;
+export type Run = (c: GhApi, a: Record<string, unknown>, x: ToolCtx) => Promise<ToolOut>;
 const ok = (data: unknown, note?: string): ToolOut => ({ data, ...(note ? { note } : {}) });
 const refOf = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 && v.length <= 200 ? v : undefined);
 

@@ -5,6 +5,8 @@ import { getState, selectAgent, selectTask, setState, setView, toast } from '../
 import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
+import { resolveAsk } from './openAsk';
+import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -39,6 +41,13 @@ export function openProjectBoard(id: string): void {
   enterProject(id);
   setTab('board');
   openProject(id);
+}
+/** The one way to open an ask: the rail row, a notification click and the tray item all end here (the choice is `resolveAsk`). */
+export function openAsk(ref: AskRef): void {
+  const s = getState();
+  const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
+  const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id));
+  if (act.kind === 'thread') { setView('chat'); selectTask(act.taskId); } else if (act.kind === 'project') openProject(act.projectId);
 }
 export const closeProjectPage = (): void => setView('chat');
 

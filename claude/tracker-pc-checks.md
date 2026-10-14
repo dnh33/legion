@@ -485,3 +485,13 @@ The scripts and the workflow change are pinned offline (`test/release-extras.tes
 | RB3 | **PASSED** 2026-10-08 (Hermes) | `gh attestation verify` exit 0 on the app.zip and win-x64.zip of both 0.2.5-o and 0.2.5-p; SLSA provenance names the workflow, the commit, subject digest = file sha256. | none |
 | RB4 | **PASSED** 2026-10-08 (Hermes) | `release-verify` OK (8 files) locally and 7/7 fetched from the live CDN verified against the k1 key, for both 0.2.5-o and 0.2.5-p. | none |
 | RB5 | **PASSED** 2026-10-08 (Hermes, as owner's gh) | ruleset `v* release tags: owner only` active: creation/update/deletion over `refs/tags/v*`, admin bypass. | prove the refusal with a non-admin token |
+
+## 2026-10-14: desktop signals (0.3.0 PR 4, spec check H9). Safety class: none
+
+| id | check | result |
+|---|---|---|
+| H9a | Ask raised while the window is minimised: taskbar overlay set (16x16 image accepted by Windows, no error) | The call succeeded and the taskbar button showed a small blue dot badge; the amber number was NOT legible on this Windows 11 build (26300). Needs a look on a stable Windows 11 and on Windows 10. |
+| H9b | Toast for the ask, window hidden | Delivered to the notification centre from an unpackaged electron.exe ("Scout needs your OK / Open Legion to answer."), under the app name Electron for an unregistered id. Do Not Disturb was on, so no banner. No command text. |
+| H9c | Click the notification | Window shown and the Scout thread opened on the approval card. |
+| H9d | Quiet hours 09:40 to 09:58, two asks raised inside | No pop-ups until 09:58, then one "While you were away: 2 need you." (read from the plan log, notification centre not re-read). |
+

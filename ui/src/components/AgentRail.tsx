@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { openEditor, selectAgent, selectTask, setView, useStore } from '../store';
+import { openEditor, selectAgent, useStore } from '../store';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
@@ -9,7 +9,7 @@ import { railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
 import { useAllProposals } from '../projects/useProposals';
-import { openProjectBoard } from '../projects/projectsStore';
+import { openAsk, openProjectBoard } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
 
@@ -59,7 +59,7 @@ export function AgentRail() {
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.slice(0, WAIT_CAP).map((row) => (
             <button key={row.id} type="button" className="rail-wait-row" title={row.label}
-              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else { setView('chat'); selectTask(row.taskId); } }}>
+              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else openAsk({ taskId: row.taskId }); }}>
               <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}

@@ -123,6 +123,8 @@ export interface AgentProfile {
    * default empty, and `mcpServers: ['*']` does NOT grant it (the gateway checks this field, not the UI). Ids are lowercase names.
    */
   connectors?: string[];
+  /** Repos ("owner/name") this agent may WRITE to through Legion's GitHub tools. Absent or empty: none. Needs connectors:['github'], the repo ticked in Legion and the write app installed on it. Every write still raises a card. */
+  githubWrite?: string[];
   /**
    * Which skills this agent may pick up. 'inherit' (default, also when absent) = every skill the Armory switched on for it.
    * A list = only those ids (it narrows, it never turns a skill on). Covers Armory, Claude Code and drill ids.
