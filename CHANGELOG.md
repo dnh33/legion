@@ -33,6 +33,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **Updates that change Legion's parts now install by themselves.** When a release changes the libraries Legion runs on, it comes as one larger download (about 285 MB). Before, a forgotten step could ship such a release as a notice only. Now the release build decides this from the files, and the release checks refuse a release that is missing the larger download.
+- **A larger update is checked file by file before it replaces anything.** If your antivirus removes or changes a file after the download is unpacked, Legion stops and keeps your current version instead of installing something that cannot start.
+- **An update that starts slowly can no longer delete your install.** A rollback that arrives late now never touches a version that has started well, and the update remembers exactly which files had a previous copy. A larger update whose unpacked folder lost a part is refused before anything moves.
+- **A slow first start no longer rolls back a good update.** A larger update gets 3 minutes to start (and a little longer if it is still starting), instead of 1 minute.
+- **If Legion cannot prepare an update, it says so and keeps working.** Nothing is changed and your current version starts again.
+- **Updates use less disk.** The downloaded file is deleted once it is unpacked, the old copy is removed after the new version starts well, and the free space check now counts the real size.
 - **Hovering a mascot no longer flashes.** Pointing at an agent in the list, or moving away, could show an empty tile for a moment before the picture came back. The still now stays until the live mascot has drawn, the two fade into each other, and moving away fades back to the same picture.
 - The pending-Allow chip no longer covers the message box or the header: it floats above the bottom of the page and moves nothing while it counts down.
 - An agent in Ask mode that uses Claude Code's own question tool no longer shows a card full of raw text: it uses Legion's question card.

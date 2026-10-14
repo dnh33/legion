@@ -10,7 +10,8 @@
  * Every state change is journaled (temp file + fsync + rename) so a kill at any point is recoverable by `recoverInterrupted`.
  */
 import { execFile, spawn } from 'node:child_process';
-import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,9 +40,11 @@ export const CODE_SET: readonly string[] = Object.freeze([
  */
 export const FULL_PACKAGE_SET: readonly string[] = Object.freeze([...CODE_SET, 'node_modules', 'runtime']);
 export const UPDATE_DIR = '.update';
+/** Written in apply.log by every swap, so a log shows which generation of the helper did it (0.2.7 and older write no stamp). */
+export const APPLY_HELPER_STAMP = 'helper:full-install-hardening-1';
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
-export interface Journal { state: JournalState; from: string; to: string; entries: string[]; stagedDir: string; at: number; heartbeat: number }
+export interface Journal { state: JournalState; from: string; to: string; entries: string[]; /** The entries whose live copy was moved to .update/prev. A rollback restores exactly these. Absent in journals from older helpers. */ hadPrev?: string[]; stagedDir: string; at: number; heartbeat: number }
 export interface Outcome { at: string; from: string; to: string; result: 'ok' | 'rolled-back' | 'failed' | 're-exec'; reason?: string }
 
 const upDir = (installDir: string): string => join(installDir, UPDATE_DIR);
@@ -101,12 +104,17 @@ export async function swapIn(o: SwapOptions): Promise<void> {
   for (const n of o.names ?? []) if (!n || n === '.' || n === '..' || /[\\/:]/.test(n) || n === UPDATE_DIR) throw new Error(`refusing to swap "${n}"`);
   const names = (o.names ?? CODE_SET).filter((n) => existsSync(join(stagedDir, n)));
   if (!names.includes('package.json') || !names.includes('dist')) throw new Error('the staged tree is incomplete');
+  // A full-package swap replaces the dependency tree and the runtime, so a staged folder that lost any of them (an antivirus
+  // scanner, a cleanup) must be refused BEFORE anything moves, not swapped in with the missing part silently skipped.
+  if ((o.names ?? []).includes('node_modules')) {
+    for (const must of ['dist-ui', 'node_modules', 'runtime']) if (!names.includes(must)) throw new Error(`the staged update is incomplete: ${must} is missing, so nothing was changed`);
+  }
   for (const n of names) if (isLink(join(stagedDir, n))) throw new Error('a staged entry is a link');
   mkdirSync(upDir(installDir), { recursive: true });
   removeOwned(installDir, prevDir(installDir)); // exactly one previous version is kept: the older one goes
   removeOwned(installDir, failedDir(installDir));
   mkdirSync(prevDir(installDir), { recursive: true });
-  const j: Journal = { state: 'swapping', from: o.from, to: o.to, entries: names, stagedDir, at: Date.now(), heartbeat: Date.now() };
+  const j: Journal = { state: 'swapping', from: o.from, to: o.to, entries: names, hadPrev: names.filter((n) => existsSync(join(installDir, n))), stagedDir, at: Date.now(), heartbeat: Date.now() };
   saveJournal(installDir, j);
   step('journaled');
   try {
@@ -134,17 +142,26 @@ export async function swapIn(o: SwapOptions): Promise<void> {
 export async function rollback(installDir: string, reason: string, retryMs = 15_000): Promise<void> {
   const j = readJournal(installDir);
   if (!j) return;
+  // A build that was confirmed healthy is the install now. Whoever asks late (a helper whose window ended while the new build
+  // was still starting) must not undo it.
+  if (j.state === 'committed') return;
   mkdirSync(failedDir(installDir), { recursive: true });
+  const lost: string[] = [];
   for (const n of [...j.entries].reverse()) {
     const live = join(installDir, n);
     const prev = join(prevDir(installDir), n);
     const stagedHere = existsSync(join(j.stagedDir, n));
     if (stagedHere && !existsSync(prev)) continue; // never touched
+    if (!existsSync(prev)) {
+      // The previous copy is gone. If the old install HAD this entry, the live one is all that is left: never move it aside
+      // (that would restore nothing and delete the install). If the old install did not have it, the new one simply goes.
+      if (j.hadPrev?.includes(n) || !j.hadPrev) { if (existsSync(live)) lost.push(n); continue; }
+    }
     if (existsSync(live) && !stagedHere) await renameRetry(live, join(failedDir(installDir), n), retryMs); // the new copy goes aside
     if (existsSync(prev)) await renameRetry(prev, live, retryMs);
   }
   saveJournal(installDir, { ...j, state: 'rolled-back', heartbeat: Date.now() });
-  writeOutcome(installDir, { from: j.from, to: j.to, result: 'rolled-back', reason });
+  writeOutcome(installDir, { from: j.from, to: j.to, result: 'rolled-back', reason: lost.length ? `${reason}. The previous copy of ${lost.join(', ')} was already gone, so the new files were left in place.` : reason });
   try { removeOwned(installDir, failedDir(installDir)); } catch { /* leftovers are harmless */ }
 }
 
@@ -154,6 +171,82 @@ export function markCommitted(installDir: string): void {
   saveJournal(installDir, { ...j, state: 'committed', heartbeat: Date.now() });
   writeOutcome(installDir, { from: j.from, to: j.to, result: 'ok' });
   try { removeOwned(installDir, join(upDir(installDir), 'staging')); } catch { /* ignore */ }
+}
+
+/**
+ * Deletes the previous copy (.update/prev: the old node_modules and runtime are ~700 MB) once the new build has started healthy.
+ * Until then it is the rollback. Async so it never blocks the app's main thread; safe to call twice or with nothing there.
+ */
+export async function cleanPrev(installDir: string): Promise<void> {
+  const base = resolve(upDir(installDir));
+  const target = resolve(prevDir(installDir));
+  if (!target.startsWith(base + sep) || isLink(target)) return;
+  try { await rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }); } catch { /* leftovers are harmless; the next swap removes them */ }
+}
+
+/**
+ * The new build confirms itself only once its core really answers /health with THIS version. A start that is slow, or whose core
+ * never came up, must not confirm (and so must not delete the previous copy): the helper's own window decides that case.
+ */
+export async function confirmWhenHealthy(installDir: string, runningVersion: string, getHealth: () => Promise<{ ok?: boolean; version?: string } | null>): Promise<boolean> {
+  let h: { ok?: boolean; version?: string } | null = null;
+  try { h = await getHealth(); } catch { h = null; }
+  if (!h || h.ok !== true || h.version !== runningVersion) return false;
+  await settleAfterStart(installDir, runningVersion);
+  return true;
+}
+
+/**
+ * Runs at every start of the app. When the update journal names the running version, the swap landed: confirm it if the helper
+ * has not, and delete the previous copy. The helper that did the swap is the OLD version's copy of this file, so it may know
+ * nothing about cleaning; the new build does it here instead. Never throws.
+ */
+export async function settleAfterStart(installDir: string, runningVersion: string): Promise<void> {
+  try {
+    const j = readJournal(installDir);
+    if (!j || j.to !== runningVersion) return;
+    const note = (line: string): void => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}
+`); } catch { /* ignore */ } };
+    if (j.state === 'awaiting-health') { markCommitted(installDir); note(`new build ${runningVersion} started healthy and confirmed the update`); }
+    else if (j.state !== 'committed') return;
+    const had = existsSync(prevDir(installDir));
+    await cleanPrev(installDir);
+    if (had) note(`new build ${runningVersion} removed the previous copy`);
+  } catch { /* a failed cleanup only leaves a folder behind */ }
+}
+
+/**
+ * A full-package swap on Windows runs its helper from a copy of the Electron folder in the temp folder (legion-apply-<pid>). That
+ * process cannot delete the folder it runs from, so a LATER start removes copies older than `maxAgeMs`. Only plain directories
+ * named legion-apply-<digits> are touched. Returns the names removed.
+ */
+export function cleanStaleApplyCopies(tmpRoot: string, o: { maxAgeMs: number; nowMs: number }): string[] {
+  const gone: string[] = [];
+  let names: string[] = [];
+  try { names = readdirSync(tmpRoot); } catch { return gone; }
+  for (const n of names) {
+    if (!/^legion-apply-\d+$/.test(n)) continue;
+    const p = join(tmpRoot, n);
+    try {
+      const st = lstatSync(p);
+      if (st.isSymbolicLink() || !st.isDirectory() || o.nowMs - st.mtimeMs < o.maxAgeMs) continue;
+      rmSync(p, { recursive: true, force: true, maxRetries: 2, retryDelay: 200 });
+      gone.push(n);
+    } catch { /* in use or locked: the next start tries again */ }
+  }
+  return gone;
+}
+
+/**
+ * How long the new build gets to report healthy. A full package replaces ~7,400 files that an antivirus scanner reads on first
+ * use, so its first start can be slow on an ordinary disk: it gets 180 s (code-only updates keep 60 s). A job may set its own.
+ */
+export const HEALTH_BASE_MS = 60_000;
+export const HEALTH_FULL_MS = 180_000;
+export const HEALTH_EXTENSION_MS = 120_000;
+export function healthWindow(job: Pick<ApplyJob, 'names' | 'healthTimeoutMs' | 'healthExtensionMs'>): { baseMs: number; extensionMs: number } {
+  const full = !!job.names?.includes('node_modules');
+  return { baseMs: job.healthTimeoutMs ?? (full ? HEALTH_FULL_MS : HEALTH_BASE_MS), extensionMs: job.healthExtensionMs ?? HEALTH_EXTENSION_MS };
 }
 
 /**
@@ -198,17 +291,18 @@ export async function recoverInterrupted(installDir: string, ctx: { runningVersi
 export interface Relaunch { cmd: string; args: string[]; cwd: string; env?: Record<string, string> }
 export interface ApplyJob {
   installDir: string; stagedDir: string; parentPid: number; port: number; from: string; to: string; relaunch: Relaunch;
-  healthTimeoutMs?: number; parentWaitMs?: number; portFreeMs?: number; swapRetryMs?: number;
+  healthTimeoutMs?: number; /** One extra wait, used only when the new build's process is still alive at the end of the first window. */ healthExtensionMs?: number; parentWaitMs?: number; portFreeMs?: number; swapRetryMs?: number;
   /** The names to swap; omitted = CODE_SET (code-only), FULL_PACKAGE_SET = code set + node_modules + runtime. Validated by main-logic commitMatches before it is written here. */
   names?: readonly string[];
 }
+export type ReExecResult = { ok: true } | { ok: false; error: string };
 export interface ApplyDeps {
   isAlive(pid: number): boolean;
   health(port: number): Promise<{ ok: boolean; version?: string } | null>;
   spawnApp(r: Relaunch): { pid?: number } | null;
   killTree(pid: number): Promise<void>;
   /** Full-package swaps on Windows: re-run this helper from a runtime outside the install, returning to nothing. */
-  reExec?(jobFile: string): boolean;
+  reExec?(jobFile: string): ReExecResult | Promise<ReExecResult>;
   sleep(ms: number): Promise<void>;
   log(line: string): void;
   step?: (label: string) => void;
@@ -261,9 +355,20 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   // every outcome after it. The parent and port waits run again in the fresh process.
   if (process.platform === 'win32' && job.names?.includes('node_modules') && process.env.LEGION_APPLY_REEXEC !== '1') {
     d.log('full package: re-running the swap helper from a runtime outside the install (node_modules must move)');
-    if (d.reExec?.(process.argv[2] ?? '')) return finish('re-exec');
+    if (d.reExec) {
+      const r = await d.reExec(process.argv[2] ?? '');
+      if (r.ok) return finish('re-exec');
+      // Without the re-exec the helper would try to rename the folder it runs from, which Windows refuses. Say so and stop:
+      // nothing was changed, and the old app is started again (this process is the only one that can still do that).
+      const reason = `Legion could not prepare the update helper (${r.error}). Nothing was changed.`;
+      d.log(reason);
+      writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason });
+      d.spawnApp(job.relaunch);
+      if (d.marker) d.marker.end();
+      return finish('failed', reason);
+    }
   }
-  d.log(`apply ${job.from} -> ${job.to}`);
+  d.log(`apply ${job.from} -> ${job.to} [${APPLY_HELPER_STAMP}]`);
   // Data backup before any file is touched (state-preflight.ts). Fail closed.
   if (d.runPreflight) {
     progress({ stage: 'preflight', message: 'Backing up data', percent: null });
@@ -321,14 +426,23 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   }
   // Health check of the new build.
   progress({ stage: 'health', message: 'Waiting for the new build', percent: 90 });
-  const healthy = await waitUntil(async () => {
+  const win = healthWindow(job);
+  const isHealthy = async (): Promise<boolean> => {
     const j = readJournal(installDir);
     if (j) saveJournal(installDir, { ...j, heartbeat: Date.now() });
     const h = await d.health(job.port);
     return !!h && h.ok && h.version === job.to;
-  }, job.healthTimeoutMs ?? 60_000);
+  };
+  let healthy = await waitUntil(isHealthy, win.baseMs);
+  // One bounded extension: a first start that is merely slow (its process is still there) should not be rolled back and then
+  // blocked for days. A process that has already died gets no extension.
+  if (!healthy && pid && d.isAlive(pid)) {
+    d.log(`the new build is still starting after ${Math.round(win.baseMs / 1000)} s: waiting ${Math.round(win.extensionMs / 1000)} s more`);
+    healthy = await waitUntil(isHealthy, win.extensionMs);
+  }
   if (healthy) {
     markCommitted(installDir);
+    await cleanPrev(installDir);
     d.log('the new build is healthy');
     progress({ stage: 'health', message: 'Update complete', percent: 100 });
     if (d.marker) d.marker.end();
@@ -338,7 +452,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   progress({ stage: 'error', message: 'Update failed, rolling back', percent: null });
   if (pid) await d.killTree(pid); // by PID, never by name
   await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000);
-  await rollback(installDir, `the new build did not report healthy on 127.0.0.1:${job.port} within ${Math.round((job.healthTimeoutMs ?? 60_000) / 1000)} s`, job.swapRetryMs ?? 15_000);
+  await rollback(installDir, `the new build did not report healthy on 127.0.0.1:${job.port} within ${Math.round(win.baseMs / 1000)} s`, job.swapRetryMs ?? 15_000);
   d.spawnApp(job.relaunch);
   if (d.marker) d.marker.end();
   return finish('rolled-back');
@@ -370,18 +484,25 @@ export function realDeps(installDir: string): ApplyDeps {
                 try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
                 done();
             }),
-            reExec: (jobFile) => {
-                        const srcDir = dirname(process.execPath); // node_modules/electron/dist — electron.exe alone cannot boot as node (needs resources/)
-                        const dir = join(tmpdir(), `legion-apply-${process.pid}`);
-                        const env: Record<string, string | undefined> = { ...process.env, LEGION_APPLY_REEXEC: '1' };
-                        try { cpSync(srcDir, dir, { recursive: true }); } catch { return false; }
-                        try {
-                            const c = spawn(join(dir, basename(process.execPath)), [process.argv[1] ?? '', jobFile], { cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: false, env });
-                            c.on('error', () => undefined);
-                            c.unref();
-                            return true;
-                        } catch { return false; }
-                    },
+    reExec: async (jobFile) => {
+      // The Electron folder (runtime/electron in a package install) is copied whole: electron.exe cannot boot as node without its resources.
+      const srcDir = dirname(process.execPath);
+      const dir = join(tmpdir(), `legion-apply-${process.pid}`);
+      const env: Record<string, string | undefined> = { ...process.env, LEGION_APPLY_REEXEC: '1' };
+      const undo = (): void => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* a later start removes it */ } };
+      try { cpSync(srcDir, dir, { recursive: true }); } catch (e) { undo(); return { ok: false, error: `could not copy the runtime to the temp folder: ${e instanceof Error ? e.message : String(e)}` }; }
+      try {
+        const c = spawn(join(dir, basename(process.execPath)), [process.argv[1] ?? '', jobFile], { cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: false, env });
+        let spawnError = '';
+        c.on('error', (e) => { spawnError = e.message; });
+        c.unref();
+        // The fresh process owns everything from here. If it dies at once nothing would restart Legion, so look before giving up.
+        await sleepMs(1500);
+        if (spawnError) { undo(); return { ok: false, error: `the helper copy did not start: ${spawnError}` }; }
+        if (c.exitCode !== null) { undo(); return { ok: false, error: `the helper copy stopped at once (exit ${c.exitCode})` }; }
+        return { ok: true };
+      } catch (e) { undo(); return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+    },
     sleep: sleepMs,
     log: (line) => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } },
     gracefulTeardown: async (timeoutMs: number) => {
@@ -405,5 +526,5 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   const jobFile = process.argv[2] ?? '';
   let job: ApplyJob | null = null;
   try { job = JSON.parse(readFileSync(jobFile, 'utf8')) as ApplyJob; } catch { /* no job: nothing to do */ }
-  if (job) void runApply(job, realDeps(job.installDir)).then((r) => process.exit(r === 'ok' ? 0 : 1)).catch(() => process.exit(2));
+  if (job) void (async () => { try { cleanStaleApplyCopies(tmpdir(), { maxAgeMs: 86_400_000, nowMs: Date.now() }); } catch { /* best effort */ } return runApply(job, realDeps(job.installDir)); })().then((r) => process.exit(r === 'ok' || r === 're-exec' ? 0 : 1)).catch(() => process.exit(2));
 }

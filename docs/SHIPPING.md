@@ -133,8 +133,8 @@ The workflow `.github/workflows/release-build.yml` builds the package on a Windo
 2. After the release commit is on main, push the tag: `git tag v<v> && git push cloud v<v>`. The tag push starts "Release build" in Actions. Do not push test tags. For a dry run, use the manual run with `ref`.
 3. Check the run is the tag build of the reviewed commit, then download it. `gh run view <run-id> --repo dnh33/legion --json event,headBranch,headSha,path` must say `event` = `push`, `headBranch` = `v<v>`, `path` = `.github/workflows/release-build.yml`, and `headSha` = `git rev-parse v<v>^{commit}`, a commit on main (`git merge-base --is-ancestor <sha> cloud/main`). Only a tag build makes an artifact named `legion-<v>-release`; a manual run makes `legion-<v>-DRYRUN-<sha7>`, which is never signed. Then: `gh run download <run-id> --repo dnh33/legion -n legion-<v>-release -D D:/bots/legion-pkg-<v>`.
 4. Check the hashes. Compare `sha256sum` (or `Get-FileHash`) of each file with SHA256SUMS.txt and with the hashes in the run's job summary. Compare install.ps1 and install.sh with the files in your own checkout at the tag. Use the working-tree files, not `git show`, which drops the CRLF line endings of .ps1. Check `build-info.json` inside app.zip: `commit` is the same SHA as in step 3, and `dirty` is `false`. A match proves the download is what the runner produced from that commit. It does not prove what the runner ran: the dependency install runs on the runner too. The run also attests the artifact, so check its provenance: `gh attestation verify D:/bots/legion-pkg-<v>/legion-<v>-win-x64.zip --repo dnh33/legion` (repeat per file). Until checks RB1 and RB2 in `claude/tracker-pc-checks.md` have passed, also build app.zip on the PC from the tag (step 4 below) and sign only if its SHA-256 equals the artifact's.
-5. If the release needs a full install (dependencies changed), re-run release-manifest on the PC with `--requires-full-install --notes docs/release-notes/<v>.txt` against the downloaded app.zip, into the same folder. It rewrites the manifest and its SHA256SUMS line.
-6. Then skip steps 4 and 5 below and go on from step 6 (Sign) of this section: 6, 7, 9 and 10 as written (8 is done, because the tag is on main). Sign on the PC. The key never goes to Actions.
+5. Do NOT re-run release-manifest on the PC. CI already wrote the final manifest. It compares the dependency tree of `package-lock.json` with the previous release tag (the same `dependencyHash` the app uses, so a version-only lock change does not count). When the tree changed, the manifest carries `requiresFullInstall: true` and the signed `fullAsset` (name, size and sha256 of `legion-<v>-win-x64.zip`); otherwise neither. Read the decision in the run summary ("Full install needed") and check it matches what you expect for this release. A wrong answer is a reason to stop, not to patch the manifest by hand. If you ever must run it yourself, a dependency-change release needs both flags: `node scripts/release-manifest.mjs --zip <app.zip> --full-zip <win-x64.zip> --requires-full-install --notes docs/release-notes/<v>.txt --out <folder>`. `--requires-full-install` alone is refused (the release could only notify); `--notify-only` asks for that on purpose.
+6. Then skip steps 4 and 5 below and go on from step 6 (Sign) of this section: 6, 7, 7a, 9 and 10 as written (8 is done, because the tag is on main). Sign on the PC. The key never goes to Actions.
 
 ### 4. Fallback: build the package on the PC, **outside the repo**
 
@@ -191,6 +191,12 @@ verifies the signature **with the app's own verifier and its own baked-in keys**
 against the same key when that file is present (it is optional, so a release signed before the sums signer existed
 still passes).
 
+A full-install release adds these checks (both scripts fail, not warn): the manifest's `fullAsset` must equal the `legion-<v>-win-x64.zip` in the folder (name, size, sha256) and be listed in `SHA256SUMS.txt`; a release that does not need a full install must not carry a `fullAsset`.
+
+### 7a. Rehearse the update (full-install releases)
+
+Run the workflow "Full-install rehearsal" on the release commit (`gh workflow run full-install-rehearsal.yml --repo dnh33/legion --ref <commit or tag>`) and write the run id in the release PR. It installs the latest published release with `install.ps1`, then updates that install to a candidate built from the same commit, from a loopback server, with a throwaway signing key: success (the new version reports health, files match the package list, user data survives), rollback (a first start that fails puts the old version back) and a locked file (the swap refuses cleanly). Nothing real is touched. All three scenarios must be green before you publish.
+
 **Do not publish over a failure.** Two warnings are known and benign on Windows installs:
 `lettered patch: only installs that ALREADY support lettered versions…` (safe once any `-a` has shipped) and
 `could not determine installMode (non-fatal)`.
@@ -225,9 +231,9 @@ Read every removed test line. No test may vanish silently.
 ### 9. Publish — **draft first, always**
 
 ```
-gh release create <v> --repo dnh33/legion --title "..." --notes-file <file> --draft
-gh release upload <v> --repo dnh33/legion <the eight assets>
-gh release edit <v> --repo dnh33/legion --draft=false
+gh release create v<v> --repo dnh33/legion --title "..." --notes-file <file> --draft
+gh release upload v<v> --repo dnh33/legion <the eight assets>
+gh release edit v<v> --repo dnh33/legion --draft=false
 ```
 
 Eight assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json`, its `.sig`, `SHA256SUMS.txt`, `SHA256SUMS.txt.sig`, `install.ps1` and `install.sh`. The installers are not optional: `getlegion.xyz/install.ps1` fetches `install.ps1` from the latest release, so a release without it breaks every new install the moment it becomes latest (0.2.6-s and 0.2.6-t shipped without them on 2026-10-12; new installs failed until they were added).
@@ -246,9 +252,9 @@ the new one before running the verify, or the verify sees a mix of two releases 
 curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-manifest.json
 ```
 
-Check `version` **and** `requiresFullInstall: false`. Download the manifest, its `.sig`, the `app.zip` and
+Check `version` **and** `requiresFullInstall` (false for a code-only release; true for a dependency change, and then the manifest must carry `fullAsset`). Download the manifest, its `.sig`, the `app.zip` and
 `SHA256SUMS.txt` into a fresh folder and run `release-verify.mjs` **on those fetched bytes**. Local verification
-proves the folder is right; this proves a real install can receive it.
+proves the folder is right; this proves a real install can receive it. For a full-install release also download `legion-<v>-win-x64.zip` from the live URL and compare its size and sha256 with the manifest's `fullAsset`: `release-verify.mjs` does this when the zip is in the folder, and the first real test of a 285 MB download must not be a user's PC.
 
 Then check that a new install still works: `curl -sL https://getlegion.xyz/install.ps1` must return the same bytes as
 the release's `install.ps1` (not "Legion installer unavailable"), and

@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { args, die, loadDist, REPO } from './lib/release-lib.mjs';
+import { fullAssetProblems } from './lib/full-asset-check.mjs';
 
 const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v' });
 if (!a.dir) die('usage: node scripts/release-verify.mjs --dir <folder>');
@@ -22,6 +23,8 @@ if (zip.length !== man.asset.size) die('the zip size differs from the manifest')
 if (createHash('sha256').update(zip).digest('hex') !== man.asset.sha256) die('the zip sha256 differs from the manifest');
 const sums = readFileSync(join(dir, 'SHA256SUMS.txt'), 'utf8');
 if (!sums.includes(man.asset.sha256)) die('SHA256SUMS.txt does not list the zip hash');
+const fullProblems = await fullAssetProblems({ manifest: man, version: man.version, dir, sums });
+if (fullProblems.length) die(`full package: ${fullProblems.join('; ')}`);
 // SHA256SUMS.txt may be signed with the same key (scripts/release-sign-sums.mjs). Optional, so a release signed before
 // that script existed still verifies; when the .sig is present it must verify against SHA256SUMS.txt and a trusted key.
 const sumsSigPath = join(dir, 'SHA256SUMS.txt.sig');

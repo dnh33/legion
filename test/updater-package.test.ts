@@ -196,3 +196,60 @@ test('C25: a full package whose own package-lock differs from the signed depsSha
   const r = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V, { lock: '{"other":1}' }) } });
   assert.equal(code((await runFull(r)).err), 'content');
 });
+
+// The staged full tree is checked against the package's own file list before any swap: an antivirus that removed or changed a
+// file after extraction would otherwise produce a swap that lands and a build that cannot start.
+const ELECTRON_JS = (f: ZipFile) => f.name.endsWith('node_modules/electron/index.js');
+
+test('C25b: a good full package passes the file-by-file check (sizes and sha256 equal the list)', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: {} });
+  assert.equal((await runFull(r)).err, undefined);
+});
+
+test('C25b: a listed file that is missing after extraction (antivirus removal) refuses the stage and names the file', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V, { after: (fs) => fs.filter((f) => !ELECTRON_JS(f)) }) } });
+  const res = await runFull(r);
+  assert.equal(code(res.err), 'content');
+  assert.match((res.err as Error).message, /node_modules\/electron\/index\.js/);
+  assert.equal(stagedInfo(res.install, V), null);
+  assert.equal(existsSync(join(res.install, '.update', 'staging', V)), false, 'staging removed');
+});
+
+test('C25b: a file whose bytes differ from the list (same size) is refused', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V, { after: (fs) => fs.map((f) => (ELECTRON_JS(f) ? { ...f, data: '// electroX' } : f)) }) } });
+  const res = await runFull(r);
+  assert.equal(code(res.err), 'content');
+  assert.match((res.err as Error).message, /does not match/);
+});
+
+test('C25b: a file the list does not name is refused', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V, { after: (fs) => [...fs, { name: `legion-${V}/node_modules/evil.js`, data: 'x' }] }) } });
+  const res = await runFull(r);
+  assert.equal(code(res.err), 'content');
+  assert.match((res.err as Error).message, /evil\.js/);
+});
+
+test('C25b: the downloaded zip is deleted after a good extraction (it is 285 MB the install no longer needs)', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: {} });
+  const res = await runFull(r);
+  assert.equal(existsSync(join(res.install, '.update', 'staging', V, 'package.zip')), false);
+  assert.ok(stagedInfo(res.install, V));
+});
+
+test('C25c: disk space for the full route counts the unpacked size, read from the zip, not only a multiple of the zip', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: {} });
+  const zipSize = r.fullZip!.length;
+  let calls = 0;
+  // Plenty of room for 3 x the zip (the old rule), but not for the zip's real unpacked size plus 10%.
+  const res = await runFull(r, { freeBytes: () => { calls++; return calls === 1 ? 10 ** 12 : 100; } });
+  assert.equal(code(res.err), 'disk');
+  assert.ok(calls >= 2, 'free space is measured again once the unpacked size is known');
+  assert.match((res.err as Error).message, /MB|bytes/);
+  assert.equal(existsSync(join(res.install, '.update', 'staging', V)), false, 'staging removed');
+  void zipSize;
+});
+
+test('C25c: a full package that fits the unpacked size plus 10% stages', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: {} });
+  assert.equal((await runFull(r, { freeBytes: () => 10 ** 9 })).err, undefined);
+});

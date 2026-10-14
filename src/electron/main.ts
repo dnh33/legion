@@ -6,7 +6,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { initUpdater, recoverAtStart } from './updater-main.js';
+import { confirmAfterBoot, initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
@@ -466,6 +466,8 @@ function createSplash(): void {
   if (existsSync(assetPath('splash.html'))) void splash.loadFile(assetPath('splash.html'));
 }
 
+/** True once a boot got a usable core. An update confirms itself only then (see confirmAfterBoot). */
+let coreBooted = false;
 async function boot(): Promise<void> {
   const t0 = Date.now();
   booting = true;
@@ -479,6 +481,7 @@ async function boot(): Promise<void> {
     splashJs('error', err);
     return;
   }
+  coreBooted = true;
   splashJs('line', 'checking Claude sign-in\u2026');
 
   if (win && !win.isDestroyed()) win.destroy();
@@ -616,6 +619,7 @@ if (instance.quit) {
   void app.whenReady().then(async () => {
     await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
     await boot();
+    if (coreBooted) void confirmAfterBoot(root, () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
     initUpdater({ installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } });
   });

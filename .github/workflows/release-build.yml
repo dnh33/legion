@@ -141,12 +141,15 @@ jobs:
           if ($alive) {
             Write-Host "Process still alive after $env:SMOKE_TIMEOUT s"
             # Check health endpoint
-            try {
-              $health = Invoke-RestMethod -Uri "http://127.0.0.1:4747/health" -TimeoutSec 5
-              if ($health.ok) { Write-Host "Health OK: $health" }
-            } catch {
-              Write-Host "Health endpoint not ready: $_"
+            # The package must answer /health with ok and ITS OWN version. An unreachable endpoint or another version fails the build.
+            $health = $null
+            try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:4747/health" -TimeoutSec 5 } catch { Write-Host "Health endpoint not ready: $_" }
+            if (-not $health -or -not $health.ok -or $health.version -ne $env:V) {
+              Write-Host "::error::Smoke test FAILED: /health did not report ok with version $env:V (got: $health)"
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              exit 1
             }
+            Write-Host "Health OK: version $($health.version)"
             # Check stdout/stderr for any renderer crash evidence
             $stdout = Get-Content "d:\smoke-out.txt" -ErrorAction SilentlyContinue -Raw
             $stderr = Get-Content "d:\smoke-err.txt" -ErrorAction SilentlyContinue -Raw
@@ -166,12 +169,45 @@ jobs:
             if ($stderr) { Write-Host "stderr: $stderr" }
             exit 1
           }
-      - name: Manifest with release notes (unsigned)
-        if: steps.v.outputs.notes != ''
+      - name: Did the dependency tree change since the previous release?
+        id: deps
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          # The decision is made from data with the app's own dependencyHash, never from a hand-typed flag. A dependency change
+          # means installs can only self-apply from the signed full package, so the manifest below must carry it.
+          $tags = git tag --list 'v*'
+          $prev = ($tags | node scripts/release-previous-tag.mjs --version $env:V)
+          if ($LASTEXITCODE -ne 0) { throw 'could not pick the previous release tag' }
+          $argv = @('--lock', 'package-lock.json')
+          if ($prev) {
+            $prevLock = Join-Path $env:RUNNER_TEMP 'previous-package-lock.json'
+            git show "${prev}:package-lock.json" | Out-File -FilePath $prevLock -Encoding utf8
+            if ($LASTEXITCODE -ne 0) { throw "could not read package-lock.json from $prev" }
+            $argv += @('--previous-lock', $prevLock)
+          }
+          $json = node scripts/release-deps-decision.mjs @argv
+          if ($LASTEXITCODE -ne 0) { throw 'the dependency decision failed' }
+          $d = $json | ConvertFrom-Json
+          "requires=$(([string]$d.requiresFullInstall).ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          @("### Full install needed: $($d.requiresFullInstall)", '', "Previous release tag: $(if ($prev) { $prev } else { 'none found' })", '', $d.reason, '', "dependency hash now ``$($d.hash)``, then ``$($d.previousHash)``") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          Write-Host $json
+      - name: Manifest (unsigned; carries the signed-later full package when dependencies changed)
         env:
           V: ${{ steps.v.outputs.version }}
           NOTES: ${{ steps.v.outputs.notes }}
-        run: node scripts/release-manifest.mjs --zip "$env:PKG\legion-$env:V-app.zip" --out "$env:PKG" --notes "$env:NOTES"
+          REQUIRES: ${{ steps.deps.outputs.requires }}
+        run: |
+          $argv = @('--zip', "$env:PKG\legion-$env:V-app.zip", '--out', $env:PKG)
+          if ($env:NOTES) { $argv += @('--notes', $env:NOTES) }
+          if ($env:REQUIRES -eq 'true') { $argv += @('--full-zip', "$env:PKG\legion-$env:V-win-x64.zip", '--requires-full-install') }
+          node scripts/release-manifest.mjs @argv
+          if ($LASTEXITCODE -ne 0) { throw 'release-manifest.mjs failed' }
+          $m = Get-Content -Raw "$env:PKG\legion-update-manifest.json" | ConvertFrom-Json
+          if ([string]($m.requiresFullInstall).ToString().ToLowerInvariant() -ne $env:REQUIRES) { throw 'the manifest does not match the dependency decision' }
+          if (($env:REQUIRES -eq 'true') -and -not $m.fullAsset) { throw 'dependencies changed but the manifest has no fullAsset' }
+          if (($env:REQUIRES -ne 'true') -and $m.fullAsset) { throw 'dependencies did not change but the manifest carries a fullAsset' }
+          if ($m.fullAsset) { "Full package in the manifest: ``$($m.fullAsset.name)``, $($m.fullAsset.size) bytes, sha256 ``$($m.fullAsset.sha256)``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append }
       - name: Check SHA256SUMS and list every hash in the run summary
         env:
           V: ${{ steps.v.outputs.version }}
