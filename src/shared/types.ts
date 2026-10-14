@@ -6,6 +6,7 @@ import type { Room, RoomMessage, CommsState, TaskOrigin } from './comms.js';
 import type { BlenderStatusView } from './blender.js';
 import type { Project } from './projects.js';
 import type { CiUpdateSummary } from './ci.js';
+import type { Consequence } from './consequence.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -332,7 +333,35 @@ export type LegionEvent =
   | { type: 'blender.status'; status: BlenderStatusView }
   | { type: 'project.updated'; project: Project }
   | { type: 'board.updated'; projectId: string }
-  | { type: 'ci.updated'; summary: CiUpdateSummary };
+  | { type: 'ci.updated'; summary: CiUpdateSummary }
+  /** The queue or the set of running tasks changed (0.3.0): who waits, and why. Not persisted. */
+  | { type: 'queue.updated'; queue: QueueSnapshot }
+  /** What waits on the owner, counted by the core (overlay and notifications read this). Counts only: no text of any ask. */
+  | { type: 'attention.updated'; attention: AttentionView }
+  /** The away policy changed (a project's wait, pause, budget or notification level, or the quiet hours). */
+  | { type: 'away.updated' }
+  /** A project's budget was reached; sent once per period. */
+  | { type: 'budget.reached'; projectId: string; period: 'day' | 'week' | 'month' };
+
+/** Why a task waits in the queue (spec 4.3). Order of precedence: budget, paused, after, slot. */
+export type QueueReason = 'slot' | 'paused' | 'budget' | 'after';
+/** What starts a run (spec 4.3). Only `marshal` and `schedule` are held by "Pause new starts". */
+export type StartTrigger = 'owner' | 'marshal' | 'schedule' | 'room' | 'delegation';
+export interface QueueItem { taskId: string; reason: QueueReason; /** 1 = next in line. */ position: number }
+/** `running` is the number of live runs; bridge children may exceed `cap`, so the app shows min(running, cap). */
+export interface QueueSnapshot { cap: number; running: number; items: QueueItem[] }
+
+/** Counts of what waits on the owner, by project (`none` = a task with no project). Never carries the text of an ask. */
+export interface AttentionView { total: number; working: number; byProject: Record<string, number> }
+
+/** A run stopped on purpose and waiting for an answer (PR 5 fills this; the field exists so clients can already read it). */
+export interface ParkedAsk {
+  id: string; kind: 'approval' | 'question'; taskId: string; agentId: string; projectId?: string;
+  toolName: string; summary: string; consequence: Consequence; askedAt: string; parkedAt: string;
+}
+
+/** What the core can do in this build; a settings row for a missing feature stays hidden. */
+export interface CoreCaps { readOnlyCommands?: boolean; trustFolders?: boolean; keepAwake?: boolean; park?: boolean }
 
 /**
  * One choice a question offers. `preview` is plain text the card shows in a monospace panel; never rendered as HTML.
@@ -358,6 +387,10 @@ export interface PendingQuestion {
   at: string;
   /** Present when the requesting task was woken by another bot: who asked, in which room (as an approval card shows it). */
   origin?: { roomId: string; fromAgentId: string; hop: number };
+  /** The project the run belongs to, set by the core so every client counts the ask in the same project (0.3.0). */
+  projectId?: string;
+  /** What saying yes would do, set by the core (src/shared/consequence.ts). */
+  consequence?: Consequence;
 }
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
@@ -377,6 +410,10 @@ export interface ApprovalRequest {
   origin?: { roomId: string; fromAgentId: string; hop: number };
   /** The card offers no "Remember": the core cannot read what the command will run, so no rule could be scoped safely. */
   noRemember?: boolean;
+  /** The project the run belongs to, set by the core so every client counts the ask in the same project (0.3.0). */
+  projectId?: string;
+  /** What saying yes would do, set by the core (src/shared/consequence.ts). Absent on a card from an older core. */
+  consequence?: Consequence;
 }
 
 /** MCP server entry — same shape as Claude Code's .mcp.json entries. */
@@ -477,6 +514,12 @@ export interface StateSnapshot {
   auth: LegionConfig['claude']['auth'];
   /** Live progress of the running Claude runs, by task id (the same data as `task.progress`, for a client that joins mid-run). */
   progress?: Record<string, TaskProgress>;
+  /** The queue: who waits and why (0.3.0). Absent in a core without the away module. */
+  queue?: QueueSnapshot;
+  /** Asks parked for the owner (admin only). */
+  parked?: ParkedAsk[];
+  /** What this core can do; a setting for a missing feature stays hidden. */
+  caps?: CoreCaps;
 }
 
 /** GET /api/tasks response: one page of the history, newest first, without each task's final text. `nextCursor` is null on the last page. */
