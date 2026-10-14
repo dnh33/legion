@@ -10,6 +10,7 @@ import { ProjectStore } from '../src/core/projects/store.js';
 import { TaintedPaths } from '../src/core/tainted-paths.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { AgentProfile, ChatMessage, LegionEvent, Task } from '../src/shared/types.js';
+import type { ModeResolver } from '../src/core/gates-settings/index.js';
 
 export class FakeStore {
   agents = new Map<string, AgentProfile>();
@@ -31,7 +32,7 @@ export const ok = (text = 'done') => ({ type: 'result', subtype: 'success', is_e
 
 export interface AwayState { paused: Set<string>; budget: Set<string>; spends: Array<Record<string, unknown>>; rollsAt: Map<string, number> }
 
-export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
+export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; modes?: ModeResolver; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
   const root = cleanupTemp('legion-queue-');
   const store = new FakeStore();
   for (const id of ['a1', 'a2', 'a3']) store.agents.set(id, mkAgent(id, opts.approval ?? 'full'));
@@ -69,6 +70,7 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
     store: store as never, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as never, approvals, questions, config, queryFn,
     boatConfigured: () => false, projects, taintedPaths: new TaintedPaths(join(root, 'tp.json')), maxConcurrent: opts.maxConcurrent,
     ...(opts.withAway === false ? {} : { away }),
+    ...(opts.modes ? { modes: opts.modes } : {}),
   });
   const project = projects.setMembers(projects.create({ name: 'Shop', instructions: '' }).id, ['a1', 'a2', 'a3']);
   const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
