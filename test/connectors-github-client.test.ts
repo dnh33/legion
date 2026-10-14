@@ -207,8 +207,14 @@ test('host restriction: only api.github.com paths; callers cannot set headers; a
   assert.deepEqual(r.fake.stray, [], 'no other host was even attempted');
   assert.equal((await kind(r.client.request('/repos/o/evil'))).kind, 'network');
   assert.deepEqual(r.fake.stray, []);
-  const moved = await r.client.request('/repos/o/moved');
-  assert.deepEqual(moved.json, { full_name: 'o/r' });
+  // a renamed or transferred repo redirects to another repo: refused, so a repo that is not turned on is never reached through the old name
+  const before = r.fake.requests.length;
+  const moved = await kind(r.client.request('/repos/o/moved'));
+  assert.equal(moved.kind, 'moved');
+  assert.equal(moved.message, 'GitHub moved this repo to o/r. Turn the new name on in Legion to use it.');
+  assert.equal(r.fake.requests.length - before, 1, 'the redirect target was not requested');
+  // the same repo (only the case differs) is followed
+  assert.deepEqual((await r.client.request('/repos/o/r/issues/old')).json, { number: 1 });
   await r.client.request('/repos/o/r', { headers: { authorization: 'Bearer attacker', host: 'evil.example' } } as never);
   assert.ok(r.fake.apiRequests().at(-1)!.auth.startsWith('Bearer ghu_FAKE'));
   assert.ok(r.fake.requests.every((q) => ['api.github.com', 'github.com'].includes(q.host)));

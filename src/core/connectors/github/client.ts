@@ -19,7 +19,7 @@ export type GhAppKind = 'read' | 'write';
 
 // ------------------------------------------------------------------------------------------------ errors
 
-export type GhErrorKind = 'not-connected' | 'auth-expired' | 'forbidden' | 'rate-limited' | 'not-found' | 'logs-unavailable' | 'network';
+export type GhErrorKind = 'not-connected' | 'auth-expired' | 'forbidden' | 'rate-limited' | 'not-found' | 'logs-unavailable' | 'network' | 'moved';
 
 const MESSAGES: Record<GhErrorKind, string> = {
   'not-connected': 'GitHub is not connected.',
@@ -29,6 +29,7 @@ const MESSAGES: Record<GhErrorKind, string> = {
   'not-found': 'GitHub did not find that.',
   'logs-unavailable': 'The job log is not available.',
   network: 'Could not reach GitHub.',
+  moved: 'GitHub moved this repo. Turn the new name on in Legion to use it.',
 };
 
 /** A typed failure. The message is fixed text per kind; no request address, header or response body is ever attached. */
@@ -37,8 +38,8 @@ export class GhError extends Error {
   readonly needs?: 'read' | 'write';
   readonly resetAt?: string;
   readonly retryable?: boolean;
-  constructor(kind: GhErrorKind, extra: { needs?: 'read' | 'write'; resetAt?: string; retryable?: boolean } = {}) {
-    super(MESSAGES[kind]);
+  constructor(kind: GhErrorKind, extra: { needs?: 'read' | 'write'; resetAt?: string; retryable?: boolean; movedTo?: string } = {}) {
+    super(kind === 'moved' && extra.movedTo ? `GitHub moved this repo to ${extra.movedTo}. Turn the new name on in Legion to use it.` : MESSAGES[kind]);
     this.name = 'GhError';
     this.kind = kind;
     if (extra.needs) this.needs = extra.needs;
@@ -117,6 +118,8 @@ export const validRepo = (repo: unknown): repo is string => typeof repo === 'str
 const isRead = (m: string) => m === 'GET' || m === 'HEAD';
 const num = (v: string | null): number | undefined => { if (v === null || v === '') return undefined; const n = Number(v); return Number.isFinite(n) ? n : undefined; };
 const asRec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+/** The lower-case `owner/name` of a `/repos/{owner}/{name}` path, or undefined for any other path. */
+const repoOf = (p: string): string | undefined => { const m = /^\/repos\/([^/?#]+)\/([^/?#]+)/.exec(p); return m ? `${m[1]}/${m[2]}`.toLowerCase() : undefined; };
 const redirectStatus = (s: number) => s === 301 || s === 302 || s === 303 || s === 307 || s === 308;
 
 export class GitHubClient {
@@ -371,6 +374,10 @@ export class GitHubClient {
       let to: URL | undefined;
       try { to = loc ? new URL(loc, GITHUB_API_ORIGIN) : undefined; } catch { to = undefined; }
       if (!to || to.origin !== GITHUB_API_ORIGIN) throw new GhError('network', { retryable: false });
+      // a rename or transfer must not carry a read to a repo the owner did not turn on: a different repo path is refused
+      const from = repoOf(path);
+      const dest = repoOf(to.pathname);
+      if (from && dest !== from) throw new GhError('moved', { ...(dest && /^[\w.-]+\/[\w.-]+$/.test(dest) ? { movedTo: dest } : {}) });
       res = await this.exchange(to.pathname + to.search, ex);
     }
     return this.classify(res, method, init.raw === true);
