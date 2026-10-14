@@ -22,6 +22,12 @@ export interface ToolCtx {
   sleep: (ms: number) => Promise<void>;
   /** True once the run that called the tool is over or cancelled (github_ci_wait stops waiting). */
   stopped: () => boolean;
+  /** True once the owner turned the repo (or the agents switch) off in Legion. github_ci_wait checks it before every poll. */
+  revoked?: () => boolean;
+  /** The repos turned on in Legion, lower-case (design 4.2). `github_repo_list` lists these only. */
+  ticked?: () => string[];
+  /** Who is calling (a write card names the agent). Set for write tools. */
+  agent?: { id: string; name: string };
 }
 /** What a tool returns: the data, and an optional plain note shown next to it (outside the data, e.g. "timed out"). */
 export interface ToolOut { data: unknown; note?: string }
@@ -94,11 +100,18 @@ export const GITHUB_READ_TOOLS: Record<string, Run> = {
     const k = await c.connection();
     return ok({ auth: k.auth, login: k.login ?? null, needsSignIn: k.needsSignIn === true, permissions: k.permissions ?? null, rate: k.rate });
   },
-  async github_repo_list(c, a) {
-    const owner = typeof a.owner === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(a.owner) && a.owner !== '.' && a.owner !== '..' ? a.owner : undefined;
-    const path = owner ? `/users/${encodeURIComponent(owner)}/repos` : '/user/repos';
-    const r = await c.request(path + q({ per_page: 30, page: page(a.page), sort: 'updated' }));
-    return ok(arr(r.json).map(repoRow));
+  /** Only the repos turned on in Legion, one read each. It never lists `/user/repos`: an installed but unticked repo must not show up. */
+  async github_repo_list(c, a, x) {
+    const owner = typeof a.owner === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(a.owner) && a.owner !== '.' && a.owner !== '..' ? a.owner.toLowerCase() : undefined;
+    const all = (x.ticked?.() ?? []).filter((n) => !owner || n.split('/')[0] === owner);
+    const rows: unknown[] = [];
+    for (const name of all.slice((page(a.page) - 1) * 30, page(a.page) * 30)) {
+      try { rows.push(repoRow((await c.request(repoPath(name))).json)); } catch (e) {
+        if (e instanceof GhError && e.kind === 'rate-limited') throw e;
+        rows.push({ full_name: name, unavailable: true }); // turned on here, but GitHub does not show it to Legion now
+      }
+    }
+    return ok(rows);
   },
   async github_repo_get(c, a) { return ok(repoRow((await c.request(repoPath(a.repo))).json)); },
   async github_issue_list(c, a) {
@@ -180,7 +193,9 @@ async function ciWait(c: GhApi, a: Record<string, unknown>, x: ToolCtx): Promise
   let etag: string | undefined;
   let last: ReturnType<typeof parseRun> = null;
   const partial = (): RunSummary => (last ? summarizeRun(last, []) : { status: 'unknown', conclusion: null, url: '', failedJobs: [] });
+  const turnedOff = (): ToolOut => ok(partial(), 'That repo was turned off in Legion while waiting.');
   for (;;) {
+    if (x.revoked?.()) return turnedOff();
     let wait = CI_WAIT_MIN_INTERVAL_MS;
     try {
       const r = await c.request(path, etag ? { ifNoneMatch: etag } : {});
@@ -205,5 +220,6 @@ async function ciWait(c: GhApi, a: Record<string, unknown>, x: ToolCtx): Promise
     }
     await x.sleep(wait);
     if (x.stopped()) return ok(partial(), 'Stopped: the run that was waiting is over.');
+    if (x.revoked?.()) return turnedOff();
   }
 }
