@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Legion needs Node 22.12 or newer.** Older Node 20 no longer works. If you start Legion from source, update Node first. The prebuilt
+  package and the installer bring their own, so nothing changes for them.
+- **Legion uses Claude Agent SDK 0.3.296**, which includes the Claude Code version that supports Haiku 5.5.
+- **Legion now counts tokens with a real tokenizer.** Compaction used to guess from the length of the text, so it started too early
+  on some conversations and too late on others (code and non-English text most). It now counts the way OpenAI-family models do, which
+  is exact for them and a close estimate for the rest. The package grows by about 1 MB. Very large tool results are measured from
+  their start and end, so they cannot slow a turn down.
+
 ### Added
 
 - **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows
