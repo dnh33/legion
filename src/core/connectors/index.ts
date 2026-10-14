@@ -242,7 +242,7 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
       });
       add('GET', '/api/github/projects-using/:owner/:name', ({ params }) => area.projectsUsing(params[0] ?? '', params[1] ?? ''));
       add('PUT', '/api/github/projects/:id/access', ({ params, body }) => area.projectAccess(params[0] ?? '', (body as { level?: unknown } | null)?.level));
-      addRepoAdminRoutes(add, { area, client: clientOf });
+      addRepoAdminRoutes(add, { dataDir: deps.dataDir, client: clientOf, area });
     },
 
     dispose() { cancelFlow(); writeFlow.abort?.abort(); area.dispose(); },
