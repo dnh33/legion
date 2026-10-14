@@ -154,6 +154,8 @@ code-only subset).
 
 ### 5. Manifest — from `app.zip`, **not** the full zip
 
+A release publishes **two manifest names** (see [Stepping stones](#stepping-stones)). `release-manifest.mjs` writes both: `legion-update-manifest-2.json` is the release's own manifest, `legion-update-manifest.json` is what a 0.2.7 install reads. For a code-only release they are the same bytes. For a **full-install release** add `--stepping-stone <folder>`: the folder holds the stone's own published `legion-update-manifest.json` and `.sig` (`gh release download v0.2.8 -p 'legion-update-manifest.json*' -D <folder>`). They are copied byte for byte under the old name and never re-signed, and the own manifest names the stone and sets `minUpdater: 2`. The release build workflow does this for you.
+
 ```
 node scripts/release-manifest.mjs --zip D:/bots/legion-pkg-<v>/legion-<v>-app.zip \
      --out D:/bots/legion-pkg-<v> --notes <notes-file>
@@ -164,11 +166,11 @@ Passing the 285 MB zip fails with a naming error that does not explain which zip
 ### 6. Sign (the manifest **and** SHA256SUMS)
 
 ```
-node scripts/release-sign.mjs      --key <key.pem> --manifest D:/bots/legion-pkg-<v>/legion-update-manifest.json
+node scripts/release-sign.mjs      --key <key.pem> --manifest D:/bots/legion-pkg-<v>/legion-update-manifest-2.json
 node scripts/release-sign-sums.mjs --key <key.pem> --sums     D:/bots/legion-pkg-<v>/SHA256SUMS.txt
 ```
 
-The first signs the update manifest, which the app checks before it stages an update. The second signs `SHA256SUMS.txt`,
+The first signs the release's own manifest (`legion-update-manifest-2.json`), which the app checks before it stages an update; for a code-only release it also writes the same `.sig` for the identical old-name file, and for a full-install release the old name already carries the stone's own `.sig`, so nothing else is signed. The second signs `SHA256SUMS.txt`,
 so the hashes a downloader compares are covered by a signature and not only by a file that travelled beside them; it
 writes `SHA256SUMS.txt.sig` next to it. Both use the same k1 key, both write a detached Ed25519 signature in the same
 `{"keyId","alg","sig"}` shape, and both refuse a key that is not the one the app trusts.
@@ -191,11 +193,13 @@ verifies the signature **with the app's own verifier and its own baked-in keys**
 against the same key when that file is present (it is optional, so a release signed before the sums signer existed
 still passes).
 
+Both scripts also check the old name (`--no-network` skips only the download, for rehearsals): a full-install release's `legion-update-manifest.json` must be a signed stepping stone listed in `scripts/stepping-stones.json`, the second manifest must name it and set `minUpdater`, and the stone's package URL must return the signed size and sha256. A code-only release must publish identical bytes under both names. Missing either name fails.
+
 A full-install release adds these checks (both scripts fail, not warn): the manifest's `fullAsset` must equal the `legion-<v>-win-x64.zip` in the folder (name, size, sha256) and be listed in `SHA256SUMS.txt`; a release that does not need a full install must not carry a `fullAsset`.
 
 ### 7a. Rehearse the update (full-install releases)
 
-Run the workflow "Full-install rehearsal" on the release commit (`gh workflow run full-install-rehearsal.yml --repo dnh33/legion --ref <commit or tag>`) and write the run id in the release PR. It installs the latest published release with `install.ps1`, then updates that install to a candidate built from the same commit, from a loopback server, with a throwaway signing key: success (the new version reports health, files match the package list, user data survives), rollback (a first start that fails puts the old version back) and a locked file (the swap refuses cleanly). Nothing real is touched. All three scenarios must be green before you publish.
+Run the workflow "Full-install rehearsal" on the release commit (`gh workflow run full-install-rehearsal.yml --repo dnh33/legion --ref <commit or tag>`) and write the run id in the release PR. It installs the latest published release with `install.ps1`, then updates that install to a candidate built from the same commit, from a loopback server, with a throwaway signing key: success (the new version reports health, files match the package list, user data survives), rollback (a first start that fails puts the old version back) and a locked file (the swap refuses cleanly). `stone-walk` (the live release goes to a code-only stone, then to the full candidate, install intact and data surviving) and `stone-direct` (a build with the new updater goes straight to the full candidate through the second manifest name) must be green too. `vanished-live` is informational: it documents the known old-helper case that the stepping stone exists to avoid. Nothing real is touched. All three scenarios must be green before you publish.
 
 **Do not publish over a failure.** Two warnings are known and benign on Windows installs:
 `lettered patch: only installs that ALREADY support lettered versions…` (safe once any `-a` has shipped) and
@@ -269,9 +273,35 @@ in a browser (curl without a browser user agent gets the install script, not the
 
 ### 12. Clean up
 
+Never delete a stepping-stone release, tag or asset (see [Stepping stones](#stepping-stones)). Skip any release listed there.
+
 When the release is live, remove what the work left behind: merged branches (local and remote), worktrees made for
 it, package and scratch folders, merged or superseded PRs. Anything with unmerged commits, someone else's uncommitted
 work or a stash is listed for the owner, not deleted. Keep the `pre-merge-*` restore tags.
+
+---
+
+## Stepping stones
+
+A 0.2.7 install reads only `releases/latest/download/legion-update-manifest.json` and builds its package address from that manifest's **version** (`releases/download/v<version>/...`). Its old swap helper cannot be trusted with a full-install package (rehearsal run 38534394554: in `vanished-live` it swapped an incomplete package and still reported healthy). So a full-install release must never be what the old name offers. Instead:
+
+- The old name carries a **stepping stone**: a code-only release whose updater is new enough (0.2.8, updater generation 2), as its own signed manifest and `.sig`, copied byte for byte.
+- The new name `legion-update-manifest-2.json` carries the full release. Generation 2 and later read it first and fall back to the old name only when it is absent (404), never on a signature or parse failure. It sets `minUpdater` and signs the stone (`steppingStone`: version, date, deps hash, asset name, size, sha256). A client below `minUpdater` is offered only that stone, or nothing and a plain message when there is none.
+- Result: an install on 0.2.7 goes to 0.2.8 on its next check, then to the full release on the check after, whatever day it wakes up.
+
+Stepping stones (the list is `scripts/stepping-stones.json`; a test keeps this section and that file in step):
+
+| Version | Release | Why |
+| --- | --- | --- |
+| 0.2.8 | `v0.2.8` | first release with the second manifest name and `minUpdater`; the stone for every full-install release while 0.2.7 installs exist |
+
+**Never delete a stepping-stone release, tag or asset.** 0.2.7 builds the address from the manifest version, so deleting `v0.2.8` or its zip strands every 0.2.7 install, silently. Release clean-up (step 12) never touches a release listed above, and a stone's assets are never replaced.
+
+Protection and detection:
+
+1. **Tag ruleset** (owner, one time, not done by any script run in CI): the `v*` ruleset below already blocks update and deletion of every release tag except by the owner. Keep it active, and confirm it with `gh api repos/dnh33/legion/rulesets --jq '.[] | select(.target=="tag") | {name, enforcement}'`. For a ruleset that names only the stones, create one over `refs/tags/v0.2.8` with the `deletion` and `update` rules and no bypass actor other than the owner role (`node scripts/gh-tag-ruleset.mjs` prints a body to adapt). This document does not change repository settings.
+2. **Every release's gate** (step 7) fetches the stone's package from its public URL and checks the signed size and sha256.
+3. **Daily check**: `.github/workflows/stone-check.yml` runs `node scripts/stone-check.mjs` against the live latest release: the old-name manifest must verify and its package must still return the signed size and sha256. A red run means a stone is damaged or gone: restore it that day (re-upload the identical asset from the release build).
 
 ---
 

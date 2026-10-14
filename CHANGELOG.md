@@ -6,6 +6,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
+- **Every future update can reach you, even if you skipped one.** Legion now checks a second update list first and uses the old one only when the new one is not there. A release that needs a bigger install can ask Legion to take a small step update first and offers the bigger one on the next check, so an older copy is never left half updated. If a release needs something your Legion cannot do yet and no step exists, Legion says so in plain words and offers nothing.
+- **A daily check that the step update is still there.** A scheduled check confirms the update that older copies depend on can still be downloaded exactly as signed, so a deleted file is noticed within a day.
+
+### Fixed
+
+- **A refused update says why.** When Legion refuses to install an update because part of it went missing, it now shows that reason, instead of "could not prepare the update helper", and starts the app once instead of twice.
+- **A second update never throws away your way back.** If a new update starts before the last one was confirmed healthy, Legion puts the last confirmed copy back first, so there is always one good copy to return to.
+- **A late health signal cannot undo a finished update.**
+
 - **Project Settings, safer and steadier.** The reads switch only asks; it turns on after you press Confirm. Changing a project's folder ends its "read without asking" permission for the old folder, so you turn it on again for the new one. The section list fits narrow windows, a waiting answer no longer moves the page when it appears, and Best fit says what it does: Legion picks the member with the fewest running tasks.
 - **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows
   who is working right now, then "Since you last looked": the three riskiest asks first, each with what saying yes would do, and

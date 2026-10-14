@@ -24,8 +24,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
+import { hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 
-const a = args(process.argv.slice(2), { version: 'v', pkg: 'v' });
+const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag' });
 
 // --pkg is REQUIRED, with no default. It used to fall back to a hardcoded owner-local folder, which was wrong twice over:
 // it put a private path in a script that ships in the public repo, and it made a missing flag read as "release artifacts
@@ -112,7 +113,8 @@ try {
 // --------------------------------------------- 4. the built artifacts + the manifest
 const appZip = join(pkgFolder, `legion-${version}-app.zip`);
 const fullZip = join(pkgFolder, `legion-${version}-win-x64.zip`);
-const manifestPath = join(pkgFolder, 'legion-update-manifest.json');
+// This release's OWN manifest is the second-name file (docs/SHIPPING.md, Stepping stones); the old name is checked separately below.
+const manifestPath = join(pkgFolder, NEW_NAME);
 const sigPath = `${manifestPath}.sig`;
 
 if (!existsSync(fullZip)) fail(`missing ${fullZip} — run build-package.mjs first`);
@@ -171,6 +173,24 @@ else {
   } catch (e) {
     fail(`could not verify the signature with the app's verifier: ${e.message}`);
   }
+}
+
+// ----------------------------------- 4b. the old name: a signed stepping stone, still served as signed
+// 0.2.7 reads only the old name and builds its package address from that manifest's version. For a full-install release it must therefore be the
+// stone's own signed manifest (never this release), and the stone's package must really come back with the signed size and sha256.
+try {
+  const trust = await import(new URL(`../dist/src/core/updater/trust.js?p=${Date.now()}`, import.meta.url).href);
+  const { parseManifest } = await import(new URL(`../dist/src/core/updater/manifest.js?p=${Date.now()}`, import.meta.url).href);
+  const oldPath = join(pkgFolder, OLD_NAME);
+  if (!existsSync(oldPath) || !existsSync(`${oldPath}.sig`) || !existsSync(manifestPath)) fail(`a release publishes both ${OLD_NAME} (+ .sig) and ${NEW_NAME} (+ .sig); one is missing in ${pkgFolder}`);
+  else {
+    const full = parseManifest(readFileSync(manifestPath)).requiresFullInstall;
+    const problems = await stoneProblems({ oldBytes: readFileSync(oldPath), oldSig: readFileSync(`${oldPath}.sig`, 'utf8'), newBytes: readFileSync(manifestPath), trust, parseManifest, stones: readStones(), ...(full && !a['no-network'] ? { fetchAsset: hashUrl } : {}) });
+    for (const p of problems) fail(`stepping stone: ${p}`);
+    if (!problems.length) pass(full ? 'old-name manifest is a signed stepping stone and its package returns the signed size and sha256' : 'both manifest names carry the same signed code-only manifest');
+  }
+} catch (e) {
+  fail(`could not check the stepping stone: ${e.message}`);
 }
 
 // --------------------------------------------- 5. install-mode + no unattended apply

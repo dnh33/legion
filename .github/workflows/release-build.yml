@@ -197,13 +197,22 @@ jobs:
           V: ${{ steps.v.outputs.version }}
           NOTES: ${{ steps.v.outputs.notes }}
           REQUIRES: ${{ steps.deps.outputs.requires }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $argv = @('--zip', "$env:PKG\legion-$env:V-app.zip", '--out', $env:PKG)
           if ($env:NOTES) { $argv += @('--notes', $env:NOTES) }
-          if ($env:REQUIRES -eq 'true') { $argv += @('--full-zip', "$env:PKG\legion-$env:V-win-x64.zip", '--requires-full-install') }
+          if ($env:REQUIRES -eq 'true') {
+            $argv += @('--full-zip', "$env:PKG\legion-$env:V-win-x64.zip", '--requires-full-install')
+            # A full-install release names a stepping stone (docs/SHIPPING.md): its own published, signed old-name manifest, copied unchanged.
+            $stone = (Get-Content -Raw scripts/stepping-stones.json | ConvertFrom-Json).stones | Select-Object -Last 1
+            $stoneDir = Join-Path $env:RUNNER_TEMP 'stone'
+            gh release download "v$stone" --repo dnh33/legion -p 'legion-update-manifest.json' -p 'legion-update-manifest.json.sig' -D $stoneDir --clobber
+            if ($LASTEXITCODE -ne 0) { throw "could not download the stepping stone v$stone manifest" }
+            $argv += @('--stepping-stone', $stoneDir)
+          }
           node scripts/release-manifest.mjs @argv
           if ($LASTEXITCODE -ne 0) { throw 'release-manifest.mjs failed' }
-          $m = Get-Content -Raw "$env:PKG\legion-update-manifest.json" | ConvertFrom-Json
+          $m = Get-Content -Raw "$env:PKG\legion-update-manifest-2.json" | ConvertFrom-Json
           if ([string]($m.requiresFullInstall).ToString().ToLowerInvariant() -ne $env:REQUIRES) { throw 'the manifest does not match the dependency decision' }
           if (($env:REQUIRES -eq 'true') -and -not $m.fullAsset) { throw 'dependencies changed but the manifest has no fullAsset' }
           if (($env:REQUIRES -ne 'true') -and $m.fullAsset) { throw 'dependencies did not change but the manifest carries a fullAsset' }
@@ -214,7 +223,7 @@ jobs:
           ARTIFACT: ${{ steps.v.outputs.artifact }}
           COMMIT: ${{ steps.v.outputs.commit }}
         run: |
-          $files = "legion-$env:V-app.zip", "legion-$env:V-win-x64.zip", 'legion-update-manifest.json', 'SHA256SUMS.txt', 'install.ps1', 'install.sh'
+          $files = "legion-$env:V-app.zip", "legion-$env:V-win-x64.zip", 'legion-update-manifest.json', 'legion-update-manifest-2.json', 'SHA256SUMS.txt', 'install.ps1', 'install.sh'
           foreach ($f in $files) { if (-not (Test-Path -LiteralPath (Join-Path $env:PKG $f) -PathType Leaf)) { throw "$f was not built" } }
           $lines = Get-Content -LiteralPath (Join-Path $env:PKG 'SHA256SUMS.txt') | Where-Object { $_ }
           foreach ($l in $lines) {
@@ -235,6 +244,7 @@ jobs:
             ${{ runner.temp }}/legion-pkg/legion-${{ steps.v.outputs.version }}-app.zip
             ${{ runner.temp }}/legion-pkg/legion-${{ steps.v.outputs.version }}-win-x64.zip
             ${{ runner.temp }}/legion-pkg/legion-update-manifest.json
+            ${{ runner.temp }}/legion-pkg/legion-update-manifest-2.json
             ${{ runner.temp }}/legion-pkg/SHA256SUMS.txt
             ${{ runner.temp }}/legion-pkg/install.ps1
             ${{ runner.temp }}/legion-pkg/install.sh

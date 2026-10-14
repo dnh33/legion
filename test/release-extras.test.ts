@@ -129,8 +129,10 @@ test('release-verify accepts an unsigned SHA256SUMS, then checks a SHA256SUMS.tx
     schema: 1, product: 'legion', channel: 'stable', version: '0.9.0', publishedAt: '2026-10-20T10:00:00Z',
     asset: { name: zipName, size: zipBytes.length, sha256: sha }, depsSha256: 'a'.repeat(64), requiresFullInstall: false, notes: 'x',
   };
+  // a code-only release publishes the same bytes under both manifest names; one signing run writes both .sig files
   writeFileSync(join(dir, 'legion-update-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-  assert.equal(run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(dir, 'legion-update-manifest.json'), '--trust-module', tm]).status, 0);
+  writeFileSync(join(dir, 'legion-update-manifest-2.json'), JSON.stringify(manifest, null, 2) + '\n');
+  assert.equal(run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(dir, 'legion-update-manifest-2.json'), '--trust-module', tm]).status, 0);
   writeFileSync(join(dir, 'SHA256SUMS.txt'), `${sha}  ${zipName}\n`);
   // an unsigned sums file is fine (releases signed before the sums signer existed)
   assert.equal(run('release-verify.mjs', ['--dir', dir, '--trust-module', tm]).status, 0);
