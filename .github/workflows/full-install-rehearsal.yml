@@ -121,8 +121,12 @@ jobs:
           $h = curl.exe -sSI https://github.com/dnh33/legion/releases/latest
           $loc = ($h | Where-Object { $_ -match '^(?i)location:' } | Select-Object -Last 1)
           if ($loc -notmatch '/releases/tag/v(\S+)') { throw "no version in: $loc" }
-          "BASELINE=$($Matches[1])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "baseline is $($Matches[1])"
+          $base = $Matches[1]
+          # The stone walks start from the last release BEFORE the stone (0.3.0): a 0.3.0 install is the stone itself and goes
+          # straight to a full package by the second name, which chain and the full update above already cover from the live release.
+          if ('${{ matrix.scenario }}' -in 'stone-walk', 'stone-later') { $base = '0.2.7' }
+          "BASELINE=$base" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "baseline is $base"
       - name: Baseline built from this checkout (scenarios that must run the new swap helper)
         if: matrix.scenario == 'vanished' || matrix.scenario == 'stone-direct'
         run: |
