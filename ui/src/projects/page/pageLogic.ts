@@ -57,6 +57,7 @@ export function hhmm(msValue: number, nowMs: number): string {
 /* ---------- tasks and agents ---------- */
 export const projectTasks = (f: PageFacts): Task[] => f.tasks.filter((t) => t.projectId === f.project.id && !t.archived);
 const nameOf = (f: PageFacts, id: string): string => f.agents.find((a) => a.id === id)?.name ?? id;
+export const nameOfAgent = nameOf;
 
 /** Every ask of this project, riskiest first, then oldest first. */
 export function asksOf(f: PageFacts): Ask[] {
