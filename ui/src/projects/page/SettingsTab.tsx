@@ -21,8 +21,9 @@ import { PIcon } from './PIcon';
 import '../projects.css';
 import './settings.css';
 
-function Switch({ on, label, disabled, onChange, id }: { on: boolean; label: string; disabled?: boolean; onChange: (v: boolean) => void; id: string }) {
-  return <button type="button" role="switch" id={id} className="pg-sw" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)} />;
+/** `expanded` is for a switch that opens a question before it changes anything: aria-checked stays what is true (off), aria-expanded says the question is open. */
+function Switch({ on, label, disabled, onChange, id, expanded }: { on: boolean; label: string; disabled?: boolean; onChange: (v: boolean) => void; id: string; expanded?: boolean }) {
+  return <button type="button" role="switch" id={id} className={'pg-sw' + (expanded ? ' asking' : '')} aria-checked={on} {...(expanded !== undefined ? { 'aria-expanded': expanded } : {})} aria-label={label} disabled={disabled} onClick={() => onChange(!on)} />;
 }
 
 function Opt({ id, title, help, children }: { id: string; title: string; help?: string; children: React.ReactNode }) {
@@ -243,7 +244,7 @@ function Away({ project }: { project: Project }) {
 }
 
 /* ---------- Safety: the reads grant ---------- */
-function Safety({ project }: { project: Project }) {
+export function Safety({ project }: { project: Project }) {
   const settings = useStore((s) => s.settings);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -256,8 +257,8 @@ function Safety({ project }: { project: Project }) {
       <h2 id="set-h-safety" tabIndex={-1}>Safety</h2>
       <p className="lead">These options mean fewer approvals. Writes and commands always ask.</p>
       <Opt id="safe-reads" title="Let agents read files in this project without asking" help="Reads inside the project folders stop asking. Writes and commands still ask.">
-        <Switch id="safe-reads-sw" on={granted || confirming} label="Let agents read files in this project without asking" disabled={busy} onChange={(v) => {
-          if (v) { setConfirming(true); return; }
+        <Switch id="safe-reads-sw" on={granted} expanded={confirming && !granted} label="Let agents read files in this project without asking" disabled={busy} onChange={(v) => {
+          if (v) { setConfirming(!confirming); return; } // asking again closes the question; only Confirm grants
           setConfirming(false);
           if (granted) { setBusy(true); void revokeReads(project).then((ok) => { setBusy(false); if (ok) announce('Reads ask again in this project.'); }); }
         }} />
@@ -267,7 +268,7 @@ function Safety({ project }: { project: Project }) {
           <b>Stop asking for reads in this project?</b>
           <p>Agents will read files in this project without asking. Writes and commands still ask. You can turn this off here at any time.</p>
           <div className="row">
-            <button ref={confirmBtn} type="button" className="pg-btn strong" disabled={busy} onClick={() => { setBusy(true); void grantReads(project).then((ok) => { setBusy(false); if (ok) { setConfirming(false); announce('Done. Agents read files in this project without asking.'); } }); }}>Confirm</button>
+            <button ref={confirmBtn} id="safe-reads-confirm" type="button" className="pg-btn strong" disabled={busy} onClick={() => { setBusy(true); void grantReads(project).then((ok) => { setBusy(false); if (ok) { setConfirming(false); announce('Done. Agents read files in this project without asking.'); } }); }}>Confirm</button>
             <button type="button" className="pg-btn ghost" onClick={() => { setConfirming(false); document.getElementById('safe-reads-sw')?.focus(); }}>Not now</button>
           </div>
         </div>
