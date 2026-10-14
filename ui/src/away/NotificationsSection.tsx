@@ -28,7 +28,7 @@ export function NotificationsSection() {
 
   return (
     <div className="set-section away-section">
-      <header className="set-head"><h3>Notifications</h3><p>Legion puts a mark on its taskbar button and shows a pop-up when something needs you. A pop-up never shows what an agent wrote or the command it wants to run.</p></header>
+      <header className="set-head" data-tip="settings-notifications"><h3>Notifications</h3><p>Legion puts a mark on its taskbar button and shows a pop-up when something needs you. A pop-up never shows what an agent wrote or the command it wants to run.</p></header>
       {err && <p className="set-error" role="alert">{err}</p>}
       {!app && !err && <div className="set-loading"><span className="spin" /> Loading{'…'}</div>}
       {app && quiet && (

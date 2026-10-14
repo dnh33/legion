@@ -19,6 +19,7 @@ import { LogsSection } from '../logs/LogsSection';
 import { GatesSection } from '../gates/GatesSection';
 import { NotificationsSection } from '../away/NotificationsSection';
 import { SpendingSection } from '../away/SpendingSection';
+import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -809,8 +810,23 @@ function AboutSection({ s }: { s: SettingsView }) {
           <div key={k}><dt>{k}</dt><dd><code>{v}</code>{copy && <button type="button" className="btn-ghost sm" onClick={() => void copyText(v).then((ok) => ok && toast('Copied'))}><Icon name="copy" size={12} /> Copy</button>}</dd></div>
         ))}
       </dl>
+      <TipsRow version={version} />
       <UpdatePanel />
       <BrowserSection />
+    </div>
+  );
+}
+
+/** What's new: the switch for tips after an update, and a button that shows this release's tips again. */
+function TipsRow({ version }: { version: string }) {
+  const { enabled } = useTips();
+  return (
+    <div className="set-group">
+      <label className="set-check">
+        <input type="checkbox" checked={enabled} onChange={(e) => setTipsEnabled(e.target.checked)} />
+        <span><b>Show tips after updates</b><em>A few short notes about what changed, shown once when it is quiet. You can end them at any time.</em></span>
+      </label>
+      <button type="button" className="btn sm" disabled={!version} onClick={() => { if (replayTips(version)) { toast('The tips show as you open each page.'); closeSettings(); } else toast('This version has no tips.'); }}>What's new</button>
     </div>
   );
 }

@@ -73,7 +73,7 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
         {SETTINGS_NAV.map((n) => {
           const dot = n.changed ? changed.has(n.changed) : false;
           return (
-            <button key={n.id} type="button" aria-current={active === n.id ? 'true' : undefined} className={active === n.id ? 'on' : ''} onClick={() => go(n.id)}>
+            <button key={n.id} type="button" data-tip={n.id === 'away' ? 'project-away' : undefined} aria-current={active === n.id ? 'true' : undefined} className={active === n.id ? 'on' : ''} onClick={() => go(n.id)}>
               {n.label}{dot && <><i className="dt" aria-hidden="true" /><span className="sr">, changed from the default</span></>}
             </button>
           );

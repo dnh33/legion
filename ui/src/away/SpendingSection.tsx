@@ -26,7 +26,7 @@ export function SpendingSection() {
 
   return (
     <div className="set-section away-section">
-      <header className="set-head"><h3>Spending</h3><p>What your agents cost, across all projects.</p></header>
+      <header className="set-head" data-tip="settings-spending"><h3>Spending</h3><p>What your agents cost, across all projects.</p></header>
       {err && <p className="set-error" role="alert">{err}</p>}
       {!s && !err && <div className="set-loading"><span className="spin" /> Loading{'…'}</div>}
       {s && (
