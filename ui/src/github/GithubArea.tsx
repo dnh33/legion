@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { openExternal } from '../api';
 import { openEditor } from '../store';
 import { openProject } from '../projects/projectsStore';
@@ -8,15 +8,15 @@ import { FloatPanel } from '../ci/FloatPanel';
 import { Glyph } from '../ci/CiPanel';
 import { ago, formatDuration, runLook } from '../../../src/shared/ci-view';
 import { normRepo } from '../../../src/shared/github-area';
-import type { GithubAreaView, GithubRepoRow } from '../../../src/shared/github-area';
+import type { GithubRepoRow } from '../../../src/shared/github-area';
 import { activityVerb, areaState, CREATE_DEFAULTS, createConfirmLine, createNameError, listRepos, rateLine, writesOffText } from './areaState';
 import type { AreaState } from './areaState';
 import {
-  agentsOn, cancelRun, cancelSignIn, closeGithub, connectRead, connectWrite, createRepo, disconnectRead, disconnectWrite, GITHUB_NEW_REPO_URL, grantProject,
-  loadArea, openGithubSettings, rerunFailed, setAgentsEnabled, setQuery, setTick, showMore, toggleRepo, useGithub, watchInCi,
+  agentsOn, cancelRun, cancelSignIn, cancelWriteSignIn, closeGithub, connectRead, connectWrite, createRepo, disconnectRead, disconnectWrite, GITHUB_NEW_REPO_URL, grantProject,
+  loadArea, loadDetail, loadOrgs, openGithubSettings, rerunFailed, setAgentsEnabled, setQuery, setTick, showMore, toggleRepo, useGithub, watchInCi,
 } from './githubStore';
 import type { CreateResult } from './githubStore';
-import type { GithubAreaData, GithubProjectUse, GithubRepoDetail } from './types';
+import type { GithubAreaData, GithubRepoDetail } from './types';
 import './github.css';
 
 const ext = (url: string) => () => openExternal(url);
@@ -28,6 +28,7 @@ function Connection({ view, state }: { view: GithubAreaData; state: AreaState })
   const signed = view.signedIn.read;
   const rate = rateLine(view);
   const agentsId = useId();
+  const wf = useGithub((s) => s.writeFlow);
   if (!signed) return null;
   return (
     <section className="gh-conn" aria-label="Connection">
@@ -50,7 +51,17 @@ function Connection({ view, state }: { view: GithubAreaData; state: AreaState })
           <dd><span className="gh-cap">{view.agentsEnabled ? 'May use the repos you turn on' : 'Cannot use GitHub'}</span><Switch id="gh-agents-switch" on={view.agentsEnabled} label="Let agents use GitHub" onChange={(v) => void setAgentsEnabled(v)} /></dd>
         </div>
       </dl>
-      {writeText && <p className="gh-help">{writeText}</p>}
+      {wf && (
+        <div className="gh-note gh-signin" role="status" aria-label="Writes sign-in waiting">
+          <p>To turn on writes, open GitHub and enter this code:</p>
+          <p className="gh-code" aria-label="Your code">{wf.userCode}</p>
+          <div className="gh-actions">
+            <button type="button" className="btn sm primary" onClick={ext(wf.verificationUri)}>Open GitHub</button>
+            <button type="button" className="btn-ghost sm" onClick={cancelWriteSignIn}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {writeText && !wf && <p className="gh-help">{writeText}</p>}
       {rate && <p className="gh-fine">{rate}</p>}
     </section>
   );
@@ -59,6 +70,8 @@ function Connection({ view, state }: { view: GithubAreaData; state: AreaState })
 /* ---------- state banner ---------- */
 function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null }) {
   const flow = useGithub((s) => s.flow);
+  const flowNote = useGithub((s) => s.flowNote);
+  const why = useGithub((s) => s.why);
   const busy = useGithub((s) => s.busy);
   const firstUrl = view?.repos[0]?.installationSettingsUrl ?? 'https://github.com/settings/installations';
   const run = (id: NonNullable<AreaState['action']>['id']): void => {
@@ -76,13 +89,14 @@ function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null
           <button type="button" className="btn-ghost sm" onClick={cancelSignIn}>Cancel</button>
         </div>
         <p className="gh-fine">Legion checks every two seconds. The code works for a few minutes.</p>
+        {flowNote && <p className="gh-err" role="alert">{flowNote}</p>}
       </div>
     );
   }
   if (state.id === 'ready' || state.id === 'loading') return null;
   return (
     <div className={`gh-note tone-${state.tone}`} role={state.tone === 'warn' ? 'alert' : 'status'}>
-      <p>{state.text}</p>
+      <p>{state.text}{why && view && state.id === 'offline' && <><br /><span className="gh-fine">{why}</span></>}</p>
       {state.action && <button type="button" className="btn sm" disabled={!!busy || (state.disableGithubButtons && state.action.id !== 'retry')} onClick={() => run(state.action!.id)}>{state.action.label}</button>}
     </div>
   );
@@ -92,7 +106,8 @@ function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null
 function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean }) {
   const busy = useGithub((s) => s.busy === 'create');
   const login = view.login ?? 'you';
-  const orgs = view.orgs ?? [];
+  const orgs = useGithub((s) => s.orgs);
+  const orgsError = useGithub((s) => s.orgsError);
   const [owner, setOwner] = useState(login);
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
@@ -104,11 +119,12 @@ function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean 
   const nameErr = createNameError(name);
   const id = useId();
   const writeReady = view.registered.write && view.signedIn.write;
+  useEffect(() => { if (writeReady) void loadOrgs(); }, [writeReady]);
   const submit = async () => {
     setTouched(true);
     if (nameErr || busy || blocked) return;
     const r = await createRepo({ ...(owner !== login ? { owner } : {}), name, ...(desc.trim() ? { description: desc.trim() } : {}), private: priv, readme, tick });
-    if (r.ok) { setName(''); setDesc(''); setFail(null); } else setFail(r);
+    if (r.ok) { setName(''); setDesc(''); setFail(null); setTouched(false); } else setFail(r);
   };
   return (
     <form className="gh-create" aria-label="Create a repo" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -119,6 +135,7 @@ function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean 
           {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       </div>
+      {orgsError && <p className="gh-err" role="alert">{orgsError}</p>}
       <div className="gh-field">
         <label htmlFor={`${id}-name`}>Name</label>
         <input id={`${id}-name`} value={name} onChange={(e) => { setName(e.target.value); setFail(null); }} onBlur={() => setTouched(true)} spellCheck={false} autoComplete="off" placeholder="my-new-repo" aria-invalid={touched && !!nameErr} aria-describedby={`${id}-name-msg`} />
@@ -193,16 +210,6 @@ function CiBlock({ repo, d, canWrite, blocked }: { repo: string; d: GithubRepoDe
   );
 }
 
-function projectLevel(repo: string, p: GithubProjectUse): 'none' | 'read' | 'write' {
-  const g = agentsOn(repo);
-  const w = new Set(g.write.map((a) => a.id));
-  const r = new Set(g.read.map((a) => a.id));
-  if (p.agentIds.length === 0) return 'none';
-  if (p.agentIds.every((id) => w.has(id))) return 'write';
-  if (p.agentIds.every((id) => w.has(id) || r.has(id))) return 'read';
-  return 'none';
-}
-
 function RepoDetail({ row, view, state }: { row: GithubRepoRow; view: GithubAreaData; state: AreaState }) {
   const d = useGithub((s) => s.detail[row.fullName]);
   const agentsVersion = useGithub((s) => s.view); // re-render when access changes
@@ -227,12 +234,13 @@ function RepoDetail({ row, view, state }: { row: GithubRepoRow; view: GithubArea
           </ul>
         )}
       </div>
+      {d?.projectsError && <div className="gh-sec"><h4>Projects using it</h4><p className="gh-err" role="alert">{d.projectsError}</p><button type="button" className="btn sm" onClick={() => void loadDetail(row.fullName)}>Try again</button></div>}
       {d && d.projects.length > 0 && (
         <div className="gh-sec">
           <h4>Projects using it</h4>
           <ul className="gh-projects">
             {d.projects.map((p) => {
-              const lvl = projectLevel(row.fullName, p);
+              const lvl = p.level;
               return (
                 <li key={p.id}>
                   <button type="button" className="ci-link" onClick={() => { closeGithub(); openProject(p.id); }}>{p.name}</button>
@@ -253,7 +261,7 @@ function RepoDetail({ row, view, state }: { row: GithubRepoRow; view: GithubArea
           <ul className="gh-did">
             {did.map((a) => (
               <li key={a.id}>
-                <span><b>{a.agent}</b> {activityVerb(a.kind)} <button type="button" className="ci-link" disabled={blocked} onClick={ext(a.url)}>{a.title}</button></span>
+                <span><b>{a.agent}</b> {activityVerb(a.kind, !!a.title)}{a.title && (a.url ? <> <button type="button" className="ci-link" disabled={blocked} onClick={ext(a.url)}>{a.title}</button></> : <> {a.title}</>)}</span>
                 <time dateTime={a.at}>{ago(a.at)}</time>
               </li>
             ))}
@@ -321,12 +329,11 @@ function Skeleton() {
 export function GithubArea() {
   const open = useGithub((s) => s.open);
   const view = useGithub((s) => s.view);
-  const loading = useGithub((s) => s.loading);
+  const why = useGithub((s) => s.why);
   const signingIn = useGithub((s) => s.signingIn);
   const returnFocus = useRef(() => (document.querySelector('.tb-gh') ?? document.querySelector('.tb-search')) as HTMLElement | null);
-  const state = areaState(view as GithubAreaView | null, { signingIn, loading: !view });
-  const showList = !!view && view.signedIn.read && state.id !== 'auth-ended' && state.id !== 'nothing-installed' && state.id !== 'signing-in' && state.id !== 'loading';
-  void loading;
+  const state = areaState(view, { signingIn, loading: !view, ...(!view && why ? { failed: why } : {}) });
+  const showList = !!view && view.signedIn.read && state.id !== 'auth-ended' && state.id !== 'nothing-installed' && state.id !== 'signing-in' && state.id !== 'loading' && state.id !== 'load-failed';
   return (
     <FloatPanel
       id="github" title="GitHub" subtitle={view?.login ? <span className="ci-repo-name">{view.login}</span> : undefined} open={open} onClose={closeGithub} returnFocus={returnFocus.current}

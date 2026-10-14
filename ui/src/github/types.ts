@@ -1,7 +1,7 @@
 /** What the GitHub area reads on top of the shared GithubAreaView (src/shared/github-area.ts). Amendment 13.3: the view also carries what agents did. */
-import type { CiProblem, CiRun } from '../../../src/shared/ci';
-import type { GithubAreaView } from '../../../src/shared/github-area';
-import type { ActivityKind } from './areaState';
+import type { CiProblem, CiRun } from '../../../src/shared/ci.js';
+import type { GithubAreaView } from '../../../src/shared/github-area.js';
+import type { ActivityKind } from './areaState.js';
 
 export interface GithubActivity {
   id: string;
@@ -12,20 +12,18 @@ export interface GithubActivity {
   kind: ActivityKind;
   /** owner/name */
   repo: string;
-  /** "#139 Add the GitHub area" */
-  title: string;
-  /** A github.com page. */
-  url: string;
+  /** "#139 Add the GitHub area"; absent when the core gave none. */
+  title?: string;
+  /** The core sends no link to the item, so none is made up. */
+  url?: string;
 }
 
-/** The area's one call: the shared view plus what agents did through Legion (from the gateway's own records). */
-export interface GithubAreaData extends GithubAreaView {
+/** The area's one call (GET /api/github/area), with each agent action given its agent's name. */
+export interface GithubAreaData extends Omit<GithubAreaView, 'activity'> {
   activity: GithubActivity[];
-  /** The organisations the signed-in account can create repos in. Empty = personal account only. */
-  orgs?: string[];
 }
 
-export interface GithubProjectUse { id: string; name: string; agentIds: string[] }
+export interface GithubProjectUse { id: string; name: string; level: 'none' | 'read' | 'write' }
 
 export interface GithubRepoCi {
   runs: CiRun[];
@@ -36,7 +34,8 @@ export interface GithubRepoCi {
   source: 'here' | 'watch-needed';
 }
 
-export interface GithubRepoDetail { projects: GithubProjectUse[]; ci: GithubRepoCi }
+/** `projectsError`: the plain reason the projects list could not be read (the rest of the detail still shows). */
+export interface GithubRepoDetail { projects: GithubProjectUse[]; projectsError?: string; ci: GithubRepoCi }
 
 export interface CreateRepoBody { owner?: string; name: string; description?: string; private: boolean; readme: boolean; tick: boolean }
 

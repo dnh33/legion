@@ -5,7 +5,10 @@
 import { validCreateName } from '../../../src/shared/github-area.js';
 import type { GithubAreaView, GithubRepoRow } from '../../../src/shared/github-area.js';
 
-export type AreaStateId = 'loading' | 'not-registered' | 'signing-in' | 'auth-ended' | 'not-connected' | 'rate-limited' | 'offline' | 'nothing-installed' | 'all-repos' | 'none-ticked' | 'ready';
+/** The area view without the activity list (the panel gives that its own shape). */
+export type AreaViewLike = Omit<GithubAreaView, 'activity'>;
+
+export type AreaStateId = 'load-failed' | 'loading' | 'not-registered' | 'signing-in' | 'auth-ended' | 'not-connected' | 'rate-limited' | 'offline' | 'nothing-installed' | 'all-repos' | 'none-ticked' | 'ready';
 export type AreaTone = 'idle' | 'ok' | 'warn' | 'bad';
 export type AreaActionId = 'connect' | 'sign-in' | 'retry' | 'choose-at-github' | 'change-at-github';
 export interface AreaState {
@@ -20,7 +23,7 @@ export interface AreaState {
   keepsList: boolean;
 }
 
-export interface AreaCtx { /** The read sign-in is waiting for the owner on github.com. */ signingIn?: boolean; /** First load, nothing cached yet. */ loading?: boolean }
+export interface AreaCtx { /** The read sign-in is waiting for the owner on github.com. */ signingIn?: boolean; /** The first read failed and nothing is cached: the plain reason. */ failed?: string; /** First load, nothing cached yet. */ loading?: boolean }
 
 const st = (id: AreaStateId, tone: AreaTone, text: string, action?: AreaState['action'], more: Partial<AreaState> = {}): AreaState => ({ id, tone, text, ...(action ? { action } : {}), disableGithubButtons: false, keepsList: false, ...more });
 
@@ -31,7 +34,8 @@ export function clockTime(iso: string | undefined, fallback = 'a little while'):
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export function areaState(view: GithubAreaView | null, ctx: AreaCtx = {}): AreaState {
+export function areaState(view: AreaViewLike | null, ctx: AreaCtx = {}): AreaState {
+  if (!view && ctx.failed) return st('load-failed', 'warn', `Legion could not load GitHub. ${ctx.failed}`, { id: 'retry', label: 'Try again' });
   if (!view || ctx.loading) return st('loading', 'idle', 'Loading your repos.');
   if (!view.registered.read) return st('not-registered', 'idle', 'GitHub sign-in is not available in this build yet.');
   if (ctx.signingIn && !view.signedIn.read) return st('signing-in', 'idle', 'Waiting for you to approve Legion on GitHub.');
@@ -47,7 +51,7 @@ export function areaState(view: GithubAreaView | null, ctx: AreaCtx = {}): AreaS
 }
 
 /** Grey = not connected, green = connected, amber = needs a look. */
-export function chipTone(view: GithubAreaView | null): 'idle' | 'ok' | 'warn' {
+export function chipTone(view: AreaViewLike | null): 'idle' | 'ok' | 'warn' {
   if (!view || !view.signedIn.read) return 'idle';
   const p = view.problem?.kind;
   if (p === 'not-connected') return 'idle';
@@ -55,14 +59,14 @@ export function chipTone(view: GithubAreaView | null): 'idle' | 'ok' | 'warn' {
   return 'ok';
 }
 
-export function chipLabel(view: GithubAreaView | null): string {
+export function chipLabel(view: AreaViewLike | null): string {
   const tone = chipTone(view);
   const how = tone === 'ok' ? 'connected' : tone === 'warn' ? 'needs a look' : 'not connected';
   return `GitHub, ${how}`;
 }
 
 /** The "writes off" notice. Only when the owner is signed in for reading and the write app is not. */
-export function writesOffText(view: GithubAreaView): string | null {
+export function writesOffText(view: AreaViewLike): string | null {
   if (!view.signedIn.read || view.signedIn.write) return null;
   return 'Agents cannot write. Turn on writes to let chosen agents comment, open issues and pull requests, and re-run CI. Every write asks you first.';
 }
@@ -79,12 +83,16 @@ export function createConfirmLine(owner: string, name: string, priv: boolean): s
   return priv ? `This creates the private repo ${owner}/${name} on GitHub.` : `This creates the public repo ${owner}/${name} on GitHub. Anyone can see it.`;
 }
 
-export type CreateFailure = 'name-taken' | 'no-right' | 'org-approval' | 'network' | 'rate-limited' | 'unknown';
+export type CreateFailure = 'sign-in' | 'busy' | 'unsure' | 'unavailable' | 'name-taken' | 'no-right' | 'org-approval' | 'network' | 'rate-limited' | 'unknown';
 
 export function createFailureKind(status: number, message = ''): CreateFailure {
   if (status === 422) return 'name-taken';
   if (status === 429) return 'rate-limited';
   if (status === 0) return 'network';
+  if (status === 401) return 'sign-in';
+  if (status === 409) return 'busy';
+  if (status === 502) return 'unsure';
+  if (status === 404 && !/^GitHub did not find/i.test(message)) return 'unavailable';
   if (status === 403 && /approv|oauth app access|saml|sso/i.test(message)) return 'org-approval';
   if (status === 403 || status === 404) return 'no-right';
   return 'unknown';
@@ -92,6 +100,10 @@ export function createFailureKind(status: number, message = ''): CreateFailure {
 
 export function createFailureText(kind: CreateFailure): string {
   switch (kind) {
+    case 'sign-in': return 'Your Legion (write) sign-in ended. Connect it again, then try again. Nothing was created.';
+    case 'busy': return 'Another repo is being created. Wait a moment, then try again.';
+    case 'unsure': return 'Legion could not confirm what GitHub did. Check your repos at GitHub before you try again, so you do not make it twice.';
+    case 'unavailable': return 'This version of Legion cannot create repos yet. Create it at GitHub instead.';
     case 'name-taken': return 'That name is taken. Pick another one.';
     case 'no-right': return 'GitHub says you cannot create repos here. Try your own account, or ask an owner of the organisation.';
     case 'org-approval': return 'The organisation must approve Legion before it can create repos there. Ask an owner to approve it at GitHub, then try again.';
@@ -112,8 +124,9 @@ export function listRepos(repos: GithubRepoRow[], query: string, shown: number):
   return { rows: all.slice(0, shown), more: Math.max(0, all.length - shown), total: all.length };
 }
 
-export const rateLine = (view: GithubAreaView): string | null => (view.rate ? `${view.rate.remaining.toLocaleString('en-US')} GitHub requests left until ${clockTime(view.rate.resetAt, 'later')}.` : null);
+export const rateLine = (view: AreaViewLike): string | null => (view.rate ? `${view.rate.remaining.toLocaleString('en-US')} GitHub requests left until ${clockTime(view.rate.resetAt, 'later')}.` : null);
 
 /* ---------- what agents did ---------- */
 export type ActivityKind = 'comment' | 'issue' | 'pull-request' | 'rerun';
-export const activityVerb = (k: ActivityKind): string => (k === 'comment' ? 'commented on' : k === 'issue' ? 'opened the issue' : k === 'pull-request' ? 'opened the pull request' : 're-ran CI for');
+/** `titled` false: the core gave no title, so the line ends at the verb. */
+export const activityVerb = (k: ActivityKind, titled = true): string => (k === 'comment' ? (titled ? 'commented on' : 'commented') : k === 'issue' ? (titled ? 'opened the issue' : 'opened an issue') : k === 'pull-request' ? (titled ? 'opened the pull request' : 'opened a pull request') : (titled ? 're-ran CI for' : 're-ran CI'));
