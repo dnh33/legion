@@ -86,6 +86,22 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   return data as T;
 }
 
+export interface AwayProject {
+  onSilence: { mode: 'deny' | 'park'; parkMinutes: number };
+  paused: boolean;
+  budget: { limit: number; period: 'day' | 'week' | 'month' } | null;
+  budgetOverrideUntil?: string;
+  notify: 'problems' | 'everything' | 'nothing';
+}
+export interface AwayView { app: { quiet: { enabled: boolean; from: string; to: string }; notify: { enabled: boolean; returnSummary: boolean } }; projects: Record<string, AwayProject>; looked: Record<string, string> }
+export interface ProjectSpend {
+  week: number; today: number;
+  byAgent: Array<{ agentId: string; usd: number }>;
+  daily: Array<{ day: string; usd: number }>;
+  sinceUsd?: number;
+  budget: { limited: boolean; reached: boolean; overridden: boolean; spent: number; limit?: number; period?: 'day' | 'week' | 'month'; periodEnd?: number };
+}
+
 export type NewAgent = Partial<AgentProfile> & { name: string };
 
 export const api = {
@@ -169,6 +185,15 @@ export const api = {
   screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
   approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
   decide: (id: string, allow: boolean) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow }),
+  /** The away settings (0.3.0): per-project wait, pause, budget, notification level, the app's quiet hours and when each project was last looked at. */
+  away: () => request<AwayView>('GET', '/api/away'),
+  patchAwayProject: (id: string, b: Record<string, unknown>) => request<unknown>('PATCH', `/api/away/projects/${encodeURIComponent(id)}`, b),
+  markSeen: (id: string) => request<{ looked: string }>('POST', `/api/away/projects/${encodeURIComponent(id)}/seen`, {}),
+  budgetOverride: (id: string) => request<{ ok: true }>('POST', `/api/away/projects/${encodeURIComponent(id)}/budget-override`, {}),
+  /** This week's spend of one project, what was spent since `since`, and whether its budget is reached. */
+  projectSpend: (id: string, since?: string) => request<ProjectSpend>('GET', `/api/spend?scope=project&project=${encodeURIComponent(id)}${since ? `&since=${encodeURIComponent(since)}` : ''}`),
+  /** The app is about to send an Allow in the last seconds of an ask's wait: delay the core's deny. It never answers the ask. */
+  holdApproval: (id: string, ms: number) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}/hold`, { ms }),
   questions: () => request<PendingQuestion[]>('GET', '/api/questions'),
   /** One pick per question, in the order they were asked. Admin only (the POST refuses an MCP-class token). */
   answerQuestion: (id: string, answers: QuestionPick[]) => request<{ ok: boolean }>('POST', `/api/questions/${encodeURIComponent(id)}`, { answers }),

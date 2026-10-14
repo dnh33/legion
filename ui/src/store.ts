@@ -543,11 +543,16 @@ export async function compactNow(taskId: string, focus?: string): Promise<{ ok: 
   return api.compactNow(taskId, focus);
 }
 
-export async function decide(id: string, allow: boolean) {
+/** The window's own bookkeeping when a card is answered: the card leaves, a denial is noted, the mascot reacts. The project page calls it after its own send succeeded. */
+export function settleApproval(id: string, allow: boolean) {
   setState((s) => {
     const card = s.approvals.find((a) => a.id === id);
     return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
-  }); // optimistic
+  });
+}
+
+export async function decide(id: string, allow: boolean) {
+  settleApproval(id, allow); // optimistic
   try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
