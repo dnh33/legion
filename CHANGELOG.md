@@ -30,6 +30,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **New task is a sheet with "To" and "in".** Type what should happen, pick who does it (or Best fit) and which project. If that agent is already working in the project, you are told, and choose Run anyway or Queue after it, which starts when its current run finishes.
 - **Settings for while you are away.** The project Settings tab now has General, Folders, Members, While you are away (pause new starts, let the Marshal start board items), Safety (stop asking for reads in this project, after you confirm), Budget (day, week or month) and Notifications. Changed values get a dot.
 - **A "2 runs" menu in the chat header** when the agent has two or more runs going: see each run, stop one, or jump to it.
+- **Legion tells you when something needs you.** On Windows the taskbar icon shows a number: how many things wait on you (1 to 9, then 9+). It clears when nothing waits. Your tray icon says the same, and has an "Open what needs you" item. A pop-up appears for an approval, a question, a run that failed, a run waiting for you, or a budget reached. Click it and Legion opens that ask. Pop-ups only use plain words (the agent, what kind of ask, the project). They never show a command or anything an agent wrote.
+- **Quiet hours and a summary.** In Settings, Notifications, turn on quiet hours (22:00 to 07:00 to start with). No pop-ups appear in that window, and when it ends you get one line: "While you were away: 2 need you, 1 failed, $3.20 spent." Coming back to Legion after 30 minutes or more gives the same line. Legion stays silent about what is already on your screen, and groups a burst ("3 things need you in Shop").
+- **Settings, Spending.** What your agents cost this week and today, by project and by agent, and a bar for each of the last 14 days.
 
 ### Fixed
 

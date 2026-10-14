@@ -17,10 +17,14 @@ import { ArmorySection } from '../armory/ArmorySection';
 import { GithubSection } from '../connectors/GithubSection';
 import { LogsSection } from '../logs/LogsSection';
 import { GatesSection } from '../gates/GatesSection';
+import { NotificationsSection } from '../away/NotificationsSection';
+import { SpendingSection } from '../away/SpendingSection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
   { id: 'gates', label: 'Gates', hint: 'When agents need your OK' },
+  { id: 'notifications', label: 'Notifications', hint: 'Pop-ups and quiet hours' },
+  { id: 'spending', label: 'Spending', hint: 'What your agents cost' },
   { id: 'providers', label: 'Providers', hint: 'Other models, optional' },
   { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
@@ -75,6 +79,8 @@ export function SettingsPanel() {
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
               : section === 'gates' ? <GatesSection s={settings} />
+              : section === 'notifications' ? <NotificationsSection />
+              : section === 'spending' ? <SpendingSection />
               : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
