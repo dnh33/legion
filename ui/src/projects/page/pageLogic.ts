@@ -171,7 +171,7 @@ export function stopDetail(t: Task): string {
   return t.turns ? `Stopped after ${plural(t.turns, 'step')}. Work kept.` : 'Stopped at a limit. Work kept.';
 }
 
-function taskItem(f: PageFacts, t: Task, st: PageStatus): GroupItem {
+export function taskItem(f: PageFacts, t: Task, st: PageStatus): GroupItem {
   const detail = st === 'working' ? stepOf(f.progress?.[t.id])
     : st === 'queued' ? queueText(f, t)
     : st === 'stopped' ? stopDetail(t)
