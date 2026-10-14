@@ -1,4 +1,4 @@
-/* Title-bar update badge. App tokens only; a quiet pill in .tb-right that reddens its dot and eases as the update moves. */
+/* Title-bar update badge. App tokens only; a quiet pill in .tb-right; the dot is neutral while it works and amber only when it needs your restart. */
 .upd-badge {
   display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 12px;
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2); font-size: 12px; font-weight: 500;
@@ -14,7 +14,5 @@
 .upd-badge.tone-accent .upd-badge-dot { background: var(--accent); }
 .upd-badge.tone-ready .upd-badge-dot { background: var(--warn); }
 .upd-badge.tone-progress .upd-badge-dot,
-.upd-badge.tone-busy .upd-badge-dot { background: var(--warn); animation: upd-badge-pulse 1.1s var(--ease) infinite; }
-
-@keyframes upd-badge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .upd-badge-dot { animation: none !important; } }
+.upd-badge.tone-busy .upd-badge-dot { background: var(--muted); }
+/* downloading or working is ordinary activity: neutral and steady. Amber is only "ready, needs your restart". */
