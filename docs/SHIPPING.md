@@ -102,6 +102,17 @@ node --test dist/test/<touched>.test.js
 gh pr checks <pr>              # all pass, then record the run id
 ```
 
+**Package files check.** `package.json` and `package-lock.json` must be byte-identical to `main` on a release branch that
+changes no dependencies (a full install would end the updater stepping stone). Compare hashes, not eyes:
+
+```
+git diff --stat cloud/main -- package.json package-lock.json   # prints nothing
+git show cloud/main:package.json | sha256sum; sha256sum package.json
+git show cloud/main:package-lock.json | sha256sum; sha256sum package-lock.json
+```
+
+Each pair must match. A difference is a stop unless the release is a planned dependency release.
+
 Run a **clean-`main` baseline first** if you intend to claim a failure is pre-existing. Do not skip this: it is the
 only way to tell your breakage from someone else's.
 
@@ -378,3 +389,7 @@ Only after the release side is settled. **Park, never delete** — every step he
 - **No pre-ship check that the install folder is not a checkout.** The release procedure should assert it.
 - **`D:\bots\legion-dev` still exists** as a separate clone with a live worktree list, which is how the metadata got
   tangled. It should be retired or its relationship to `D:\bots\legion` documented.
+
+## GitHub Apps
+
+The two Legion GitHub Apps are production infrastructure. Rules for them: [GITHUB-APPS.md](GITHUB-APPS.md).
