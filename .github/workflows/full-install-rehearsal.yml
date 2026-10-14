@@ -85,7 +85,7 @@ jobs:
           compression-level: 0
 
   scenario:
-    name: ${{ matrix.scenario == 'vanished-live' && 'vanished-live (INFORMATIONAL: the known old-helper case)' || matrix.scenario }}
+    name: ${{ matrix.scenario == 'vanished-live' && 'vanished-live (informational, the known old-helper case)' || matrix.scenario }}
     needs: prepare
     # vanished-live is the KNOWN old-helper case: the live release's own helper predates the staged-folder check, which is exactly why a full-install release
     # is reached through a stepping stone (stone-walk). Its result is read, it does not gate.
