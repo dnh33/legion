@@ -3,7 +3,7 @@ import { openExternal } from '../api';
 import { Markdown } from '../components/Markdown';
 import { ago } from '../util';
 import {
-  deleteEdge, expand, focusNode, loadDetail, openDialog, patchNode, select, setPathEnd, setPathOpen, setSearch, startPick, titleOf, updateEdge, useG, type Detail,
+  deleteEdge, expand, focusNode, loadDetail, openDialog, patchNode, select, setPathEnd, setPathOpen, setSearch, refreshNote, startPick, titleOf, updateEdge, useG, type Detail,
 } from './graphStore';
 import { GIcon } from './icons';
 import { fmtDate, isUntrusted, NODE_TYPES, statusOf } from './palette';
@@ -22,6 +22,15 @@ function prep(src: string): string {
     if (fence) return line;
     return line.replace(/^>\s?/, '').replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, t: string, a?: string) => `**${(a ?? t).trim()}**`);
   }).join('\n');
+}
+
+/** Refresh for a note the Lint tab lists as stale (the same route as the button there). Nothing shows for other notes or before the list was read. */
+function RefreshAction({ id }: { id: string }) {
+  const row = useG((s) => s.lint?.stale.find((r) => r.id === id));
+  const busy = useG((s) => s.refreshBusy.includes(id));
+  if (!row || row.createdBy === 'system') return null;
+  if (busy || row.refreshTaskId) return <span className="lt-faint">Refreshing</span>;
+  return <button className="lt-link" type="button" onClick={() => void refreshNote(id)} title="Ask the Archivist to re-check this note's sources">Refresh</button>;
 }
 
 export function DetailPanel({ width }: { width: number }) {
@@ -111,7 +120,7 @@ function Body({ d }: { d: Detail }) {
         <div><dt>Creator</dt><dd><Creator id={node.createdBy} /></dd></div>
         <div><dt>Confidence</dt><dd>{node.confidence === undefined ? <span className="lt-faint">not stated</span> : (
           <span className="lt-conf" title={`${Math.round(node.confidence * 100)}% sure`}><i><b style={{ width: `${Math.round(node.confidence * 100)}%` }} /></i>{Math.round(node.confidence * 100)}%</span>)}</dd></div>
-        <div><dt>Updated</dt><dd title={node.updatedAt}>{fmtDate(node.updatedAt)} <span className="lt-faint">({ago(node.updatedAt)})</span></dd></div>
+        <div><dt>Updated</dt><dd title={node.updatedAt}>{fmtDate(node.updatedAt)} <span className="lt-faint">({ago(node.updatedAt)})</span> <RefreshAction id={node.id} /></dd></div>
         <div><dt>Id</dt><dd><code className="lt-code">{node.id}</code></dd></div>
       </dl>
 

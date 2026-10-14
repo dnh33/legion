@@ -57,6 +57,8 @@ export interface GState {
   lint: KgLintReport | null;
   lintLoading: boolean;
   lintError: string | null;
+  /** Notes whose Refresh click is waiting for the core's answer. */
+  refreshBusy: string[];
   bsv: 'maybe' | 'off';
   bsvMsg: string;
   dialog: Dialog;
@@ -73,7 +75,7 @@ let s: GState = {
   selectedId: null, hoverId: null, detail: null, detailLoading: false, detailError: null,
   known: new Map(), kv: 0,
   q: '', scope: '', type: '', tag: '', hits: null, searching: false, searchError: null,
-  tab: 'explore', path: emptyPath(), lint: null, lintLoading: false, lintError: null,
+  tab: 'explore', path: emptyPath(), lint: null, lintLoading: false, lintError: null, refreshBusy: [],
   bsv: 'maybe', bsvMsg: '', dialog: null, notice: null, cam: { n: 0, kind: 'fit' }, frozen: false,
 };
 const listeners = new Set<() => void>();
@@ -412,6 +414,20 @@ export async function loadLint() {
     void resolveTitles([...need].slice(0, 150));
   } catch (e) { set({ lintLoading: false, lintError: errMsg(e), offline: isOffline(e) }); }
 }
+/** Refresh on a stale note: the core starts one Archivist run; its proposal lands in the Inbox. A refusal is shown in the core's own plain words. */
+export async function refreshNote(id: string) {
+  if (s.refreshBusy.includes(id)) return;
+  set({ refreshBusy: [...s.refreshBusy, id] });
+  try {
+    await request<{ taskId: string }>('POST', `/api/kg/nodes/${enc(id)}/refresh`, {});
+  } catch (e) {
+    notify(errMsg(e), 'error');
+  } finally {
+    // the list is re-read either way: on success the row shows the live run, on "already being refreshed" it picks up the run that exists
+    await loadLint();
+    set({ refreshBusy: s.refreshBusy.filter((x) => x !== id) });
+  }
+}
 export async function resolveTitles(ids: string[]) {
   const missing = ids.filter((id) => !s.known.has(id));
   for (let i = 0; i < missing.length; i += 8) {
@@ -543,6 +559,8 @@ export function refreshFromServer(changed?: string[]) {
   if (s.tab === 'lint') void loadLint();
 }
 function onEvent(e: LegionEvent) {
+  // a refresh run ended: its row stops saying "Refreshing" (a run that found nothing to change writes nothing, so no kg.updated follows)
+  if (e.type === 'task.updated' && e.task.status !== 'running' && e.task.status !== 'queued' && s.lint?.stale.some((r) => r.refreshTaskId === e.task.id)) { void loadLint(); return; }
   if (e.type !== 'kg.updated') return;
   window.clearTimeout(liveTimer);
   liveTimer = window.setTimeout(() => refreshFromServer(e.changed), 350);

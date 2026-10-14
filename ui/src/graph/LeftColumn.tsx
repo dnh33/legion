@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
-import { useStore } from '../store';
+import { api } from '../api';
+import { adoptTask, selectTask, setView, useStore } from '../store';
+import { buildAuditView } from '../../../src/shared/kg-audit';
+import type { AuditRow } from '../../../src/shared/kg-audit';
 import { useMatch } from './CanvasPane';
 import {
   clearPath, findPath, focusNode, openDialog, resolveTitles, runSearch, seedBsv, setHover, setPathEnd, setPathOpen, setSearch, setTab,
-  showHitsOnGraph, startPick, swapPath, titleOf, loadLint, useG,
+  refreshNote, showHitsOnGraph, startPick, swapPath, titleOf, loadLint, useG,
 } from './graphStore';
 import { GIcon } from './icons';
 import { NODE_TYPES } from './palette';
@@ -210,6 +213,83 @@ function Capped<T>({ items, render, max = 40 }: { items: T[]; render: (t: T, i: 
   return <>{shown.map(render)}{items.length > max && !all && <button className="lt-link" onClick={() => { setAll(true); void resolveTitles((items as unknown as Array<string | { id: string }>).map((x) => (typeof x === 'string' ? x : x.id))); }}>Show all {items.length}</button>}</>;
 }
 
+/** Opens the chat of a refresh run (the Archivist's thread, where its report and any approval card are). */
+async function openRun(taskId: string) {
+  try { adoptTask((await api.getTask(taskId)).task); } catch { /* the chat still opens if the window already has the task */ }
+  setView('chat');
+  selectTask(taskId);
+}
+
+const STALE_SHOWN = 40;
+
+function StaleRow({ r }: { r: AuditRow }) {
+  const busy = useG((s) => s.refreshBusy.includes(r.id));
+  const running = busy || !!r.refreshTaskId;
+  return (
+    <div className="lt-stale-row">
+      <div className="lt-stale-top">
+        <button className="lt-lint-row" onClick={() => void focusNode(r.id)} title={`Jump to ${r.title}`}>
+          <TypeDot type={r.type ?? 'note'} />
+          <span className="lt-row-title">{r.title}</span>
+        </button>
+        {!r.builtIn && (running
+          // aria-disabled, not disabled: the button keeps keyboard focus when the click turns Refresh into Refreshing
+          ? <button className="btn-ghost sm lt-refreshing" aria-disabled="true" aria-label={`Refreshing ${r.title}`}>Refreshing</button>
+          : <button className="btn-ghost sm" onClick={() => void refreshNote(r.id)} aria-label={`Refresh ${r.title}`} title="Ask the Archivist to re-check this note's sources">Refresh</button>)}
+      </div>
+      <div className="lt-stale-meta">
+        <span>{r.age}</span>
+        {r.noSource ? <b className="lt-tag warn">No source</b> : <span>{r.sources}</span>}
+        <span>{r.confidence}</span>
+        {r.refreshTaskId && <button className="lt-link" onClick={() => void openRun(r.refreshTaskId!)}>Open the run</button>}
+      </div>
+    </div>
+  );
+}
+
+function StaleList({ rows }: { rows: AuditRow[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, STALE_SHOWN);
+  return <>{shown.map((r) => <StaleRow key={r.id} r={r} />)}{rows.length > STALE_SHOWN && !all && <button className="lt-link" onClick={() => setAll(true)}>Show all {rows.length}</button>}</>;
+}
+
+/** The audit: every stale note with its age, sources and confidence, oldest first, and a Refresh for the ones that are yours. */
+function StaleSection({ stale, others }: { stale: Parameters<typeof buildAuditView>[0]; others: number }) {
+  const view = useMemo(() => buildAuditView(stale), [stale]);
+  const [open, setOpen] = useState(true);
+  const [builtInOpen, setBuiltInOpen] = useState(false);
+  // with nothing else on the list the "All clear" block already says it; the line below is for when other problems are listed
+  if (view.empty) return others > 0 ? <section className="lt-lint-sec"><p className="lt-lint-hint lt-stale-empty">{view.emptyText}</p></section> : null;
+  return (
+    <section className="lt-lint-sec">
+      <button className="lt-sec-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <GIcon name="chevron" size={12} /> Stale <b className="lt-count">{view.mine.length + view.builtIn.length}</b>
+      </button>
+      {open && (
+        <>
+          <p className="lt-lint-hint">Not touched for a long time. Refresh asks the Archivist to re-check a note's sources. What it finds waits in your Inbox until you accept it.</p>
+          <div className="lt-lint-items">
+            {view.mine.length > 0 ? <StaleList rows={view.mine} /> : <p className="lt-lint-hint lt-stale-empty">Only built-in notes are stale.</p>}
+            {view.builtIn.length > 0 && (
+              <div className="lt-stale-builtin">
+                <button className="lt-sec-head flat" onClick={() => setBuiltInOpen(!builtInOpen)} aria-expanded={builtInOpen}>
+                  <GIcon name="chevron" size={12} /> Built-in notes <b className="lt-count">{view.builtIn.length}</b>
+                </button>
+                {builtInOpen && (
+                  <>
+                    <p className="lt-lint-hint">These ship with Legion and update with it, so there is nothing for you to refresh.</p>
+                    <StaleList rows={view.builtIn} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function LintPane() {
   const lint = useG((s) => s.lint), loading = useG((s) => s.lintLoading), err = useG((s) => s.lintError);
   useG((s) => s.kv);
@@ -242,9 +322,7 @@ function LintPane() {
         <Section title="Orphans" count={lint.orphans.length} hint="No links in or out. Link them to what they belong to, or delete them.">
           <Capped items={lint.orphans} render={(id) => <Row key={id} id={id} />} />
         </Section>
-        <Section title="Stale" count={lint.stale.length} hint="Not touched for over 90 days. Check they still hold.">
-          <Capped items={lint.stale} render={(s) => <Row key={s.id} id={s.id} extra={`${s.daysOld} d`} />} />
-        </Section>
+        <StaleSection stale={lint.stale} others={total - lint.stale.length} />
       </div>
     </div>
   );

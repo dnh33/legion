@@ -16,6 +16,9 @@ import type { RunContext } from './types.js';
 export { Graph } from './graph.js';
 export { KG_SERVER_NAME } from './tools.js';
 
+/** The agent that refreshes a stale note (see refresh.ts). */
+const REFRESH_AGENT_ID = 'archivist';
+
 export const KG_PREAMBLE = [
   `You have a shared knowledge graph (the Lattice) through the mcp__${KG_SERVER_NAME}__kg_* tools (recall, search, get, neighbors, path, subgraph, upsert_node, capture, wm_set, supersede, sweep, merge, link, unlink, forget, lint, stats).`,
   'Call kg_recall before asking the user for context or starting research: the answer may already be in the graph.',
@@ -155,7 +158,16 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
         return briefing ? `${KG_PREAMBLE}\n\n${briefing}` : KG_PREAMBLE;
       } catch { return KG_PREAMBLE; }
     },
-    routes: (add) => addKgRoutes(add, { graph: getGraph, bsvEnabled: deps.bsvEnabled, seedPath: opts.seedPath }),
+    routes: (add) => addKgRoutes(add, {
+      graph: getGraph, bsvEnabled: deps.bsvEnabled, seedPath: opts.seedPath,
+      refresh: {
+        agentId: REFRESH_AGENT_ID,
+        now: () => clock().getTime(),
+        // a refresh is the owner pressing a button in the app: source 'ui', in the note's project only when it has one
+        start: ({ prompt, projectId }) => deps.engine.startTask({ agentId: REFRESH_AGENT_ID, prompt, source: 'ui', ...(projectId ? { projectId } : {}) }),
+        isLive: (taskId) => { const st = deps.store.getTask(taskId)?.status; return st === 'running' || st === 'queued'; },
+      },
+    }),
     dispose: () => {
       disposed = true;
       if (nightly !== undefined) { timers.clear(nightly); nightly = undefined; }

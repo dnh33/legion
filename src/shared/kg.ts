@@ -108,11 +108,29 @@ export interface KgLintLite {
   pending: number;
 }
 
+/**
+ * One stale note in the lint report. Only id and daysOld come from the graph's own lint; the HTTP route adds the rest so the Lint tab can
+ * show a useful row without fetching every note.
+ */
+export interface KgStaleRow {
+  id: string;
+  daysOld: number;
+  title?: string;
+  type?: KgNodeType;
+  sourceCount?: number;
+  confidence?: number;
+  /** Agent id, 'human' or 'system'. 'system' marks a built-in note. */
+  createdBy?: string;
+  projectId?: string;
+  /** The Archivist run that is refreshing this note right now (set only while it is live). */
+  refreshTaskId?: string;
+}
+
 export interface KgLintReport {
   orphans: string[];
   danglingEdges: string[];
   duplicateTitles: Array<{ title: string; ids: string[] }>;
-  stale: Array<{ id: string; daysOld: number }>;
+  stale: KgStaleRow[];
   contradictions: Array<{ a: string; b: string }>;
   untrustedWithoutReview: string[];
   counts: { nodes: number; edges: number };

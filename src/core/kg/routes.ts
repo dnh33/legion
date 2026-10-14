@@ -1,5 +1,8 @@
 /** HTTP API under /api/kg. Bearer auth is already enforced by the dispatcher; every caller here is the human. */
 import { KG_LIMITS } from '../../shared/kg.js';
+import type { KgLintReport } from '../../shared/kg.js';
+import type { Task } from '../../shared/types.js';
+import { EngineError } from '../engine.js';
 import { HttpError } from '../server.js';
 import type { Ctx, Handler } from '../server.js';
 import type { RouteAdder } from '../modules.js';
@@ -7,6 +10,7 @@ import type { Graph } from './graph.js';
 import { applySeedPack, BSV_SEED_PATH, loadBsvSeed, summarizeBsvPack } from './seed.js';
 import { HUMAN, KgError } from './types.js';
 import type { NodeInput } from './types.js';
+import { buildRefreshPrompt, refreshCheck } from './refresh.js';
 import { exportLibrary, exportVault, importVault } from './vault.js';
 
 export interface RouteDeps {
@@ -14,6 +18,13 @@ export interface RouteDeps {
   bsvEnabled: () => boolean;
   /** Overridable for tests. */
   seedPath?: string;
+  /** What "Refresh" needs from the core: the agent that does it, a clock, a way to start its run and to ask whether a run is still live. */
+  refresh?: {
+    agentId: string;
+    now(): number;
+    start(a: { prompt: string; projectId?: string }): Task;
+    isLive(taskId: string): boolean;
+  };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -49,6 +60,15 @@ const wrap = (fn: (c: Ctx) => unknown | Promise<unknown>): Handler => async (c) 
 
 export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
   const g = () => d.graph();
+  /** node id -> the Archivist run refreshing it. An entry whose run has ended is dropped the next time it is read. */
+  const refreshing = new Map<string, string>();
+  const liveRefresh = (nodeId: string): string | undefined => {
+    const taskId = refreshing.get(nodeId);
+    if (taskId === undefined) return undefined;
+    if (d.refresh?.isLive(taskId)) return taskId;
+    refreshing.delete(nodeId);
+    return undefined;
+  };
 
   add('GET', '/api/kg/stats', wrap(() => ({ ...g().stats(HUMAN), bsvAvailable: d.bsvEnabled() })));
 
@@ -126,7 +146,44 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     return sub;
   }));
 
-  add('GET', '/api/kg/lint', wrap(() => g().lint(HUMAN)));
+  // The stale rows carry what the Lint tab shows (title, type, sources, confidence, author) and the live Archivist run, if any.
+  add('GET', '/api/kg/lint', wrap((): KgLintReport => {
+    const report = g().lint(HUMAN);
+    return {
+      ...report,
+      stale: report.stale.map((row) => {
+        const n = g().getNode(HUMAN, row.id);
+        if (!n) return row;
+        const taskId = liveRefresh(n.id);
+        return {
+          ...row, title: n.title, type: n.type, sourceCount: n.sources?.length ?? 0, createdBy: n.createdBy,
+          ...(n.confidence !== undefined ? { confidence: n.confidence } : {}), ...(n.projectId ? { projectId: n.projectId } : {}),
+          ...(taskId ? { refreshTaskId: taskId } : {}),
+        };
+      }),
+    };
+  }));
+
+  // "Refresh" on a stale note: one Archivist run that re-checks its sources and proposes an update (it lands in the Inbox). Admin-only by
+  // default-deny (not in admin.ts CLIENT_ROUTES). One run per note at a time.
+  add('POST', '/api/kg/nodes/:id/refresh', wrap(({ params }) => {
+    const r = d.refresh;
+    if (!r) throw new HttpError(503, 'Refreshing notes is not available in this build.');
+    const n = g().getNode(HUMAN, params[0]!);
+    if (!n) throw new HttpError(404, `Unknown node "${params[0]}"`);
+    const check = refreshCheck(n, r.now());
+    if (!check.ok) throw new HttpError(check.status, check.message);
+    if (liveRefresh(n.id)) throw new HttpError(409, 'This note is already being refreshed. Open the run to follow it.');
+    let task: Task;
+    try {
+      task = r.start({ prompt: buildRefreshPrompt(n, check.daysOld), ...(n.projectId ? { projectId: n.projectId } : {}) });
+    } catch (e) {
+      if (e instanceof EngineError && e.status === 404) throw new HttpError(404, 'The Archivist is not on your roster, so nothing can refresh this note. Add the Archivist back, then try again.');
+      throw e;
+    }
+    refreshing.set(n.id, task.id);
+    return { taskId: task.id };
+  }));
 
   // ---- the human's inbox and Activity list. Graph methods refuse any bot actor; none of this is a kg_* tool.
   add('GET', '/api/kg/inbox', wrap(({ url }) => g().inbox(HUMAN, { agentId: strParam(url, 'agent') })));
