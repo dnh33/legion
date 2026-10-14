@@ -8,18 +8,34 @@ import { api, ApiError, openExternal, request } from '../api';
 import { getState as getApp, openSettings, toast } from '../store';
 import * as ci from '../ci/ciStore';
 import { githubAgentsFor, normRepo } from '../../../src/shared/github-area';
-import type { GithubAreaView } from '../../../src/shared/github-area';
+import type { GithubApp, GithubAreaView, GithubPickerView } from '../../../src/shared/github-area';
 import type { GithubStatusView } from '../../../src/shared/connectors-view';
 import { createFailureKind, createFailureText, PAGE } from './areaState';
 import { OPEN_GITHUB_EVENT } from './openArea';
 import type { CreateFailure } from './areaState';
-import { activityFrom, parseCreateReply, parseOrgs, parseProjectsUsing, parseWriteFlow, plainError } from './githubRoutes';
+import { activityFrom, parseCreateReply, parseOrgs, parsePicker, parseProjectsUsing, parseWriteFlow, plainError } from './githubRoutes';
 import type { AreaAgent, CreateRepoBody, GithubAreaData, GithubRepoDetail } from './types';
 
 /** The plain reason a call failed. */
 const whyText = (e: unknown): string => (e instanceof ApiError ? plainError(e.status, e.message) : e instanceof Error && /\s/.test(e.message) ? e.message : 'Something went wrong.');
 
+/** The "Choose repos" view: each App's candidates, the change being sent (one per App), and the plain reason a box did not take. */
+export interface PickerState {
+  query: string;
+  loading: boolean;
+  data: Partial<Record<GithubApp, GithubPickerView>>;
+  /** Why the lists could not be read. */
+  loadError: string | null;
+  /** The repo id being sent on each App. A second change on that App waits (the core refuses it too). */
+  sending: Partial<Record<GithubApp, number>>;
+  /** `${app}:${repoId}` to the plain reason that box failed. */
+  errors: Record<string, string>;
+}
+export const pickerKey = (app: GithubApp, id: number): string => `${app}:${id}`;
+
 export interface GithubUiState {
+  /** The picker, or null while the list is shown. */
+  picker: PickerState | null;
   open: boolean;
   view: GithubAreaData | null;
   /** First load in flight with nothing cached. */
@@ -55,7 +71,7 @@ export interface GithubUiState {
 const ICON_KEY = 'legion.github.icon';
 const readIcon = (): boolean => { try { return localStorage.getItem(ICON_KEY) !== 'off'; } catch { return true; } };
 
-let st: GithubUiState = { open: false, view: null, loading: false, signingIn: false, flow: null, flowNote: null, writeFlow: null, why: null, orgs: [], orgsError: null, query: '', shown: PAGE, expanded: null, detail: {}, busy: null, ticking: [], agentsSending: false, writeRevokeUrl: null, iconShown: readIcon(), say: '' };
+let st: GithubUiState = { picker: null, open: false, view: null, loading: false, signingIn: false, flow: null, flowNote: null, writeFlow: null, why: null, orgs: [], orgsError: null, query: '', shown: PAGE, expanded: null, detail: {}, busy: null, ticking: [], agentsSending: false, writeRevokeUrl: null, iconShown: readIcon(), say: '' };
 const listeners = new Set<() => void>();
 const set = (p: Partial<GithubUiState>) => { st = { ...st, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -76,7 +92,7 @@ export function openGithub(repo?: string): void {
   set({ open: true, ...(repo ? { expanded: repo, query: '' } : {}) });
   void loadArea().then(() => { if (repo) void loadDetail(repo); });
 }
-export function closeGithub(): void { set({ open: false }); }
+export function closeGithub(): void { set({ open: false, picker: null }); }
 export function toggleGithub(): void { if (st.open) closeGithub(); else openGithub(); }
 
 /* ---------- reading ---------- */
@@ -278,6 +294,79 @@ export async function setTick(repo: string, on: boolean): Promise<void> {
     // only this repo goes back; the rest of the list stays as it is
     if (st.view && was !== undefined) set({ view: { ...st.view, repos: st.view.repos.map((r) => (normRepo(r.fullName) === key ? { ...r, ticked: was } : r)) } });
   } finally { pendingTicks.delete(key); set({ ticking: st.ticking.filter((x) => x !== repo) }); }
+}
+
+/* ---------- choose repos ---------- */
+let pickerSeq = 0;
+let pickerTimer: number | undefined;
+/** What the owner just chose and the core has not confirmed yet: laid over any list that arrives meanwhile. */
+const pendingPicks = new Map<string, boolean>();
+const setPicker = (p: Partial<PickerState>): void => { if (st.picker) set({ picker: { ...st.picker, ...p } }); };
+
+const withPending = (app: GithubApp, v: GithubPickerView): GithubPickerView => {
+  if (v.phase !== 'ready' || pendingPicks.size === 0) return v;
+  return { ...v, rows: v.rows.map((r) => (pendingPicks.has(pickerKey(app, r.id)) ? { ...r, installed: pendingPicks.get(pickerKey(app, r.id))! } : r)) };
+};
+
+export function openPicker(): void {
+  set({ picker: { query: '', loading: true, data: {}, loadError: null, sending: {}, errors: {} } });
+  void loadPicker();
+}
+export function closePicker(): void {
+  if (pickerTimer !== undefined) { window.clearTimeout(pickerTimer); pickerTimer = undefined; }
+  pickerSeq++;
+  set({ picker: null });
+}
+/** The search runs at the core; a short wait keeps one request per pause in typing. */
+export function setPickerQuery(query: string): void {
+  setPicker({ query });
+  if (pickerTimer !== undefined) window.clearTimeout(pickerTimer);
+  pickerTimer = window.setTimeout(() => { pickerTimer = undefined; void loadPicker(); }, 250);
+}
+export async function loadPicker(): Promise<void> {
+  if (!st.picker) return;
+  const seq = ++pickerSeq;
+  const q = st.picker.query;
+  const apps: GithubApp[] = st.view?.signedIn.write ? ['read', 'write'] : ['read'];
+  setPicker({ loading: true });
+  try {
+    const got = await Promise.all(apps.map(async (a) => [a, parsePicker(await api.githubPicker(a, q))] as const));
+    if (seq !== pickerSeq || !st.picker) return;
+    const data: PickerState['data'] = {};
+    for (const [a, v] of got) data[a] = withPending(a, v);
+    setPicker({ data, loading: false, loadError: null });
+  } catch (e) {
+    if (seq !== pickerSeq || !st.picker) return;
+    setPicker({ loading: false, loadError: whyText(e) });
+  }
+}
+
+/** Tick or untick one repo on one App. It is sent at once; on a failure only that box goes back, with the reason under its row. */
+export async function setPickerRepo(app: GithubApp, repoId: number, on: boolean): Promise<void> {
+  const p = st.picker;
+  const key = pickerKey(app, repoId);
+  if (!p || p.sending[app] !== undefined) return;
+  const mark = (installed: boolean): void => {
+    const cur = st.picker?.data[app];
+    if (cur?.phase === 'ready') setPicker({ data: { ...st.picker!.data, [app]: { ...cur, rows: cur.rows.map((r) => (r.id === repoId ? { ...r, installed } : r)) } } });
+  };
+  const { [key]: _gone, ...rest } = p.errors;
+  pendingPicks.set(key, on);
+  setPicker({ sending: { ...p.sending, [app]: repoId }, errors: rest });
+  mark(on);
+  try {
+    await api.githubPickerSet(app, repoId, on);
+    pendingPicks.delete(key);
+    set({ say: on ? 'Repo added' : 'Repo removed' });
+    void loadArea(true);
+  } catch (e) {
+    pendingPicks.delete(key);
+    mark(!on);
+    setPicker({ errors: { ...(st.picker?.errors ?? {}), [key]: whyText(e) } });
+  } finally {
+    pendingPicks.delete(key);
+    if (st.picker) { const { [app]: _s, ...left } = st.picker.sending; setPicker({ sending: left }); }
+  }
 }
 
 /* ---------- create ---------- */

@@ -22,6 +22,7 @@ import { DeviceFlowError, getGitHubClient } from './github/client.js';
 import type { GitHubClient } from './github/client.js';
 import { GITHUB_APPS_SETTINGS_URL } from './github/hosts.js';
 import { addRepoAdminRoutes } from './github/repo-admin-routes.js';
+import { addRepoPickerRoutes } from './github/repo-picker-routes.js';
 import type { KeySource, StoreStatus } from './store.js';
 
 export { CONNECTORS_SERVER_NAME } from './gateway.js';
@@ -244,6 +245,7 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
       add('GET', '/api/github/projects/:id/repo', ({ params }) => area.projectRepo(params[0] ?? ''));
       add('PUT', '/api/github/projects/:id/access', ({ params, body }) => area.projectAccess(params[0] ?? '', (body as { level?: unknown } | null)?.level));
       addRepoAdminRoutes(add, { dataDir: deps.dataDir, client: clientOf, area });
+      addRepoPickerRoutes(add, { client: clientOf, invalidate: () => area.invalidate() });
     },
 
     dispose() { cancelFlow(); writeFlow.abort?.abort(); area.dispose(); },

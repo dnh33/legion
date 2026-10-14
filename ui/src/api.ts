@@ -117,6 +117,10 @@ export const api = {
   /** GitHub area: the routes in src/core/connectors/index.ts. Answers are checked by github/githubRoutes.ts before the UI uses them. */
   githubArea: (force = false) => request<GithubAreaView>('GET', `/api/github/area${force ? '?force=1' : ''}`),
   githubTick: (repo: string, on: boolean) => request<GithubAreaView>('PUT', `/api/github/repos/${repo}/tick`, { on }),
+  /** The repos one App can be installed on, with the owner's search (q) applied by the core. */
+  githubPicker: (app: 'read' | 'write', q: string) => request<unknown>('GET', `/api/github/apps/${app}/repos${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  /** Add (on) or remove (off) one repo on that App's installation. The core sends it once and never retries. */
+  githubPickerSet: (app: 'read' | 'write', repoId: number, on: boolean) => request<{ ok: true }>(on ? 'PUT' : 'DELETE', `/api/github/apps/${app}/repos/${repoId}`),
   githubAgentsSwitch: (on: boolean) => request<GithubAreaView>('PUT', '/api/github/agents-switch', { on }),
   githubConnectWrite: () => request<unknown>('POST', '/api/github/apps/write/connect'),
   githubCancelWrite: () => request<{ ok: true }>('POST', '/api/github/apps/write/cancel'),

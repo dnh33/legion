@@ -17,15 +17,18 @@ import type { GhError } from './port.js';
 type Raw = Record<string, unknown>;
 /** `status` and `reason` are what GitHub answered, kept for tests: the real client folds some statuses (a 422 becomes a non-retryable network error), so the status is the only place a test can read it. */
 export interface FakeCall { method: string; path: string; ifNoneMatch?: string; status?: number; reason?: string }
+/** A repo the signed-in owner can reach on GitHub (GET /user/repos), whether or not an App is installed on it. `admin` is permissions.admin. */
+export interface FakeUserRepo { fullName: string; private?: boolean; admin?: boolean }
 export interface FakeInstallation { id: number; slug: string; selection: 'selected' | 'all'; account: string; permissions?: Record<string, string>; repos: string[] }
 export type FakeWrite =
   | { op: 'rerun' | 'cancel'; runId: number; repo: string }
-  | { op: 'issue' | 'comment' | 'pr' | 'review' | 'create-repo'; repo: string; number?: number };
+  | { op: 'issue' | 'comment' | 'pr' | 'review' | 'create-repo'; repo: string; number?: number }
+  | { op: 'install-add' | 'install-remove'; repo: string; installationId: number; repoId: number };
 
 const ISO = (ms: number): string => new Date(ms).toISOString();
 
 /** Throws like the real client: a GhError instance with the same fields. */
-const thrown = (e: GhError): GhClientError => new GhClientError(e.kind, { ...('needs' in e && e.needs ? { needs: e.needs } : {}), ...('resetAt' in e ? { resetAt: e.resetAt } : {}), ...('retryable' in e ? { retryable: e.retryable } : {}) });
+const thrown = (e: GhError, status?: number): GhClientError => new GhClientError(e.kind, { ...('needs' in e && e.needs ? { needs: e.needs } : {}), ...('resetAt' in e ? { resetAt: e.resetAt } : {}), ...('retryable' in e ? { retryable: e.retryable } : {}), ...(status !== undefined && e.kind === 'network' ? { status } : {}) });
 
 export class FakeGitHub implements GitHubPort {
   conn: Connection;
@@ -38,6 +41,8 @@ export class FakeGitHub implements GitHubPort {
   writes: FakeWrite[] = [];
   installations: FakeInstallation[] = [];
   orgs = new Map<string, { needsApproval: boolean }>();
+  /** What GET /user/repos lists for the signed-in owner (the picker's candidates). */
+  userRepos: FakeUserRepo[] = [];
   /** Every repo name that exists (lower case), for the 422 "name exists" answer. */
   private known = new Set<string>();
   /** The next create call answers this status once (403 or 429 with a reset). */
@@ -119,11 +124,13 @@ export class FakeGitHub implements GitHubPort {
   private refuse(call: FakeCall, status: number, e: GhError, reason?: string): never {
     call.status = status;
     if (reason) call.reason = reason;
-    throw thrown(e);
+    throw thrown(e, status);
   }
+  /** The id GitHub would give a repo; the same name always gives the same id. */
+  repoId(full: string): number { return 1000 + [...full].reduce((n, c) => n + c.charCodeAt(0), 0); }
   private repoJson(full: string, priv = true): Raw {
     const [owner = '', name = ''] = full.split('/');
-    return { id: 1000 + [...full].reduce((n, c) => n + c.charCodeAt(0), 0), name, full_name: full, private: priv, html_url: `https://github.com/${full}`, owner: { login: owner }, default_branch: 'main' };
+    return { id: this.repoId(full), name, full_name: full, private: priv, html_url: `https://github.com/${full}`, owner: { login: owner }, default_branch: 'main' };
   }
   /** The GET routes the area uses besides the CI lists. Null: not one of them. */
   private areaRoute(pathname: string, sp: URLSearchParams, call: FakeCall): (() => unknown) | null {
@@ -141,6 +148,10 @@ export class FakeGitHub implements GitHubPort {
       const i = this.installations.find((x) => x.id === Number(r[1]));
       if (!i) this.refuse(call, 404, { kind: 'not-found' });
       return { total_count: i.repos.length, repository_selection: i.selection, repositories: paged(i.repos).map((f) => this.repoJson(f)) };
+    };
+    if (pathname === '/user/repos') return () => {
+      signedIn();
+      return paged(this.userRepos).map((u) => ({ ...this.repoJson(u.fullName, u.private !== false), permissions: { admin: u.admin !== false, push: true, pull: true } }));
     };
     if (pathname === '/user/orgs') return () => { signedIn(); return paged([...this.orgs.keys()]).map((login, n) => ({ login, id: 5000 + n })); };
     return null;
@@ -185,6 +196,7 @@ export class FakeGitHub implements GitHubPort {
   /** POST: repo create and the write calls the gateway makes. Each send counts against the rate budget; nothing is retried here. */
   private send(url: URL, init: GhInit, call: FakeCall): GhResponse {
     const res = (status: number, json: unknown): GhResponse => { call.status = status; this.touch(); return { status, json, rate: { ...this.conn.rate } }; };
+    if (call.method === 'PUT' || call.method === 'DELETE') return this.changeInstall(url, call, res);
     if (call.method !== 'POST') this.refuse(call, 404, { kind: 'not-found' });
     if (this.conn.auth === 'anonymous') this.refuse(call, 401, { kind: 'not-connected' });
     this.spend(false);
@@ -236,6 +248,39 @@ export class FakeGitHub implements GitHubPort {
     const pr = kind === 'pulls';
     this.writes.push({ op: pr ? 'pr' : 'issue', repo, number });
     return res(201, { number, title: body.title, state: 'open', html_url: `https://github.com/${repo}/${pr ? 'pull' : 'issues'}/${number}` });
+  }
+
+  /**
+   * PUT / DELETE /user/installations/{id}/repositories/{repo_id}, with GitHub's documented refusals: 404 (no such installation or repo),
+   * 403 (not an admin of the repo), 422 (the installation is set to all repos, or a DELETE would leave it with none). 204 on success.
+   * The next change answers `failChange` once when it is set (a 403 or 422 a scenario wants whatever the data says).
+   */
+  failChange: { status: 403 | 422 | 429 } | null = null;
+  private changeInstall(url: URL, call: FakeCall, res: (status: number, json: unknown) => GhResponse): GhResponse {
+    const m = /^\/user\/installations\/(\d+)\/repositories\/(\d+)$/.exec(url.pathname);
+    if (!m) this.refuse(call, 404, { kind: 'not-found' });
+    if (this.conn.auth === 'anonymous') this.refuse(call, 401, { kind: 'not-connected' });
+    this.spend(false);
+    const f = this.failChange; this.failChange = null;
+    if (f?.status === 429) this.refuse(call, 429, { kind: 'rate-limited', resetAt: this.conn.rate.resetAt });
+    if (f?.status === 403) this.refuse(call, 403, { kind: 'forbidden', needs: 'write' }, 'not-admin');
+    if (f?.status === 422) this.refuse(call, 422, { kind: 'network', retryable: false }, 'forced');
+    const inst = this.installations.find((x) => x.id === Number(m[1]));
+    const repoId = Number(m[2]);
+    const name = [...this.userRepos.map((u) => u.fullName), ...this.installations.flatMap((i) => i.repos)].find((n) => this.repoId(n) === repoId);
+    if (!inst || !name) this.refuse(call, 404, { kind: 'not-found' });
+    if (this.userRepos.find((u) => u.fullName === name)?.admin === false) this.refuse(call, 403, { kind: 'forbidden', needs: 'write' }, 'not-admin');
+    if (inst.selection === 'all') this.refuse(call, 422, { kind: 'network', retryable: false }, 'all-repos');
+    const at = inst.repos.indexOf(name);
+    if (call.method === 'PUT') {
+      if (at < 0) inst.repos.push(name);
+      this.writes.push({ op: 'install-add', repo: name, installationId: inst.id, repoId });
+    } else {
+      if (inst.repos.length <= 1 && at >= 0) this.refuse(call, 422, { kind: 'network', retryable: false }, 'last-repo');
+      if (at >= 0) inst.repos.splice(at, 1);
+      this.writes.push({ op: 'install-remove', repo: name, installationId: inst.id, repoId });
+    }
+    return res(204, undefined);
   }
 
   async logs(jobId: number | string, _repo: string): Promise<{ text: string; truncated: boolean }> {
