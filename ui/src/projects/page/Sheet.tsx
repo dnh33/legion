@@ -128,7 +128,7 @@ function TaskSheet({ f, project, id, openBoard }: { f: PageFacts; project: Proje
           </ul>
         )}
         {card.kind !== 'waiting' || keys.length === 0 ? (
-          <div className={`pg-card ${card.kind}`} data-testid="sheet-card">
+          <div className="pg-card" data-kind={card.kind} data-testid="sheet-card">
             <b>{card.headline}</b>
             {card.detail && <p>{card.detail}</p>}
             {card.actions.length > 0 && (
@@ -296,7 +296,7 @@ function NewTaskSheet({ f, project }: { f: PageFacts; project: Project }) {
       <footer className="pg-sh-f">
         <span className="pg-sh-hint">Enter starts it, Shift Enter adds a line.{cost !== undefined ? ` ${costLine(cost)}` : ''}</span>
         <span className="pg-gap" />
-        <button type="button" className="pg-btn primary" data-fk="sh:start" disabled={busy || !agentId || (!can.ok && can.why === 'empty')} onClick={() => void start()}>Start task</button>
+        <button type="button" className="pg-btn strong" data-fk="sh:start" disabled={busy || !agentId || (!can.ok && can.why === 'empty')} onClick={() => void start()}>Start task</button>
       </footer>
     </div>
   );

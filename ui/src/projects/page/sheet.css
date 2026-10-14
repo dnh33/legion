@@ -21,7 +21,7 @@
 .pg-sh-asks .pg-row { grid-template-columns: 28px minmax(0, 1fr); }
 .pg-sh-asks .pg-row .pg-acts2 { grid-column: 2; justify-content: flex-start; }
 .pg-card { border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: 11px 12px; background: var(--surface-2); }
-.pg-card.working { border-color: var(--accent-line); }
+.pg-card[data-kind=working] { border-color: var(--accent-line); }
 .pg-card b { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .pg-card p { margin: 4px 0 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; }
 .pg-sh-acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -52,3 +52,4 @@
 :root[data-theme='light'] .pg-at { box-shadow: 0 14px 34px rgba(20, 24, 32, .14); }
 .pg-at button { display: flex; gap: 8px; align-items: center; width: 100%; min-height: 32px; padding: 4px 8px; border: 0; border-radius: var(--r); background: none; color: var(--text); text-align: left; }
 .pg-at button.on, .pg-at button:hover { background: var(--surface-3); }
+@media (max-height: 700px) { .pg-comp textarea { min-height: 84px; } }
