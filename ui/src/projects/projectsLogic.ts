@@ -163,14 +163,31 @@ export function elsewhereBadge(n: number): { count: string; words: string; full:
   return { count: String(n), words: 'waiting elsewhere', full: `${n} waiting elsewhere` };
 }
 
+/** What the live region last knew of the rail's "needs you in other projects" list: under which filter, its item keys, and whether a first list has been taken as the baseline. */
+export interface WaitLive { filter: string | null; ids: string[]; baselined: boolean }
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
+
 /**
- * The one line the live region says when the rail's "needs you in other projects" count changes. Silent on the first count (the load) and when
- * the count stays the same, so the list itself is never read again.
+ * One look at the rail's waiting list (`ids` are its item keys, under `filter`). Returns the one line to announce, or null. Silent for
+ * the first non-empty list after launch (proposals that arrive once the window has loaded are not news), silent when the owner changes the
+ * project filter (the list is re-based under the new filter), and otherwise a line only when the set of items changed.
  */
-export function waitingChangeLine(prev: number | undefined, next: number): string | null {
-  if (prev === undefined || prev === next) return null;
-  if (next === 0) return 'Nothing else needs you';
-  return `${next} ${next === 1 ? 'item needs' : 'items need'} you`;
+export function waitingLiveStep(prev: WaitLive | null, filter: string | null, ids: readonly string[]): { st: WaitLive; line: string | null } {
+  const next = [...ids];
+  if (!prev || prev.filter !== filter) return { st: { filter, ids: next, baselined: (prev?.baselined ?? false) || next.length > 0 }, line: null };
+  if (!prev.baselined) return { st: { filter, ids: next, baselined: next.length > 0 }, line: null };
+  if (sameSet(prev.ids, next)) return { st: { filter, ids: next, baselined: true }, line: null };
+  const line = next.length === 0 ? 'Nothing else needs you' : `${next.length} ${next.length === 1 ? 'item needs' : 'items need'} you`;
+  return { st: { filter, ids: next, baselined: true }, line };
+}
+
+/**
+ * The switcher badge's words hide when the name would be cut with them shown. `natural` is the name's full width, `avail` its box width now,
+ * `wordsPx` the words' width. When the words are hidden (`now`) the name has `wordsPx` more, so the room with the words is `avail - wordsPx`.
+ */
+export function badgeCompact(now: boolean, natural: number, avail: number, wordsPx: number): boolean {
+  const room = now ? avail - wordsPx : avail;
+  return natural > room;
 }
 
 type LiveTask = Pick<Task, 'id' | 'agentId' | 'status' | 'projectId' | 'title' | 'updatedAt'>;

@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkItem } from '../src/shared/board.js';
 import { deriveAsks } from '../src/shared/attention.js';
-import { elsewhereBadge, waitingChangeLine, waitingElsewhere } from '../ui/src/projects/projectsLogic.js';
+import { badgeCompact, elsewhereBadge, waitingElsewhere, waitingLiveStep, type WaitLive } from '../ui/src/projects/projectsLogic.js';
 import { askTarget } from '../ui/src/projects/railRoute.js';
 import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
@@ -297,10 +297,21 @@ test('the switcher badge keeps the number and the full words for the title, so t
   assert.deepEqual(elsewhereBadge(1), { count: '1', words: 'waiting elsewhere', full: '1 waiting elsewhere' });
 });
 
-test('the live line says the count when it changes, and nothing when it does not (no re-reading of the list)', () => {
-  assert.equal(waitingChangeLine(undefined, 2), null, 'the first load is not announced');
-  assert.equal(waitingChangeLine(2, 2), null, 'an unchanged count is silent');
-  assert.equal(waitingChangeLine(2, 3), '3 items need you');
-  assert.equal(waitingChangeLine(0, 1), '1 item needs you');
-  assert.equal(waitingChangeLine(3, 0), 'Nothing else needs you');
+test('the live line announces a real change in what needs you, not the first non-empty list after launch, not a filter change', () => {
+  let st: WaitLive | null = null;
+  let r = waitingLiveStep(st, null, []); st = r.st; assert.equal(r.line, null, 'launch with nothing is silent');
+  r = waitingLiveStep(st, null, ['a']); st = r.st; assert.equal(r.line, null, 'the proposals arriving after the window loads are not announced');
+  r = waitingLiveStep(st, null, ['a', 'b']); st = r.st; assert.equal(r.line, '2 items need you');
+  r = waitingLiveStep(st, null, ['b', 'a']); st = r.st; assert.equal(r.line, null, 'the same items in another order are silent');
+  r = waitingLiveStep(st, null, ['b', 'c']); st = r.st; assert.equal(r.line, '2 items need you', 'a swap of one item is a real change');
+  r = waitingLiveStep(st, 'p2', ['x']); st = r.st; assert.equal(r.line, null, 'a project-filter change re-bases silently');
+  r = waitingLiveStep(st, 'p2', ['x', 'y', 'z']); st = r.st; assert.equal(r.line, '3 items need you');
+  r = waitingLiveStep(st, 'p2', []); st = r.st; assert.equal(r.line, 'Nothing else needs you');
+});
+
+test('the switcher badge words hide exactly when the name would be cut with them shown (its room is the space it has now, less the words if they show)', () => {
+  assert.equal(badgeCompact(false, 100, 80, 30), true, 'the name needs 100, the box gives 80 with the words');
+  assert.equal(badgeCompact(false, 60, 80, 30), false, 'the name fits beside the words');
+  assert.equal(badgeCompact(true, 60, 110, 30), false, 'collapsed, the name fits once the words come back');
+  assert.equal(badgeCompact(true, 100, 110, 30), true, 'collapsed, it still would not fit with the words');
 });

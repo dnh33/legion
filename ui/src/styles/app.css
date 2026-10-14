@@ -141,14 +141,20 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .banner.offline .icon { flex: none; }
 /* board proposals waiting on you, above the thread (components/ProposalCards.tsx): several stack and scroll, buttons wrap at large UI scale */
 .proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 40vh; overflow-y: auto; }
-.proposal-cards .approval { margin: 0; }
+.proposal-cards .approval { margin: 0; background: var(--card-tint); }
 .proposal-cards .approval-actions { flex-wrap: wrap; }
+/* The card and its action row share one solid tint (a flat colour, so the sticky row matches the card it sits on). */
+.proposal-cards { --card-tint: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 /* The region scrolls the card, never its buttons: at a short window (1.5x zoom at 960x600) the action row sticks to the bottom of the region, so
-   Accept, Reject and Open on board stay whole. The row takes the card's own side and bottom padding, so it sits flush with the card edge. */
-.proposal-actions { position: sticky; bottom: 0; margin: 8px -14px -12px; padding: 8px 14px 12px; background: var(--surface); }
+   Accept, Reject and Open on board stay whole. It takes the card's side and bottom padding, so it sits flush with the card, and its bottom corners
+   follow the card's radius. The fade above it shows a cut line as cut, not as a band. */
+.proposal-actions { position: sticky; bottom: 0; margin: 8px -14px -12px; padding: 10px 14px 12px; background: var(--card-tint); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); }
+.proposal-actions::before { content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px; background: linear-gradient(transparent, var(--card-tint)); pointer-events: none; }
 @media (max-height: 500px) { .proposal-desc:not(.open) { -webkit-line-clamp: 2; } }
-/* The entry or card a rail click brought into view holds focus: :focus, not :focus-visible, so a mouse user sees it (kbdNav rings are keyboard-only by design). */
-[data-inbox-id]:focus, [data-proposal-id]:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The entry or card a rail click brought into view holds focus: :focus, not :focus-visible, so a mouse user sees it (kbdNav rings are keyboard-only by design).
+   Inset, so the ring is not clipped by the region that scrolls the card. */
+[data-inbox-id]:focus, [data-proposal-id]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-kbd-nav] .approval[data-proposal-id]:focus-visible { outline-offset: -2px; }
 .proposal-title { margin: 8px 0 4px; overflow-wrap: anywhere; }
 .proposal-desc { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
 .proposal-desc.open { display: block; -webkit-line-clamp: unset; max-height: 160px; overflow: auto; }

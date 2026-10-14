@@ -4,7 +4,8 @@ import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher, openProjectMenu } from '../projects/ProjectSwitcher';
-import { agentsFor, waitingChangeLine, waitingElsewhere } from '../projects/projectsLogic';
+import { agentsFor, waitingElsewhere, waitingLiveStep } from '../projects/projectsLogic';
+import type { WaitLive } from '../projects/projectsLogic';
 import { announce } from '../projects/page/announce';
 import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
@@ -39,14 +40,15 @@ export function AgentRail() {
   // anything waiting on the owner stays in sight whatever project is in view (decision B1): one click opens it in its own project
   const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
   const waiting = useMemo(() => waitingElsewhere(approvals, questions, tasks, projects, names, filter, proposals), [approvals, questions, tasks, projects, names, filter, proposals]);
-  // the live region gets one short line when the count changes, never the list (a change used to re-read every row)
-  const waitCount = useRef<number | undefined>(undefined);
+  // the live region gets one short line for a real change in what needs you, never the list (a change used to re-read every row); the first
+  // non-empty list after launch and a project-filter change are silent (waitingLiveStep)
+  const live = useRef<WaitLive | null>(null);
   useEffect(() => {
     if (!loaded) return;
-    const line = waitingChangeLine(waitCount.current, waiting.length);
-    waitCount.current = waiting.length;
-    if (line) announce(line);
-  }, [loaded, waiting.length]);
+    const step = waitingLiveStep(live.current, filter, waiting.map((r) => `${r.kind}:${r.id}`));
+    live.current = step.st;
+    if (step.line) announce(step.line);
+  }, [loaded, filter, waiting]);
   const lineFacts = useMemo(() => ({ tasks, projects, agents, approvals, questions, board: { items: [], inbox: proposals } }), [tasks, projects, agents, approvals, questions, proposals]);
 
   // one tab stop for the member list: Arrow keys move inside it

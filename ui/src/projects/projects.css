@@ -1,7 +1,7 @@
 /* Projects: the rail switcher, the project page and the new-project dialog. Reuses the app tokens; no new colours. */
-.proj-switch { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 8px; border-bottom: 1px solid var(--line); container: proj-switch / inline-size; }
-/* On a narrow rail the badge keeps its count and drops its words, so the project's name gets the room (the full text is the button's title). */
-@container proj-switch (max-width: 200px) { .proj-switch .else-words { display: none; } }
+.proj-switch { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 8px; border-bottom: 1px solid var(--line); }
+/* When the name would be cut, the badge keeps its count and drops its words (ProjectSwitcher measures it; the full text is the title). */
+.proj-switch[data-badge='compact'] .else-words { display: none; }
 .proj-label { color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .proj-switch select { width: 100%; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-size: 13px; }
 :root[data-kbd-nav] .proj-switch select:focus-visible, :root[data-kbd-nav] .proj-page select:focus-visible, :root[data-kbd-nav] .proj-page input:focus-visible, :root[data-kbd-nav] .proj-page textarea:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }

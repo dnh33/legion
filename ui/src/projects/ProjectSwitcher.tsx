@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { deriveAsks } from '../../../src/shared/attention';
 import { useStore } from '../store';
 import { Menu } from './page/Menu';
 import { useAllProposals } from './useProposals';
 import { PIcon } from './page/PIcon';
 import { NewProjectDialog } from './NewProjectDialog';
-import { elsewhereBadge, projectLabel } from './projectsLogic';
+import { badgeCompact, elsewhereBadge, projectLabel } from './projectsLogic';
 import { projectMenu } from './page/pageLogic';
 import { openProject, setProjectFilter } from './projectsStore';
 import './projects.css';
@@ -30,14 +30,33 @@ export function ProjectSwitcher() {
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  // the words of the badge hide only when the name would be cut with them shown: measured from the name's own width, not a fixed width
+  const [compact, setCompact] = useState(false);
+  const wordsPx = useRef(0);
   useEffect(() => { const on = (): void => setOpen(true); window.addEventListener(OPEN_EVENT, on); return () => window.removeEventListener(OPEN_EVENT, on); }, []);
   const asks = useMemo(() => deriveAsks({ approvals, questions, tasks, proposals }), [approvals, questions, tasks, proposals]);
   const menu = useMemo(() => projectMenu(projects, asks, filter), [projects, asks, filter]);
   const badge = elsewhereBadge(menu.elsewhere);
   const current = filter ? projects.find((p) => p.id === filter) : undefined;
   const label = current ? projectLabel(current) : 'All projects';
+  // after every change of the name, the badge or the width: the name's full width against the room it has (the words count while they show)
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const measure = (): void => {
+      const name = el.querySelector<HTMLElement>('.pn'), words = el.querySelector<HTMLElement>('.else-words');
+      if (!name || !words) { setCompact(false); return; }
+      if (!compact) wordsPx.current = words.getBoundingClientRect().width;
+      setCompact(badgeCompact(compact, name.scrollWidth, name.clientWidth, wordsPx.current));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [label, menu.elsewhere, compact]);
   return (
-    <div className="proj-switch">
+    <div className="proj-switch" ref={root} data-badge={compact ? 'compact' : 'words'}>
       <div className="proj-label" id="proj-label">Project</div>
       <button ref={btn} type="button" className="pg-proj" id="proj-select" aria-haspopup="menu" aria-expanded={open} aria-labelledby="proj-label proj-select-name"
         aria-describedby={menu.elsewhere ? 'proj-else' : undefined} title={`Shows ${label}. Pick a project to filter the rail and the tasks.`} onClick={() => setOpen((v) => !v)}>
