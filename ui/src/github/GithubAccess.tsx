@@ -5,7 +5,7 @@ import { GITHUB_WRITE_MAX, tickedRepoNames, unticked, WRITE_NOTE } from './agent
 import { areaNotice } from './accessState';
 import type { AreaState } from './accessState';
 import { AreaNoticeLine } from './AreaNotice';
-import { openGithub } from './githubStore';
+import { openGithubArea } from './openArea';
 import './github-access.css';
 
 const LEVELS: Array<{ id: GithubLevel; label: string; help: string }> = [
@@ -39,9 +39,9 @@ export function GithubAccess({ level, onLevel, repos, onRepos, area, onRetry }: 
       <span className="field-note">{LEVELS.find((l) => l.id === level)!.help} Connect GitHub first in the GitHub area. A run started from Claude Code or another MCP client never gets connectors.</span>
       {level === 'write' && (
         <div className="gha-write" role="group" aria-label="Repositories this agent may write to">
-          {notice && <AreaNoticeLine notice={notice} {...(onRetry ? { onRetry } : {})} onSettings={() => openGithub()} />}
+          {notice && <AreaNoticeLine notice={notice} {...(onRetry ? { onRetry } : {})} onSettings={() => openGithubArea()} />}
           {!notice && ticked.length === 0 && stale.length === 0 && (
-            <span className="field-note">No repositories are turned on yet. <button type="button" className="gha-link" onClick={() => openGithub()}>Turn some on in the GitHub area</button>, then pick them here.</span>
+            <span className="field-note">No repositories are turned on yet. <button type="button" className="gha-link" onClick={() => openGithubArea()}>Turn some on in the GitHub area</button>, then pick them here.</span>
           )}
           <div className="gha-list">
             {/* saved repos that are not ticked come first: they are the ones the owner must act on */}

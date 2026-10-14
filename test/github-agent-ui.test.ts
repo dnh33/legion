@@ -119,5 +119,5 @@ test('access links open the GitHub area, where repos are turned on, not Settings
     const src = readFileSync(join(dir, f), 'utf8');
     assert.doesNotMatch(src, /openSettings\('github'\)|Settings, GitHub/, f);
   }
-  assert.match(readFileSync(join(dir, 'ProjectRepoLine.tsx'), 'utf8'), /openGithub\(repo\)/);
+  assert.match(readFileSync(join(dir, 'ProjectRepoLine.tsx'), 'utf8'), /openGithubArea\(repo\)/);
 });

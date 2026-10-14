@@ -6,7 +6,7 @@ import { useStore } from '../store';
 import { accessRefusal, grantCopy, planProjectGrant } from './agentAccess';
 import { loadProjectRepo, putProjectAccess } from './areaApi';
 import { projectRepoNotice } from './accessState';
-import { openGithub } from './githubStore';
+import { openGithubArea } from './openArea';
 import type { ProjectRepo } from './accessState';
 import './github-access.css';
 
@@ -41,7 +41,7 @@ export function ProjectRepoLine({ project }: { project: Project }) {
   const copy = ask ? grantCopy(ask.kind, repo, ask.count) : null;
   return (
     <div className="pgh" data-testid="project-repo-line">
-      <p className="lead">This project&rsquo;s repository is <span className="pgh-repo">{repo}</span>. {text} {members.length === 0 ? 'The project has no members.' : `${anyAccess} of ${members.length} members can use GitHub; ${seen.write.length} can write to it.`}{!info.ticked && <> <button type="button" className="gha-link" onClick={() => openGithub(repo)}>Turn it on in the GitHub area</button></>}</p>
+      <p className="lead">This project&rsquo;s repository is <span className="pgh-repo">{repo}</span>. {text} {members.length === 0 ? 'The project has no members.' : `${anyAccess} of ${members.length} members can use GitHub; ${seen.write.length} can write to it.`}{!info.ticked && <> <button type="button" className="gha-link" onClick={() => openGithubArea(repo)}>Turn it on in the GitHub area</button></>}</p>
       <div className="pgh-row">
         <button type="button" className="pg-btn" disabled={busy || members.length === 0 || !!ask} onClick={() => begin('read')}>Let this project&rsquo;s agents read it</button>
         <button type="button" className="pg-btn" disabled={busy || members.length === 0 || !info.ticked || !!ask} onClick={() => begin('write')}>Let them write</button>
