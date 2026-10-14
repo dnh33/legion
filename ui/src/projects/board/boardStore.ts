@@ -55,7 +55,7 @@ export async function refreshBoard(projectId: string): Promise<FlightResult> {
 export async function ensureBoards(projectIds: readonly string[]): Promise<void> {
   await probeBoard();
   if (state.enabled !== 'yes') return;
-  await Promise.all(projectIds.map((id) => flights.load(id, { quiet: true })));
+  await Promise.all(projectIds.map((id) => flights.load(id, { quiet: true, join: true })));
 }
 /** Active projects with no board loaded yet. */
 export const missingBoards = (projects: ReadonlyArray<{ id: string; status: string }>): string[] => unloadedBoards(projects, state.views);

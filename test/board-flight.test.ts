@@ -82,3 +82,46 @@ test('a quiet failed flight tells nobody and says so (the caller owns the messag
   assert.deepEqual(await q, { ok: false, told: false });
   assert.equal(h.told.length, 0);
 });
+
+test('round 5: a throwing tell cannot leave the key stuck: the next load still runs', async () => {
+  const calls: Array<(f?: Error) => void> = [];
+  const flights = createFlights(
+    () => new Promise<void>((resolve, reject) => { calls.push((f) => (f ? reject(f) : resolve())); }),
+    () => { throw new Error('toast broke'); },
+  );
+  const a = flights.load('p1');
+  const queued = flights.load('p1');
+  calls[0]!(new Error('boom'));
+  assert.deepEqual(await a, { ok: false, told: true }, 'the flight still settles');
+  assert.equal(calls.length, 2, 'the trailing load still starts');
+  calls[1]!();
+  assert.equal((await queued).ok, true);
+  const after = flights.load('p1');
+  assert.equal(calls.length, 3, 'the key is free again');
+  calls[2]!(); await after;
+});
+
+test('round 5: join shares the running flight (no trailing reload); without join the request still waits for a later load', async () => {
+  const h = harness();
+  const running = h.flights.load('p1', { quiet: true });
+  const joined = h.flights.load('p1', { quiet: true, join: true });
+  h.calls[0]!.release();
+  await Promise.all([running, joined]); await tick();
+  assert.equal(h.calls.length, 1, 'joining queued nothing');
+  const a = h.flights.load('p2'), b = h.flights.load('p2');
+  h.calls[1]!.release(); await a; await tick();
+  assert.equal(h.calls.length, 3, 'a plain request mid-flight still gets its own later load');
+  h.calls[2]!.release(); await b;
+});
+
+test('round 5: join with nothing running starts a load, and joins an already queued trailing load', async () => {
+  const h = harness();
+  const a = h.flights.load('p1', { join: true });
+  assert.equal(h.calls.length, 1);
+  const trailing = h.flights.load('p1');
+  const j = h.flights.load('p1', { join: true });
+  h.calls[0]!.release(); await a; await tick();
+  h.calls[1]!.release();
+  await Promise.all([trailing, j]);
+  assert.equal(h.calls.length, 2);
+});

@@ -217,14 +217,14 @@ export function handleEvent(e: LegionEvent) {
         if (terminal && progress[e.task.id]) { const { [e.task.id]: _p, ...rest } = progress; progress = rest; }
         return { tasks: upsertTask(s.tasks, e.task), streaming, progress };
       });
-      if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) leaveTask(e.task.id);
+      if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) withoutNavigation(() => leaveTask(e.task.id)); // a server event, not a move by the owner
       break;
     }
     case 'task.deleted': {
       const id = e.taskId;
       delete pendingDelta[id];
       const wasSel = getState().selectedTaskId === id;
-      if (wasSel) leaveTask(id);
+      if (wasSel) withoutNavigation(() => leaveTask(id));
       setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _t, ...threadMeta } = s.threadMeta; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, threadMeta, progress }; });
       break;
     }
