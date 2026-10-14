@@ -68,13 +68,19 @@ export function inboxFocusPlan(req: { projectId: string; itemId: string } | null
  * it was for never came), and navigating elsewhere drops it.
  */
 export const REQUEST_TTL_MS = 3000;
-export interface InboxRequest { projectId: string; itemId: string; at: number }
-export interface AskRequest { taskId: string | null; askId: string; at: number; /** Set when the card is a proposal's: the project whose board must load before it can show. */ projectId?: string }
+export const BOARD_WAIT_MS = 30_000;
+/** `boardAt`: when the fresh load of the project's board finished. A request about a proposal waits for it (up to BOARD_WAIT_MS), then has the TTL. */
+export interface InboxRequest { projectId: string; itemId: string; at: number; boardAt?: number }
+export interface AskRequest { taskId: string | null; askId: string; at: number; boardAt?: number; /** Set when the card is a proposal's: the project whose board must load before it can show. */ projectId?: string }
 let inboxReq: InboxRequest | null = null;
 let askReq: AskRequest | null = null;
 const subs = new Set<() => void>();
 const emit = (): void => subs.forEach((f) => f());
-const fresh = <T extends { at: number }>(r: T | null, now: number): T | null => (r && now - r.at <= REQUEST_TTL_MS ? r : null);
+function alive(r: { at: number; boardAt?: number; projectId?: string }, now: number): boolean {
+  if (r.projectId && r.boardAt === undefined) return now - r.at <= BOARD_WAIT_MS;
+  return now - (r.boardAt ?? r.at) <= REQUEST_TTL_MS;
+}
+const fresh = <T extends { at: number; boardAt?: number; projectId?: string }>(r: T | null, now: number): T | null => (r && alive(r, now) ? r : null);
 export const subscribeFocus = (cb: () => void): (() => void) => { subs.add(cb); return () => { subs.delete(cb); }; };
 export const getInboxRequest = (now = Date.now()): InboxRequest | null => fresh(inboxReq, now);
 export const getAskRequest = (now = Date.now()): AskRequest | null => fresh(askReq, now);
@@ -107,4 +113,19 @@ export function canTakeFocus(active: { tagName?: string; isContentEditable?: boo
   if (!active) return true;
   const tag = (active.tagName ?? '').toUpperCase();
   return !(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable);
+}
+
+/** The fresh load of a board finished for the request made at `at`: its TTL starts now. A newer request is left alone. */
+export function markBoardSettled(at: number, now = Date.now()): void {
+  if (askReq && askReq.at === at) askReq = { ...askReq, boardAt: now };
+  if (inboxReq && inboxReq.at === at) inboxReq = { ...inboxReq, boardAt: now };
+  emit();
+}
+/** The load failed: drops the request made at `at`. True when one was dropped (the caller then says so). */
+export function failBoardLoad(at: number): boolean {
+  let dropped = false;
+  if (askReq && askReq.at === at) { askReq = null; dropped = true; }
+  if (inboxReq && inboxReq.at === at) { inboxReq = null; dropped = true; }
+  if (dropped) emit();
+  return dropped;
 }

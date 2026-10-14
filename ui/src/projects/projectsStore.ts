@@ -1,27 +1,31 @@
 /** Projects UI actions on top of the main store (state lives in ../store.ts: `projects`, `projectFilter`, view 'project'). */
 import type { Project } from '../../../src/shared/projects';
 import { api, ApiError } from '../api';
-import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
+import { getState, selectAgent, selectTask, setState, setView, subscribeStore, toast } from '../store';
 import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
-import { resolveAsk } from './openAsk';
-import { askTarget, requestAsk, requestInbox } from './railRoute';
+import { ASK_QUEUE_MS, queuedAskStep, resolveAsk } from './openAsk';
+import { askTarget, failBoardLoad, markBoardSettled, requestAsk, requestInbox } from './railRoute';
 import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 import { closeSheet } from './page/sheetState';
-import { currentProposals, ensureBoard } from './board/boardStore';
+import { currentProposals, refreshBoard } from './board/boardStore';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
 
 /** The window without the admin key (a browser tab) is refused: the list just stays empty and the switcher shows "All". */
+let projectsSettled = false;
 export async function loadProjects(): Promise<void> {
   try {
     const projects = await api.projects();
     setState((s) => ({ projects, projectFilter: resolveFilter(projects, s.projectFilter) }));
-  } catch { /* no admin access: no projects */ }
+  } catch { /* no admin access: no projects */ } finally {
+    projectsSettled = true;
+    pumpQueuedAsk();
+  }
 }
 export const initProjects = (): void => { void loadProjects(); initAway(); };
 
@@ -47,8 +51,26 @@ export function openProjectBoard(id: string): void {
   setTab('board');
   openProject(id);
 }
-/** The one way to open an ask: a notification click and the tray item end here (the choice is `resolveAsk`, the destination `askTarget`). */
+/** The window can route an ask once its tasks, agents and projects have loaded (a failed load counts: nothing more is coming). */
+const askReady = (): boolean => getState().loaded && projectsSettled;
+let queued: { ref: AskRef; at: number } | null = null;
+let queueTimer: ReturnType<typeof setTimeout> | undefined;
+let queueUnsub: (() => void) | undefined;
+function stopQueue(): void { queued = null; clearTimeout(queueTimer); queueUnsub?.(); queueUnsub = undefined; }
+function pumpQueuedAsk(): void {
+  const step = queuedAskStep(queued?.at ?? null, askReady(), Date.now());
+  if (step === 'run' && queued) { const ref = queued.ref; stopQueue(); routeAsk(ref); }
+  else if (step === 'expired') { stopQueue(); toast('Could not open that. Open the project and look in its Inbox.', 'error'); }
+}
+/** The one way to open an ask: a notification click and the tray item end here (the choice is `resolveAsk`, the destination `askTarget`). Before the window has loaded it waits, at most ASK_QUEUE_MS. */
 export function openAsk(ref: AskRef): void {
+  if (askReady()) { routeAsk(ref); return; }
+  stopQueue();
+  queued = { ref, at: Date.now() };
+  queueUnsub = subscribeStore(() => { if (askReady()) setTimeout(pumpQueuedAsk, 0); });
+  queueTimer = setTimeout(pumpQueuedAsk, ASK_QUEUE_MS + 50);
+}
+function routeAsk(ref: AskRef): void {
   const s = getState();
   const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
   const proposals = currentProposals().map((i) => ({ id: i.id, projectId: i.projectId, agentId: i.createdBy.kind === 'agent' ? i.createdBy.id : '', createdAt: i.createdAt }));
@@ -64,17 +86,26 @@ export function openRailRow(row: RouteRow): boolean {
   openAskTarget(t);
   return true;
 }
+/** A fresh board load for the request made at `at`: when it lands the request's TTL starts; when it fails the request is dropped and the owner told. */
+function settleBoard(projectId: string, at: number): void {
+  void refreshBoard(projectId).then((ok) => {
+    if (ok) markBoardSettled(at);
+    else if (failBoardLoad(at)) toast('Could not load the board for that project.', 'error');
+  });
+}
 /** Applies the answer of `askTarget`. */
 export function openAskTarget(t: RailTarget): void {
-  if (t.kind === 'inbox') { requestInbox(t.projectId, t.itemId); openProjectBoard(t.projectId); }
+  if (t.kind === 'inbox') { const at = Date.now(); requestInbox(t.projectId, t.itemId, at); settleBoard(t.projectId, at); openProjectBoard(t.projectId); }
   else if (t.kind === 'thread') {
-    requestAsk(t.taskId, t.askId, Date.now(), t.proposalProject);
-    if (t.proposalProject) void ensureBoard(t.proposalProject);
+    const at = Date.now();
+    requestAsk(t.taskId, t.askId, at, t.proposalProject);
+    if (t.proposalProject) settleBoard(t.proposalProject, at);
     setView('chat'); selectTask(t.taskId);
   }
   else if (t.kind === 'newChat') {
-    requestAsk(null, t.askId, Date.now(), t.proposalProject);
-    void ensureBoard(t.proposalProject);
+    const at = Date.now();
+    requestAsk(null, t.askId, at, t.proposalProject);
+    settleBoard(t.proposalProject, at);
     setProjectFilter(t.projectId);
     selectAgent(t.agentId);
     selectTask(null);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveAsk } from '../ui/src/projects/openAsk.js';
+import { ASK_QUEUE_MS, queuedAskStep, resolveAsk } from '../ui/src/projects/openAsk.js';
 
 const waiting = [
   { taskId: 't-old', projectId: 'p1', at: '2026-10-14T10:00:00Z' },
@@ -48,4 +48,15 @@ test('an empty ref opens the oldest of every ask and proposal', () => {
   assert.deepEqual(resolveAsk({}, [], [], props), { kind: 'proposal', projectId: 'p2', itemId: 'wi-p2', agentId: 'scout' });
   assert.deepEqual(resolveAsk({}, waiting, [], props), { kind: 'proposal', projectId: 'p2', itemId: 'wi-p2', agentId: 'scout' }, 'the proposal (08:00) is older than the oldest ask (10:00)');
   assert.deepEqual(resolveAsk({}, [{ taskId: 't-early', projectId: null, at: '2026-10-14T01:00:00Z' }], [], props), { kind: 'thread', taskId: 't-early' });
+});
+
+test('queuedAskStep: a click before the window has loaded waits, runs once loaded, and gives up after 15 s', () => {
+  assert.equal(ASK_QUEUE_MS, 15_000);
+  assert.equal(queuedAskStep(null, false, 1000), 'none');
+  assert.equal(queuedAskStep(null, true, 1000), 'none');
+  assert.equal(queuedAskStep(1000, false, 1000), 'wait');
+  assert.equal(queuedAskStep(1000, false, 1000 + ASK_QUEUE_MS - 1), 'wait');
+  assert.equal(queuedAskStep(1000, true, 2000), 'run');
+  assert.equal(queuedAskStep(1000, false, 1000 + ASK_QUEUE_MS), 'expired');
+  assert.equal(queuedAskStep(1000, true, 1000 + ASK_QUEUE_MS + 5), 'run', 'loaded just in time still runs');
 });

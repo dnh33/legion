@@ -22,7 +22,7 @@ export function ProposalCards({ agentId, taskId }: { agentId: string; taskId: st
   const mine = proposalsForThread(agentId, taskId, tasks, all, archived);
   // opened from a click that named one of these cards: bring it into view and focus it, once
   const req = useSyncExternalStore(subscribeFocus, getAskRequest);
-  const boardLoaded = useBoard((s) => !!req?.projectId && s.views[req.projectId] !== undefined);
+  const boardLoaded = req?.boardAt !== undefined; // the fresh load for this click finished
   const plan = proposalFocusPlan(req, taskId, mine.map((i) => i.id), all.map((i) => i.id), boardLoaded);
   useEffect(() => {
     if (plan === 'show' && req) {

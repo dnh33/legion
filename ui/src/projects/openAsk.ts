@@ -35,3 +35,12 @@ export function resolveAsk(ref: AskRef | null | undefined, waiting: readonly Wai
   }
   return oldest(waiting, proposals) ?? { kind: 'none' };
 }
+
+/** A click that arrives before the window has loaded its projects, tasks and agents waits for them, for at most this long. */
+export const ASK_QUEUE_MS = 15_000;
+export type QueuedAskStep = 'none' | 'wait' | 'run' | 'expired';
+export function queuedAskStep(queuedAt: number | null, ready: boolean, now: number): QueuedAskStep {
+  if (queuedAt === null) return 'none';
+  if (ready) return 'run';
+  return now - queuedAt >= ASK_QUEUE_MS ? 'expired' : 'wait';
+}

@@ -72,7 +72,7 @@ function Board({ project }: { project: Project }) {
   // a rail row asked for one proposal: show the Inbox, then bring that entry into view with Accept and Reject at hand
   const inboxReq = useSyncExternalStore(subscribeFocus, getInboxRequest);
   useEffect(() => {
-    const plan = inboxFocusPlan(inboxReq, project.id, inbox, view !== undefined);
+    const plan = inboxFocusPlan(inboxReq, project.id, inbox, inboxReq?.boardAt !== undefined);
     if (plan === 'ignore' || plan === 'wait') return;
     if (tab !== 'inbox') { setTab('inbox'); return; }
     if (plan === 'show' && inboxReq) {

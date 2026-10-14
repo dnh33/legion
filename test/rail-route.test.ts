@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   askTarget, clearAskRequest, clearInboxRequest, getAskRequest, getInboxRequest, inboxFocusPlan, latestChat, noteTaskSelected, noteViewSet,
-  canTakeFocus, pickAskCard, proposalFocusPlan, proposalsForThread, REQUEST_TTL_MS, requestAsk, requestInbox,
+  BOARD_WAIT_MS, canTakeFocus, failBoardLoad, markBoardSettled, pickAskCard, proposalFocusPlan, proposalsForThread, REQUEST_TTL_MS, requestAsk, requestInbox,
 } from '../ui/src/projects/railRoute.js';
 
 const T = (id: string, agentId: string, projectId: string | undefined, updatedAt: string, archived = false) => ({ id, agentId, projectId, updatedAt, archived });
@@ -76,7 +76,7 @@ test('a focus request older than the TTL is ignored', () => {
   assert.equal(getAskRequest(1000 + REQUEST_TTL_MS + 1), null);
   requestInbox('p1', 'wi1', 5000);
   assert.deepEqual(getInboxRequest(5001), { projectId: 'p1', itemId: 'wi1', at: 5000 });
-  assert.equal(getInboxRequest(5000 + REQUEST_TTL_MS + 1), null);
+  assert.ok(getInboxRequest(5000 + REQUEST_TTL_MS + 1), 'an Inbox request waits for its board, not a flat 3 s');
   assert.equal(REQUEST_TTL_MS, 3000);
 });
 test('opening a different task drops a pending card request; the same task keeps it', () => {
@@ -130,4 +130,41 @@ test('canTakeFocus: never from a text field', () => {
   assert.equal(canTakeFocus({ tagName: 'TEXTAREA' }), false);
   assert.equal(canTakeFocus({ tagName: 'SELECT' }), false);
   assert.equal(canTakeFocus({ tagName: 'DIV', isContentEditable: true }), false);
+});
+
+test('a proposal request lives until its board load settles, then the 3 s starts; approval and question requests keep the flat 3 s', () => {
+  clearAskRequest(); clearInboxRequest();
+  requestAsk('t1', 'a1', 1000);
+  assert.equal(getAskRequest(1000 + REQUEST_TTL_MS + 1), null, 'no project: flat TTL');
+  requestAsk('t1', 'wi1', 1000, 'p2');
+  assert.ok(getAskRequest(1000 + 10_000), 'a slow board load does not kill it');
+  assert.equal(getAskRequest(1000 + BOARD_WAIT_MS + 1), null, 'but it is not immortal');
+  markBoardSettled(1000, 12_000);
+  assert.equal(getAskRequest(12_000)?.boardAt, 12_000);
+  assert.ok(getAskRequest(12_000 + REQUEST_TTL_MS - 1));
+  assert.equal(getAskRequest(12_000 + REQUEST_TTL_MS + 1), null, 'the 3 s starts when the load finished');
+  clearAskRequest();
+});
+test('markBoardSettled only touches the request it was started for', () => {
+  clearAskRequest(); clearInboxRequest();
+  requestAsk('t1', 'wi1', 2000, 'p2');
+  requestInbox('p3', 'wi2', 2000);
+  markBoardSettled(1999, 2500);
+  assert.equal(getAskRequest(2501)?.boardAt, undefined);
+  assert.equal(getInboxRequest(2501)?.boardAt, undefined);
+  markBoardSettled(2000, 2500);
+  assert.equal(getAskRequest(2501)?.boardAt, 2500);
+  assert.equal(getInboxRequest(2501)?.boardAt, 2500);
+  clearAskRequest(); clearInboxRequest();
+});
+test('failBoardLoad clears the request it was started for and says so; a newer request is left alone', () => {
+  clearAskRequest(); clearInboxRequest();
+  requestAsk('t1', 'wi1', 3000, 'p2');
+  assert.equal(failBoardLoad(2999), false);
+  assert.ok(getAskRequest(3001));
+  assert.equal(failBoardLoad(3000), true);
+  assert.equal(getAskRequest(3001), null);
+  requestInbox('p1', 'wi1', 4000);
+  assert.equal(failBoardLoad(4000), true);
+  assert.equal(getInboxRequest(4001), null);
 });

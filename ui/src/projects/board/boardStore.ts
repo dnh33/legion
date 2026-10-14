@@ -31,14 +31,23 @@ export function probeBoard(): Promise<void> {
   return probing;
 }
 
-export async function loadBoard(projectId: string): Promise<void> {
-  try { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); } catch (e) { toast(errText(e), 'error'); }
+const loading = new Map<string, Promise<boolean>>();
+/** Loads a project's board. A load already under way is shared, so a second caller does not fetch again. True when the board arrived. */
+export function loadBoard(projectId: string, opts: { quiet?: boolean } = {}): Promise<boolean> {
+  const running = loading.get(projectId);
+  if (running) return running;
+  const p = (async () => {
+    try { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); return true; } catch (e) { if (!opts.quiet) toast(errText(e), 'error'); return false; } finally { loading.delete(projectId); }
+  })();
+  loading.set(projectId, p);
+  return p;
 }
 
-/** Loads a project's board unless it is loaded already (or the board is switched off), so a proposal can be found from its ids alone. */
-export async function ensureBoard(projectId: string): Promise<void> {
+/** A fresh load of the board for a proposal click, so a just-created proposal is never reported as handled. False when it failed or the board is off. */
+export async function refreshBoard(projectId: string): Promise<boolean> {
   await probeBoard();
-  if (state.enabled === 'yes' && state.views[projectId] === undefined) await loadBoard(projectId);
+  if (state.enabled !== 'yes') return false;
+  return loadBoard(projectId, { quiet: true });
 }
 
 /** What the Marshal is doing on this project. Reloaded with the board: both are advisory copies of what the core holds. */
