@@ -7,7 +7,7 @@ import { MODE_HELP, ageText, asksOf, budgetBanner, hereRuns, money, plural, proj
 import type { BudgetVerdict, Group, GroupItem, PageFacts, Unit, UnitLine } from './pageLogic';
 import { patchAway, projectAway, runAnyway, setPaused, useAway } from '../awayStore';
 import { setProjectFilter } from '../projectsStore';
-import { roomsOf } from '../projectsLogic';
+import { projectLabel, roomsOf } from '../projectsLogic';
 import type { Project } from '../../../../src/shared/projects';
 import { AgentBust } from './AgentBust';
 import { Digest } from './Digest';
@@ -42,6 +42,7 @@ export function Overview({ f, project, lens, openBoard }: { f: PageFacts; projec
         </div>
         {!archived && <SideColumn f={f} project={project} spend={spend} showMembers={!agentLens} />}
       </div>
+      <p className="pg-fnote">Viewing {projectLabel(project)}. The rail and task lists show this project&rsquo;s agents and tasks until you choose All projects.</p>
     </div>
   );
 }
@@ -70,14 +71,14 @@ function Banners({ f, project, spend }: { f: PageFacts; project: Project; spend:
     <div data-region="banner">
       {hit && (
         <div className="pg-banner" role="status">
-          <PIcon name="coin" size={18} className="bi" /><div className="bt"><b>{hit.title}</b> <span>{hit.text}</span></div>
+          <PIcon name="coin" size={18} className="bi" /><div className="bt"><b className="long">{hit.title}</b><b className="short">{hit.shortTitle}</b> <span>{hit.text}</span></div>
           <div className="ba"><button ref={btn} type="button" className="pg-btn" aria-haspopup="dialog" aria-expanded={pop} onClick={() => setPop((v) => !v)}>Change budget</button></div>
           {pop && <BudgetPop anchor={btn} project={project} budget={spend!.budget} onClose={() => setPop(false)} />}
         </div>
       )}
       {paused && (
         <div className="pg-banner neutral" role="status">
-          <PIcon name="pause" size={18} className="bi" /><div className="bt"><b>New starts are paused.</b> <span>Tasks you start yourself still run. Board items and Marshal starts wait.</span></div>
+          <PIcon name="pause" size={18} className="bi" /><div className="bt"><b className="long">New starts are paused.</b><b className="short">New starts paused.</b> <span className="long">Tasks you start yourself still run. Board items and Marshal starts wait.</span><span className="short">Your own tasks still run.</span></div>
           <div className="ba"><button type="button" className="pg-btn" onClick={() => { void setPaused(project.id, false).then((ok) => { if (ok) announce('New starts resumed.'); }); }}>Resume</button></div>
         </div>
       )}
@@ -109,7 +110,6 @@ function BudgetPop({ anchor, project, budget, onClose }: { anchor: React.RefObje
 function WorkingStrip({ f, asks }: { f: PageFacts; asks: ReturnType<typeof asksOf> }) {
   const agents = workingAgents(f, asks);
   const queued = projectTasks(f).filter((t) => t.status === 'queued');
-  if (!agents.length && !queued.length) return null;
   const q = queued[0];
   return (
     <section className="pg-ws" data-region="working" data-testid="working-strip" aria-label="Working now">

@@ -13,7 +13,7 @@ import { AgentBust } from './AgentBust';
 import { announce } from './announce';
 import { buildAskRows, reconcileShown } from './askLogic';
 import type { AskRow } from './askLogic';
-import { dismissAnswer, holdFocus, holdPointer, sendNowAnswer, startAnswer, undoAnswer, useAnswers } from './answerStore';
+import { dismissAnswer, holdFocus, holdPointer, sendNowAnswer, setVisibleRows, startAnswer, undoAnswer, useAnswers } from './answerStore';
 import type { Answer } from './answerStore';
 import { digestHeader, foldedLine, hhmm, money, projectTasks, reviewItems, sinceFor, stopDetail } from './pageLogic';
 import type { PageFacts } from './pageLogic';
@@ -60,6 +60,12 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
     return () => window.clearInterval(id);
   }, [frozen, answers]);
 
+  // tell the app which rows are on screen: a hold whose row is not (other tab, view, project) is shown by the app-level chip
+  const folded = agentLens && !open;
+  const shownKey = folded ? '' : shown.join('|');
+  useEffect(() => { setVisibleRows(shownKey ? shownKey.split('|') : []); }, [shownKey]);
+  useEffect(() => () => setVisibleRows([]), []);
+
   // keyboard: J/K move between rows; A and D answer under the thread's arming rule (a quiet keyboard, the row on screen long enough)
   const shownAt = useRef(new Map<string, number>());
   const lastKeyAt = useRef(0);
@@ -68,6 +74,7 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const now = performance.now(), quietSince = lastKeyAt.current;
     lastKeyAt.current = now;
+    if (e.repeat) return; // a held key is never an answer, and never the second press
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target as HTMLElement;
     if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) return;
@@ -85,13 +92,13 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
     const allow = row.buttons.find((b) => b.act === 'allow');
     const toolName = f.approvals.find((a) => a.id === row.ids[0])?.toolName ?? '';
     const armedNow = now - Math.max(shownAt.current.get(row.key) ?? now, quietSince) >= ARM_MS;
-    const r = digestKey(row.kind === 'command' ? { id: row.key, toolName, level: row.level, certain: row.certain && !!allow } : undefined, e.key, armedNow, Date.now(), keyState.current);
+    const r = digestKey(row.kind === 'command' ? { id: row.key, toolName, level: row.level, certain: row.certain && !!allow } : undefined, e.key, armedNow, Date.now(), keyState.current, e.repeat);
     keyState.current = r.state;
     if (!r.action) { if (armed) setArmed(null); return; }
     e.preventDefault();
     if (r.action.kind === 'arm') {
       setArmed(row.key);
-      announce('Press A again within 2 seconds to allow. This cannot be undone.');
+      announce(`This cannot be undone once sent. Press A again within 2 seconds to start a ${row.hold / 1000} second hold.`);
       window.setTimeout(() => setArmed((a) => (a === row.key ? null : a)), 2100);
       return;
     }
@@ -108,7 +115,6 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   };
 
   const head = digestHeader({ needYou: asks.length, hasNew: state.hasNew, since, spendUsd: events.spendUsd });
-  const folded = agentLens && !open;
   const finishedN = events.finished.length + events.inReview.length;
   const footLine = foldedLine(events.failed.length, events.stopped.length, finishedN, since);
   const hasRows = shown.length > 0;
@@ -210,7 +216,7 @@ function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (r
           <span>{row.wait}</span>
         </div>
         {row.trust && <div className="pg-trust">{row.trust}</div>}
-        {armed && <div className="pg-hold-note" role="status">Press A again within 2 s to allow. This cannot be undone.</div>}
+        {armed && <div className="pg-hold-note" role="status">This cannot be undone once sent. Press A again to start a {row.hold / 1000} s hold.</div>}
       </div>
       <div className="pg-acts2">
         {row.buttons.map((b) => (

@@ -10,5 +10,5 @@ export function LiveRegion() {
     push = (m) => { setText(''); window.setTimeout(() => setText(m), 30); };
     return () => { push = null; };
   }, []);
-  return <div className="sr" role="status" aria-live="polite" aria-atomic="true">{text}</div>;
+  return <div className="pg-sr" role="status" aria-live="polite" aria-atomic="true">{text}</div>;
 }

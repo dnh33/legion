@@ -20,9 +20,25 @@ export interface Answer {
 let answers = new Map<string, Answer>();
 const holds = new Map<string, Hold>();
 const subs = new Set<() => void>();
-const emit = (): void => { answers = new Map(answers); subs.forEach((f) => f()); };
+/** The rows the digest is showing right now. An answer whose row is not among them (another tab, view or project) is shown by the app-level chip instead. */
+let visible = new Set<string>();
+let offscreen: Answer[] = [];
+const emit = (): void => {
+  answers = new Map(answers);
+  offscreen = [...answers.values()].filter((a) => !visible.has(a.key));
+  subs.forEach((f) => f());
+};
 export function useAnswers(): ReadonlyMap<string, Answer> { return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => answers); }
 export const getAnswers = (): ReadonlyMap<string, Answer> => answers;
+/** Answers in flight (or just finished) whose row is not on screen: what the app-level chip lists. */
+export const getOffscreen = (): Answer[] => offscreen;
+export function useOffscreenAnswers(): Answer[] { return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => offscreen); }
+/** The digest calls this with the keys of the rows it shows (and [] when it unmounts). */
+export function setVisibleRows(keys: readonly string[]): void {
+  if (keys.length === visible.size && keys.every((k) => visible.has(k))) return;
+  visible = new Set(keys);
+  emit();
+}
 
 let timer: number | undefined;
 let last = 0;

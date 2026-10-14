@@ -8,6 +8,8 @@ import { agentsFor, waitingElsewhere } from '../projects/projectsLogic';
 import { railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
+import { useAllProposals } from '../projects/useProposals';
+import { openProjectBoard } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
 
@@ -25,6 +27,7 @@ export function AgentRail() {
   const projects = useStore((s) => s.projects);
   const filter = useStore((s) => s.projectFilter);
   const view = useStore((s) => s.view);
+  const proposals = useAllProposals();
   const shown = agentsFor(agents, projects, filter);
   const filterName = filter ? projects.find((p) => p.id === filter)?.name : undefined;
   // a paused queue shows on the agent too, not only inside its thread, so a message waiting on you is never out of sight
@@ -32,8 +35,8 @@ export function AgentRail() {
   const held = useMemo(() => heldAgents(queues, (k) => ownerOfThread(k, tasks)), [queues, tasks]);
   // anything waiting on the owner stays in sight whatever project is in view (decision B1): one click opens it in its own project
   const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
-  const waiting = useMemo(() => waitingElsewhere(approvals, questions, tasks, projects, names, filter), [approvals, questions, tasks, projects, names, filter]);
-  const lineFacts = useMemo(() => ({ tasks, projects, agents, approvals, questions }), [tasks, projects, agents, approvals, questions]);
+  const waiting = useMemo(() => waitingElsewhere(approvals, questions, tasks, projects, names, filter, proposals), [approvals, questions, tasks, projects, names, filter, proposals]);
+  const lineFacts = useMemo(() => ({ tasks, projects, agents, approvals, questions, board: { items: [], inbox: proposals } }), [tasks, projects, agents, approvals, questions, proposals]);
 
   // one tab stop for the member list: Arrow keys move inside it
   const onListKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -56,7 +59,7 @@ export function AgentRail() {
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.slice(0, WAIT_CAP).map((row) => (
             <button key={row.id} type="button" className="rail-wait-row" title={row.label}
-              onClick={() => { setView('chat'); selectTask(row.taskId); }}>
+              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else { setView('chat'); selectTask(row.taskId); } }}>
               <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}

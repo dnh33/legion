@@ -160,3 +160,14 @@ test('A on a click-only card (Blender) never allows or arms', () => {
 test('A on an unknown ask never allows or arms (the row offers Open only)', () => {
   assert.equal(digestKey({ id: 'u', toolName: 'Mystery', level: 3, certain: false }, 'a', true, 0, {}).action, null);
 });
+
+test('a held key (auto-repeat) never arms and never confirms an irreversible ask', () => {
+  const first = digestKey(risky, 'a', true, 1000, {});
+  assert.deepEqual(first.action, { kind: 'arm', id: 'a2' });
+  const rep = digestKey(risky, 'a', true, 1100, first.state, true);
+  assert.equal(rep.action, null, 'a repeat is not the second A');
+  assert.deepEqual(rep.state, first.state, 'and it leaves the arm as it was');
+  assert.equal(digestKey(risky, 'a', true, 1000, {}, true).action, null, 'a repeat cannot arm either');
+  assert.equal(digestKey(normal, 'a', true, 1000, {}, true).action, null, 'nor allow a normal ask');
+  assert.equal(digestKey(normal, 'd', true, 1000, {}, true).action, null, 'nor deny');
+});

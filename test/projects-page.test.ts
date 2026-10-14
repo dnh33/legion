@@ -2,6 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkItem } from '../src/shared/board.js';
+import { deriveAsks } from '../src/shared/attention.js';
+import { waitingElsewhere } from '../ui/src/projects/projectsLogic.js';
 import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
 import {
@@ -191,7 +193,7 @@ test('runs menu: grouped by project, current first, stop only where the run is n
 
 test('budget banner and spend block', () => {
   const hit = { limited: true, reached: true, overridden: false, spent: 50, limit: 50, period: 'week' as const, periodEnd: new Date('2026-10-19T00:00:00').getTime() };
-  assert.deepEqual(budgetBanner(hit), { title: 'Budget reached: $50.00 this week.', text: 'New runs wait until Monday.' });
+  assert.deepEqual(budgetBanner(hit), { title: 'Budget reached: $50.00 this week.', text: 'New runs wait until Monday.', shortTitle: 'Budget reached: $50.00.' });
   assert.equal(budgetBanner({ ...hit, reached: false }), undefined);
   assert.equal(budgetBanner(undefined), undefined);
   assert.equal(budgetBanner({ ...hit, overridden: true, reached: false }), undefined);
@@ -231,7 +233,7 @@ test('project menu: counts per project, archived last, the dot counts asks in ot
   assert.equal(projectMenu(f.projects, asks, null).elsewhere, 0, 'under All projects nothing is elsewhere');
 });
 
-import { deriveAsks } from '../src/shared/attention.js';
+
 function asksOfAll(f: PageFacts) { return deriveAsks({ approvals: f.approvals, questions: f.questions, tasks: f.tasks }); }
 
 test('a long project name is shortened in the rail and the units: the part before a colon or dash, else clipped', () => {
@@ -253,4 +255,26 @@ test('stop detail says "1 step", not "1 steps"', () => {
 test('shortProjectName also cuts at an en or em dash', () => {
   assert.equal(shortProjectName('Atlas \u2013 the migration'), 'Atlas');
   assert.equal(shortProjectName('Atlas \u2014 the migration'), 'Atlas');
+});
+
+test('one pending proposal counts the same on the page, the project menu, the rail line and "needs you in other projects"', () => {
+  const prop = { id: 'wi_cccccccccccc', projectId: P2, title: 'Move the deploy', createdAt: iso('10:02'), createdBy: { kind: 'agent', id: 'scout' } } as unknown as WorkItem;
+  // the project menu: Atlas (P2) shows 1, All projects 1, and from Shop it is "elsewhere"
+  const all = deriveAsks({ approvals: [], questions: [], tasks: [], proposals: [prop] });
+  const m = projectMenu([{ id: P1, name: 'Shop', status: 'active' }, { id: P2, name: 'Atlas', status: 'active' }], all, P1);
+  assert.deepEqual(m.rows.map((r) => [r.label, r.needYou]), [['All projects', 1], ['Atlas', 1], ['Shop', 0]]);
+  assert.equal(m.elsewhere, 1);
+  // the page of Atlas lists it (digest, meta, pip all come from asksOf)
+  const atlas = base({ project: { ...base().project, id: P2, name: 'Atlas' }, board: { items: [], inbox: [prop] } });
+  assert.equal(asksOf(atlas).length, 1);
+  // the rail row of the proposing agent says it
+  const line = railLine({ ...base(), board: { items: [], inbox: [prop] } }, 'scout', P2, 'role');
+  assert.equal(line.text, 'Needs you: Move the deploy');
+  // "needs you in other projects" lists it under Shop, with its project, and not under Atlas
+  const rows = waitingElsewhere([], [], [], [{ id: P1, name: 'Shop', status: 'active', members: ['scout'] }, { id: P2, name: 'Atlas', status: 'active', members: ['scout'] }] as never, { scout: 'Scout' }, P1, [prop]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.kind, 'proposal');
+  assert.equal(rows[0]!.projectId, P2);
+  assert.equal(rows[0]!.label, 'Scout proposes a board item in Atlas: Move the deploy');
+  assert.equal(waitingElsewhere([], [], [], [{ id: P2, name: 'Atlas', status: 'active', members: ['scout'] }] as never, { scout: 'Scout' }, P2, [prop]).length, 0, 'in its own project it is on the page, not "elsewhere"');
 });

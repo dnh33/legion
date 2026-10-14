@@ -20,6 +20,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **The rail says more in one line.** Each member shows what needs you, what it is working on, or where else it works. An agent
   with two or more runs going shows the number on its picture. The project control is a menu with a dot and "N elsewhere" when
   something waits for you in another project.
+- **An Allow you started keeps its countdown if you leave the page.** A small chip at the bottom of the window says "Publishing in 6 s" with Undo and Send now, so a pending Allow is never out of sight.
+  The project page also has its own side column, so the agent panel is closed there and comes back with the chat.
 - **Budget and pause show on the page.** A banner says when the budget is reached (with a way to change it or run anyway) or when
   new starts are paused (with Resume).
 

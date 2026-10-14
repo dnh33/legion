@@ -165,7 +165,7 @@ test('B1 waitingElsewhere: what waits on the owner but is hidden by the project 
 test('B1 the rail shows a "Needs you in other projects" block built from waitingElsewhere, and a click opens the item in its project', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
-  assert.match(rail, /waitingElsewhere\(approvals, questions, tasks, projects, names, filter\)/);
+  assert.match(rail, /waitingElsewhere\(approvals, questions, tasks, projects, names, filter, proposals\)/);
   assert.match(rail, /data-testid="rail-waiting"/);
   assert.match(rail, /Needs you in other projects/);
   // the project switch lives in selectTask (one function for every way to open a task), not in the row

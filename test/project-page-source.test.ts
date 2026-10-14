@@ -74,3 +74,17 @@ test('regions are named for the layouts work', () => {
   const all = files.filter((f) => /\.tsx$/.test(f)).map(read).join('\n');
   for (const r of ['banner', 'working', 'digest', 'body', 'side']) assert.ok(all.includes(`data-region="${r}"`), r);
 });
+
+test('review fixes: one proposal source for switcher and rail, a picker for 2+ members, the agent panel closed on the page, Take out on archived, the viewing note', () => {
+  const ui = join(root, 'ui', 'src');
+  assert.match(readFileSync(join(ui, 'projects', 'ProjectSwitcher.tsx'), 'utf8'), /useAllProposals\(\)[\s\S]*deriveAsks\(\{[^}]*proposals/);
+  const rail = readFileSync(join(ui, 'components', 'AgentRail.tsx'), 'utf8');
+  assert.match(rail, /waitingElsewhere\([^)]*proposals\)/);
+  assert.match(rail, /board: \{ items: \[\], inbox: proposals \}/);
+  const frame = read('ProjectPage.tsx');
+  assert.match(frame, /project\.members\.length > 1 &&[\s\S]*aria-label="Agent for the new task"/);
+  assert.match(readFileSync(join(ui, 'App.tsx'), 'utf8'), /opsOpenPref && view !== 'project'/);
+  assert.doesNotMatch(read('TabsContent.tsx'), /disabled=\{busy \|\| archived\}/);
+  assert.match(read('Overview.tsx'), /Viewing \{projectLabel\(project\)\}/);
+  assert.match(readFileSync(join(ui, 'App.tsx'), 'utf8'), /<HoldChip \/>/);
+});

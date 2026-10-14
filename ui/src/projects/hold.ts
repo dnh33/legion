@@ -84,11 +84,13 @@ export type KeyAction = { kind: 'allow'; id: string } | { kind: 'deny'; id: stri
  * What a key does in the digest, with the thread's rule (`approval-keys.ts`): `armed` is true only when the row has been on screen and
  * the keyboard quiet for ARM_MS, so stray typing never answers. D denies. A allows a normal ask. A on an irreversible ask only arms it:
  * a second A within SECOND_A_MS allows. A never acts on a click-only card or on an ask whose effect is not certain (those rows offer
- * Open only). Any other key clears the arm.
+ * Open only). Any other key clears the arm. A repeat (key held down) does nothing at all.
  */
-export function digestKey(ask: KeyAsk | undefined, key: string, armed: boolean, nowMs: number, st: KeyState): { action: KeyAction; state: KeyState } {
+export function digestKey(ask: KeyAsk | undefined, key: string, armed: boolean, nowMs: number, st: KeyState, repeat = false): { action: KeyAction; state: KeyState } {
   const none = (state: KeyState = {}): { action: KeyAction; state: KeyState } => ({ action: null, state });
   if (!ask) return none();
+  // a key held down repeats: it is never an answer, and never the second press either
+  if (repeat) return none(st);
   if (key === 'd' || key === 'D') return armed ? { action: { kind: 'deny', id: ask.id }, state: {} } : none();
   if (key !== 'a' && key !== 'A') return none();
   if (clickOnly(ask) || !ask.certain) return none();

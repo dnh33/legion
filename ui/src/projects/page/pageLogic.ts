@@ -309,11 +309,12 @@ export function runsMenu(f: PageFacts, agentId: string): { header: string; group
 /* ---------- budget and side column ---------- */
 export interface BudgetVerdict { limited: boolean; reached: boolean; overridden: boolean; spent: number; limit?: number; period?: 'day' | 'week' | 'month'; periodEnd?: number }
 const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-export function budgetBanner(b: BudgetVerdict | undefined): { title: string; text: string } | undefined {
+/** `shortTitle` is the one-line form for a narrow page (the period is left out). */
+export function budgetBanner(b: BudgetVerdict | undefined): { title: string; text: string; shortTitle: string } | undefined {
   if (!b || !b.limited || !b.reached || !b.period || b.limit === undefined) return undefined;
   const noun = b.period === 'day' ? 'today' : b.period === 'week' ? 'this week' : 'this month';
   const until = b.periodEnd ? (b.period === 'day' ? 'tomorrow' : b.period === 'week' ? WEEKDAY[new Date(b.periodEnd).getDay()]! : `the 1st`) : 'the next period';
-  return { title: `Budget reached: ${money(b.spent)} ${noun}.`, text: `New runs wait until ${until}.` };
+  return { title: `Budget reached: ${money(b.spent)} ${noun}.`, text: `New runs wait until ${until}.`, shortTitle: `Budget reached: ${money(b.spent)}.` };
 }
 export function spendBlock(weekUsd: number, b: BudgetVerdict | undefined): { big: string; of?: string; pct: number; hi: boolean; foot: string } {
   if (b?.limited && b.limit) {

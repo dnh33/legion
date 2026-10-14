@@ -117,7 +117,7 @@ export const inWhere = (projects: Pick<Project, 'id' | 'name'>[], projectId: str
 const clipTitle = (t: string): string => (t.length > 40 ? t.slice(0, 39) + '…' : t);
 
 /** One thing waiting on the owner that the rail hides under the project in view (decision B1). */
-export interface WaitingRow { kind: 'approval' | 'question'; id: string; taskId: string; agentId: string; projectId: string | null; label: string }
+export interface WaitingRow { kind: 'approval' | 'question' | 'proposal'; id: string; taskId: string; agentId: string; projectId: string | null; label: string }
 
 /**
  * Approvals and questions the rail would hide under this filter: their task is in another project or none, or the agent
@@ -128,6 +128,8 @@ export function waitingElsewhere(
   questions: Pick<PendingQuestion, 'id' | 'taskId' | 'agentId' | 'at'>[],
   tasks: Pick<Task, 'id' | 'projectId' | 'title'>[],
   projects: Project[], names: Record<string, string>, filter: string | null,
+  /** Board proposals waiting in any project's Inbox: they wait on the owner too, so they count here like everywhere else. */
+  proposals: ReadonlyArray<{ id: string; projectId: string; title: string; createdAt: string; createdBy: { kind: string; id?: string } }> = [],
 ): WaitingRow[] {
   if (!filter) return [];
   const here = projects.find((p) => p.id === filter);
@@ -140,6 +142,12 @@ export function waitingElsewhere(
     const verb = it.kind === 'approval' ? 'needs your OK' : 'asks you something';
     const where = !t ? 'in another task' : `${inWhere(projects, t.projectId)}: ${clipTitle(t.title)}`;
     rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, at: it.at });
+  }
+  for (const p of proposals) {
+    if (p.projectId === filter) continue; // in the project in view it is on the page
+    const agentId = p.createdBy.kind === 'agent' ? p.createdBy.id ?? '' : '';
+    const who = names[agentId] ?? (agentId || 'An agent');
+    rows.push({ kind: 'proposal', id: p.id, taskId: '', agentId, projectId: p.projectId, label: `${who} proposes a board item ${inWhere(projects, p.projectId)}: ${clipTitle(p.title)}`, at: p.createdAt });
   }
   return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
 }

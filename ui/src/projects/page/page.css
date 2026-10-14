@@ -12,9 +12,11 @@
 .pg-back:hover { border-color: var(--line-strong); color: var(--text); }
 .pg-title { min-width: 0; flex: 1; }
 .pg-title h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.pg-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
-.pg-meta span span { white-space: nowrap; }
-.pg-meta .pg-sep { margin: 0 0 0 6px; }
+/* the meta line wraps by parts; a slash leads every part but the first on its line, and the one that would lead a line is clipped */
+.pg-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow: hidden; }
+.pg-meta ul { list-style: none; margin: 0 0 0 -14px; padding: 0; display: flex; flex-wrap: wrap; }
+.pg-meta li { position: relative; padding-left: 14px; white-space: nowrap; }
+.pg-meta li::before { content: "/" / ""; position: absolute; left: 4px; color: var(--faint); }
 .pg-acts { flex: none; display: flex; gap: 8px; align-items: center; position: relative; }
 .pg-acts .why { color: var(--muted); font-size: 12.5px; }
 
@@ -259,3 +261,28 @@
 .pg-skip { position: absolute; left: 8px; top: -60px; z-index: 100; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-radius: var(--r); padding: 6px 12px; text-decoration: none; }
 .pg-skip:focus { top: 6px; }
 .avatar .pg-rc { right: -6px; bottom: -6px; }
+
+/* a hold whose row is not on screen: the app-level chip */
+.pg-holdchip { position: fixed; z-index: 90; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 32px)); padding: 8px 10px 8px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-radius: var(--r-lg); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); font-size: 13px; }
+.pg-holdchip .msg { min-width: 0; display: flex; flex-direction: column; }
+.pg-holdchip .msg b { font-weight: 600; }
+.pg-holdchip .msg .who { color: var(--muted); font-size: 12px; }
+.pg-holdchip .pg-btn { height: 28px; }
+.pg-holdchip .pg-hold-note { white-space: nowrap; }
+:root[data-kbd-nav] .pg-holdchip :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+.pg-to { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.pg-to select { height: 32px; max-width: 150px; background: var(--surface); border: 1px solid var(--control-line); border-radius: var(--r); color: var(--text); padding: 0 6px; }
+
+/* narrow page: one line per banner (the short copy) */
+.pg-banner .short { display: none; }
+@container pg (max-width: 760px) {
+  .pg-banner .long { display: none; }
+  .pg-banner .short { display: inline; }
+  .pg-banner .bt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pg-banner { padding: 8px 12px; margin-bottom: 12px; }
+  .pg-banner .ba .pg-btn { height: 28px; }
+}
+
+/* the page's live region lives in the app frame now, so its hidden style is global */
+.pg-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

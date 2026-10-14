@@ -1,5 +1,5 @@
 /** The tabbed project page: header, meta line (one derivation), tabs with a roving tabindex, and the tab panel. Spec 3.1. */
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '../../../../src/shared/projects';
 import { ensureRoomList, useRooms } from '../../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, setView, useStore } from '../../store';
@@ -7,7 +7,7 @@ import { BoardPanel } from '../board/BoardPanel';
 import { archiveProject, closeProjectPage, setProjectFilter, unarchiveProject } from '../projectsStore';
 import { defaultStarter, roomsOf } from '../projectsLogic';
 import { projectAway, setPaused, useAway } from '../awayStore';
-import { announce, LiveRegion } from './announce';
+import { announce } from './announce';
 import { Menu } from './Menu';
 import { Overview } from './Overview';
 import { enterProject, setLens, setTab, usePageState } from './pageState';
@@ -27,6 +27,7 @@ export function ProjectFrame({ project }: { project: Project }) {
   const away = useAway((s) => projectAway(s, project.id));
   const weekUsd = useAway((s) => s.spend[project.id]?.week);
   const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState<string | undefined>(undefined);
   const [menu, setMenu] = useState(false);
   const moreBtn = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -38,7 +39,8 @@ export function ProjectFrame({ project }: { project: Project }) {
   const working = workingAgents(f, asks).length;
   const tabs = tabDefs({ asks: asks.length, board: f.board?.items.length ?? 0, tasks: projectTasks(f).length, rooms: roomsOf(rooms, project.id).length });
   const parts = metaParts(f, { asks: asks.length, working, paused: away.paused, ...(weekUsd !== undefined ? { weekUsd } : {}) });
-  const who = defaultStarter(project.members, selected);
+  // who starts the task: the one chosen here while still a member, else the agent in view, else the first member (until the New task sheet has its own To: pill)
+  const who = picked && project.members.includes(picked) ? picked : defaultStarter(project.members, selected);
   const canLens = tab === 'overview' && project.members.length > 1 && !archived;
 
   const startTask = (): void => {
@@ -63,7 +65,7 @@ export function ProjectFrame({ project }: { project: Project }) {
         <div className="pg-title">
           <h1 id="pg-title" title={project.name}>{project.name}</h1>
           <div className="pg-meta num" data-testid="meta">
-            <span>{parts.map((p, i) => <Fragment key={p}><span>{p}{i < parts.length - 1 && <span className="pg-sep" aria-hidden="true">/</span>}</span>{' '}</Fragment>)}</span>
+            <ul>{parts.map((p) => <li key={p}>{p}</li>)}</ul>
           </div>
         </div>
         <div className="pg-acts">
@@ -72,6 +74,13 @@ export function ProjectFrame({ project }: { project: Project }) {
           ) : (
             <>
               {project.members.length === 0 && <span className="why" id="pg-nomem">Add a member first</span>}
+              {project.members.length > 1 && (
+                <label className="pg-to"><span>To:</span>
+                  <select aria-label="Agent for the new task" value={who} onChange={(e) => setPicked(e.target.value)}>
+                    {project.members.map((id) => <option key={id} value={id}>{f.agents.find((a) => a.id === id)?.name ?? id}</option>)}
+                  </select>
+                </label>
+              )}
               <button type="button" className="pg-btn primary" data-fk="new" disabled={project.members.length === 0} aria-describedby={project.members.length === 0 ? 'pg-nomem' : undefined} onClick={startTask}>
                 <PIcon name="plus" size={14} />New task
               </button>
@@ -118,7 +127,6 @@ export function ProjectFrame({ project }: { project: Project }) {
           {tab === 'settings' && <SettingsTab f={f} project={project} />}
         </div>
       </div>
-      <LiveRegion />
     </section>
   );
 }

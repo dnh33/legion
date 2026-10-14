@@ -73,7 +73,7 @@ export function RoomsTab({ f, project }: { f: PageFacts; project: Project }) {
                 <div className="ti"><button type="button" className="lk" data-fk={`rm:${r.id}`} title={r.name} onClick={() => { setView('rooms'); openRoom(r.id); }}>{r.name}</button>
                   <div className="sub">{r.members.length} agents{out ? ', out of project (' + out + ')' : ''}</div></div>
                 <div className="r">
-                  <button type="button" className="pg-btn sm" aria-label={'Take ' + r.name + ' out of this project'} disabled={busy || archived} onClick={() => void run(() => assignRoom(r.id, null))}>Take out</button>
+                  <button type="button" className="pg-btn sm" aria-label={'Take ' + r.name + ' out of this project'} disabled={busy} onClick={() => void run(() => assignRoom(r.id, null))}>Take out</button>
                 </div>
               </div>
             );
