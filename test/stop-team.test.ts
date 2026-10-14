@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callTool, init, ok, notices, setup, tick } from './bridge-rig.js';
+import { callTool, init, isReply, ok, notices, setup, tick } from './bridge-rig.js';
 
 // E2: Stop a team. One action cancels a task and every task it started (transitively), and a stopped task's late
 // send-back must not wake the caller.
@@ -65,4 +65,35 @@ test('stopping a team twice is harmless: the second call finds nothing live', as
   const b = s.store.listTasks(10, 'builder', true)[0]!;
   assert.equal(b.status, 'cancelled');
   assert.equal(s.engine.cancelTeam(z.id).cancelled.length, 0, 'nothing left to stop');
+});
+
+test('only helpers that are live when the team is stopped are silenced: a finished helper still answers a later tell', async () => {
+  let again = false;
+  const s = setup((c) => {
+    if (c.agent === 'zealot') return (async function* () {
+      const sid = `z-${c.n}`; yield init(sid);
+      if (c.n === 0) { await callTool(c.options, 'tell', { agent: 'builder', message: 'one' }); await callTool(c.options, 'tell', { agent: 'scout', message: 'two' }); }
+      if (again && !isReply(c.prompt)) await callTool(c.options, 'tell', { agent: 'builder', message: 'again' });
+      yield ok('ok', sid);
+    })();
+    if (c.agent === 'scout') return (async function* () { yield init('s'); await hang(); })();
+    return undefined;
+  }, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  await tick(300); // builder (H1) finished and its reply ran the lead again
+  const h1 = s.store.listTasks(10, 'builder', true)[0]!;
+  const h2 = s.store.listTasks(10, 'scout', true)[0]!;
+  assert.equal(h1.status, 'done');
+  assert.equal(h2.status, 'running');
+  const replyRuns = () => s.calls.filter((c) => c.agent === 'zealot' && isReply(c.prompt)).length;
+  const before = replyRuns();
+  assert.deepEqual(s.engine.cancelTeam(z.id).cancelled, [h2.id]);
+  await tick(200);
+  assert.equal(replyRuns(), before, "H2's late reply is dropped");
+  again = true;
+  const w = s.engine.waitFor(z.id, 3000).catch(() => undefined);
+  s.engine.startTask({ agentId: 'zealot', prompt: 'continue', source: 'ui', continueTaskId: z.id });
+  await w; await tick(500);
+  assert.ok(replyRuns() > before, "H1's reply to a later tell is delivered");
 });
