@@ -18,7 +18,7 @@
 .arm-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ---- banners: the one-time notice, Undo for a removal, a promoted skill ---- */
-.arm-notice, .arm-bar { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: var(--r); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.arm-notice, .arm-bar { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 .arm-notice { flex-direction: column; align-items: flex-start; }
 .arm-notice p { margin: 0; color: var(--text); font-size: 13px; }
 .arm-noticebtns { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -31,7 +31,7 @@
 .arm-snack:empty { display: none; }
 .arm-snack > .arm-bar { background: var(--surface-2); box-shadow: 0 8px 24px var(--scrim); }
 
-.arm-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--r); background: var(--warn-soft); color: var(--text-2); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.arm-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--warn-line); border-radius: var(--r); background: var(--warn-soft); color: var(--text-2); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 
 .arm-empty { padding: 14px 12px; border: 1px dashed var(--line-strong); border-radius: var(--r); display: flex; flex-direction: column; gap: 6px; }
 .arm-empty p { margin: 0; }
@@ -60,9 +60,9 @@
 .arm-row.is-removing, .house-row.is-removing { opacity: .7; }
 .arm-removing { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
 .arm-cmdnote { font-size: 11.5px; color: var(--muted); }
-.arm-confirm { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--r); background: var(--warn-soft); font-size: 12.5px; color: var(--text); }
+.arm-confirm { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--warn-line); border-radius: var(--r); background: var(--warn-soft); font-size: 12.5px; color: var(--text); }
 .arm-confirmtext { flex: 1 1 260px; min-width: 0; line-height: 1.45; overflow-wrap: anywhere; }
-.arm-undone { display: block; padding: 6px 10px; border-left: 3px solid var(--accent); font-size: 12.5px; color: var(--text); }
+.arm-undone { display: block; padding: 6px 10px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--accent-soft); font-size: 12.5px; color: var(--text); }
 .arm-pickwhy { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin: 2px 0 0 23px; font-size: 12px; line-height: 1.4; color: var(--warn); }
 .arm-pickwhy .link-btn { font-size: 12px; }
 .arm-row.s-off .arm-name { color: var(--text-2); }
@@ -148,7 +148,7 @@ span.arm-cmd.muted { font-family: inherit; }
 .arm-advrow { display: flex; align-items: flex-start; gap: 12px; margin-top: 6px; }
 .arm-advtext { min-width: 0; }
 .arm-advtext p { margin: 0; }
-.arm-shellon { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; padding: 6px 10px; border-left: 3px solid var(--warn); border-radius: var(--r-sm); background: var(--warn-soft); color: var(--text); font-size: 12.5px; line-height: 1.4; }
+.arm-shellon { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; padding: 6px 10px; border: 1px solid var(--warn-line); border-radius: var(--r-sm); background: var(--warn-soft); color: var(--text); font-size: 12.5px; line-height: 1.4; }
 .arm-shellon .icon { flex: none; margin-top: 2px; color: var(--warn); }
 .arm-advlabel { font-size: 13px; font-weight: 500; color: var(--text); }
 
@@ -180,7 +180,7 @@ span.arm-cmd.muted { font-family: inherit; }
 .arm-prevname code { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
 .arm-prevdesc { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
 .arm-faint { color: var(--faint); }
-.arm-discard { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--danger); border-radius: var(--r); background: var(--danger-soft); font-size: 12.5px; color: var(--text); }
+.arm-discard { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line-strong)); border-radius: var(--r); background: var(--danger-soft); font-size: 12.5px; color: var(--text); }
 .arm-footslot { display: contents; }
 .arm-form .set-error .icon { flex: none; }
 

@@ -25,7 +25,7 @@
  * and runs a final secrets/personal-data scan before publishing.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const [, , srcArg, outArg] = process.argv;
@@ -197,7 +197,7 @@ function walk(dir) {
       for (const re of DENY_CONTENT) if (re.test(content)) fail(`refusing: ${rel} contains a token or private key (not shipped)`);
     }
     mkdirSync(join(dst, '..'), { recursive: true });
-    cpSync(p, dst);
+    copyFileSync(p, dst);
     scrubFile(p, dst);
   }
 }

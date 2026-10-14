@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { openExternal, request } from '../api';
 import { errText, REOPEN_GITHUB_KEY } from '../store';
-import { Switch } from '../projects/page/SettingsTab';
+import { Switch } from '../projects/page/Switch';
 import { setIconShown, useGithub } from '../github/githubStore';
 import { storageLine } from '../../../src/shared/connectors-view';
 import type { GithubConnectionView, GithubStatusView } from '../../../src/shared/connectors-view';

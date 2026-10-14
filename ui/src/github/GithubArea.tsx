@@ -3,7 +3,7 @@ import { openExternal } from '../api';
 import { openEditor } from '../store';
 import { openProject } from '../projects/projectsStore';
 import { Icon } from '../components/icons';
-import { Switch } from '../projects/page/SettingsTab';
+import { Switch } from '../projects/page/Switch';
 import { FloatPanel } from '../ci/FloatPanel';
 import { Glyph } from '../ci/CiPanel';
 import { ago, formatDuration, runLook } from '../../../src/shared/ci-view';

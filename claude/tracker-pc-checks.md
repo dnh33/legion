@@ -495,3 +495,24 @@ The scripts and the workflow change are pinned offline (`test/release-extras.tes
 | H9c | Click the notification | Window shown and the Scout thread opened on the approval card. |
 | H9d | Quiet hours 09:40 to 09:58, two asks raised inside | No pop-ups until 09:58, then one "While you were away: 2 need you." (read from the plan log, notification centre not re-read). |
 
+
+## 2026-10-15: GitHub area (0.3.0, two apps: Legion (read) and Legion (write)). Safety class: account
+
+Rules for the GitHub Apps are in `docs/GITHUB-APPS.md`. The write app also holds "Repository creation"; there is no third app.
+
+| id | check | pass | result |
+|---|---|---|---|
+| C-GH-1 | Device code request with each client id | A user code returns | **PASSED** 2026-10-15 for both: read `Iv23liIt2yvFfWgPrZfK`, write `Iv23li7s6igxaj3TZMa3` |
+| C-GH-2 | Install each app at github.com/apps/<slug>/installations/new, "Only select repositories", one throwaway repo; note the installation page address | Address shape matches `githubInstallSettingsUrl` | open |
+| C-GH-3 | Connect the read app in Legion | The area lists only repos installed at GitHub, all unticked | open |
+| C-GH-4 | Tick one repo. An agent with Read can use it; an unticked repo is refused | Refusal text is plain | open |
+| C-GH-5 | Connect the write app. Agent with Write on repo A tries to comment on repo B | Refused, no card | open |
+| C-GH-6 | Agent in `full` comments on repo A | A card appears; nothing posts until Allow; Deny posts nothing | open |
+| C-GH-7 | Create a private repo with the write app (a) in your account (b) in an organisation | Repo exists; it shows in the area at once (the area merges the read and write installs); the write app's sign-in is in the encrypted store only. If (a) fails with the "Repository creation" right, the form falls back to "Create on GitHub" | open |
+| C-GH-8 | Let the access token expire (8 h), for both apps | Refresh works with no new sign-in | open |
+| C-GH-9 | Sign out in Legion | Local tokens for both apps gone; the revoke link opens the right GitHub page | open |
+| C-GH-10 | Install set to all repos | Amber warning shows | open |
+| C-GH-11 | Rate limit (fake or a real 403) | "Wait until" message; GitHub buttons disabled | open |
+| C-GH-12 | Keyboard and screen-reader pass over the area | Reachable and labelled | open |
+| C-GH-13 | Turn the icon off in Settings | Icon gone; area still opens from the palette | open |
+| C-GH-14 | CI and agent activity in the area: a repo with runs shows the latest runs and failed jobs; "Re-run failed" and "Cancel" through the write app raise a card and act only after Allow; the agent list and "what agents did here" fill from Legion's own records | Matches GitHub's Actions page; no extra GitHub calls for the activity list | open |
