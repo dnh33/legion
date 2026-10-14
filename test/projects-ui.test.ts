@@ -170,7 +170,8 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /Needs you in other projects/);
   // the project switch lives in selectTask (one function for every way to open a task), not in the row
   assert.doesNotMatch(rail, /setProjectFilter/);
-  assert.match(rail, /selectTask\(row\.taskId\)/);
+  // and every way to open an ask (this row, a notification, the tray) is the one openAsk
+  assert.match(rail, /openAsk\(\{ taskId: row\.taskId \}\)/);
   assert.match(rail, /aria-live="polite"/);
 });
 
