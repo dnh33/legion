@@ -1,11 +1,18 @@
 /** The GitHub area's shared contract (UI and core import it; written first so the units can build in parallel). Design 6.5. */
 import type { AgentProfile } from './types.js';
+import type { CiCounts } from './ci.js';
 
 export type GithubApp = 'read' | 'write';
-export interface GithubRepoRow { fullName: string; private: boolean; installedRead: boolean; installedWrite: boolean; ticked: boolean; htmlUrl: string; installationSettingsUrl: string }
+/** What the CI poller last said about a repo (read from its events, no GitHub call). Only the repo being watched has one. */
+export interface GithubRepoCi { branch: string | null; counts: CiCounts; running: boolean; problem: boolean }
+/** One thing an agent did on a repo through Legion. */
+export interface GithubActivityItem { at: string; agentId: string; repo: string; kind: 'comment' | 'issue' | 'pull-request' | 'rerun'; title?: string }
+export interface GithubRepoRow { fullName: string; private: boolean; installedRead: boolean; installedWrite: boolean; ticked: boolean; htmlUrl: string; installationSettingsUrl: string; ci?: GithubRepoCi }
 export interface GithubAreaView {
   registered: Record<GithubApp, boolean>; signedIn: Record<GithubApp, boolean>; login?: string;
   agentsEnabled: boolean; selection: 'selected' | 'all' | 'unknown'; repos: GithubRepoRow[]; truncated: boolean;
+  /** What Legion's agents did per repo, newest first. */
+  activity?: GithubActivityItem[];
   rate?: { remaining: number; resetAt: string };
   problem?: { kind: 'not-connected' | 'auth-expired' | 'rate-limited' | 'network'; resetAt?: string };
 }
