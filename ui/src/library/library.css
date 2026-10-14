@@ -46,7 +46,7 @@
 
 /* ---------- inbox rows ---------- */
 .lib-list { list-style: none; margin: 0 auto; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.lib-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: inset 3px 0 0 var(--warn); transition: border-color var(--t) var(--ease), background var(--t) var(--ease); }
+.lib-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); transition: border-color var(--t) var(--ease), background var(--t) var(--ease); }
 .lib-row.untrusted { border-color: color-mix(in srgb, var(--danger) 34%, var(--line-strong)); }
 .lib-row.sel { background: var(--surface-2); border-color: var(--accent-line); }
 .lib-row.busy { opacity: .75; }

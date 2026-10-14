@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Banners, notices, tips and selected rows no longer use a coloured stripe down their left edge. They now show their state with a full outline, a soft tint and a small icon. A board card that read outside content carries an "Outside content, not reviewed" label with an amber outline.
+
 ### Added
 
 - **Every future update can reach you, even if you skipped one.** Legion now checks a second update list first and uses the old one only when the new one is not there. A release that needs a bigger install can ask Legion to take a small step update first and offers the bigger one on the next check, so an older copy is never left half updated. If a release needs something your Legion cannot do yet and no step exists, Legion says so in plain words and offers nothing.
