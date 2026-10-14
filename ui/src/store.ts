@@ -15,7 +15,8 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'gates' | 'notifications' | 'spending' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
+import type { SettingsSection } from './components/settingsNav';
+export type { SettingsSection };
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -544,7 +545,15 @@ export async function compactNow(taskId: string, focus?: string): Promise<{ ok: 
 }
 
 /** The window's own bookkeeping when a card is answered: the card leaves, a denial is noted, the mascot reacts. The project page calls it after its own send succeeded. */
-export function settleApproval(id: string, allow: boolean) {
+const decisionTaps = new Set<(allow: boolean) => void>();
+/** Plain subscription to the owner's own Allow or Deny (the sounds listen here). */
+export function tapDecisions(fn: (allow: boolean) => void): () => void { decisionTaps.add(fn); return () => { decisionTaps.delete(fn); }; }
+
+const tellDecision = (allow: boolean): void => decisionTaps.forEach((t) => { try { t(allow); } catch { /* a tap never breaks the store */ } });
+
+/** `announce: false` is for the chat's optimistic settle: it tells the taps itself once the send worked. */
+export function settleApproval(id: string, allow: boolean, announce = true) {
+  if (announce) tellDecision(allow);
   setState((s) => {
     const card = s.approvals.find((a) => a.id === id);
     return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
@@ -552,8 +561,8 @@ export function settleApproval(id: string, allow: boolean) {
 }
 
 export async function decide(id: string, allow: boolean) {
-  settleApproval(id, allow); // optimistic
-  try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  settleApproval(id, allow, false); // optimistic; the sound waits for the send
+  try { await api.decide(id, allow); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**

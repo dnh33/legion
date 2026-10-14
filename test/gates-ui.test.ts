@@ -200,7 +200,7 @@ test('render: the tester readout prints the verdict and the rules that matched, 
     assert.match(html, /1 matching gate/);
     const base = r.testOut(gateTestResult([], { toolName: 'Bash', input: { command: 'ls' }, agentId: 'zealot', mode: 'ask' }));
     assert.match(base, /BASELINE/);
-    assert.match(base, /No gate matched — your mode decides/);
+    assert.match(base, /No gate matched\. Your mode decides/);
   } finally { cleanup(); }
 });
 

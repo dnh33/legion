@@ -60,6 +60,33 @@ describe('summarizeRun / countsFor', () => {
   });
 });
 
+describe('countsFor: a later run of the same workflow on the same branch supersedes an earlier failure', () => {
+  it('(a) a failure followed by a success is not counted, however many failed before', () => {
+    const runs = parseRuns({ workflow_runs: [
+      run({ id: 1, conclusion: 'failure', created_at: '2026-10-07T08:00:00Z', run_started_at: '2026-10-07T08:00:00Z' }),
+      run({ id: 2, conclusion: 'timed_out', created_at: '2026-10-07T09:00:00Z', run_started_at: '2026-10-07T09:00:00Z' }),
+      run({ id: 3, conclusion: 'success', created_at: '2026-10-07T10:00:00Z', run_started_at: '2026-10-07T10:00:00Z' }),
+    ] });
+    assert.deepEqual(countsFor(runs, 'main'), { success: 1, failure: 0, running: 0 });
+  });
+  it('(b) a failure on a workflow with no later success still counts', () => {
+    const runs = parseRuns({ workflow_runs: [
+      run({ id: 1, name: 'Smoke', conclusion: 'failure', created_at: '2026-10-07T08:00:00Z' }),
+      run({ id: 2, name: 'CI', conclusion: 'success', created_at: '2026-10-07T10:00:00Z' }),
+    ] });
+    assert.deepEqual(countsFor(runs, 'main'), { success: 1, failure: 1, running: 0 });
+  });
+  it('(c) a re-run that succeeded supersedes the failed attempt, even when a newer-numbered run of the same commit failed in between', () => {
+    const runs = parseRuns({ workflow_runs: [
+      run({ id: 1, conclusion: 'failure', created_at: '2026-10-07T09:00:00Z', run_started_at: '2026-10-07T09:00:00Z' }),
+      run({ id: 2, conclusion: 'failure', created_at: '2026-10-07T10:00:00Z', run_started_at: '2026-10-07T10:00:00Z' }),
+      // run 1 re-run later: same id and created_at, a new attempt that started after run 2
+      run({ id: 1, conclusion: 'success', run_attempt: 2, created_at: '2026-10-07T09:00:00Z', run_started_at: '2026-10-07T11:00:00Z' }),
+    ] });
+    assert.deepEqual(countsFor(runs, 'main'), { success: 1, failure: 0, running: 0 });
+  });
+});
+
 describe('log text', () => {
   it('masks a secret that straddles the character cut, so no tail fragment survives', () => {
     const tail = 'TAILFRAGMENT0123456789abcdef';

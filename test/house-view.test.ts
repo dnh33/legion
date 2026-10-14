@@ -263,7 +263,7 @@ test('the screen is called Doctrine; internal names stay, and loading text uses 
   assert.match(src, /<h3 ref=\{heading\} tabIndex=\{-1\}>Doctrine<\/h3>\s*<p>\s*The rules and drills your agents follow\./);
   assert.ok(!/House context<\/h3>/.test(src), 'no old heading');
   const settings = readFileSync(join(process.cwd(), 'ui/src/components/Settings.tsx'), 'utf8');
-  assert.match(settings, /\{ id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' \}/);
+  assert.match(readFileSync(join(process.cwd(), 'ui/src/components/settingsNav.ts'), 'utf8'), /house: { label: 'Doctrine', hint: 'Rules and drills your agents follow' }/);
   assert.equal(SKILLS_BANNER, 'Drills from Legion are off until you turn them on. Each drill changes how agents work.');
   assert.match(src, /Working\{'…'\}/);
   assert.match(src, /Saving\{'…'\}/);
