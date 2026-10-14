@@ -2,18 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add the gate registry, the per-project gate settings store and routes, and a single permission-mode resolver, with preset Ask only, so that nothing an agent can or cannot do changes and a committed golden fixture proves it.
+**Goal:** Add the gate registry, the per-project gate settings store and routes, and the single permission-mode function decided in spec 4.2 (revision 4), with only the Ask preset accepted, so that nothing changes for existing projects and agents (a committed golden fixture proves it) while the owner can already set a project to Ask with its limit on.
 
 **Architecture:** A pure shared contract (`src/shared/gates-registry.ts`) lists every gate with its family and per-preset default. A pure function (`src/core/permission-mode.ts`) turns an agent's mode plus a preset into the run's mode. A small core module (`src/core/gates-settings/`) keeps the owner's preset choices in memory, persists them under `<dataDir>/gates/` like the away store does, and serves admin-only routes. The engine's three mode reads go through one resolver. In this PR the store accepts only `ask`; Accept edits, Smart and Bypass arrive in part 2.
 
 **Tech Stack:** TypeScript (ES modules, `.js` import suffixes), Node's `node:test` and `node:assert/strict`, the existing core module and route system.
 
-**Spec:** `docs/superpowers/specs/2026-10-14-goal-and-gates-design.md` (revision 3, approved). This plan covers spec section 10, PR 1: sections 4.1, 4.2 (rules 1, 4, 5; the `ask` preset), and test 9.1 and 9.2.
+**Spec:** `docs/superpowers/specs/2026-10-14-goal-and-gates-design.md` (revision 4, approved). This plan covers spec section 10, PR 1: section 4.1, section 4.2 (the full `effectiveMode` rule, with only the Ask preset accepted by the store), and tests 9.1 and 9.2.
 
 ## Global Constraints
 
 - No `package.json` or `package-lock.json` change.
-- Preset Ask reproduces 0.3.0 exactly (spec 4.3, "Ask reproduces 0.3.0 exactly").
+- No preset on a project ("Per agent") and `approvalSource` absent or `own` reproduce 0.3.0 exactly (spec 4.2, "No silent change on upgrade").
+- The cap is read from `job.projectAtStart` (`engine.ts:326`, set at `:892`), never from live membership (spec 4.2, fail closed).
 - A damaged or unreadable gates file reads as `{ preset: 'ask' }` (spec 4.1).
 - Gates files are written only by the core through admin routes, tmp-then-rename; the `gates` folder is a protected path (spec 4.1).
 - Routes are admin-only by the default-deny gate: a bearer token gets 403, nobody gets 401, none is a client route (pattern: `test/away-routes.test.ts`).
@@ -29,7 +30,9 @@
 2. **A task with no project.** The resolver must fall back to the app preset, not throw. Pinned in Task 5.
 3. **A gates file a person or a shell edited into nonsense** (wrong JSON, unknown preset, unknown gate ids, a huge file). It must read as Ask, keep the bad file aside, and never throw at start. Pinned in Task 3.
 4. **A project deleted while its gates file remains.** `prune` removes it at start, as the away store does. Pinned in Task 3.
-5. **A PATCH asking for `bypass` in this PR.** Refused with 400 and a plain reason, so a UI or script built ahead of part 2 cannot loosen anything. Pinned in Task 4.
+5. **An owner sets a project to Ask (limit on) through the route in this part.** The engine's own tool cards follow the cap, but the browser, Blender and board modules still read the agent's own mode until part 2. Part 1 therefore hides nothing behind a UI: there is no UI to set it, and the route is admin-only. Part 2 closes the gap before any UI ships (see self-review notes).
+6. **A PATCH asking for `bypass` in this PR.** Refused with 400 and a plain reason, so a UI or script built ahead of part 2 cannot loosen anything. Pinned in Task 4.
+7. **A run whose project is archived or deleted mid-run.** The cap set at start still applies. Pinned in Task 5.
 
 ---
 
@@ -56,7 +59,7 @@
 - Test: `test/gates-registry.test.ts`
 
 **Interfaces:**
-- Produces: `type Preset = 'ask' | 'accept-edits' | 'smart' | 'bypass'`; `PRESETS: readonly Preset[]`; `type GateFamily = 'permission' | 'qa' | 'rail'`; `type GateValue = boolean | { on: true; limit: number }`; `interface GateDef`; `GATES: readonly GateDef[]`; `type GateId`; `interface GateSettings { preset?: Preset; overrides?: Partial<Record<GateId, GateValue>>; shellFloorOff?: boolean; version: 1 }`; `function gateValue(id: string, ctx: { project?: GateSettings; app: GateSettings }): GateValue`; `function isPreset(v: unknown): v is Preset`.
+- Produces: `type Preset = 'ask' | 'accept-edits' | 'smart' | 'bypass'`; `PRESETS: readonly Preset[]`; `type GateFamily = 'permission' | 'qa' | 'rail'`; `type GateValue = boolean | { on: true; limit: number }`; `interface GateDef`; `GATES: readonly GateDef[]`; `type GateId`; `interface GateSettings { preset?: Preset; limit?: boolean; overrides?: Partial<Record<GateId, GateValue>>; shellFloorOff?: boolean; version: 1 }`; `function gateValue(id: string, ctx: { project?: GateSettings; app: GateSettings }): GateValue`; `function isPreset(v: unknown): v is Preset`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -74,7 +77,8 @@ test('every gate has a unique id, a family, plain copy and a value for every pre
   for (const g of GATES) {
     assert.ok(!ids.has(g.id), `duplicate ${g.id}`); ids.add(g.id);
     assert.ok(['permission', 'qa', 'rail'].includes(g.family));
-    for (const s of [g.label, g.protects, g.ifOff]) { assert.ok(s.length > 0); assert.ok(!s.includes('—'), `em dash in ${g.id}`); }
+    const copy = g.family === 'rail' && !g.expert ? [g.label, g.protects] : [g.label, g.protects, g.ifOff];
+    for (const s of copy) { assert.ok(s.length > 0, `empty copy in ${g.id}`); assert.ok(!s.includes('\u2014'), `em dash in ${g.id}`); }
     if (g.family === 'rail') assert.equal(g.defaults, 'always', `${g.id} is a rail`);
     else for (const p of PRESETS) assert.ok(typeof g.defaults === 'object' && p in g.defaults, `${g.id} lacks ${p}`);
   }
@@ -185,6 +189,8 @@ export type GateId = (typeof GATES)[number]['id'];
 
 export interface GateSettings {
   preset?: Preset;
+  /** "Limit agents to this": the preset is also a ceiling on every agent in the project (spec 4.2). Absent with a preset means on. */
+  limit?: boolean;
   overrides?: Partial<Record<GateId, GateValue>>;
   shellFloorOff?: boolean;
   version: 1;
@@ -221,112 +227,148 @@ git commit -m "gates: the registry contract (every gate, its family and its pres
 
 ---
 
-### Task 2: `effectiveMode`
+### Task 2: `effectiveMode` (spec 4.2, revision 4)
 
 **Files:**
 - Create: `src/core/permission-mode.ts`
+- Modify: `src/shared/types.ts:118` (add `approvalSource` to `AgentProfile`)
 - Test: `test/permission-mode.test.ts`
 
 **Interfaces:**
-- Consumes: `Preset` (Task 1); `ApprovalMode` from `src/shared/types.ts:20`.
-- Produces: `type RunMode = ApprovalMode | 'smart'`; `type GoalAutonomy = 'track' | 'suggest' | 'check-once' | 'own' | 'full'`; `function effectiveMode(a: { agentMode: ApprovalMode; preset: Preset; goalAutonomy?: GoalAutonomy; ceiling?: ApprovalMode }): RunMode`.
+- Consumes: `Preset` (Task 1); `ApprovalMode` (`src/shared/types.ts:20`).
+- Produces: `type RunMode = 'ask' | 'auto-edits' | 'smart' | 'full'`; `type GoalAutonomy = 'track' | 'suggest' | 'check-once' | 'own' | 'full'`; `interface ModeInputs { agentMode: ApprovalMode; source: 'own' | 'project'; project?: { preset?: Preset; limit: boolean }; appPreset: Preset; goal?: { autonomy: GoalAutonomy; lease?: Preset }; ceiling?: ApprovalMode }`; `function effectiveMode(a: ModeInputs): RunMode`; `function presetMode(p: Preset): RunMode`; `AgentProfile.approvalSource?: 'own' | 'project'` (absent means own).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the field to `AgentProfile`**
+
+In `src/shared/types.ts`, next to `approval: ApprovalMode;` (~line 118):
+
+```ts
+  /** Where this agent's mode comes from (spec 4.2): its own `approval` ('own', and absent) or its project's preset ('project', "Follow project"). */
+  approvalSource?: 'own' | 'project';
+```
+
+New agents keep being created without the field in this part (the Agent editor's "Follow project" arrives in part 2), so nothing changes.
+
+- [ ] **Step 2: Write the failing test**
 
 ```ts
 // test/permission-mode.test.ts
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { effectiveMode } from '../src/core/permission-mode.js';
+import type { ModeInputs } from '../src/core/permission-mode.js';
 import type { ApprovalMode } from '../src/shared/types.js';
 
 const MODES: ApprovalMode[] = ['ask', 'auto-edits', 'full'];
+const own = (m: ApprovalMode, extra: Partial<ModeInputs> = {}): ModeInputs => ({ agentMode: m, source: 'own', appPreset: 'ask', ...extra });
 
-test('Ask returns the agent own mode for every mode', () => {
-  for (const m of MODES) assert.equal(effectiveMode({ agentMode: m, preset: 'ask' }), m);
-});
-
-test('a ceiling wins over everything, Full autonomy included', () => {
+test('no preset on the project (Per agent): the agent own mode, exactly 0.3.0', () => {
   for (const m of MODES) {
-    assert.equal(effectiveMode({ agentMode: m, preset: 'bypass', ceiling: 'ask' }), 'ask');
-    assert.equal(effectiveMode({ agentMode: m, preset: 'ask', goalAutonomy: 'full', ceiling: 'ask' }), 'ask');
+    assert.equal(effectiveMode(own(m)), m);
+    assert.equal(effectiveMode(own(m, { project: { limit: true } })), m, 'limit without a preset caps nothing');
   }
 });
 
-test('a ceiling looser than the agent mode does not loosen it', () => {
-  assert.equal(effectiveMode({ agentMode: 'ask', preset: 'ask', ceiling: 'full' }), 'ask');
+test('a full agent with its own mode in an Ask project: limit on gives ask, limit off gives full', () => {
+  assert.equal(effectiveMode(own('full', { project: { preset: 'ask', limit: true } })), 'ask');
+  assert.equal(effectiveMode(own('full', { project: { preset: 'ask', limit: false } })), 'full');
 });
 
-test('Full autonomy gives full', () => {
-  for (const m of MODES) assert.equal(effectiveMode({ agentMode: m, preset: 'ask', goalAutonomy: 'full' }), 'full');
+test('an agent that follows its project takes the preset; without a project it takes the app preset', () => {
+  const follow = (extra: Partial<ModeInputs>): ModeInputs => ({ agentMode: 'ask', source: 'project', appPreset: 'ask', ...extra });
+  assert.equal(effectiveMode(follow({ project: { preset: 'bypass', limit: true } })), 'full');
+  assert.equal(effectiveMode(follow({ project: { preset: 'smart', limit: true } })), 'smart');
+  assert.equal(effectiveMode(follow({ project: { preset: 'accept-edits', limit: false } })), 'auto-edits');
+  assert.equal(effectiveMode(follow({ appPreset: 'bypass' })), 'full', 'no project: the app preset');
+  assert.equal(effectiveMode(follow({ project: { limit: true } })), 'ask', 'a follow agent in a Per agent project takes the app preset');
 });
 
-test('presets loosen and never tighten', () => {
-  assert.equal(effectiveMode({ agentMode: 'ask', preset: 'accept-edits' }), 'auto-edits');
-  assert.equal(effectiveMode({ agentMode: 'full', preset: 'accept-edits' }), 'full');
-  assert.equal(effectiveMode({ agentMode: 'ask', preset: 'smart' }), 'smart');
-  assert.equal(effectiveMode({ agentMode: 'auto-edits', preset: 'smart' }), 'smart');
-  assert.equal(effectiveMode({ agentMode: 'full', preset: 'smart' }), 'full');
-  for (const m of MODES) assert.equal(effectiveMode({ agentMode: m, preset: 'bypass' }), 'full');
+test('an agent explicitly set to Ask stays Ask in a Bypass project', () => {
+  assert.equal(effectiveMode(own('ask', { project: { preset: 'bypass', limit: true } })), 'ask');
+});
+
+test('a goal: its autonomy replaces the base; the cap still applies unless a lease replaces it', () => {
+  const capped = { project: { preset: 'ask' as const, limit: true } };
+  assert.equal(effectiveMode(own('ask', { ...capped, goal: { autonomy: 'full' } })), 'ask', 'capped by the project');
+  assert.equal(effectiveMode(own('ask', { ...capped, goal: { autonomy: 'full', lease: 'bypass' } })), 'full', 'the lease lifts the cap for this goal');
+  assert.equal(effectiveMode(own('ask', { goal: { autonomy: 'full' } })), 'full', 'no cap: Full autonomy gives full');
+  assert.equal(effectiveMode(own('full', { goal: { autonomy: 'check-once' } })), 'full', 'other autonomy levels keep the agent mode as the base');
+});
+
+test('the origin ceiling beats everything, lease included', () => {
+  for (const m of MODES) {
+    assert.equal(effectiveMode(own(m, { ceiling: 'ask', project: { preset: 'bypass', limit: false }, goal: { autonomy: 'full', lease: 'bypass' } })), 'ask');
+  }
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the test to verify it fails**
 
 Run: `npm run build:ts && node --test dist/test/permission-mode.test.js`
 Expected: the build fails with "Cannot find module '../src/core/permission-mode.js'".
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 4: Write the implementation**
 
 ```ts
 // src/core/permission-mode.ts
 /**
- * The mode a run's tool calls are judged by (spec section 4.2). Pure. Order: a ceiling (a run an outside app or another bot
- * started) always wins; then a goal at Full autonomy gives full; then the preset loosens the agent's own mode and never
- * tightens it, so the Ask preset is exactly 0.3.0.
+ * The mode a run's tool calls are judged by (spec 2026-10-14 goals and gates, section 4.2, revision 4). Pure.
+ * base = the goal's autonomy (Full gives full), else the agent's own mode, else (an agent that follows its project) the
+ * project preset, or the app preset without a project. cap = the project preset when "Limit agents to this" is on; a goal
+ * lease replaces the cap for that goal's runs. effective = the stricter of base, cap and the origin ceiling.
+ * A project with no preset ("Per agent") and an agent with its own mode give exactly 0.3.0.
  */
-import { stricterMode } from './approvals.js';
 import type { Preset } from '../shared/gates-registry.js';
 import type { ApprovalMode } from '../shared/types.js';
 
-export type RunMode = ApprovalMode | 'smart';
+export type RunMode = 'ask' | 'auto-edits' | 'smart' | 'full';
 export type GoalAutonomy = 'track' | 'suggest' | 'check-once' | 'own' | 'full';
+export interface ModeInputs {
+  agentMode: ApprovalMode;
+  source: 'own' | 'project';
+  project?: { preset?: Preset; limit: boolean };
+  appPreset: Preset;
+  goal?: { autonomy: GoalAutonomy; lease?: Preset };
+  ceiling?: ApprovalMode;
+}
 
 const RANK: Record<RunMode, number> = { ask: 0, 'auto-edits': 1, smart: 2, full: 3 };
-const looser = (a: RunMode, b: RunMode): RunMode => (RANK[a] >= RANK[b] ? a : b);
+const stricter = (a: RunMode, b: RunMode): RunMode => (RANK[a] <= RANK[b] ? a : b);
 
-export function effectiveMode(a: { agentMode: ApprovalMode; preset: Preset; goalAutonomy?: GoalAutonomy; ceiling?: ApprovalMode }): RunMode {
-  if (a.ceiling) return stricterMode(a.agentMode, a.ceiling) === 'full' && a.ceiling === 'full' && a.preset === 'ask' && !a.goalAutonomy
-    ? stricterMode(a.agentMode, a.ceiling)
-    : stricterMode(a.ceiling === 'full' ? a.agentMode : stricterMode(a.agentMode, a.ceiling), a.ceiling);
-  if (a.goalAutonomy === 'full') return 'full';
-  switch (a.preset) {
-    case 'ask': return a.agentMode;
-    case 'accept-edits': return looser(a.agentMode, 'auto-edits');
-    case 'smart': return looser(a.agentMode, 'smart');
+export function presetMode(p: Preset): RunMode {
+  switch (p) {
+    case 'ask': return 'ask';
+    case 'accept-edits': return 'auto-edits';
+    case 'smart': return 'smart';
     case 'bypass': return 'full';
   }
 }
+
+export function effectiveMode(a: ModeInputs): RunMode {
+  let base: RunMode;
+  if (a.goal?.autonomy === 'full') base = 'full';
+  else if (a.source === 'own') base = a.agentMode;
+  else base = presetMode(a.project?.preset ?? a.appPreset);
+
+  let out = base;
+  const preset = a.project?.preset;
+  if (a.goal?.lease) out = stricter(out, presetMode(a.goal.lease));
+  else if (preset && a.project?.limit) out = stricter(out, presetMode(preset));
+  if (a.ceiling) out = stricter(out, a.ceiling);
+  return out;
+}
 ```
 
-The ceiling branch above is deliberately verbose; simplify it in the refactor step to the equivalent `return stricterMode(a.agentMode, a.ceiling);`. Reason: today `effective()` is `ceiling ? stricterMode(mode, ceiling) : mode` (`engine.ts:1453`), and a ceiling is only ever `ask` in practice; with a ceiling present, presets and goals must not loosen anything.
-
-- [ ] **Step 4: Refactor and run the test**
-
-Replace the `if (a.ceiling) ...` statement with:
-
-```ts
-  if (a.ceiling) return stricterMode(a.agentMode, a.ceiling);
-```
+- [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm run build:ts && node --test dist/test/permission-mode.test.js`
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/core/permission-mode.ts test/permission-mode.test.ts
-git commit -m "gates: effectiveMode, the one rule for a run's permission mode"
+git add src/core/permission-mode.ts src/shared/types.ts test/permission-mode.test.ts
+git commit -m "gates: effectiveMode, the decided rule for a run's permission mode"
 ```
 
 ---
@@ -414,6 +456,13 @@ test('prune drops files for projects that no longer exist', async () => {
   s.prune(['p_1']);
   await s.flush();
   assert.equal(existsSync(join(d, 'p_gone.json')), false);
+});
+
+test('limit is a project boolean; the app file cannot hold one', () => {
+  const s = new GatesStore(dir());
+  assert.deepEqual(s.patchProject('p_1', { preset: 'ask', limit: true }), { version: 1, preset: 'ask', limit: true });
+  assert.throws(() => s.patchProject('p_1', { limit: 'yes' }), (e: unknown) => e instanceof GatesError && e.status === 400);
+  assert.throws(() => s.patchApp({ limit: true }), (e: unknown) => e instanceof GatesError && e.status === 400);
 });
 
 test('a project id that is not a plain id is refused', () => {
@@ -515,8 +564,13 @@ export class GatesStore {
 
   private merge(cur: GateSettings, body: Record<string, unknown>, isApp: boolean): GateSettings {
     const keys = Object.keys(body);
-    if (keys.some((k) => k !== 'preset' && k !== 'overrides' && !(isApp && k === 'shellFloorOff'))) throw new GatesError(400, 'Only preset and overrides can be changed here.');
+    if (keys.some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && !(isApp && k === 'shellFloorOff'))) throw new GatesError(400, 'Only preset, limit and overrides can be changed here.');
     const out: GateSettings = { ...cur, version: 1 };
+    if ('limit' in body) {
+      if (isApp) throw new GatesError(400, 'The limit is set per project.');
+      if (typeof body.limit !== 'boolean') throw new GatesError(400, 'limit must be true or false.');
+      out.limit = body.limit;
+    }
     if ('preset' in body) {
       if (body.preset === null) delete out.preset;
       else if (!isPreset(body.preset)) throw new GatesError(400, 'That is not a preset. Use ask, accept-edits, smart or bypass.');
@@ -538,6 +592,7 @@ export class GatesStore {
       const raw: unknown = JSON.parse(readFileSync(file, 'utf8'));
       if (!isObj(raw) || raw.version !== 1) throw new Error('shape');
       const out: GateSettings = { version: 1 };
+      if (raw.limit !== undefined) { if (typeof raw.limit !== 'boolean') throw new Error('limit'); out.limit = raw.limit; }
       if (raw.preset !== undefined) {
         if (!isPreset(raw.preset) || !this.allowed.includes(raw.preset)) throw new Error('preset');
         out.preset = raw.preset;
@@ -580,7 +635,7 @@ export class GatesStore {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm run build:ts && node --test dist/test/gates-store.test.js`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -662,12 +717,16 @@ test('the gates folder is a protected path', async () => {
   try { assert.deepEqual(r.mod.protectedPaths?.(), [r.core.store.folder]); } finally { await r.close(); }
 });
 
-test('the resolver returns the agent own mode under Ask, and the ceiling wins', async () => {
+test('the resolver: Per agent gives the agent own mode; Ask with its limit caps a full agent; the ceiling wins', async () => {
   const r = await boot();
   try {
-    for (const m of ['ask', 'auto-edits', 'full'] as const) assert.equal(r.core.resolver.mode(m, r.pid), m);
-    assert.equal(r.core.resolver.mode('full', undefined), 'full');
-    assert.equal(r.core.resolver.mode('full', r.pid, 'ask'), 'ask');
+    for (const m of ['ask', 'auto-edits', 'full'] as const) assert.equal(r.core.resolver.mode({ agentMode: m, startProjectId: r.pid }), m);
+    assert.equal(r.core.resolver.mode({ agentMode: 'full' }), 'full');
+    assert.equal(r.core.resolver.mode({ agentMode: 'full', startProjectId: r.pid, ceiling: 'ask' }), 'ask');
+    assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'ask' })).status, 200);
+    assert.equal(r.core.resolver.mode({ agentMode: 'full', startProjectId: r.pid }), 'ask', 'limit defaults to on with a preset');
+    assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { limit: false })).status, 200);
+    assert.equal(r.core.resolver.mode({ agentMode: 'full', startProjectId: r.pid }), 'full');
   } finally { await r.close(); }
 });
 ```
@@ -698,8 +757,11 @@ import { GatesError, GatesStore } from './store.js';
 export { GatesStore, GatesError } from './store.js';
 
 export interface ModeResolver {
-  /** The mode a tool call is judged by right now. Called on every call, so a change takes effect on the next one. */
-  mode(agentMode: ApprovalMode, projectId: string | undefined, ceiling?: ApprovalMode): ApprovalMode;
+  /**
+   * The mode a tool call is judged by right now (spec 4.2). Called on every call, so a change takes effect on the next one.
+   * `startProjectId` is the project the run started in (`job.projectAtStart`), never the live membership: fail closed.
+   */
+  mode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; startProjectId?: string; ceiling?: ApprovalMode }): ApprovalMode;
 }
 export interface GatesCore { store: GatesStore; resolver: ModeResolver }
 
@@ -710,9 +772,13 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore })
   const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PART_ONE_PRESETS });
   try { if (o.projects) store.prune(o.projects.list().map((p) => p.id)); } catch { /* the settings stay as they are */ }
   const resolver: ModeResolver = {
-    mode(agentMode, projectId, ceiling) {
-      const preset = (projectId ? store.project(projectId).preset : undefined) ?? store.app().preset ?? 'ask';
-      const m = effectiveMode({ agentMode, preset, ...(ceiling ? { ceiling } : {}) });
+    mode({ agentMode, source, startProjectId, ceiling }) {
+      const ps = startProjectId ? store.project(startProjectId) : undefined;
+      const m = effectiveMode({
+        agentMode, source: source ?? 'own', appPreset: store.app().preset ?? 'ask',
+        ...(ps ? { project: { ...(ps.preset ? { preset: ps.preset } : {}), limit: ps.limit ?? true } } : {}),
+        ...(ceiling ? { ceiling } : {}),
+      });
       // 'smart' cannot occur while only Ask is allowed; part 2 removes this guard together with the callers' support for it
       return m === 'smart' ? agentMode : m;
     },
@@ -787,9 +853,9 @@ import assert from 'node:assert/strict';
 import { setup } from './away-rig.js';
 import type { ModeResolver } from '../src/core/gates-settings/index.js';
 
-test('the engine asks the resolver for the mode on every tool call, with the task project', async () => {
+test('the engine asks the resolver for the mode on every tool call, with the project the run started in', async () => {
   const calls: Array<[string, string | undefined, string | undefined]> = [];
-  const modes: ModeResolver = { mode: (m, pid, ceiling) => { calls.push([m, pid, ceiling]); return m; } };
+  const modes: ModeResolver = { mode: (a) => { calls.push([a.agentMode, a.startProjectId, a.ceiling]); return a.agentMode; } };
   const r = setup({ approval: 'ask', modes });
   try {
     await r.runOneToolCall('a1', 'Bash', { command: 'echo hi' }, { projectId: r.projectId });
@@ -800,7 +866,7 @@ test('the engine asks the resolver for the mode on every tool call, with the tas
 
 test('resolver re-reads the agent mode on every call (a promotion mid-run takes effect)', async () => {
   const seen: string[] = [];
-  const modes: ModeResolver = { mode: (m) => { seen.push(m); return m; } };
+  const modes: ModeResolver = { mode: (a) => { seen.push(a.agentMode); return a.agentMode; } };
   const r = setup({ approval: 'ask', modes });
   try {
     await r.runToolCalls('a1', [['Bash', { command: 'echo 1' }], ['Bash', { command: 'echo 2' }]], { between: () => r.store.agents.get('a1')!.approval = 'full' });
@@ -816,9 +882,18 @@ test('without a resolver the engine behaves exactly as before', async () => {
   } finally { await r.close(); }
 });
 
-test('a task with no project uses the resolver with projectId undefined', async () => {
+test('a project archived mid-run keeps its cap (the start project is passed, not the live one)', async () => {
+  const pids: Array<string | undefined> = [];
+  const r = setup({ approval: 'full', modes: { mode: (a) => { pids.push(a.startProjectId); return a.startProjectId ? 'ask' : a.agentMode; } } });
+  try {
+    await r.runToolCalls('a1', [['Bash', { command: 'echo 1' }], ['Bash', { command: 'echo 2' }]], { projectId: r.projectId, between: () => r.archiveProject(r.projectId) });
+    assert.deepEqual(pids.slice(0, 2), [r.projectId, r.projectId]);
+  } finally { await r.close(); }
+});
+
+test('a task with no project uses the resolver with no start project', async () => {
   const calls: Array<string | undefined> = [];
-  const r = setup({ approval: 'ask', modes: { mode: (m, pid) => { calls.push(pid); return m; } } });
+  const r = setup({ approval: 'ask', modes: { mode: (a) => { calls.push(a.startProjectId); return a.agentMode; } } });
   try {
     await r.runOneToolCall('a1', 'Bash', { command: 'echo hi' });
     assert.equal(calls[0], undefined);
@@ -826,7 +901,7 @@ test('a task with no project uses the resolver with projectId undefined', async 
 });
 ```
 
-The helpers `runOneToolCall`, `runToolCalls`, `projectId` and `close` may not exist on the rig. Add them to `test/away-rig.ts` in this step if missing: `runOneToolCall(agentId, tool, input, opts?)` starts a task whose scripted model emits one `tool_use` for `tool` with `input`, resolves after the decision, and returns `{ carded: boolean }` by watching `approval.requested` events; `runToolCalls` does the same for a list, calling `between()` after the first decision. Model them on the rig's existing `script` option. Keep the additions in the rig file, not in production code.
+The helpers `runOneToolCall`, `runToolCalls`, `projectId`, `archiveProject` and `close` may not exist on the rig. `archiveProject(id)` sets the project's status to archived in the rig's `ProjectStore`. Add them to `test/away-rig.ts` in this step if missing: `runOneToolCall(agentId, tool, input, opts?)` starts a task whose scripted model emits one `tool_use` for `tool` with `input`, resolves after the decision, and returns `{ carded: boolean }` by watching `approval.requested` events; `runToolCalls` does the same for a list, calling `between()` after the first decision. Model them on the rig's existing `script` option. Keep the additions in the rig file, not in production code.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -854,10 +929,12 @@ In `src/core/engine.ts`:
 // new private method, next to toolDecider:
   /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
   private modeNow(job: Job, agent: AgentProfile): ApprovalMode {
-    const own = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+    const live = this.store.getAgent(agent.id);
+    const own = live?.approval ?? agent.approval;
     const ceiling = job.origin?.approvalCeiling;
     if (!this.modes) return ceiling ? stricterMode(own, ceiling) : own;
-    return this.modes.mode(own, this.projectOf(job.taskId, agent.id)?.id, ceiling);
+    // the cap comes from the project the run STARTED in (job.projectAtStart, set when the run began): a project archived or left mid-run keeps its cap
+    return this.modes.mode({ agentMode: own, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.projectAtStart ? { startProjectId: job.projectAtStart } : {}), ...(ceiling ? { ceiling } : {}) });
   }
 ```
 
@@ -873,7 +950,7 @@ and at ~1426:
     const mode = this.modeNow(job, agent);
 ```
 
-Leave the `agent.approval === 'full'` check at ~1596 (bypass choice at run start) unchanged in this part: under Ask the resolver returns the agent's own mode, so the run-start choice is unchanged. Part 2 changes it to `this.modeNow(job, agent) === 'full'`.
+Change the run-start bypass choice at ~1596 from `agent.approval === 'full' && !(ceiling && ceiling !== 'full')` to `this.modeNow(job, agent) === 'full'` (spec 4.2), so a full agent held to Ask by its project starts on the normal path with cards. With no gates settings, `modeNow` equals the old expression (the ceiling is applied inside it), so 0.3.0 behavior holds; the parity test in Task 6 covers the per-call decisions and the existing `test/approvals.test.ts` and `test/away-engine.test.ts` cover the run start.
 
 In `src/bin/legion-core.ts`, before `const engine = new Engine(...)`:
 
@@ -979,11 +1056,11 @@ test('the fixture is the full grid', () => {
   assert.equal(fx.rows.length, 552);
 });
 
-test('preset Ask reproduces every 0.3.0 decision, for a project run and for a run with no project', () => {
+test('no gate settings (Per agent projects, agents with their own mode) reproduce every 0.3.0 decision, for a project run and for a run with no project', () => {
   const core = createGatesCore({ dataDir: join(cleanupTemp('legion-parity-'), 'data') });
   for (const pid of ['p_any', undefined]) {
     for (const r of fx.rows) {
-      const eff = core.resolver.mode(r.mode, pid, r.ceiling ?? undefined);
+      const eff = core.resolver.mode({ agentMode: r.mode, ...(pid ? { startProjectId: pid } : {}), ...(r.ceiling ? { ceiling: r.ceiling } : {}) });
       assert.equal(needsApproval(eff, r.tool, { capped: r.capped }), r.needsApproval, `needsApproval ${JSON.stringify(r)} project=${pid}`);
       assert.equal(decideGuard(eff).needsCard, r.guardCards, `guard ${JSON.stringify(r)} project=${pid}`);
     }
@@ -1018,7 +1095,7 @@ Expected: no type errors; every listed file passes.
 
 - [ ] **Step 2: Em dash check on new files**
 
-Run: `rg -n "—" src/shared/gates-registry.ts src/core/permission-mode.ts src/core/gates-settings/ test/gates-*.test.ts test/permission-mode.test.ts test/gate-parity.test.ts`
+Run: `rg -n "\u2014" src/shared/gates-registry.ts src/core/permission-mode.ts src/core/gates-settings/ test/gates-*.test.ts test/permission-mode.test.ts test/gate-parity.test.ts`
 Expected: no matches.
 
 - [ ] **Step 3: Open the PR**
@@ -1029,6 +1106,6 @@ Branch `feat/gates-registry-pr1` from `main`. PR title "gates: registry, setting
 
 ## Self-review notes
 
-- Spec coverage for PR 1: 4.1 contract (Task 1), gates files and routes (Tasks 3, 4), `effectiveMode` (Task 2), rules 1, 4 and 5 of 4.2 (Tasks 2, 5), Ask parity (Task 6), damaged file as Ask and memory-first (Task 3), protected path (Task 4). Rules 2 and 3 of 4.2 are implemented in `effectiveMode` and tested (Task 2) but not reachable until part 2 allows other presets.
-- Not in this plan (part 2): the `smart` run mode in `toolDecider` and `needsApproval`, the consequence rules for `npm test` and friends, the module `modeOf` providers (browser, Blender, board) switching to the resolver, the run-start bypass choice using the resolver, overrides, the shell floor switch, the Gates page, the first-run preset screen, the activity log, the GitHub card switch.
-- Types used across tasks: `Preset`, `GateSettings`, `GateId` (Task 1); `RunMode`, `GoalAutonomy`, `effectiveMode` (Task 2); `GatesStore`, `GatesError` (Task 3); `ModeResolver`, `GatesCore`, `createGatesCore`, `createGatesModule` (Task 4); `EngineDeps.modes`, `Engine.modeNow` (Task 5). Names match across tasks.
+- Spec coverage for PR 1: 4.1 contract (Task 1); gates files and routes with `limit` (Tasks 3, 4); the full 4.2 rule in `effectiveMode` (Task 2); `approvalSource` on agents (Task 2); the cap from the start project and the run-start bypass choice (Task 5); 0.3.0 parity (Task 6); damaged file as Ask and memory-first (Task 3); protected path (Task 4). Follow agents, goal leases and the looser presets are implemented in `effectiveMode` and tested, but not reachable until part 2 (UI for Follow project, presets beyond Ask) and part 3 (goals).
+- Not in this plan (part 2): the `smart` run mode in `toolDecider` and `needsApproval`; the consequence rules for `npm test` and friends; `ModeOf` becoming `(agentId, taskId)` so the browser, Blender and board providers use the resolver; the Agent editor's Follow project and per-project lines; the mode chip; the out-of-band banner; overrides; the shell floor switch; the Gates page; the first-run preset screen; the activity log; the GitHub card switch. Part 2 must ship the module providers in the same PR that allows any preset beyond Ask, or a project limit would cap the engine's own tools but not the browser, Blender and board cards.
+- Types used across tasks: `Preset`, `GateSettings` with `limit`, `GateId` (Task 1); `RunMode`, `GoalAutonomy`, `ModeInputs`, `effectiveMode`, `presetMode`, `AgentProfile.approvalSource` (Task 2); `GatesStore`, `GatesError` (Task 3); `ModeResolver`, `GatesCore`, `createGatesCore`, `createGatesModule` (Task 4); `EngineDeps.modes`, `Engine.modeNow` (Task 5). Names match across tasks.
