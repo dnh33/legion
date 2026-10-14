@@ -111,6 +111,7 @@ export function App() {
       <TitleBar />
       <AgentRail />
       <main className="center">
+        <HoldChip />
         {settingsOpen ? <SettingsPanel /> : (
           <>
             {view === 'chat' && <><Thread /><Composer /></>}
@@ -126,7 +127,6 @@ export function App() {
       {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} {...(editor.focus ? { focus: editor.focus } : {})} />}
       <TaskMenu />
       <Toasts />
-      <HoldChip />
       <LiveRegion />
       <ChainOverlay />
       <CiPanel />

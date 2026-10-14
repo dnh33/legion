@@ -165,7 +165,7 @@ export function RunsMenuView({ anchor, f, agentId, onClose, onOpen }: { anchor: 
   );
 }
 
-export function RunsButton({ f, agentId, runs }: { f: PageFacts; agentId: string; runs: number }) {
+export function RunsButton({ f, agentId, runs, onOpen }: { f: PageFacts; agentId: string; runs: number; onOpen?: (taskId: string, projectId: string | undefined) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const name = f.agents.find((a) => a.id === agentId)?.name ?? agentId;
@@ -174,7 +174,7 @@ export function RunsButton({ f, agentId, runs }: { f: PageFacts; agentId: string
       <button ref={ref} type="button" className="pg-runsbtn" data-fk={`rb:${agentId}`} aria-haspopup="menu" aria-expanded={open} aria-label={`${name}: ${runs} runs. Show runs`} onClick={() => setOpen((v) => !v)}>
         {runs} runs <PIcon name="chev" size={10} />
       </button>
-      {open && <RunsMenuView anchor={ref} f={f} agentId={agentId} onClose={() => setOpen(false)} />}
+      {open && <RunsMenuView anchor={ref} f={f} agentId={agentId} onClose={() => setOpen(false)} {...(onOpen ? { onOpen } : {})} />}
     </>
   );
 }

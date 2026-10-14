@@ -12,6 +12,7 @@ import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
 import { QuestionCard } from './QuestionCard';
 import { Icon } from './icons';
+import { ThreadRuns } from '../projects/page/ThreadRuns';
 import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
@@ -227,6 +228,7 @@ export function Thread() {
           </div>
         </div>
         <div className="th-right">
+          {agent && <ThreadRuns agentId={agent.id} />}
           {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
           {agent && <span className={`chip-pill ap-${agent.approval}`} title="Approval mode">{agent.approval === 'full' ? 'Full access' : agent.approval === 'ask' ? 'Asks first' : 'Auto-edits'}</span>}
           {task?.provider && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}

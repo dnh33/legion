@@ -16,6 +16,8 @@ export interface Answer {
   key: string; row: AskRow; b: RowButton; projectId: string;
   kind: 'holding' | 'sent' | 'final' | 'refused';
   text: string; view?: HoldView; height: number; doneAt?: number; hold?: Hold;
+  /** After "Allow all" on merged reads: the row stays until the owner answers the Confirm question (spec 3.2). */
+  offer?: 'pending';
 }
 let answers = new Map<string, Answer>();
 const holds = new Map<string, Hold>();
@@ -86,7 +88,7 @@ export function startAnswer(o: StartArgs): void {
       if (!cur || cur.hold !== hold) return;
       if (v.phase === 'counting') { settle(key, { view: v }); return; }
       holds.delete(key);
-      if (v.phase === 'sent') { settle(key, { kind: 'sent', view: v, text: doneText(row, b), doneAt: Date.now() }); announce(doneText(row, b)); }
+      if (v.phase === 'sent') { settle(key, { kind: 'sent', view: v, text: doneText(row, b), doneAt: Date.now(), ...(row.kind === 'reads' && b.act === 'allow-all' ? { offer: 'pending' as const } : {}) }); announce(doneText(row, b)); }
       else if (v.phase === 'refused') { const t = v.reason ?? 'The answer was not sent.'; settle(key, { kind: 'refused', view: v, text: t, doneAt: Date.now() }); announce(t); }
       else if (v.phase === 'undone') { answers.delete(key); emit(); announce('Undone. Nothing was sent.'); }
     },
@@ -105,4 +107,6 @@ export function sendNowAnswer(key: string): void { holds.get(key)?.sendNow(); }
 export function holdPointer(key: string, inside: boolean): void { const h = holds.get(key); if (!h) return; if (inside) h.pointerEnter(); else h.pointerLeave(); }
 export function holdFocus(key: string, visible: boolean): void { holds.get(key)?.focus(visible); }
 /** The row has been shown long enough; nothing is under the pointer: it may leave. */
-export function dismissAnswer(key: string): void { const a = answers.get(key); if (a && a.kind !== 'holding') { answers.delete(key); emit(); } }
+export function dismissAnswer(key: string): void { const a = answers.get(key); if (a && a.kind !== 'holding' && !a.offer) { answers.delete(key); emit(); } }
+/** The owner answered the Confirm question (either way): the row may go. */
+export function resolveOffer(key: string): void { const a = answers.get(key); if (!a) return; const { offer: _offer, ...rest } = a; answers.set(key, { ...rest, doneAt: Date.now() }); emit(); }

@@ -263,7 +263,9 @@
 .avatar .pg-rc { right: -6px; bottom: -6px; }
 
 /* a hold whose row is not on screen: the app-level chip */
-.pg-holdchip { position: fixed; z-index: 90; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 32px)); padding: 8px 10px 8px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-radius: var(--r-lg); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); font-size: 13px; }
+.pg-holdchip { flex: none; align-self: center; z-index: 5; display: flex; align-items: center; gap: 10px; box-sizing: border-box; max-width: min(560px, calc(100% - 32px)); margin: 8px 16px 0; padding: 6px 10px 6px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-radius: var(--r-lg); font-size: 13px; }
+/* the chip is a row at the top of the centre column: whatever sits below it gives up the height instead of being covered */
+.center > :not(.pg-holdchip) { min-height: 0; }
 .pg-holdchip .msg { min-width: 0; display: flex; flex-direction: column; }
 .pg-holdchip .msg b { font-weight: 600; }
 .pg-holdchip .msg .who { color: var(--muted); font-size: 12px; }
@@ -286,3 +288,9 @@
 
 /* the page's live region lives in the app frame now, so its hidden style is global */
 .pg-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* the reads question under an answered "Allow all" row */
+.pg-offer { margin-top: 8px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); font-size: 12.5px; color: var(--text-2); }
+.pg-offer b { color: var(--text); font-weight: 600; }
+.pg-offer p { margin: 3px 0 8px; }
+.pg-offer .row { display: flex; gap: 8px; }
