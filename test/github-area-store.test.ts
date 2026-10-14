@@ -19,6 +19,7 @@ const win = {
   setInterval: (f: () => void, ms: number) => unref(setInterval(f, ms)),
   clearInterval: (t: ReturnType<typeof setInterval>) => clearInterval(t),
   setTimeout: (f: () => void, ms: number) => unref(setTimeout(f, ms)),
+  clearTimeout: (t: ReturnType<typeof setTimeout>) => clearTimeout(t),
   addEventListener: (type: string, fn: (e: unknown) => void) => { (listeners[type] ??= []).push(fn); },
   dispatchEvent: (e: { type: string }) => { for (const fn of listeners[e.type] ?? []) fn(e); return true; },
 };
@@ -48,7 +49,7 @@ const ok = (body: unknown): Reply => ({ status: 200, body });
 type Gate = ReturnType<typeof defer<Reply>>;
 
 interface Store {
-  getGithub(): { view: View | null; why: string | null; signingIn: boolean; flow: unknown; writeFlow: unknown; busy: string | null; ticking: string[]; agentsSending: boolean; writeRevokeUrl: string | null };
+  getGithub(): { picker: { query: string; loading: boolean; data: Record<string, { rows: { id: number; installed: boolean }[] } | undefined>; loadError: string | null; sending: Record<string, number | undefined>; errors: Record<string, string> } | null; view: View | null; why: string | null; signingIn: boolean; flow: unknown; writeFlow: unknown; busy: string | null; ticking: string[]; agentsSending: boolean; writeRevokeUrl: string | null };
   loadArea(force?: boolean): Promise<void>;
   initGithub(): void;
   openGithubArea(repo?: string): void;
@@ -65,6 +66,11 @@ interface Store {
   openAtGithub(url: string): boolean;
   getCi(): { panelOpen: boolean };
   getApp(): { toasts: { text: string; kind: string }[] };
+  openPicker(): void;
+  closePicker(): void;
+  setPickerQuery(q: string): void;
+  loadPicker(): Promise<void>;
+  setPickerRepo(app: 'read' | 'write', id: number, on: boolean): Promise<void>;
 }
 const dir = tempDir('legion-github-store-');
 const entry = join(dir, 'entry.ts');
@@ -75,6 +81,7 @@ const out = await build({ entryPoints: [entry], bundle: true, format: 'esm', pla
 writeFileSync(join(dir, 'store.mjs'), out.outputFiles[0]!.text);
 const S = await import(pathToFileURL(join(dir, 'store.mjs')).href) as Store;
 const gh = S.getGithub;
+const pk = (): NonNullable<ReturnType<Store['getGithub']>['picker']> => gh().picker!;
 const toasts = (): string[] => S.getApp().toasts.map((t) => t.text);
 const ticked = (): Record<string, boolean> => Object.fromEntries(gh().view!.repos.map((r) => [r.fullName, r.ticked]));
 
@@ -274,4 +281,118 @@ test('openGithubArea: the agent editor and project page open the area on that re
   const g = gh() as unknown as { open: boolean; expanded: string | null };
   assert.equal(g.open, true);
   assert.equal(g.expanded, 'dnh33/a');
+});
+
+/* ---------- choose repos ---------- */
+const rowsFor = (installed: number[]) => [1, 2, 3].map((id) => ({ id, fullName: `dnh33/r${id}`, private: true, admin: true, installed: installed.includes(id) }));
+const pickerBody = (installed: number[], over: Record<string, unknown> = {}) => ({ phase: 'ready', installationId: 11, selection: 'selected', account: 'dnh33', rows: rowsFor(installed), seesUninstalled: true, installUrl: 'https://github.com/apps/legion-read/installations/new', truncated: false, ...over });
+const bothSignedIn = (): View => view({ signedIn: { read: true, write: true } });
+const pickerCore = (state: Record<string, number[]> = { read: [1], write: [] }) => (m: string, p: string): Reply => {
+  const list = /^\/api\/github\/apps\/(read|write)\/repos/.exec(p);
+  if (m === 'GET' && list) return ok(pickerBody(state[list[1]!]!));
+  if (p.startsWith('/api/github/area')) return ok(bothSignedIn());
+  return ok({ ok: true });
+};
+const apiCalls = (): string[] => calls.filter((c) => c.path.startsWith('/api/github/apps/')).map((c) => `${c.method} ${c.path}`);
+
+test('picker: opening it reads each signed-in App with the search; the read App alone when writes are off', async () => {
+  await fresh(bothSignedIn());
+  core = pickerCore();
+  S.openPicker();
+  await sleep(10);
+  assert.deepEqual(apiCalls(), ['GET /api/github/apps/read/repos', 'GET /api/github/apps/write/repos']);
+  assert.equal(pk().loading, false);
+  assert.deepEqual(pk().data.read!.rows.map((r) => r.installed), [true, false, false]);
+  S.closePicker();
+  await fresh();
+  core = pickerCore();
+  S.openPicker();
+  await sleep(10);
+  assert.deepEqual(apiCalls(), ['GET /api/github/apps/read/repos']);
+  S.closePicker();
+});
+
+test('picker: a tick is sent at once (PUT), shows busy for that box, blocks a second change on that App only, then refreshes the area', async () => {
+  await fresh(bothSignedIn());
+  core = pickerCore();
+  S.openPicker();
+  await sleep(10);
+  calls.length = 0;
+  const hold = defer<Reply>();
+  core = (m, p) => (m === 'PUT' && p === '/api/github/apps/read/repos/2' ? hold.p : pickerCore()(m, p));
+  const one = S.setPickerRepo('read', 2, true);
+  assert.deepEqual(apiCalls(), ['PUT /api/github/apps/read/repos/2']);
+  assert.equal(pk().sending.read, 2);
+  assert.equal(pk().data.read!.rows.find((r) => r.id === 2)!.installed, true, 'shown ticked while it is sent');
+  void S.setPickerRepo('read', 3, true);
+  assert.equal(apiCalls().length, 1, 'one change at a time on an App');
+  const other = S.setPickerRepo('write', 3, true);
+  assert.equal(apiCalls().length, 2, 'the other App is free');
+  hold.ok(ok({ ok: true }));
+  await Promise.all([one, other]);
+  assert.deepEqual(pk().sending, {});
+  assert.ok(calls.some((c) => c.path.startsWith('/api/github/area')), 'the area list is read again');
+  await S.setPickerRepo('read', 2, false);
+  assert.ok(apiCalls().includes('DELETE /api/github/apps/read/repos/2'));
+  S.closePicker();
+});
+
+test('picker: a failed tick rolls back that box only and puts the plain reason under that row', async () => {
+  await fresh(bothSignedIn());
+  core = pickerCore();
+  S.openPicker();
+  await sleep(10);
+  core = (m, p) => (m === 'PUT' ? { status: 403, body: { error: 'You need to be an admin of that repo to add it.' } } : pickerCore()(m, p));
+  await S.setPickerRepo('read', 2, true);
+  assert.deepEqual(pk().data.read!.rows.map((r) => r.installed), [true, false, false]);
+  assert.equal(pk().errors['read:2'], 'You need to be an admin of that repo to add it.');
+  assert.deepEqual(pk().sending, {});
+  // the next try clears the reason
+  core = pickerCore();
+  await S.setPickerRepo('read', 2, true);
+  assert.equal(pk().errors['read:2'], undefined);
+  assert.equal(pk().data.read!.rows[1]!.installed, true);
+  S.closePicker();
+});
+
+test('picker: a list read that arrives while a tick is being sent does not undo it, and a late reply after Done is dropped', async () => {
+  await fresh(bothSignedIn());
+  core = pickerCore();
+  S.openPicker();
+  await sleep(10);
+  const hold = defer<Reply>();
+  const slowList = defer<Reply>();
+  core = (m, p) => (m === 'PUT' ? hold.p : m === 'GET' && p.startsWith('/api/github/apps/read/') ? slowList.p : pickerCore()(m, p));
+  const tick = S.setPickerRepo('read', 2, true);
+  const reload = S.loadPicker();
+  slowList.ok(ok(pickerBody([1])));
+  await sleep(5);
+  assert.equal(pk().data.read!.rows.find((r) => r.id === 2)!.installed, true, 'the pending tick stays on top of an older list');
+  hold.ok(ok({ ok: true }));
+  await Promise.all([tick, reload]);
+  // a reply that lands after Done changes nothing
+  const late = defer<Reply>();
+  core = () => late.p;
+  const pending = S.loadPicker();
+  S.closePicker();
+  late.ok(ok(pickerBody([1])));
+  await pending;
+  assert.equal(gh().picker, null);
+});
+
+test('picker: a reply the core could not have sent says so and shows no rows; the search asks the core after a pause', async () => {
+  await fresh();
+  core = () => ok({ phase: 'ready' });
+  S.openPicker();
+  await sleep(10);
+  assert.equal(pk().loadError, 'Legion sent a reply it could not read.');
+  core = pickerCore();
+  calls.length = 0;
+  S.setPickerQuery('r');
+  S.setPickerQuery('r2');
+  assert.equal(apiCalls().length, 0, 'not while typing');
+  await sleep(320);
+  assert.deepEqual(apiCalls(), ['GET /api/github/apps/read/repos?q=r2']);
+  assert.equal(pk().loadError, null);
+  S.closePicker();
 });
