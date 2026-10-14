@@ -40,6 +40,11 @@ export interface GithubUiState {
   expanded: string | null;
   detail: Record<string, GithubRepoDetail>;
   busy: string | null;
+  /** Repos whose turn on or off is being sent, and whether the agents switch is. Their switches wait. */
+  ticking: string[];
+  agentsSending: boolean;
+  /** Where to remove the write app at GitHub, after the owner turned writes off. */
+  writeRevokeUrl: string | null;
   /** Show the title-bar icon (Settings, GitHub). */
   iconShown: boolean;
   /** Screen-reader live text. */
@@ -49,7 +54,7 @@ export interface GithubUiState {
 const ICON_KEY = 'legion.github.icon';
 const readIcon = (): boolean => { try { return localStorage.getItem(ICON_KEY) !== 'off'; } catch { return true; } };
 
-let st: GithubUiState = { open: false, view: null, loading: false, signingIn: false, flow: null, flowNote: null, writeFlow: null, why: null, orgs: [], orgsError: null, query: '', shown: PAGE, expanded: null, detail: {}, busy: null, iconShown: readIcon(), say: '' };
+let st: GithubUiState = { open: false, view: null, loading: false, signingIn: false, flow: null, flowNote: null, writeFlow: null, why: null, orgs: [], orgsError: null, query: '', shown: PAGE, expanded: null, detail: {}, busy: null, ticking: [], agentsSending: false, writeRevokeUrl: null, iconShown: readIcon(), say: '' };
 const listeners = new Set<() => void>();
 const set = (p: Partial<GithubUiState>) => { st = { ...st, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -76,15 +81,36 @@ export function toggleGithub(): void { if (st.open) closeGithub(); else openGith
 /* ---------- reading ---------- */
 const toData = (v: GithubAreaView): GithubAreaData => ({ ...v, activity: activityFrom(v.activity, areaAgents()) });
 
+/** Every request for the view takes a number; a reply older than one already applied is dropped. */
+let reqSeq = 0;
+let appliedSeq = 0;
+/** What the owner just chose and the core has not confirmed yet: laid over any view that arrives meanwhile. */
+const pendingTicks = new Map<string, boolean>();
+let pendingAgents: boolean | null = null;
+
+function applyView(v: GithubAreaData, seq: number): boolean {
+  if (seq < appliedSeq) return false;
+  appliedSeq = seq;
+  const repos = pendingTicks.size ? v.repos.map((r) => (pendingTicks.has(normRepo(r.fullName)) ? { ...r, ticked: pendingTicks.get(normRepo(r.fullName))! } : r)) : v.repos;
+  set({ view: { ...v, repos, ...(pendingAgents !== null ? { agentsEnabled: pendingAgents } : {}) }, loading: false });
+  return true;
+}
+
 export async function loadArea(force = false): Promise<void> {
+  const seq = ++reqSeq;
   if (!st.view) set({ loading: true });
   try {
-    set({ view: toData(await api.githubArea(force)), loading: false, why: null });
+    const v = toData(await api.githubArea(force));
+    if (applyView(v, seq)) set({ why: null });
   } catch (e) {
+    if (seq < appliedSeq) return;
     const why = whyText(e);
-    // an older core without the routes: the build cannot sign in. Any other failure keeps the last list and says why; with no list it is an error with Try again.
+    // an older core without the routes: the build cannot sign in
     if (e instanceof ApiError && e.status === 404) set({ view: { ...(st.view ?? emptyView()), registered: { read: false, write: false } }, loading: false, why });
-    else set({ view: st.view ? { ...st.view, problem: { kind: 'network' } } : null, loading: false, why });
+    // the core did not answer: the list stays, marked as the last one Legion had
+    else if (e instanceof ApiError && (e.status === 0 || e.status === 502 || e.status === 503 || e.status === 504)) set({ view: st.view ? { ...st.view, problem: { kind: 'network' } } : null, loading: false, why });
+    // any other failure keeps what the view already says (a sign-in that ended stays ended) and tells the plain reason
+    else set({ loading: false, why });
   }
 }
 
@@ -118,25 +144,37 @@ export const setQuery = (query: string): void => set({ query, shown: PAGE });
 export const showMore = (): void => set({ shown: st.shown + PAGE });
 
 /* ---------- connection ---------- */
-async function pollFlow(): Promise<void> {
+/** Only the latest sign-in run may touch signingIn and flow: a Cancel then Connect must not be undone by the first run ending. */
+let signInRun = 0;
+let signInTimer: number | undefined;
+const stopSignInPoll = (): void => { if (signInTimer !== undefined) { window.clearInterval(signInTimer); signInTimer = undefined; } };
+
+async function pollFlow(run: number): Promise<void> {
   try {
     const s = await request<GithubStatusView>('GET', '/api/connectors/github');
-    set({ flow: s.flow.phase === 'pending' ? { userCode: s.flow.userCode, verificationUri: s.flow.verificationUri } : null, flowNote: null });
-  } catch { set({ flowNote: 'Legion cannot check the sign-in right now. It keeps trying.' }); }
+    if (run === signInRun) set({ flow: s.flow.phase === 'pending' ? { userCode: s.flow.userCode, verificationUri: s.flow.verificationUri } : null, flowNote: null });
+  } catch { if (run === signInRun) set({ flowNote: 'Legion cannot check the sign-in right now. It keeps trying.' }); }
 }
 
 export async function connectRead(): Promise<void> {
   if (st.signingIn) return;
+  const run = ++signInRun;
   set({ signingIn: true, flowNote: null });
-  const timer = window.setInterval(() => { void pollFlow(); }, 2000);
+  stopSignInPoll();
+  signInTimer = window.setInterval(() => { void pollFlow(run); }, 2000);
   try {
     const fn = (window as unknown as { legion?: { connectorConnect?: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean }> } }).legion?.connectorConnect;
     if (!fn) throw new Error('Connecting needs the Legion app window. Open Legion from its shortcut.');
     const r = await fn();
     if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The connect failed.');
-  } catch (e) { toast(whyText(e), 'error'); } finally { window.clearInterval(timer); set({ signingIn: false, flow: null, flowNote: null }); void loadArea(true); }
+  } catch (e) { if (run === signInRun) toast(whyText(e), 'error'); } finally {
+    if (run === signInRun) { stopSignInPoll(); set({ signingIn: false, flow: null, flowNote: null }); }
+    void loadArea(true);
+  }
 }
 export function cancelSignIn(): void {
+  signInRun++;
+  stopSignInPoll();
   set({ signingIn: false, flow: null, flowNote: null });
   void request('POST', '/api/connectors/github/cancel').catch((e: unknown) => toast(`The sign-in may still be waiting. ${whyText(e)}`, 'error'));
 }
@@ -149,8 +187,9 @@ let writeTimer: number | undefined;
 const stopWritePoll = (): void => { if (writeTimer !== undefined) { window.clearInterval(writeTimer); writeTimer = undefined; } };
 /** The write app signs in like the read app: a code on github.com. The area is read again every few seconds until the core says it is on. */
 export async function connectWrite(): Promise<void> {
-  if (st.busy) return;
-  set({ busy: 'write-app' });
+  // one sign-in at a time: not while one is being asked for, and not while its code is still open
+  if (st.busy || st.writeFlow) return;
+  set({ busy: 'write-app', writeRevokeUrl: null });
   try {
     const flow = parseWriteFlow(await api.githubConnectWrite());
     if (flow.phase === 'failed') { toast(flow.message, 'error'); return; }
@@ -177,17 +216,53 @@ export function cancelWriteSignIn(): void {
   void api.githubCancelWrite().catch((e: unknown) => toast(`The sign-in may still be waiting. ${whyText(e)}`, 'error'));
 }
 export async function disconnectWrite(): Promise<void> {
-  try { await api.githubDisconnectWrite(); } catch (e) { toast(whyText(e), 'error'); }
+  try {
+    const r = await api.githubDisconnectWrite();
+    set({ writeRevokeUrl: typeof r?.revokeUrl === 'string' ? r.revokeUrl : null });
+  } catch (e) { toast(whyText(e), 'error'); }
   await loadArea(true);
 }
-export async function setAgentsEnabled(on: boolean): Promise<void> {
-  if (st.view) set({ view: { ...st.view, agentsEnabled: on } });
-  try { await api.githubAgentsSwitch(on); } catch (e) { toast(whyText(e), 'error'); await loadArea(true); }
+
+/** The core answers a change with the whole view; that view is shown as it is. Anything else is read again. */
+function applyReply(r: unknown, seq: number): void {
+  if (r && typeof r === 'object' && Array.isArray((r as GithubAreaView).repos)) applyView(toData(r as GithubAreaView), seq);
+  else void loadArea(true);
 }
+
+export async function setAgentsEnabled(on: boolean): Promise<void> {
+  if (st.agentsSending) return;
+  const before = st.view?.agentsEnabled;
+  pendingAgents = on;
+  set({ agentsSending: true, ...(st.view ? { view: { ...st.view, agentsEnabled: on } } : {}) });
+  const seq = ++reqSeq;
+  try {
+    const reply = await api.githubAgentsSwitch(on);
+    pendingAgents = null;
+    applyReply(reply, seq);
+  } catch (e) {
+    pendingAgents = null;
+    toast(whyText(e), 'error');
+    if (st.view && before !== undefined) set({ view: { ...st.view, agentsEnabled: before } });
+  } finally { pendingAgents = null; set({ agentsSending: false }); }
+}
+
 export async function setTick(repo: string, on: boolean): Promise<void> {
-  const before = st.view;
-  if (before) set({ view: { ...before, repos: before.repos.map((r) => (r.fullName === repo ? { ...r, ticked: on } : r)) } });
-  try { await api.githubTick(repo, on); } catch (e) { toast(whyText(e), 'error'); set({ view: before }); }
+  const key = normRepo(repo);
+  if (pendingTicks.has(key)) return;
+  const was = st.view?.repos.find((r) => normRepo(r.fullName) === key)?.ticked;
+  pendingTicks.set(key, on);
+  set({ ticking: [...st.ticking, repo], ...(st.view ? { view: { ...st.view, repos: st.view.repos.map((r) => (normRepo(r.fullName) === key ? { ...r, ticked: on } : r)) } } : {}) });
+  const seq = ++reqSeq;
+  try {
+    const reply = await api.githubTick(repo, on);
+    pendingTicks.delete(key);
+    applyReply(reply, seq);
+  } catch (e) {
+    pendingTicks.delete(key);
+    toast(whyText(e), 'error');
+    // only this repo goes back; the rest of the list stays as it is
+    if (st.view && was !== undefined) set({ view: { ...st.view, repos: st.view.repos.map((r) => (normRepo(r.fullName) === key ? { ...r, ticked: was } : r)) } });
+  } finally { pendingTicks.delete(key); set({ ticking: st.ticking.filter((x) => x !== repo) }); }
 }
 
 /* ---------- create ---------- */
@@ -205,7 +280,8 @@ export async function createRepo(body: CreateRepoBody): Promise<CreateResult> {
   const fail = (kind: CreateFailure): CreateResult => ({ ok: false, kind, text: createFailureText(kind) });
   try {
     const r = parseCreateReply(await api.githubCreateRepo(body));
-    if (r.phase === 'needs-write') return { ok: false, kind: 'sign-in', text: r.message };
+    // the write sign-in is gone on the core's side: read the area again, so the form shows Turn on writes
+    if (r.phase === 'needs-write') { await loadArea(true); return { ok: false, kind: 'sign-in', text: r.message }; }
     await loadArea(true);
     set({ expanded: r.fullName });
     void loadDetail(r.fullName);
@@ -213,7 +289,7 @@ export async function createRepo(body: CreateRepoBody): Promise<CreateResult> {
     return { ok: true, fullName: r.fullName };
   } catch (e) {
     return e instanceof ApiError ? fail(createFailureKind(e.status, e.message)) : { ok: false, kind: 'unsure', text: createFailureText('unsure') };
-  } finally { set({ busy: null }); }
+  } finally { if (st.busy === 'create') set({ busy: null }); }
 }
 
 /* ---------- CI and agents ---------- */
@@ -221,7 +297,8 @@ export async function rerunFailed(repo: string, runId: number): Promise<void> { 
 export async function cancelRun(repo: string, runId: number): Promise<void> { await ci.cancelRun(runId); await loadDetail(repo); }
 /** The CI panel watches a repo of its own. This points it at this one and opens it. */
 export async function watchInCi(repo: string): Promise<void> {
-  await ci.saveRepo(repo);
+  const err = await ci.saveRepo(repo);
+  if (err) { toast(err, 'error'); return; }
   ci.openCi();
 }
 
@@ -235,7 +312,14 @@ export async function grantProject(repo: string, projectId: string, level: 'read
 }
 
 /* ---------- links ---------- */
-export const openAtGithub = (url: string): void => openExternal(url);
+/** The one way out to GitHub: only an address on https://github.com opens. Anything else says so and stays shut. */
+export function openAtGithub(url: string): boolean {
+  let fine = false;
+  try { fine = new URL(url).origin === 'https://github.com'; } catch { fine = false; }
+  if (!fine) { toast('Legion only opens links on github.com.', 'error'); return false; }
+  openExternal(url);
+  return true;
+}
 export function openGithubSettings(): void { closeGithub(); openSettings('github'); }
 export const GITHUB_NEW_REPO_URL = 'https://github.com/new';
 

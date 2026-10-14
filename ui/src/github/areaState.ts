@@ -38,7 +38,8 @@ export function areaState(view: AreaViewLike | null, ctx: AreaCtx = {}): AreaSta
   if (!view && ctx.failed) return st('load-failed', 'warn', `Legion could not load GitHub. ${ctx.failed}`, { id: 'retry', label: 'Try again' });
   if (!view || ctx.loading) return st('loading', 'idle', 'Loading your repos.');
   if (!view.registered.read) return st('not-registered', 'idle', 'GitHub sign-in is not available in this build yet.');
-  if (ctx.signingIn && !view.signedIn.read) return st('signing-in', 'idle', 'Waiting for you to approve Legion on GitHub.');
+  // a read sign-in that ended still counts as signed in on the core's side: Sign in must still show its code
+  if (ctx.signingIn && (!view.signedIn.read || view.problem?.kind === 'auth-expired')) return st('signing-in', 'idle', 'Waiting for you to approve Legion on GitHub.');
   const p = view.problem;
   if (p?.kind === 'auth-expired') return st('auth-ended', 'warn', 'Your GitHub sign-in ended. Sign in again.', { id: 'sign-in', label: 'Sign in' });
   if (!view.signedIn.read || p?.kind === 'not-connected') return st('not-connected', 'idle', 'GitHub is not connected. Connect it to choose which repos Legion can use.', { id: 'connect', label: 'Connect GitHub' });
@@ -80,6 +81,7 @@ export function createNameError(name: string): string | null {
 }
 
 export function createConfirmLine(owner: string, name: string, priv: boolean): string {
+  if (!owner) return priv ? `This creates the private repo ${name} in your own account on GitHub.` : `This creates the public repo ${name} in your own account on GitHub. Anyone can see it.`;
   return priv ? `This creates the private repo ${owner}/${name} on GitHub.` : `This creates the public repo ${owner}/${name} on GitHub. Anyone can see it.`;
 }
 
@@ -100,7 +102,7 @@ export function createFailureKind(status: number, message = ''): CreateFailure {
 
 export function createFailureText(kind: CreateFailure): string {
   switch (kind) {
-    case 'sign-in': return 'Your Legion (write) sign-in ended. Connect it again, then try again. Nothing was created.';
+    case 'sign-in': return 'Your write sign-in ended. Turn on writes again, then try again. Nothing was created.';
     case 'busy': return 'Another repo is being created. Wait a moment, then try again.';
     case 'unsure': return 'Legion could not confirm what GitHub did. Check your repos at GitHub before you try again, so you do not make it twice.';
     case 'unavailable': return 'This version of Legion cannot create repos yet. Create it at GitHub instead.';
@@ -130,3 +132,6 @@ export const rateLine = (view: AreaViewLike): string | null => (view.rate ? `${v
 export type ActivityKind = 'comment' | 'issue' | 'pull-request' | 'rerun';
 /** `titled` false: the core gave no title, so the line ends at the verb. */
 export const activityVerb = (k: ActivityKind, titled = true): string => (k === 'comment' ? (titled ? 'commented on' : 'commented') : k === 'issue' ? (titled ? 'opened the issue' : 'opened an issue') : k === 'pull-request' ? (titled ? 'opened the pull request' : 'opened a pull request') : (titled ? 're-ran CI for' : 're-ran CI'));
+
+/** The owner to send for a new repo: only a picked organisation or login. Empty means the personal account (the core then uses /user/repos). */
+export const createOwner = (picked: string): string | undefined => (picked ? picked : undefined);

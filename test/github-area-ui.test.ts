@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { GithubAreaView, GithubRepoRow } from '../src/shared/github-area.js';
 import { activityFrom, parseCreateReply, parseOrgs, parseProjectsUsing, parseWriteFlow, plainError } from "../ui/src/github/githubRoutes.js";
-import { activityVerb, areaState, chipTone, CREATE_DEFAULTS, createConfirmLine, createFailureKind, createFailureText, createNameError, listRepos, writesOffText } from '../ui/src/github/areaState.js';
+import { activityVerb, areaState, chipTone, CREATE_DEFAULTS, createConfirmLine, createFailureKind, createFailureText, createNameError, createOwner, listRepos, writesOffText } from '../ui/src/github/areaState.js';
 
 const DIR = join(process.cwd(), 'ui', 'src', 'github');
 const files = readdirSync(DIR).filter((f) => /\.(tsx?|css)$/.test(f));
@@ -228,5 +228,45 @@ describe('real route shapes (githubRoutes)', () => {
     assert.ok(!/USE_MOCK|githubMock|mockApprove/.test(read('githubStore.ts')));
     assert.ok(!files.includes('githubMock.ts'));
     assert.ok(!/USE_MOCK/.test(ui('api.ts')));
+  });
+});
+
+describe('fix round: review findings', () => {
+  it('chipTone: signed in for reading with a not-connected problem is grey, not green', () => {
+    assert.equal(chipTone(view({ problem: { kind: 'not-connected' } })), 'idle');
+  });
+  it('create failures: 403 for an organisation to approve, plain 403, and 429', () => {
+    assert.equal(createFailureKind(403, 'Resource protected by organization SAML enforcement.'), 'org-approval');
+    assert.equal(createFailureKind(403, 'The organization has enabled OAuth App access restrictions, ask an owner to approve.'), 'org-approval');
+    assert.equal(createFailureKind(403, 'Forbidden'), 'no-right');
+    assert.equal(createFailureKind(429, 'slow down'), 'rate-limited');
+    assert.match(createFailureText('org-approval'), /organisation must approve Legion/);
+    assert.match(createFailureText('rate-limited'), /wait a little/);
+  });
+  it('after a read sign-in ended, Sign in starts the flow and shows the code panel (the core still says signed in)', () => {
+    const ended = view({ problem: { kind: 'auth-expired' } });
+    assert.equal(areaState(ended).id, 'auth-ended');
+    assert.equal(areaState(ended, { signingIn: true }).id, 'signing-in');
+  });
+  it('the owner of a new repo is only sent when one was picked (no login yet means the personal account)', () => {
+    assert.equal(createOwner(''), undefined);
+    assert.equal(createOwner('acme'), 'acme');
+    assert.equal(createConfirmLine('', 'notes', true), 'This creates the private repo notes in your own account on GitHub.');
+  });
+  it('one verb pair for writes: Turn on writes / Turn off writes, never "Connect Legion (write)"', () => {
+    const area = read('GithubArea.tsx');
+    assert.ok(!/Connect Legion \(write\)/.test(area));
+    assert.match(area, />Turn off writes</);
+    assert.match(area, /Turn on writes</);
+    assert.ok(!/Connect it again/.test(createFailureText('sign-in')));
+    assert.match(createFailureText('sign-in'), /Turn on writes again/);
+  });
+  it('every link to GitHub goes through openAtGithub: the panel never calls openExternal itself', () => {
+    assert.ok(!/openExternal/.test(read('GithubArea.tsx')));
+    assert.match(read('GithubArea.tsx'), /openAtGithub/);
+  });
+  it('the turn-off line points to GitHub through the helper', () => {
+    assert.match(read('GithubArea.tsx'), /To remove it completely, /);
+    assert.match(read('GithubArea.tsx'), /remove Legion \(write\) at GitHub/);
   });
 });

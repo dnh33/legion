@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { openExternal } from '../api';
 import { openEditor } from '../store';
 import { openProject } from '../projects/projectsStore';
 import { Icon } from '../components/icons';
@@ -9,17 +8,17 @@ import { Glyph } from '../ci/CiPanel';
 import { ago, formatDuration, runLook } from '../../../src/shared/ci-view';
 import { normRepo } from '../../../src/shared/github-area';
 import type { GithubRepoRow } from '../../../src/shared/github-area';
-import { activityVerb, areaState, CREATE_DEFAULTS, createConfirmLine, createNameError, listRepos, rateLine, writesOffText } from './areaState';
+import { activityVerb, areaState, CREATE_DEFAULTS, createConfirmLine, createNameError, createOwner, listRepos, rateLine, writesOffText } from './areaState';
 import type { AreaState } from './areaState';
 import {
   agentsOn, cancelRun, cancelSignIn, cancelWriteSignIn, closeGithub, connectRead, connectWrite, createRepo, disconnectRead, disconnectWrite, GITHUB_NEW_REPO_URL, grantProject,
-  loadArea, loadDetail, loadOrgs, openGithubSettings, rerunFailed, setAgentsEnabled, setQuery, setTick, showMore, toggleRepo, useGithub, watchInCi,
+  loadArea, openAtGithub, loadDetail, loadOrgs, openGithubSettings, rerunFailed, setAgentsEnabled, setQuery, setTick, showMore, toggleRepo, useGithub, watchInCi,
 } from './githubStore';
 import type { CreateResult } from './githubStore';
 import type { GithubAreaData, GithubRepoDetail } from './types';
 import './github.css';
 
-const ext = (url: string) => () => openExternal(url);
+const ext = (url: string) => () => { openAtGithub(url); };
 
 /* ---------- connection ---------- */
 function Connection({ view, state }: { view: GithubAreaData; state: AreaState }) {
@@ -29,7 +28,10 @@ function Connection({ view, state }: { view: GithubAreaData; state: AreaState })
   const rate = rateLine(view);
   const agentsId = useId();
   const wf = useGithub((s) => s.writeFlow);
+  const revokeUrl = useGithub((s) => s.writeRevokeUrl);
+  const switching = useGithub((s) => s.agentsSending);
   if (!signed) return null;
+  const ended = view.problem?.kind === 'auth-expired';
   return (
     <section className="gh-conn" aria-label="Connection">
       <div className="gh-who">
@@ -37,18 +39,18 @@ function Connection({ view, state }: { view: GithubAreaData; state: AreaState })
         <button type="button" className="btn-ghost sm" onClick={() => void disconnectRead()}>Sign out</button>
       </div>
       <dl className="gh-rows">
-        <div className="gh-line"><dt>Reading</dt><dd><span className="gh-on">On</span></dd></div>
+        <div className="gh-line"><dt>Reading</dt><dd>{ended ? <span className="gh-off">Sign-in ended</span> : <span className="gh-on">On</span>}</dd></div>
         <div className="gh-line">
           <dt>Writing</dt>
           <dd>
             {view.signedIn.write
-              ? <><span className="gh-on">On</span><button type="button" className="btn-ghost sm" onClick={() => void disconnectWrite()}>Turn off</button></>
-              : <><span className="gh-off">Off</span>{view.registered.write && <button type="button" className="btn sm" disabled={!!busy || state.disableGithubButtons} onClick={() => void connectWrite()}>{busy === 'write-app' ? 'Turning on' : 'Turn on writes'}</button>}</>}
+              ? <><span className="gh-on">On</span><button type="button" className="btn-ghost sm" onClick={() => void disconnectWrite()}>Turn off writes</button></>
+              : <><span className="gh-off">Off</span>{view.registered.write && <button type="button" className="btn sm" disabled={!!busy || !!wf || state.disableGithubButtons} onClick={() => void connectWrite()}>{busy === 'write-app' ? 'Turning on' : 'Turn on writes'}</button>}</>}
           </dd>
         </div>
         <div className="gh-line">
           <dt id={agentsId}>Agents</dt>
-          <dd><span className="gh-cap">{view.agentsEnabled ? 'May use the repos you turn on' : 'Cannot use GitHub'}</span><Switch id="gh-agents-switch" on={view.agentsEnabled} label="Let agents use GitHub" onChange={(v) => void setAgentsEnabled(v)} /></dd>
+          <dd><span className="gh-cap">{view.agentsEnabled ? 'May use the repos you turn on' : 'Cannot use GitHub'}</span><Switch id="gh-agents-switch" on={view.agentsEnabled} label="Let agents use GitHub" disabled={switching} onChange={(v) => void setAgentsEnabled(v)} /></dd>
         </div>
       </dl>
       {wf && (
@@ -62,6 +64,7 @@ function Connection({ view, state }: { view: GithubAreaData; state: AreaState })
         </div>
       )}
       {writeText && !wf && <p className="gh-help">{writeText}</p>}
+      {revokeUrl && !view.signedIn.write && !wf && <p className="gh-fine">To remove it completely, <button type="button" className="ci-link" onClick={() => { openAtGithub(revokeUrl); }}>remove Legion (write) at GitHub</button>.</p>}
       {rate && <p className="gh-fine">{rate}</p>}
     </section>
   );
@@ -77,7 +80,7 @@ function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null
   const run = (id: NonNullable<AreaState['action']>['id']): void => {
     if (id === 'connect' || id === 'sign-in') void connectRead();
     else if (id === 'retry') void loadArea(true);
-    else openExternal(firstUrl);
+    else openAtGithub(firstUrl);
   };
   if (state.id === 'signing-in') {
     return (
@@ -85,7 +88,7 @@ function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null
         <p>On github.com/login/device, enter this code:</p>
         <p className="gh-code" aria-label="Your code">{flow?.userCode ?? '...'}</p>
         <div className="gh-actions">
-          <button type="button" className="btn sm primary" onClick={() => openExternal(flow?.verificationUri ?? 'https://github.com/login/device')}>Open GitHub</button>
+          <button type="button" className="btn sm primary" onClick={() => { openAtGithub(flow?.verificationUri ?? 'https://github.com/login/device'); }}>Open GitHub</button>
           <button type="button" className="btn-ghost sm" onClick={cancelSignIn}>Cancel</button>
         </div>
         <p className="gh-fine">Legion checks every two seconds. The code works for a few minutes.</p>
@@ -105,10 +108,12 @@ function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null
 /* ---------- create ---------- */
 function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean }) {
   const busy = useGithub((s) => s.busy === 'create');
-  const login = view.login ?? 'you';
+  const login = view.login ?? '';
   const orgs = useGithub((s) => s.orgs);
   const orgsError = useGithub((s) => s.orgsError);
-  const [owner, setOwner] = useState(login);
+  // '' is the personal account, whatever its login turns out to be (the login can arrive after the form opened)
+  const [owner, setOwner] = useState('');
+  const wfOpen = useGithub((s) => !!s.writeFlow);
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [priv, setPriv] = useState<boolean>(CREATE_DEFAULTS.private);
@@ -123,7 +128,7 @@ function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean 
   const submit = async () => {
     setTouched(true);
     if (nameErr || busy || blocked) return;
-    const r = await createRepo({ ...(owner !== login ? { owner } : {}), name, ...(desc.trim() ? { description: desc.trim() } : {}), private: priv, readme, tick });
+    const r = await createRepo({ ...(createOwner(owner) ? { owner: createOwner(owner)! } : {}), name, ...(desc.trim() ? { description: desc.trim() } : {}), private: priv, readme, tick });
     if (r.ok) { setName(''); setDesc(''); setFail(null); setTouched(false); } else setFail(r);
   };
   return (
@@ -131,7 +136,7 @@ function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean 
       <div className="gh-field">
         <label htmlFor={`${id}-owner`}>Owner</label>
         <select id={`${id}-owner`} value={owner} onChange={(e) => setOwner(e.target.value)}>
-          <option value={login}>{login} (your account)</option>
+          <option value="">{login ? `${login} (your account)` : 'Your account'}</option>
           {orgs.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       </div>
@@ -154,8 +159,8 @@ function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean 
         <div className="gh-actions"><p className="gh-help">Creating repos from Legion is not available in this build yet.</p><button type="button" className="btn sm" onClick={ext(GITHUB_NEW_REPO_URL)}>Create on GitHub</button></div>
       ) : !writeReady ? (
         <div className="gh-need">
-          <p className="gh-help">Creating a repo uses Legion (write), the app that can change things on GitHub. Connect it first. Agents still cannot write anywhere until you allow it, and every write asks you first.</p>
-          <button type="button" className="btn sm primary" disabled={blocked} onClick={() => void connectWrite()}>Connect Legion (write)</button>
+          <p className="gh-help">Creating a repo uses Legion (write), the app that can change things on GitHub. Turn on writes first. Agents still cannot write anywhere until you allow it, and every write asks you first.</p>
+          <button type="button" className="btn sm primary" disabled={blocked || wfOpen} onClick={() => void connectWrite()}>Turn on writes</button>
         </div>
       ) : (
         <>
@@ -174,6 +179,7 @@ function CreateForm({ view, blocked }: { view: GithubAreaData; blocked: boolean 
 /* ---------- repo detail ---------- */
 function CiBlock({ repo, d, canWrite, blocked }: { repo: string; d: GithubRepoDetail; canWrite: boolean; blocked: boolean }) {
   const { runs, failed, source } = d.ci;
+  const wfOpen = useGithub((s) => !!s.writeFlow);
   if (source === 'watch-needed') return <div className="gh-sec"><h4>CI</h4><p className="gh-help">The CI panel is watching another repo.</p><button type="button" className="btn sm" onClick={() => void watchInCi(repo)}>Watch this repo in CI</button></div>;
   if (runs.length === 0) return <div className="gh-sec"><h4>CI</h4><p className="gh-help">No CI runs yet.</p></div>;
   return (
@@ -195,10 +201,10 @@ function CiBlock({ repo, d, canWrite, blocked }: { repo: string; d: GithubRepoDe
               <div className="gh-actions">
                 {look.tone === 'bad' && (canWrite
                   ? <button type="button" className="btn sm" disabled={blocked} onClick={() => void rerunFailed(repo, r.id)}>Re-run failed</button>
-                  : <button type="button" className="btn sm" disabled={blocked} onClick={() => void connectWrite()} title="Re-running needs Legion (write)">Turn on writes to re-run</button>)}
+                  : <button type="button" className="btn sm" disabled={blocked || wfOpen} onClick={() => void connectWrite()} title="Re-running needs Legion (write)">Turn on writes to re-run</button>)}
                 {look.tone === 'run' && (canWrite
                   ? <button type="button" className="btn sm" disabled={blocked} onClick={() => void cancelRun(repo, r.id)}>Cancel</button>
-                  : <button type="button" className="btn sm" disabled={blocked} onClick={() => void connectWrite()} title="Cancelling needs Legion (write)">Turn on writes to cancel</button>)}
+                  : <button type="button" className="btn sm" disabled={blocked || wfOpen} onClick={() => void connectWrite()} title="Cancelling needs Legion (write)">Turn on writes to cancel</button>)}
                 <button type="button" className="btn-ghost sm" disabled={blocked} onClick={ext(r.url)}>Open on GitHub</button>
               </div>
             </li>
@@ -275,6 +281,7 @@ function RepoDetail({ row, view, state }: { row: GithubRepoRow; view: GithubArea
 /* ---------- repos ---------- */
 function RepoRow({ row, view, state }: { row: GithubRepoRow; view: GithubAreaData; state: AreaState }) {
   const open = useGithub((s) => s.expanded === row.fullName);
+  const sending = useGithub((s) => s.ticking.includes(row.fullName));
   const [owner, name] = row.fullName.split('/');
   const detailId = `gh-detail-${row.fullName.replace('/', '--')}`;
   return (
@@ -289,7 +296,7 @@ function RepoRow({ row, view, state }: { row: GithubRepoRow; view: GithubAreaDat
             {row.installedWrite && <span className="ci-tag" title="Legion (write) can change it">Write</span>}
           </span>
         </button>
-        <Switch id={`gh-tick-${row.fullName}`} on={row.ticked} label={`Turn on ${row.fullName} in Legion`} onChange={(v) => void setTick(row.fullName, v)} />
+        <Switch id={`gh-tick-${row.fullName}`} on={row.ticked} label={`Turn on ${row.fullName} in Legion`} disabled={sending} onChange={(v) => void setTick(row.fullName, v)} />
       </div>
       {open && <RepoDetail row={row} view={view} state={state} />}
     </li>
@@ -344,6 +351,7 @@ export function GithubArea() {
         {state.id === 'loading' ? <Skeleton /> : (
           <>
             <Banner state={state} view={view} />
+            {view && why && view.registered.read && state.id !== 'offline' && state.id !== 'load-failed' && <p className="gh-err" role="alert">{why}</p>}
             {view && <Connection view={view} state={state} />}
             {showList && view && <Repos view={view} state={state} />}
           </>
