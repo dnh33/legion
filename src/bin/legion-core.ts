@@ -138,7 +138,7 @@ async function main() {
     ...(board ? { inbox: () => projects.list().filter((p) => p.status === 'active').flatMap((p) => { try { return board.view(p).inbox; } catch { return []; } }) } : {}),
   });
   // connectors: the gateway tools (an agent must opt in) and the Settings routes; GitHub reads only in this build
-  const connectors = createConnectorsModule(moduleDeps, { keys: connectorKeyring, log });
+  const connectors = createConnectorsModule(moduleDeps, { keys: connectorKeyring, log, projects });
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });

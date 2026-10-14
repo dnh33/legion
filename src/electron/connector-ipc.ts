@@ -10,6 +10,7 @@
  *   3. only then start the device flow on the core and open the fixed GitHub page.
  * Free of electron imports so it is tested with fakes.
  */
+import type { GithubApp } from '../shared/github-area.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
 export const GITHUB_DEVICE_PAGE_URL = 'https://github.com/login/device';
@@ -28,13 +29,14 @@ export interface ConnectResult { ok: boolean; error?: string; cancelled?: boolea
 
 let busy = false;
 
-export async function connectGithub(deps: ConnectorIpcDeps): Promise<ConnectResult> {
+/** `app` picks which GitHub App signs in: read (the default, as before) or write. Each has its own sign-in route on the core. */
+export async function connectGithub(deps: ConnectorIpcDeps, app: GithubApp = 'read'): Promise<ConnectResult> {
   if (busy) return { ok: false, error: 'A connect is already in progress.' };
   busy = true;
   try {
     let st = await deps.call('GET', '/api/connectors/github');
     if (!st || st.status !== 200) return { ok: false, error: 'Legion could not reach its own core. Restart Legion.' };
-    if (st.json?.available !== true) return { ok: false, error: 'GitHub sign-in is not available yet: the Legion GitHub App is not registered in this build.' };
+    if ((app === 'write' ? st.json?.writeAvailable : st.json?.available) !== true) return { ok: false, error: 'GitHub sign-in is not available yet: the Legion GitHub App is not registered in this build.' };
     let restarted = false;
     let memoryOnly = false;
     if (st.json?.key !== 'installed') {
@@ -64,7 +66,7 @@ export async function connectGithub(deps: ConnectorIpcDeps): Promise<ConnectResu
         if (!st || st.status !== 200 || st.json?.key !== 'installed') return { ok: false, error: 'The core restarted but did not receive the key. Try Connect again, or restart Legion.' };
       }
     }
-    const res = await deps.call('POST', '/api/connectors/github/connect', memoryOnly ? { memoryOnly: true } : {});
+    const res = await deps.call('POST', app === 'write' ? '/api/github/apps/write/connect' : '/api/connectors/github/connect', memoryOnly ? { memoryOnly: true } : {});
     if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
     if (res.status !== 200) return { ok: false, error: res.json?.error === 'needs-key' ? 'The core has no key yet. Try again.' : res.json?.error === 'not-available' ? 'GitHub sign-in is not available yet.' : `The core refused (${res.status}).` };
     if (res.json?.phase === 'failed') return { ok: false, error: typeof res.json.message === 'string' ? res.json.message : 'GitHub did not accept the sign-in.' };
