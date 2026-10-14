@@ -466,11 +466,15 @@ test('a command substitution is a command too: $(…) and backticks are judged',
 });
 
 test('the guard stays fast on a huge command with an unclosed quote (it runs on the core\'s event loop)', () => {
+  // Measured on 2026-10-14 (Node 22 and 24, 50 KB to 800 KB): linear, about 2 us per byte, so 200 KB takes 330 to 440 ms on a quiet PC. The old 500 ms
+  // ceiling failed on a loaded CI runner (539 ms) without any super-linear growth. A quadratic scan would need many seconds at 200 KB, so the ceiling is
+  // 2 s (like the sibling test above), best of three runs.
   for (const q of ['"', "'"]) {
     const cmd = `echo ${q}` + 'a '.repeat(100_000);
-    const t = Date.now();
     assert.equal(refuseCatastrophic(cmd), undefined);
-    assert.ok(Date.now() - t < 500, `200 KB with an open ${q} took ${Date.now() - t} ms`);
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) { const t = Date.now(); refuseCatastrophic(cmd); best = Math.min(best, Date.now() - t); }
+    assert.ok(best < 2_000, `200 KB with an open ${q} took ${best} ms at best of three`);
   }
 });
 

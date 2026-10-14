@@ -127,11 +127,19 @@ test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (
   const big = cases(4 * N);
   for (const s of Object.values(small)) median(s); // warm up the regex engine and the JIT
   const slow: string[] = [];
+  // Measured on 2026-10-14 (Node 22 and 24, sizes 10k to 320k, 5 runs each): every shape grows linearly, ~x4 per 4x size, ratio 1.3 to 7.4 over 15 repeats.
+  // Two Windows CI runners still reported x35 and x48 (401 ms at 80k where this PC takes 47): one GC pause or a noisy neighbour inside a single sample.
+  // A real quadratic scrub is slow EVERY time, so a case is only slow when it fails on all of three independent attempts.
   for (const name of Object.keys(small)) {
-    const t1 = Math.max(median(small[name]!), 2);
-    const t4 = median(big[name]!);
-    // a ratio of two millisecond timings is noise: only call it slow when the big input also takes a visible time (the old quadratic shapes took 1.7 s here)
-    if (t4 / t1 > 8 && t4 > 150) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
+    let verdict = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const t1 = Math.max(median(small[name]!), 2);
+      const t4 = median(big[name]!);
+      // a ratio of two millisecond timings is noise: only call it slow when the big input also takes a visible time (the old quadratic shapes took 1.7 s here)
+      if (!(t4 / t1 > 8 && t4 > 150)) { verdict = ''; break; }
+      verdict = `${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`;
+    }
+    if (verdict) slow.push(verdict);
   }
   assert.deepEqual(slow, []);
 });
