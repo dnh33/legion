@@ -1,8 +1,8 @@
-.away-quiet { border: 1px solid var(--border, rgba(127, 127, 127, .25)); border-radius: var(--r, 8px); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.away-quiet { border: 1px solid var(--line-strong); border-radius: var(--r, 8px); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
 .away-quiet legend { padding: 0 6px; font-size: 12.5px; color: var(--muted); }
 .away-times { display: flex; flex-wrap: wrap; gap: 16px; padding-left: 25px; }
 .away-times label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
-.away-times input[type=time] { min-height: 30px; padding: 3px 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border, rgba(127, 127, 127, .35)); border-radius: 6px; font: inherit; }
+.away-times input[type=time] { min-height: 30px; padding: 3px 8px; background: var(--surface); color: var(--text); border: 1px solid var(--control-line); border-radius: 6px; font: inherit; }
 .away-times input[type=time]:disabled { opacity: .5; }
 .away-quiet .set-hint, .away-quiet .set-error { margin: 0 0 0 25px; }
 
