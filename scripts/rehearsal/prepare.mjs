@@ -1,19 +1,21 @@
 // Rehearsal-only: builds two throwaway candidate releases from a BUILT checkout, signs their manifests with a throwaway key, and
 // lays them out for scripts/rehearsal/serve.mjs. Nothing is published and the real signing key is never used or read.
 //   good: version 0.99.0, a normal full package (a dependency-change release: requiresFullInstall + fullAsset)
+//   base: version 0.98.0, only its full zip: a baseline built from THIS checkout, for scenarios that must run the new swap helper
+//         (an install of a published release always swaps with the helper of that older release)
 //   bad:  version 0.99.1, the same but its Electron main exits at once, so the first start fails and must be rolled back
-// usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo> [--good 0.99.0] [--bad 0.99.1]
+// usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo> [--good 0.99.0] [--bad 0.99.1] [--base 0.98.0]
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { args, die, insideGitTree, readZipEntry, REPO } from '../lib/release-lib.mjs';
 
-const a = args(process.argv.slice(2), { out: 'v', good: 'v', bad: 'v' });
+const a = args(process.argv.slice(2), { out: 'v', good: 'v', bad: 'v', base: 'v' });
 if (!a.out) die('usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo>');
 const out = resolve(a.out);
 if (insideGitTree(out)) die('--out must be outside the repository and any git work tree (the throwaway key is written there)');
-const versions = { good: a.good ?? '0.99.0', bad: a.bad ?? '0.99.1' };
+const versions = { good: a.good ?? '0.99.0', bad: a.bad ?? '0.99.1', base: a.base ?? '0.98.0' };
 mkdirSync(out, { recursive: true });
 
 const run = (script, argv) => {
@@ -35,7 +37,7 @@ writeFileSync(trustFile, `import { verifyManifestSignature as v } from ${JSON.st
 const CODE = ['dist', 'dist-ui', 'assets', 'scripts', 'licenses', 'package.json', 'package-lock.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'setup.cmd', 'setup-yes.cmd', 'start-legion.cmd'];
 const publishedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 const served = join(out, 'served');
-for (const name of ['good', 'bad']) {
+for (const name of ['base', 'good', 'bad']) {
   const version = versions[name];
   const tree = join(out, 'trees', name);
   rmSync(tree, { recursive: true, force: true }); mkdirSync(tree, { recursive: true });
@@ -49,6 +51,13 @@ for (const name of ['good', 'bad']) {
   const pkg = join(out, `pkg-${name}`);
   rmSync(pkg, { recursive: true, force: true });
   run('build-package.mjs', ['--out', pkg, '--skip-build', '--root', tree, '--published-at', publishedAt, ...(name === 'bad' ? ['--no-selfcheck'] : [])]);
+  if (name === 'base') {
+    mkdirSync(join(served, 'base'), { recursive: true });
+    cpSync(join(pkg, `legion-${version}-win-x64.zip`), join(served, 'base', `legion-${version}-win-x64.zip`));
+    rmSync(tree, { recursive: true, force: true });
+    console.log(`prepared base ${version}`);
+    continue;
+  }
   const notes = join(pkg, 'notes.txt'); writeFileSync(notes, `Rehearsal build ${version}. Not a release.\n`);
   const full = join(pkg, `legion-${version}-win-x64.zip`);
   run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--full-zip', full, '--requires-full-install', '--notes', notes, '--out', pkg]);

@@ -4,7 +4,9 @@
 //   locked    a file under node_modules is held open during the swap: the update is refused cleanly, the old version keeps running
 //   slow-short / slow-long   the new build's core starts 25 s / 75 s late (past the app's 15 s wait, and for slow-long past the old
 //             helper's 60 s window): whichever way it settles, the install is whole and runs (the new version, or the old one restored)
-//   vanished  the staged runtime folder disappears after staging (an antivirus): the swap is refused before anything moves
+//   vanished  the staged runtime folder disappears after staging (an antivirus): the swap is refused before anything moves.
+//             Run from a baseline built from this checkout (--baseline 0.98.0), because the swap is done by the helper of the
+//             version being updated FROM, and a published release does not have this check yet.
 // The installed app is started the way a shortcut starts it. The only difference from a user's PC is the environment it is started
 // with: LEGION_HOME (an isolated data folder) and NODE_OPTIONS (scripts/rehearsal/preload.mjs, which sends GitHub traffic to the
 // loopback server and trusts a throwaway key). No installed file is edited.

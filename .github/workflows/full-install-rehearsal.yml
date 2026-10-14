@@ -9,6 +9,7 @@ name: Full-install rehearsal
 #   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
 #   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
+#             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
 # How the installed app is steered without any production switch: it is started with NODE_OPTIONS="--import scripts/rehearsal/preload.mjs"
 # (runner only), which in memory sends the app's GitHub requests to loopback and trusts the throwaway key. No source file reads those
 # variables (test/rehearsal-preload.test.ts pins that). The real signing key is not used, read or reachable here: no secrets, a
@@ -109,7 +110,16 @@ jobs:
           if ($loc -notmatch '/releases/tag/v(\S+)') { throw "no version in: $loc" }
           "BASELINE=$($Matches[1])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "baseline is $($Matches[1])"
+      - name: Baseline built from this checkout (scenarios that must run the new swap helper)
+        if: matrix.scenario == 'vanished'
+        run: |
+          $z = Join-Path $env:RUNNER_TEMP 'prepared\served\base\legion-0.98.0-win-x64.zip'
+          $x = Join-Path $env:RUNNER_TEMP 'base-extract'
+          Expand-Archive -LiteralPath $z -DestinationPath $x -Force
+          Move-Item -LiteralPath (Join-Path $x 'legion-0.98.0') -Destination (Join-Path $env:RUNNER_TEMP 'legion-install')
+          "BASELINE=0.98.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install the baseline with install.ps1, as a user does (no launch)
+        if: matrix.scenario != 'vanished'
         run: |
           & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version $env:BASELINE -InstallDir "$env:RUNNER_TEMP\legion-install"
           if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
