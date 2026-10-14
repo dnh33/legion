@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-14
+
 ### Added
 
 - **Legion now knows why a task is waiting.** A queued task says whether it waits for a free slot, for the project's budget,
