@@ -47,7 +47,7 @@ export interface CoreContext {
   adminSecret?: string;
   /** Projects (read-only here: the MCP tool `legion_projects` lists and gets them; every change goes through the projects module's admin routes). */
   projects?: ProjectStore;
-  /** The away features (0.3.0): what this core can do and the asks parked for the owner. Absent: the snapshot carries neither. */
+  /** The away module (0.3.0): what this core can do and the asks parked for the owner. Absent: the snapshot carries neither. */
   away?: { caps(): CoreCaps; parked(): ParkedAsk[] };
   /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
