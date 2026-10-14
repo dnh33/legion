@@ -139,6 +139,10 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .banner.offline .icon { color: var(--danger); }
 .banner.offline span { margin-left: 0; color: var(--text-2); opacity: 1; }
 .banner.offline .icon { flex: none; }
+/* board proposals waiting on you, above the thread (components/ProposalCards.tsx): several stack and scroll, buttons wrap at large UI scale */
+.proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 40vh; overflow-y: auto; }
+.proposal-cards .approval { margin: 0; }
+.proposal-cards .approval-actions { flex-wrap: wrap; }
 
 .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: auto; scroll-behavior: auto; }
 .thread-inner { max-width: 780px; margin: 0 auto; padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 14px; }

@@ -17,6 +17,7 @@ import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
 import { WorkingRow } from './WorkingRow';
+import { ProposalCards } from './ProposalCards';
 import { TodoList } from './TodoList';
 import { taskProjectChip } from '../projects/projectsLogic';
 import { clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
@@ -256,6 +257,7 @@ export function Thread() {
       {loaded && conn === 'offline' && agents.length > 0 && (
         <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
       )}
+      <ProposalCards agentId={agentId} />
       {otherApprovals.length > 0 && (
         <button className="banner" onClick={() => selectTask(otherApprovals[0].taskId)}>
           <Icon name="shield" size={13} /> {otherApprovals.length} approval{otherApprovals.length > 1 ? 's' : ''} waiting in another task <span>Open {'→'}</span>

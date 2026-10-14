@@ -2,7 +2,7 @@
  * Where a "Needs you in other projects" rail row goes. Pure: the store applies the answer.
  * A proposal opens its Inbox entry on the project's Board; an approval or a question opens the agent's thread with that card focused.
  */
-interface RailRow { kind: 'approval' | 'question' | 'proposal'; id: string; taskId: string; projectId: string | null }
+interface RailRow { kind: 'approval' | 'question' | 'proposal' | 'parked'; id: string; taskId?: string; projectId: string | null }
 
 export type RailTarget =
   | { kind: 'inbox'; projectId: string; itemId: string }
@@ -10,13 +10,21 @@ export type RailTarget =
   | { kind: 'project'; projectId: string }
   | { kind: 'none' };
 
-export function railRowTarget(row: RailRow): RailTarget {
+/** The one map from a waiting item to its open action: the agent rail row, the elsewhere rows and the digest all use it. */
+export function askTarget(row: RailRow): RailTarget {
   if (row.kind === 'proposal') {
     if (row.projectId && row.id) return { kind: 'inbox', projectId: row.projectId, itemId: row.id };
     return row.projectId ? { kind: 'project', projectId: row.projectId } : { kind: 'none' };
   }
   if (row.taskId) return { kind: 'thread', taskId: row.taskId, askId: row.id };
   return row.projectId ? { kind: 'project', projectId: row.projectId } : { kind: 'none' };
+}
+
+export const railRowTarget = askTarget;
+
+/** The pending proposals one agent made, oldest first (the chat shows a card for each). */
+export function proposalsFor<T extends { createdAt: string; createdBy: { kind: string; id?: string } }>(agentId: string, proposals: readonly T[]): T[] {
+  return proposals.filter((p) => p.createdBy.kind === 'agent' && p.createdBy.id === agentId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /** The waiting card to bring into view in a thread: the one the row named, else the first approval, else the first question. */

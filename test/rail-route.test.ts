@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inboxFocusPlan, pickAskCard, railRowTarget } from '../ui/src/projects/railRoute.js';
+import { askTarget, inboxFocusPlan, pickAskCard, proposalsFor, railRowTarget } from '../ui/src/projects/railRoute.js';
 
 test('a proposal row opens that item in its project Inbox', () => {
   assert.deepEqual(railRowTarget({ kind: 'proposal', id: 'wi1', taskId: '', projectId: 'p2' }), { kind: 'inbox', projectId: 'p2', itemId: 'wi1' });
@@ -30,4 +30,17 @@ test('inboxFocusPlan: other project ignored, unloaded board waits, found shows, 
   assert.equal(inboxFocusPlan(req, 'p2', [], false), 'wait');
   assert.equal(inboxFocusPlan(req, 'p2', [{ id: 'wi1' }], true), 'show');
   assert.equal(inboxFocusPlan(req, 'p2', [{ id: 'other' }], true), 'gone');
+});
+
+test('askTarget is the one map for every kind of waiting item (rail row, elsewhere row, digest)', () => {
+  assert.deepEqual(askTarget({ kind: 'proposal', id: 'wi1', projectId: 'p1' }), { kind: 'inbox', projectId: 'p1', itemId: 'wi1' });
+  assert.deepEqual(askTarget({ kind: 'approval', id: 'a1', taskId: 't1', projectId: null }), { kind: 'thread', taskId: 't1', askId: 'a1' });
+  assert.deepEqual(askTarget({ kind: 'parked', id: 'k1', taskId: 't2', projectId: 'p1' }), { kind: 'thread', taskId: 't2', askId: 'k1' });
+  assert.deepEqual(askTarget({ kind: 'question', id: 'q1', projectId: 'p1' }), { kind: 'project', projectId: 'p1' });
+});
+test('proposalsFor keeps only the proposals this agent made, oldest first', () => {
+  const mk = (id: string, by: { kind: string; id?: string }, at: string) => ({ id, createdAt: at, createdBy: by });
+  const list = [mk('b', { kind: 'agent', id: 'forge' }, '2026-10-14T12:00:00Z'), mk('x', { kind: 'agent', id: 'other' }, '2026-10-14T09:00:00Z'), mk('a', { kind: 'agent', id: 'forge' }, '2026-10-14T10:00:00Z'), mk('o', { kind: 'owner' }, '2026-10-14T08:00:00Z')];
+  assert.deepEqual(proposalsFor('forge', list).map((p) => p.id), ['a', 'b']);
+  assert.deepEqual(proposalsFor('nobody', list), []);
 });

@@ -20,6 +20,7 @@ import { loadSettings, useStore } from '../../store';
 import type { Answer } from './answerStore';
 import { digestHeader, foldedLine, hhmm, money, projectTasks, reviewItems, sinceFor, stopDetail } from './pageLogic';
 import type { PageFacts } from './pageLogic';
+import { requestInbox } from '../railRoute';
 import { PIcon } from './PIcon';
 import { continueTask, openTask, retryTask } from './taskActions';
 import { useFocusKeeper } from './useFocusKeeper';
@@ -111,8 +112,8 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   };
 
   const act = (row: AskRow, actName: string, b: AskRow['buttons'][number], li: HTMLElement | null): void => {
-    if (actName === 'open' || actName === 'review') { if (row.taskId) openTask(row.taskId); else openBoard(); return; }
-    if (actName === 'read') { openBoard(); return; }
+    if (actName === 'open' || actName === 'review') { if (row.taskId) openTask(row.taskId); else { if (row.kind === 'proposal') requestInbox(pid, row.key); openBoard(); } return; }
+    if (actName === 'read') { if (row.kind === 'proposal') requestInbox(pid, row.key); openBoard(); return; }
     const suggested = row.kind === 'proposal' ? f.board?.inbox.find((i) => i.id === row.key)?.proposal?.suggestedAssignee : undefined;
     startAnswer({ row, b, projectId: pid, ...(suggested ? { suggestedAssignee: suggested } : {}), height: li?.offsetHeight ?? 0 });
   };

@@ -5,11 +5,12 @@ import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher, openProjectMenu } from '../projects/ProjectSwitcher';
 import { agentsFor, waitingElsewhere } from '../projects/projectsLogic';
-import { railLine } from '../projects/page/pageLogic';
+import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
 import { useAllProposals } from '../projects/useProposals';
-import { openRailRow } from '../projects/projectsStore';
+import { openAskTarget, openRailRow } from '../projects/projectsStore';
+import { askTarget } from '../projects/railRoute';
 import { heldAgents } from '../chat/queue';
 import { githubTag } from '../github/agentAccess';
 import '../github/github-access.css';
@@ -81,7 +82,7 @@ export function AgentRail() {
           const subText = queuedHeld > 0 ? (held.get(a.id) === 1 ? 'Queued message paused' : `${held.get(a.id)} queues paused`) : line.text;
           const full = queuedHeld > 0 ? subText : line.full;
           return (
-            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => selectAgent(a.id)} aria-current={a.id === sel}
+            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => { const first = line.tone === 'attn' && !queuedHeld ? agentAsks(lineFacts, a.id, filter)[0] : undefined; selectAgent(a.id); if (first) openAskTarget(askTarget(first)); }} aria-current={a.id === sel}
               tabIndex={a.id === tabStop ? 0 : -1} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}`}
               aria-label={`${a.name}. ${full}${line.runs >= 2 ? `. ${line.runs} live runs` : ''}`}>
               {hasBust(a.id)

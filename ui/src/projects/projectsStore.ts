@@ -7,6 +7,7 @@ import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
 import { resolveAsk } from './openAsk';
 import { railRowTarget, requestAsk, requestInbox } from './railRoute';
+import type { RailTarget } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 import type { WaitingRow } from './projectsLogic';
@@ -52,12 +53,15 @@ export function openAsk(ref: AskRef): void {
   if (act.kind === 'thread') { setView('chat'); selectTask(act.taskId); } else if (act.kind === 'project') openProject(act.projectId);
 }
 /** A rail row: a proposal opens its Inbox entry on the project's Board; an approval or question opens the thread with that card in view. */
-export function openRailRow(row: WaitingRow): void {
-  const t = railRowTarget(row);
+export function openRailRow(row: WaitingRow): void { openAskTarget(railRowTarget(row)); }
+/** Applies the answer of `askTarget`. */
+export function openAskTarget(t: RailTarget): void {
   if (t.kind === 'inbox') { requestInbox(t.projectId, t.itemId); openProjectBoard(t.projectId); }
   else if (t.kind === 'thread') { requestAsk(t.taskId, t.askId); openAsk({ taskId: t.taskId }); }
   else if (t.kind === 'project') openProject(t.projectId);
 }
+/** The proposal in its project's Inbox, entry in view. */
+export const openInboxItem = (projectId: string, itemId: string): void => openAskTarget({ kind: 'inbox', projectId, itemId });
 export const closeProjectPage = (): void => setView('chat');
 
 export async function createProject(name: string, instructions: string): Promise<Project> {
