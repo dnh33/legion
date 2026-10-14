@@ -6,6 +6,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
+- **Settings is easier to scan.** The list on the left now has short headings (Get started, Your agents, Staying informed, Connections, Advanced) and the sections you use most come first. Nothing moved out of Settings and every link into a section still works. The selected section now has a full outline and bolder text instead of a coloured edge.
 - Banners, notices, tips and selected rows no longer use a coloured stripe down their left edge. They now show their state with a full outline, a soft tint and a small icon. A board card that read outside content carries an "Outside content, not reviewed" label with an amber outline.
 
 ### Added
