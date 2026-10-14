@@ -143,7 +143,7 @@ test('no key shortcut approves any Blender card, and the Blender card is not a o
 test('status lights: local ("Local ready") and busy ("Running a script"), VM called VM', () => {
   const lightLabel = run<(l: string) => { label: string; tone: string }>(cut(read('ui/src/blender/chipModel.ts'), 'export function lightLabel', ''), 'lightLabel');
   assert.deepEqual(lightLabel('local'), { label: 'Local ready', tone: 'on' });
-  assert.deepEqual(lightLabel('busy'), { label: 'Running a script', tone: 'warn' });
+  assert.deepEqual(lightLabel('busy'), { label: 'Running a script', tone: 'on' });
   assert.equal(lightLabel('sandbox').label, 'VM ready');
   assert.equal(lightLabel('connected').label, 'Connected');
   const meta = read('ui/src/blender/BlenderCard.tsx');

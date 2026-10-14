@@ -309,12 +309,12 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
     <Modal title={item ? 'Work item' : 'New work item'} onClose={onClose} width={640}>
       <form className="form bd-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         {item?.trust === 'untrusted' && !item.proposal && (
-          <div className="proj-note" role="note">
+          <div className="proj-note needs" role="note">
             <strong>Written by an agent, not reviewed.</strong> Read the text below. Until you mark it reviewed, &ldquo;Run this item&rdquo; starts the run with the stricter &ldquo;ask&rdquo; approvals.
             <div><button type="button" className="btn sm" disabled={archived || busy || textEdited} onClick={() => void own({ trust: 'human' })}>Mark as reviewed</button>{textEdited && <span className="field-note"> Save your text edits first.</span>}</div>
           </div>
         )}
-        {moved && <p className="proj-note" role="status">This item changed while it was open. Fields you had not edited now show the new values; your edits are kept. Check them, then save again.</p>}
+        {moved && <p className="proj-note needs" role="status">This item changed while it was open. Fields you had not edited now show the new values; your edits are kept. Check them, then save again.</p>}
         <label>Title<input value={title} maxLength={BOARD_LIMITS.titleChars} required data-autofocus disabled={archived} onChange={(e) => setTitle(e.target.value)} /></label>
         <label>Description
           <textarea rows={6} value={desc} disabled={archived} aria-describedby="bd-dcount" onChange={(e) => setDesc(e.target.value)} />

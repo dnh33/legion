@@ -6,7 +6,9 @@
 .mascot-stage .mx.quip-in .mx-quip { animation: relic-quip-in .2s var(--ease) 1; }
 @keyframes relic-quip-in { from { opacity: 0; transform: translate(-50%, -4px); } }
 .vm-tag { flex: none; margin-left: 4px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--accent-line); color: var(--accent-text); font-size: 10.5px; }
-.ml-awaiting i, .ml-thinking i { background: var(--warn) !important; animation: blink 1s ease-in-out infinite; }
+.ml-awaiting i { background: var(--warn) !important; animation: blink 1s ease-in-out infinite; }
+/* thinking is ordinary work: a steady neutral dot, never amber (amber means something needs you) */
+.ml-thinking i { background: var(--text-2) !important; animation: none !important; }
 .ml-hacking i, .ml-victory i { background: var(--accent) !important; }
 .ml-listening i { background: var(--text-2) !important; }
 .ml-error i, .ml-annoyed i { background: var(--danger) !important; }
