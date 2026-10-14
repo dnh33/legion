@@ -159,7 +159,12 @@ export function createAwayModule(deps: ModuleDeps, opts: AwayModuleOpts): AwayMo
       add('GET', '/api/spend', ({ url }) => {
         const scope = url.searchParams.get('scope') ?? 'app';
         if (scope === 'app') return ledger.summary(now());
-        if (scope === 'project') return ledger.summary(now(), must(url.searchParams.get('project') ?? undefined));
+        if (scope === 'project') {
+          const id = must(url.searchParams.get('project') ?? undefined);
+          // the page needs the verdict (reached, overridden, when the period rolls over), not only the week's sum
+          const { limited, reached, overridden, spent, limit, period, periodEnd } = service.status(id);
+          return { ...ledger.summary(now(), id), budget: { limited, reached, overridden, spent, ...(limit !== undefined ? { limit } : {}), ...(period ? { period } : {}), ...(periodEnd !== undefined ? { periodEnd } : {}) } };
+        }
         throw new HttpError(400, "scope must be 'app' or 'project'");
       });
     },

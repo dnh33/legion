@@ -140,6 +140,25 @@ test('spend: app and project scope, bad scope 400, unknown project 404', async (
   } finally { await r.close(); }
 });
 
+test('spend: the project scope carries the budget verdict the page needs', async () => {
+  const now = new Date(2026, 9, 14, 15).getTime();
+  const r = await boot({ now: () => now });
+  try {
+    r.mod.service.recordSpend({ taskId: 't', agentId: 'zealot', projectId: r.pid, usd: 6 });
+    type B = { limited: boolean; reached: boolean; overridden: boolean; spent: number; limit?: number; period?: string; periodEnd?: number };
+    const get = async () => (await (await r.call('GET', `/api/spend?scope=project&project=${r.pid}`)).json() as { budget: B }).budget;
+    assert.deepEqual(await get(), { limited: false, reached: false, overridden: false, spent: 0 });
+    await r.call('PATCH', `/api/away/projects/${r.pid}`, { budget: { limit: 5, period: 'week' } });
+    assert.deepEqual(await get(), { limited: true, reached: true, overridden: false, spent: 6, limit: 5, period: 'week', periodEnd: new Date(2026, 9, 19).getTime() });
+    await r.call('POST', `/api/away/projects/${r.pid}/budget-override`, {});
+    const after = await get();
+    assert.equal(after.reached, false);
+    assert.equal(after.overridden, true);
+    const app = await (await r.call('GET', '/api/spend')).json() as { budget?: unknown };
+    assert.equal(app.budget, undefined, 'the app scope has no single budget');
+  } finally { await r.close(); }
+});
+
 test('hold route: body validated, forwards to the broker', async () => {
   const r = await boot();
   try {
