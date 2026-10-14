@@ -201,7 +201,7 @@ export class ProviderRuntime {
     const at = new Date().toISOString();
     try {
       const ids = await this.refreshModels(id);
-      const r = { at, ok: true, detail: `Legion's test request was accepted${ids.length ? ` (${ids.length} model ids listed)` : ''}.` };
+      const r = { at, ok: true, detail: ids.length ? `Legion's test request was accepted (${ids.length} model ids listed).` : "Legion's test request was accepted, but the server lists no models yet. Add or load one, then press Refresh models." };
       this.tests.set(id, r);
       return r;
     } catch (e) {

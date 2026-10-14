@@ -880,7 +880,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }
-      if (r.toolsPrompted && !noticedRefused) { noticedRefused = true; host.onNotice('This model has no native tool calling, so Legion is describing the tools in the prompt and reading its calls from the reply. Tool calls still go through the same approvals.'); }
+      if (r.toolsPrompted && !noticedRefused) { noticedRefused = true; host.onNotice('Native tool calls are not available here (this model has none, or the server was not started for them), so Legion is describing the tools in the prompt and reading its calls from the reply. Tool calls still go through the same approvals.'); }
       const shownRaw = hideLeakedToolCalls(redact(r.text));
       const text = shownRaw.text.trim();
       if (shownRaw.hidden && r.toolCalls.length === 0) host.onNotice('The model wrote a tool call as plain text instead of calling the tool, so it did not run. The call was hidden from the answer.');

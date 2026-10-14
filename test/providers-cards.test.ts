@@ -24,6 +24,9 @@ test('the notes say what the person must run or paste, in plain words', () => {
   assert.match(note('ollama'), /Start Ollama/);
   assert.match(note('ollama'), /pull a model/);
   assert.match(note('lmstudio'), /start its local server/);
+  assert.match(note('lmstudio'), /API tokens/);
+  assert.match(note('vllm'), /--enable-auto-tool-choice and --tool-call-parser/);
+  assert.match(note('ollama'), /first message .* can take a while/);
   assert.match(note('vllm'), /server that you run/);
   assert.match(note('vllm'), /only if you started the server with one/);
   for (const p of PROVIDER_PRESETS) assert.doesNotMatch(p.note, /this (computer|machine)|—/, p.id);

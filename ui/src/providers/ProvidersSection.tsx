@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { ProviderView } from '../../../src/shared/providers-view';
 import { getProviders, loadProviders, refreshModels, removeKey, removeProvider, saveEntry, saveKey, saveLimits, testProvider, useProviders } from './providersStore';
+import { openExternal } from '../api';
+import { useStore } from '../store';
 import { keyFieldFor, visibleCards } from './cards';
+import { feedbackFor } from './feedback';
 import './providers.css';
 
 const PLAIN_ID = /^[a-z][a-z0-9-]{1,31}$/;
@@ -15,6 +18,8 @@ function ProviderCard({ p }: { p: ProviderView }) {
   const [editAddr, setEditAddr] = useState(false);
   const mine = busy === p.id;
   const keyField = keyFieldFor(p);
+  const version = useStore((x) => x.version);
+  const feedback = feedbackFor(p.id, version);
   const submitKey = async () => { const k = key; setKey(''); if (k.trim()) await saveKey(p.id, k.trim()); };
   return (
     <article className="prov-card" aria-label={p.label}>
@@ -23,6 +28,7 @@ function ProviderCard({ p }: { p: ProviderView }) {
         <label className="prov-switch"><input type="checkbox" checked={p.enabled} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { enabled: e.target.checked })} /> {p.enabled ? 'On' : 'Off'}</label>
       </header>
       {p.note && <p className="field-note">{p.note}</p>}
+      {feedback && <button type="button" className="prov-feedback" onClick={() => openExternal(feedback.url)}>{feedback.label}</button>}
       <p className="prov-status" role="status">{p.status}</p>
       {p.lastTest && <p className="field-note">{p.lastTest.detail}</p>}
       <div className="prov-row">

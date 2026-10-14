@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { providerRequest, ProviderHttpError, providerRequestsInFlight } from '../src/core/providers/http.js';
+import { DEFAULT_LIMITS, headerWaitMs, LOCAL_LOAD_HEADER_MS, providerRequest, ProviderHttpError, providerRequestsInFlight } from '../src/core/providers/http.js';
 import type { ProviderTarget } from '../src/core/providers/http.js';
 import { chatTurn, listModelIds } from '../src/core/providers/openai-compat.js';
 import { chunk, entryFor, FAKE_KEY, jsonReply, replyText, sseHead, sseSend, startFake } from './providers-fakes.js';
@@ -199,4 +199,13 @@ test('chatTurn: OpenRouter\'s "can only afford N" retries once with N; too littl
     const nf = await chatTurn({ entry: mk('/nofield') }, { model: 'm', messages: [], tools: [], maxTokens: 32_768, onText: () => undefined });
     assert.equal(nf.text, 'no cap');
   } finally { await f.close(); }
+});
+
+test('a local model that is still loading gets more time to answer than a remote one; an explicit limit always wins', () => {
+  // First message after a local model was last used: the server loads it from disk first and sends no header until then (seen with Ollama: 150 s on a cold start).
+  assert.equal(headerWaitMs(undefined, true, 'POST'), LOCAL_LOAD_HEADER_MS);
+  assert.ok(LOCAL_LOAD_HEADER_MS >= 5 * 60_000 - 1);
+  assert.equal(headerWaitMs(undefined, false, 'POST'), DEFAULT_LIMITS.headerMs, 'a remote provider keeps the short wait');
+  assert.equal(headerWaitMs(undefined, true, 'GET'), DEFAULT_LIMITS.headerMs, 'a models list never waits for a load');
+  assert.equal(headerWaitMs(150, true, 'POST'), 150, 'a caller that sets a limit keeps it');
 });

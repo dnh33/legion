@@ -1,0 +1,73 @@
+name: Provider report
+description: Tell us how Legion works with OpenAI, Ollama, LM Studio, vLLM, OpenRouter or your own endpoint
+title: "[Provider] "
+labels: [providers]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying a provider. A short report helps a lot, and it can be a good one or a bad one.
+        Please do not paste your API key, your `authToken` or anything private from your chats.
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider?
+      options: [OpenAI, Ollama, LM Studio, vLLM, OpenRouter, Custom endpoint]
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model name
+      description: The model id you chose for the agent.
+      placeholder: "qwen2.5:7b"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Legion version
+      description: Settings, About shows it.
+      placeholder: "0.2.6"
+    validations:
+      required: true
+  - type: checkboxes
+    id: worked
+    attributes:
+      label: What worked?
+      description: Tick everything that worked for you.
+      options:
+        - label: A plain answer to a question
+        - label: Tool calls (the agent used a tool)
+        - label: Approvals (the approval card appeared and I could allow or deny)
+        - label: Long chats and compaction (a long task kept going)
+        - label: Cost shown (the task showed a cost)
+  - type: checkboxes
+    id: failed
+    attributes:
+      label: What did not work?
+      description: Tick everything that failed or looked wrong.
+      options:
+        - label: A plain answer to a question
+        - label: Tool calls (the agent used a tool)
+        - label: Approvals (the approval card appeared and I could allow or deny)
+        - label: Long chats and compaction (a long task kept going)
+        - label: Cost shown (the task showed a cost)
+  - type: textarea
+    id: error
+    attributes:
+      label: Error text
+      description: The message Legion showed, word for word. Remove anything private first.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: What you did, what you expected, and what you saw instead.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows 11, Windows 10, macOS, Linux, Other]
+    validations:
+      required: true

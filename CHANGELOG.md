@@ -12,6 +12,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **OpenAI, Ollama, LM Studio and vLLM are in Settings, Providers.** They were shown greyed out as "Next release". Each has its
   own card now, with a note on what you need to run or paste. A local server's card has an optional key field, for a
   server you started with a key.
+- **Tell us how a provider works for you.** The OpenAI, Ollama, LM Studio and vLLM cards have a quiet link, "New. Tell us how it works". It opens a short form on GitHub with the provider and your Legion version already filled in. Nothing else is sent: no key and no text from your chats.
 
 ### Changed
 
@@ -33,6 +34,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   reviewed has a dashed edge and "Not reviewed". One written after the agent read outside content (a web page, a shell
   command or another tool) is marked in yellow, "Outside content, not reviewed", because that text is the one to read first.
 
+- **The first message to a local model no longer fails while the model loads.** Ollama, LM Studio and vLLM load a model from disk before they answer the first message after it has been idle. That can take a few minutes, and Legion gave up after 30 seconds with "did not answer in time". It now waits up to five minutes for a server on your computer.
+- **A server with no models says so.** Pressing Test on a local server that is running but has no model now tells you to add or load one, instead of only saying the request was accepted.
+- **The provider cards say what you need to do.** Ollama's card mentions the slow first message, LM Studio's card mentions the Developer tab and optional API tokens, and vLLM's card names the two settings it needs for tool calls. The notice shown when Legion puts the tools in the prompt no longer blames the model when the server was just not set up for tool calls.
 - **A fresh install no longer fails when antivirus removes a file Legion did not need.** Some antivirus programs removed
   Electron's built-in starter app (`default_app.asar`) while the install was unpacking, and the install stopped with "Windows
   or your antivirus blocked or removed ...". Legion now starts from its own small start file and the package no longer
