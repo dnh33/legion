@@ -116,6 +116,8 @@ export interface AgentProfile {
    *  'full'       — never ask
    */
   approval: ApprovalMode;
+  /** Where this agent's mode comes from (spec 4.2): its own `approval` ('own', and absent) or its project's preset ('project', "Follow project"). */
+  approvalSource?: 'own' | 'project';
   /** Names of entries in LegionConfig.mcpServers this agent gets. ['*'] = all. */
   mcpServers: string[];
   /**
