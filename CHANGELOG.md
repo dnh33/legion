@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Stop a team.** When a task has started other tasks, you can stop it and everything it started in one click ("Stop
+  this and the 2 tasks it started", in the task menu and next to Stop). Their late answers no longer wake the task you
+  stopped.
+
 ### Fixed
 
 - **A tool call written as plain text is no longer shown as the answer.** Some models write `<tool_call>` markup into

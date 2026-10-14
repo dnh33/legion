@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { archiveTask, closeOthers, closeTaskMenu, deleteTask, reopenTask, startRename, stopTask, toast, useStore } from '../store';
+import { archiveTask, closeOthers, closeTaskMenu, deleteTask, reopenTask, startRename, stopTask, stopTeam, toast, useStore } from '../store';
+import { startedLive, stopTeamLabel } from '../chat/team';
 import { copyText } from '../util';
 import { Icon } from './icons';
 
@@ -8,6 +9,7 @@ export function TaskMenu() {
   const menu = useStore((s) => s.taskMenu);
   const task = useStore((s) => s.tasks.find((t) => t.id === s.taskMenu?.taskId));
   const siblings = useStore((s) => s.tasks.filter((t) => t.agentId === task?.agentId && !t.archived && t.id !== task?.id).length);
+  const started = useStore((s) => (task ? startedLive(s.tasks, task.id).length : 0));
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [confirm, setConfirm] = useState(false);
@@ -39,6 +41,7 @@ export function TaskMenu() {
     { key: 'others', label: 'Close others', run: act(() => void closeOthers(task.id)), disabled: siblings === 0 },
     { key: 'rename', label: 'Rename', icon: 'edit', run: () => startRename(task.id, menu.src) },
     ...(running ? [{ key: 'stop', label: 'Stop', icon: 'stop', run: act(() => void stopTask(task.id)) }] : []),
+    ...(started > 0 ? [{ key: 'stopteam', label: stopTeamLabel(started), icon: 'stop', run: act(() => void stopTeam(task.id)) }] : []),
     { key: 'copy', label: 'Copy task id', icon: 'copy', run: act(() => void copyText(task.id).then((ok) => ok && toast('Task id copied'))) },
     { key: 'delete', label: confirm ? 'Delete for good?' : 'Delete…', icon: 'trash', danger: true, disabled: running, keep: !confirm, run: () => { if (confirm) { closeTaskMenu(); void deleteTask(task.id); } else setConfirm(true); } },
   ];

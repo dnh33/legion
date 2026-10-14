@@ -153,6 +153,8 @@ export const api = {
   searchMessages: (id: string, q: string) => request<{ hits: Array<{ index: number; id: string; role: string; snippet: string }>; total: number }>('GET', `/api/tasks/${encodeURIComponent(id)}/messages?q=${encodeURIComponent(q)}`),
   getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
   cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
+  /** Stop a task and every task it started, and keep their send-backs from waking it. */
+  cancelTeam: (id: string) => request<{ ok: boolean; cancelled: string[] }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel-team`),
   /** POST /api/tasks/:id/compact: ask the engine to compact this conversation now, optionally keeping a focus instruction. */
   compactNow: (taskId: string, focus?: string) => request<{ ok: boolean; detail: string }>('POST', `/api/tasks/${encodeURIComponent(taskId)}/compact`, focus ? { focus } : {}),
   vms: () => request<VmRecord[]>('GET', '/api/vms'),

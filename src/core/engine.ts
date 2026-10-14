@@ -665,6 +665,14 @@ export class Engine {
     return true;
   }
 
+  /** The tasks a task started, and the ones those started (what "Stop a team" would also stop, live or not). */
+  teamOf(taskId: string): string[] { return this.bridge.teamOf(taskId); }
+
+  /** Stop a team: cancel the task and every task it started, and stop their send-backs from waking the caller. `cancelled` lists the live ones stopped. */
+  cancelTeam(taskId: string): { cancelled: string[] } {
+    return { cancelled: this.bridge.stopTeam(taskId) };
+  }
+
   waitFor(taskId: string, timeoutMs: number): Promise<Task> {
     const cur = this.store.getTask(taskId);
     if (!cur) return Promise.reject(new EngineError(`Unknown task: ${taskId}`, 404));
