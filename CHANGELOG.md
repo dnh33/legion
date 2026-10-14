@@ -33,7 +33,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **A slow first start no longer rolls back a good update.** A larger update gets 3 minutes to start (and a little longer if it is still starting), instead of 1 minute.
 - **If Legion cannot prepare an update, it says so and keeps working.** Nothing is changed and your current version starts again.
 - **Updates use less disk.** The downloaded file is deleted once it is unpacked, the old copy is removed after the new version starts well, and the free space check now counts the real size.
-
+- **Hovering a mascot no longer flashes.** Pointing at an agent in the list, or moving away, could show an empty tile for a moment before the picture came back. The still now stays until the live mascot has drawn, the two fade into each other, and moving away fades back to the same picture.
 - The big picture of the selected agent no longer asks for you when a different agent has an approval waiting.
 - A queued run that is waiting for a free slot now says so on the project page.
 - **The message box keeps its controls while a run is going.** With "Stop all" showing, the model name no longer shrinks to "A..." and the key hint no longer gets cut off. The hint hides first when the box is narrow; the model name, Add or Queue, Stop all and Stop always stay.
