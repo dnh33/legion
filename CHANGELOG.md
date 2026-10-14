@@ -29,9 +29,6 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - The big picture of the selected agent no longer asks for you when a different agent has an approval waiting.
 - A queued run that is waiting for a free slot now says so on the project page.
-
-### Fixed
-
 - **The message box keeps its controls while a run is going.** With "Stop all" showing, the model name no longer shrinks to "A..." and the key hint no longer gets cut off. The hint hides first when the box is narrow; the model name, Add or Queue, Stop all and Stop always stay.
 - **Settings, Providers no longer shows an old version number.** The Codex note now says "Codex: later" instead of a version from the past.
 
