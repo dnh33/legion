@@ -4,6 +4,9 @@
  * answers 'unknown' without a permission map, and NO write members: writes are a separate `FakeWrites` a scenario enables. It answers the two list calls the
  * CI module makes (`/repos/{o}/{r}/actions/runs`, `/repos/{o}/{r}/actions/runs/{id}/jobs`) with JSON in GitHub's documented shape, speaks ETag and
  * 304, counts a rate budget, and can refuse logs, answer 403/404 or run out of rate. Every call is recorded in `calls` / `writes`.
+ * The GitHub area adds (two apps, read and write): GET /user/installations, /user/installations/{id}/repositories (paged, per_page capped at 100),
+ * /user/orgs; POST /user/repos and /orgs/{org}/repos (201, 422 name exists, 403 org approval, 404, 429 with reset; a created repo joins the write
+ * install at once); and the write calls the gateway makes (issue, comment, pull request, review, re-run failed jobs, cancel a run).
  * Nothing here opens a socket.
  */
 import { GhError as GhClientError } from '../connectors/github/client.js';
@@ -12,7 +15,12 @@ import { asGhError } from './port.js';
 import type { GhError } from './port.js';
 
 type Raw = Record<string, unknown>;
-export interface FakeCall { method: string; path: string; ifNoneMatch?: string }
+/** `status` and `reason` are what GitHub answered, kept for tests: the real client folds some statuses (a 422 becomes a non-retryable network error), so the status is the only place a test can read it. */
+export interface FakeCall { method: string; path: string; ifNoneMatch?: string; status?: number; reason?: string }
+export interface FakeInstallation { id: number; slug: string; selection: 'selected' | 'all'; account: string; permissions?: Record<string, string>; repos: string[] }
+export type FakeWrite =
+  | { op: 'rerun' | 'cancel'; runId: number; repo: string }
+  | { op: 'issue' | 'comment' | 'pr' | 'review' | 'create-repo'; repo: string; number?: number };
 
 const ISO = (ms: number): string => new Date(ms).toISOString();
 
@@ -27,7 +35,14 @@ export class FakeGitHub implements GitHubPort {
   /** 'ok' serves logs; 'refused' throws logs-unavailable (the real client does until the storage host list is filled). */
   logsMode: 'ok' | 'refused' | 'expired' = 'refused';
   calls: FakeCall[] = [];
-  writes: Array<{ op: 'rerun' | 'cancel'; runId: number; repo: string }> = [];
+  writes: FakeWrite[] = [];
+  installations: FakeInstallation[] = [];
+  orgs = new Map<string, { needsApproval: boolean }>();
+  /** Every repo name that exists (lower case), for the 422 "name exists" answer. */
+  private known = new Set<string>();
+  /** The next create call answers this status once (403 or 429 with a reset). */
+  failCreate: { status: 403 | 429; resetAt?: string } | null = null;
+  private seq = 100;
   /** Whether the write members exist (a scenario enables them; the real writes module may not exist yet). */
   writesOn = false;
   connectionCalls = 0;
@@ -68,6 +83,12 @@ export class FakeGitHub implements GitHubPort {
     for (const j of this.jobs.get(id) ?? []) if (j.status !== 'completed') { j.status = 'completed'; j.conclusion = conclusion; j.completed_at = ISO(this.now()); }
     this.touch();
   }
+  addInstallation(i: FakeInstallation): void {
+    this.installations.push({ ...i, repos: [...i.repos] });
+    for (const r of i.repos) this.known.add(r.toLowerCase());
+    this.touch();
+  }
+  addOrg(login: string, o: { needsApproval?: boolean } = {}): void { this.orgs.set(login.toLowerCase(), { needsApproval: o.needsApproval === true }); this.touch(); }
   clear(): void { this.runs = []; this.jobs.clear(); this.logText.clear(); this.touch(); }
 
   /* ---------- GitHubPort ---------- */
@@ -95,24 +116,61 @@ export class FakeGitHub implements GitHubPort {
     throw thrown(f.error);
   }
 
+  private refuse(call: FakeCall, status: number, e: GhError, reason?: string): never {
+    call.status = status;
+    if (reason) call.reason = reason;
+    throw thrown(e);
+  }
+  private repoJson(full: string, priv = true): Raw {
+    const [owner = '', name = ''] = full.split('/');
+    return { id: 1000 + [...full].reduce((n, c) => n + c.charCodeAt(0), 0), name, full_name: full, private: priv, html_url: `https://github.com/${full}`, owner: { login: owner }, default_branch: 'main' };
+  }
+  /** The GET routes the area uses besides the CI lists. Null: not one of them. */
+  private areaRoute(pathname: string, sp: URLSearchParams, call: FakeCall): (() => unknown) | null {
+    const paged = <T>(all: T[]): T[] => {
+      const per = Math.min(100, Math.max(1, Number(sp.get('per_page') ?? 30) || 30));
+      const page = Math.max(1, Number(sp.get('page') ?? 1) || 1);
+      return all.slice((page - 1) * per, page * per);
+    };
+    const signedIn = (): void => { if (this.conn.auth === 'anonymous') this.refuse(call, 401, { kind: 'not-connected' }); };
+    const inst = (i: FakeInstallation): Raw => ({ id: i.id, app_slug: i.slug, app_id: i.id * 7, repository_selection: i.selection, permissions: { ...(i.permissions ?? {}) }, account: { login: i.account, type: i.account === this.conn.login ? 'User' : 'Organization' } });
+    if (pathname === '/user/installations') return () => { signedIn(); return { total_count: this.installations.length, installations: paged(this.installations).map(inst) }; };
+    const r = /^\/user\/installations\/(\d+)\/repositories$/.exec(pathname);
+    if (r) return () => {
+      signedIn();
+      const i = this.installations.find((x) => x.id === Number(r[1]));
+      if (!i) this.refuse(call, 404, { kind: 'not-found' });
+      return { total_count: i.repos.length, repository_selection: i.selection, repositories: paged(i.repos).map((f) => this.repoJson(f)) };
+    };
+    if (pathname === '/user/orgs') return () => { signedIn(); return paged([...this.orgs.keys()]).map((login, n) => ({ login, id: 5000 + n })); };
+    return null;
+  }
+
   async request(path: string, init: GhInit = {}): Promise<GhResponse> {
     const ifNoneMatch = init.ifNoneMatch;
-    this.calls.push({ method: init.method ?? 'GET', path, ...(ifNoneMatch ? { ifNoneMatch } : {}) });
+    const call: FakeCall = { method: init.method ?? 'GET', path, ...(ifNoneMatch ? { ifNoneMatch } : {}) };
+    this.calls.push(call);
     this.maybeFail();
     // the same refusals as the real client
     if (!path.startsWith('/') || path.startsWith('//') || /[\\\s#]/.test(path)) throw thrown({ kind: 'network', retryable: false });
     const url = new URL(path, 'https://api.github.com');
-    const m = /^\/repos\/([^/]+)\/([^/]+)\/actions\/runs(?:\/(\d+)\/jobs)?$/.exec(url.pathname);
-    if (!m) throw thrown({ kind: 'not-found' });
-    const repo = `${m[1]}/${m[2]}`;
-    if (this.missingRepos.has(repo)) { this.spend(false); throw thrown({ kind: 'not-found' }); }
-    if (this.privateRepos.has(repo) && this.conn.auth === 'anonymous') { this.spend(false); throw thrown({ kind: 'not-connected' }); }
+    if (call.method !== 'GET') return this.send(url, init, call);
+    const area = this.areaRoute(url.pathname, url.searchParams, call);
+    const m = area ? null : /^\/repos\/([^/]+)\/([^/]+)\/actions\/runs(?:\/(\d+)\/jobs)?$/.exec(url.pathname);
+    if (!area && !m) this.refuse(call, 404, { kind: 'not-found' });
+    if (m) {
+      const repo = `${m[1]}/${m[2]}`;
+      if (this.missingRepos.has(repo)) { this.spend(false); this.refuse(call, 404, { kind: 'not-found' }); }
+      if (this.privateRepos.has(repo) && this.conn.auth === 'anonymous') { this.spend(false); this.refuse(call, 401, { kind: 'not-connected' }); }
+    }
     const etag = `W/"${this.rev}-${url.pathname}${url.search}"`;
-    if (ifNoneMatch === etag) { this.spend(true); return { status: 304, json: null, etag, notModified: true, rate: { ...this.conn.rate } }; }
+    if (ifNoneMatch === etag) { this.spend(true); call.status = 304; return { status: 304, json: null, etag, notModified: true, rate: { ...this.conn.rate } }; }
     this.spend(false);
     let json: unknown;
-    if (m[3]) {
-      const list = this.jobs.get(Number(m[3])) ?? [];
+    if (area) {
+      json = area();
+    } else if (m![3]) {
+      const list = this.jobs.get(Number(m![3])) ?? [];
       json = { total_count: list.length, jobs: list };
     } else {
       const branch = url.searchParams.get('branch');
@@ -120,7 +178,64 @@ export class FakeGitHub implements GitHubPort {
       const list = this.runs.filter((r) => !branch || r.head_branch === branch).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || Number(b.id) - Number(a.id)).slice(0, per);
       json = { total_count: list.length, workflow_runs: list };
     }
+    call.status = 200;
     return { status: 200, json, etag, rate: { ...this.conn.rate } };
+  }
+
+  /** POST: repo create and the write calls the gateway makes. Each send counts against the rate budget; nothing is retried here. */
+  private send(url: URL, init: GhInit, call: FakeCall): GhResponse {
+    const res = (status: number, json: unknown): GhResponse => { call.status = status; this.touch(); return { status, json, rate: { ...this.conn.rate } }; };
+    if (call.method !== 'POST') this.refuse(call, 404, { kind: 'not-found' });
+    if (this.conn.auth === 'anonymous') this.refuse(call, 401, { kind: 'not-connected' });
+    this.spend(false);
+    let body: Raw = {};
+    try { const b: unknown = init.body ? JSON.parse(init.body) : {}; if (b && typeof b === 'object') body = b as Raw; } catch { this.refuse(call, 422, { kind: 'network', retryable: false }, 'invalid'); }
+    const p = url.pathname;
+
+    const org = /^\/orgs\/([^/]+)\/repos$/.exec(p);
+    if (p === '/user/repos' || org) {
+      const f = this.failCreate; this.failCreate = null;
+      if (f?.status === 429) this.refuse(call, 429, { kind: 'rate-limited', resetAt: f.resetAt ?? this.conn.rate.resetAt });
+      if (f?.status === 403) this.refuse(call, 403, { kind: 'forbidden', needs: 'write' }, 'no-create-right');
+      let owner = this.conn.login ?? 'octo';
+      if (org) {
+        const o = this.orgs.get(org[1]!.toLowerCase());
+        if (!o) this.refuse(call, 404, { kind: 'not-found' });
+        if (o.needsApproval) this.refuse(call, 403, { kind: 'forbidden', needs: 'write' }, 'org-approval');
+        owner = org[1]!;
+      }
+      const name = body.name;
+      if (typeof name !== 'string' || !/^[A-Za-z0-9._-]{1,100}$/.test(name)) this.refuse(call, 422, { kind: 'network', retryable: false }, 'invalid');
+      const full = `${owner}/${name}`;
+      if (this.known.has(full.toLowerCase())) this.refuse(call, 422, { kind: 'network', retryable: false }, 'name-exists');
+      this.known.add(full.toLowerCase());
+      // GitHub grants the app that created a repo access to it, so it shows in that install at once (selected installs only)
+      const w = this.installations.find((i) => i.slug === 'legion-write' && i.account.toLowerCase() === owner.toLowerCase());
+      if (w?.selection === 'selected') w.repos.push(full);
+      this.writes.push({ op: 'create-repo', repo: full });
+      return res(201, this.repoJson(full, body.private === true));
+    }
+
+    const m = /^\/repos\/([^/]+)\/([^/]+)\/(issues|pulls|issues\/(\d+)\/comments|pulls\/(\d+)\/reviews|actions\/runs\/(\d+)\/(rerun-failed-jobs|cancel))$/.exec(p);
+    if (!m) this.refuse(call, 404, { kind: 'not-found' });
+    const repo = `${m[1]}/${m[2]}`;
+    if (this.missingRepos.has(repo)) this.refuse(call, 404, { kind: 'not-found' });
+    const kind = m[3]!;
+    const area: GhArea = kind.startsWith('actions') ? 'actions' : kind.startsWith('pulls') ? 'pull_requests' : 'issues';
+    if (this.can(area, 'write') !== 'yes') this.refuse(call, 403, { kind: 'forbidden', needs: 'write' });
+    if (m[6]) {
+      const r = this.runs.find((x) => x.id === Number(m[6]));
+      if (!r) this.refuse(call, 404, { kind: 'not-found' });
+      if (m[7] === 'cancel') { r.status = 'completed'; r.conclusion = 'cancelled'; this.writes.push({ op: 'cancel', runId: Number(m[6]), repo }); return res(202, {}); }
+      r.status = 'queued'; r.conclusion = null; r.run_attempt = Number(r.run_attempt ?? 1) + 1; this.writes.push({ op: 'rerun', runId: Number(m[6]), repo });
+      return res(201, {});
+    }
+    const number = ++this.seq;
+    if (m[4]) { this.writes.push({ op: 'comment', repo, number: Number(m[4]) }); return res(201, { id: number, html_url: `https://github.com/${repo}/issues/${m[4]}#issuecomment-${number}`, body: body.body }); }
+    if (m[5]) { this.writes.push({ op: 'review', repo, number: Number(m[5]) }); return res(200, { id: number, state: 'COMMENTED', html_url: `https://github.com/${repo}/pull/${m[5]}#pullrequestreview-${number}` }); }
+    const pr = kind === 'pulls';
+    this.writes.push({ op: pr ? 'pr' : 'issue', repo, number });
+    return res(201, { number, title: body.title, state: 'open', html_url: `https://github.com/${repo}/${pr ? 'pull' : 'issues'}/${number}` });
   }
 
   async logs(jobId: number | string, _repo: string): Promise<{ text: string; truncated: boolean }> {

@@ -98,7 +98,7 @@ describe('amber means something needs you', () => {
 
   it('an agent-written item stands out without amber; one from a run that read outside content is amber', () => {
     const plain = rulesFor('.bd-card.untrusted');
-    assert.ok(plain.some((r) => /border-left[^;]*dashed/.test(r.body)), 'an unreviewed agent item has its own dashed marker, so it never looks like your own');
+    assert.ok(plain.some((r) => /border[^;]*dashed/.test(r.body)), 'an unreviewed agent item has its own dashed marker, so it never looks like your own');
     const tainted = rulesFor('.bd-card.tainted');
     assert.ok(tainted.length > 0 && tainted.some((r) => usesAmber(r.body)), 'an item written after reading outside content is amber');
     const board = readFileSync(join(UI, 'projects', 'board', 'BoardPanel.tsx'), 'utf8');

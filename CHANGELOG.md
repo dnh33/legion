@@ -4,9 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Banners, notices, tips and selected rows no longer use a coloured stripe down their left edge. They now show their state with a full outline, a soft tint and a small icon. A board card that read outside content carries an "Outside content, not reviewed" label with an amber outline.
+
 ### Added
 
 - **A few short tips after an update.** When Legion updates, it can point out what is new, one small note beside the thing it explains. It waits until nothing needs you, never dims or blocks the page, and never moves on by itself. Press Next or Skip, or Escape to end it. The first tip also has Skip tour (it comes back next time), End tour, and a link that turns tips off. Settings, About has a "Show tips after updates" switch and a "What's new" button that shows the tips again. A new install shows none. A tip never covers a button, a link or the page heading: when its usual spot would, it opens as a note right under the row it points at and moves the page down.
+- **Quiet sounds.** Legion now plays a short sound when something needs you, when a run finishes, when a run fails, and when you press Allow or Deny. Flipping a switch in Settings makes a small click sound too. Typing, clicking around, moving between pages and streaming text stay silent, and many runs finishing together make one sound, not a burst. Sounds follow your quiet hours and make no noise during them. To choose a sound pack, open Settings, then Notifications, then Sounds: pick one of 12 packs, press Play to hear a sample, and set the volume. The default is 60% volume. To turn sounds off, use the "Play sounds" switch in the same place. Forge and Reliquary are two sound packs made for Legion; Forge is the default. Open "Choose sounds for each event" to switch any single event off or give it a different sound, and reset it when you like. The packs now have short, plain descriptions and the sound lists name each sound by what it is for.
 - **Project Settings, safer and steadier.** The reads switch only asks; it turns on after you press Confirm. Changing a project's folder ends its "read without asking" permission for the old folder, so you turn it on again for the new one. The section list fits narrow windows, a waiting answer no longer moves the page when it appears, and Best fit says what it does: Legion picks the member with the fewest running tasks.
 - **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows
   who is working right now, then "Since you last looked": the three riskiest asks first, each with what saying yes would do, and
