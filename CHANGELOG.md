@@ -34,7 +34,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Fixed
 
 - **Hovering a mascot no longer flashes.** Pointing at an agent in the list, or moving away, could show an empty tile for a moment before the picture came back. The still now stays until the live mascot has drawn, the two fade into each other, and moving away fades back to the same picture.
-- The pending-Allow chip no longer covers the message box or the header: it sits in the page's flow, above the content.
+- The pending-Allow chip no longer covers the message box or the header: it floats above the bottom of the page and moves nothing while it counts down.
 - An agent in Ask mode that uses Claude Code's own question tool no longer shows a card full of raw text: it uses Legion's question card.
 - Scrolled content on the project page fades out under the tabs instead of running into them, and jumping between Settings sections no longer moves the page frame.
 - The big picture of the selected agent no longer asks for you when a different agent has an approval waiting.
