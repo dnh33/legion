@@ -10,6 +10,7 @@ Also new:
 - Resting mascots are still pictures, so the agent list and pages move smoothly.
 - An agent's task tabs follow the project you chose.
 Fixed:
+- Yellow now only means something needs you; working agents no longer turn the app yellow.
 - An agent busy in one project no longer stops you starting a task in another.
 - A tool call a model wrote as plain text is no longer shown as its answer.
 - New installs no longer fail when antivirus removes a file Legion did not need.
