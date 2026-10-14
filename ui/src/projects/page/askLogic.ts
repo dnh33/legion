@@ -128,3 +128,19 @@ export function buildAskRows(f: PageFacts, policy: WaitPolicy): AskRow[] {
 
   return rows.sort((a, b) => b.level - a.level || ms(a.at) - ms(b.at) || a.key.localeCompare(b.key));
 }
+
+/**
+ * Which rows are on screen (spec 3.2): the top `cap` asks, or all of them when expanded. While the pointer or keyboard focus is inside
+ * the digest (`frozen`) nothing is promoted and a row the owner answered keeps its slot, so nothing moves under the pointer. A row whose
+ * ask is gone and was not answered here leaves at once. Never hides an ask: `more` is the exact number of live asks not shown.
+ */
+export function reconcileShown(o: { prev: readonly string[]; live: readonly string[]; answered: ReadonlySet<string>; cap: number; expanded: boolean; frozen: boolean }): { shown: string[]; more: number } {
+  const live = new Set(o.live);
+  let shown: string[];
+  if (o.frozen && !o.expanded && o.prev.length) shown = o.prev.filter((k) => live.has(k) || o.answered.has(k));
+  else {
+    shown = o.expanded ? [...o.live] : o.live.slice(0, o.cap);
+    for (const k of o.prev) if (o.answered.has(k) && !shown.includes(k)) shown.splice(Math.min(o.prev.indexOf(k), shown.length), 0, k);
+  }
+  return { shown, more: o.live.filter((k) => !shown.includes(k)).length };
+}

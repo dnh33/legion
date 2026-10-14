@@ -113,3 +113,43 @@ test('wait line: deny, park, quiet hours; an ask that just arrived', () => {
   assert.equal(waitLine(at, NOW, quiet), 'Waiting: quiet hours until 13:00');
   assert.equal(waitLine(at, NOW, { ...quiet, quiet: { enabled: false, from: '11:00', to: '13:00' } }), 'Waiting 7 min, denied at 10 min');
 });
+
+/* ---------- which rows are on screen ---------- */
+import { reconcileShown } from '../ui/src/projects/page/askLogic.js';
+
+test('shown rows: the top three fill in order; the rest wait behind "N more"', () => {
+  const r = reconcileShown({ prev: [], live: ['a', 'b', 'c', 'd', 'e'], answered: new Set(), cap: 3, expanded: false, frozen: false });
+  assert.deepEqual(r.shown, ['a', 'b', 'c']);
+  assert.equal(r.more, 2);
+});
+
+test('shown rows: a row answered elsewhere leaves at once and the next one is promoted', () => {
+  const r = reconcileShown({ prev: ['a', 'b', 'c'], live: ['a', 'c', 'd', 'e'], answered: new Set(), cap: 3, expanded: false, frozen: false });
+  assert.deepEqual(r.shown, ['a', 'c', 'd']);
+});
+
+test('shown rows: while the pointer or focus is inside, nothing is promoted and an answered row keeps its place', () => {
+  const live = ['a', 'c', 'd', 'e'];
+  const r = reconcileShown({ prev: ['a', 'b', 'c'], live, answered: new Set(['b']), cap: 3, expanded: false, frozen: true });
+  assert.deepEqual(r.shown, ['a', 'b', 'c'], 'b is answered and gone from the core, but stays in its slot');
+  const after = reconcileShown({ prev: r.shown, live, answered: new Set(), cap: 3, expanded: false, frozen: false });
+  assert.deepEqual(after.shown, ['a', 'c', 'd'], 'once nothing is under the pointer the slot closes and d moves up');
+});
+
+test('shown rows: frozen does not stop a vanished, unanswered row from leaving', () => {
+  const r = reconcileShown({ prev: ['a', 'b'], live: ['a'], answered: new Set(), cap: 3, expanded: false, frozen: true });
+  assert.deepEqual(r.shown, ['a']);
+});
+
+test('shown rows: expanded shows every live row, and a new ask never hides one', () => {
+  const r = reconcileShown({ prev: ['a', 'b', 'c'], live: ['a', 'b', 'c', 'd', 'e'], answered: new Set(), cap: 3, expanded: true, frozen: false });
+  assert.deepEqual(r.shown, ['a', 'b', 'c', 'd', 'e']);
+  assert.equal(r.more, 0);
+  const total = reconcileShown({ prev: ['a', 'b', 'c'], live: ['x', 'a', 'b', 'c'], answered: new Set(), cap: 3, expanded: false, frozen: false });
+  assert.equal(total.shown.length + total.more, 4, 'every open ask is either shown or counted');
+});
+
+test('shown rows: a first render under a resting pointer still shows the top three', () => {
+  const r = reconcileShown({ prev: [], live: ['a', 'b', 'c', 'd'], answered: new Set(), cap: 3, expanded: false, frozen: true });
+  assert.deepEqual(r.shown, ['a', 'b', 'c']);
+});
