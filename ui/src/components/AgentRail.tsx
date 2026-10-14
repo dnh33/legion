@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { openEditor, selectAgent, useStore } from '../store';
-import { openAsk } from '../projects/projectsStore';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
