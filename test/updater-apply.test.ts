@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { cleanPrev, cleanStaleApplyCopies, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
+import { cleanPrev, cleanStaleApplyCopies, settleAfterStart, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
 
 function put(root: string, files: Record<string, string>): void {
   for (const [p, c] of Object.entries(files)) { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), c); }
@@ -298,4 +298,33 @@ test('H5b: cleanPrev is safe to call twice, on a missing folder, and never touch
   await cleanPrev(f.install);
   assert.equal(existsSync(join(f.install, '.update', 'prev')), false);
   assert.equal(snap(f.install)['node_modules/evil/x.js'], 'EVIL', 'the live tree stays');
+});
+
+test('H5c: a new build that starts after the OLD helper committed (the old helper cannot clean prev) cleans it itself', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  markCommitted(f.install); // what an older helper does: it commits but knows nothing about prev
+  assert.equal(existsSync(join(f.install, '.update', 'prev')), true);
+  await settleAfterStart(f.install, '1.0.0');
+  assert.equal(existsSync(join(f.install, '.update', 'prev')), true, 'a different running version leaves prev alone');
+  await settleAfterStart(f.install, '1.1.0');
+  assert.equal(existsSync(join(f.install, '.update', 'prev')), false);
+  assert.equal(readJournal(f.install)?.state, 'committed');
+});
+
+test('H5c: a new build that starts while the journal still awaits health confirms itself and cleans prev', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0' });
+  await settleAfterStart(f.install, '1.1.0');
+  assert.equal(readJournal(f.install)?.state, 'committed');
+  assert.equal(readOutcome(f.install)?.result, 'ok');
+  assert.equal(existsSync(join(f.install, '.update', 'prev')), false);
+});
+
+test('H5c: a rolled-back journal is left alone', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0' });
+  await rollback(f.install, 'test');
+  await settleAfterStart(f.install, '1.1.0');
+  assert.equal(readJournal(f.install)?.state, 'rolled-back');
 });

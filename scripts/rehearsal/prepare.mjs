@@ -7,7 +7,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { args, die, insideGitTree, REPO } from '../lib/release-lib.mjs';
+import { args, die, insideGitTree, readZipEntry, REPO } from '../lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { out: 'v', good: 'v', bad: 'v' });
 if (!a.out) die('usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo>');
@@ -57,6 +57,10 @@ for (const name of ['good', 'bad']) {
   const dest = join(served, name);
   mkdirSync(dest, { recursive: true });
   for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${version}-win-x64.zip`]) cpSync(join(pkg, f), join(dest, f));
+  // the package's own file list: the scenarios compare the installed files with it (an install does not keep this file)
+  const listed = readZipEntry(readFileSync(full), `legion-${version}/PACKAGE-FILES.json`);
+  if (!listed) die('the full package has no PACKAGE-FILES.json');
+  writeFileSync(join(dest, 'PACKAGE-FILES.json'), listed);
   rmSync(tree, { recursive: true, force: true });
   console.log(`prepared ${name} ${version}`);
 }

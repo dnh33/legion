@@ -169,6 +169,21 @@ export async function cleanPrev(installDir: string): Promise<void> {
 }
 
 /**
+ * Runs at every start of the app. When the update journal names the running version, the swap landed: confirm it if the helper
+ * has not, and delete the previous copy. The helper that did the swap is the OLD version's copy of this file, so it may know
+ * nothing about cleaning; the new build does it here instead. Never throws.
+ */
+export async function settleAfterStart(installDir: string, runningVersion: string): Promise<void> {
+  try {
+    const j = readJournal(installDir);
+    if (!j || j.to !== runningVersion) return;
+    if (j.state === 'awaiting-health') markCommitted(installDir);
+    else if (j.state !== 'committed') return;
+    await cleanPrev(installDir);
+  } catch { /* a failed cleanup only leaves a folder behind */ }
+}
+
+/**
  * A full-package swap on Windows runs its helper from a copy of the Electron folder in the temp folder (legion-apply-<pid>). That
  * process cannot delete the folder it runs from, so a LATER start removes copies older than `maxAgeMs`. Only plain directories
  * named legion-apply-<digits> are touched. Returns the names removed.

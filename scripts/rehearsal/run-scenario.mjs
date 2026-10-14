@@ -44,13 +44,15 @@ async function tree(root) {
       const r = rel ? `${rel}/${n}` : n;
       if (r === '.update') continue;
       const p = join(d, n); const st = statSync(p);
-      if (st.isDirectory()) await walk(p, r); else out[r] = `${st.size}:${await sha(p)}`;
+      if (st.isDirectory()) await walk(p, r);
+      else { try { out[r] = `${st.size}:${await sha(p)}`; } catch (e) { out[r] = `${st.size}:unreadable(${e.code})`; } } // a file this scenario holds open cannot be read
     }
   };
   await walk(root, '');
   return out;
 }
-const diff = (x, y) => { const d = []; for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) if (x[k] !== y[k]) d.push(k); return d; };
+let lockedRel = '';
+const diff = (x, y) => { const d = []; for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) if (x[k] !== y[k] && k !== lockedRel) d.push(k); return d; };
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 async function health() { try { const r = await fetch(`http://127.0.0.1:${APP_PORT}/health`, { signal: AbortSignal.timeout(2000) }); return r.ok ? await r.json() : null; } catch { return null; } }
 async function waitFor(what, fn, ms) { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) { log(`timed out waiting for ${what}`); return null; } await sleep(2000); } }
@@ -96,6 +98,7 @@ try {
     const find = (d, depth) => { for (const n of readdirSync(d)) { const p = join(d, n); const st = statSync(p); if (st.isFile() && /^licen[sc]e/i.test(n) && depth > 0) return p; if (st.isDirectory() && depth < 3) { const r = find(p, depth + 1); if (r) return r; } } return null; };
     const target = find(nm, 0);
     if (!target) throw new Error('no file to lock under node_modules');
+    lockedRel = target.slice(install.length + 1).replace(/\/g, '/');
     log(`holding ${target} open`);
     holder = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(here, 'hold-file.ps1'), '-Path', target], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
     await new Promise((res) => { holder.stdout.on('data', (d) => { if (String(d).includes('locked')) res(); }); setTimeout(res, 20000); });
@@ -111,7 +114,7 @@ try {
     check(!!j, 'the update is committed (journal)');
     check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
     check(readJson(join(install, 'package.json'))?.version === good && readJson(join(install, 'build-info.json'))?.version === good, `package.json and build-info.json say ${good}`);
-    const list = readJson(join(install, 'PACKAGE-FILES.json'));
+    const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json')); // the candidate's own file list (an install does not keep it)
     const bad = [];
     for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) bad.push(f.path); } catch { bad.push(f.path); } }
     check(!!list && bad.length === 0, `every file of the new package is on disk and matches its list (${list?.files.length ?? 0} files${bad.length ? `; wrong: ${bad.slice(0, 5).join(', ')}` : ''})`);

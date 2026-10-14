@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
-import { cleanPrev, cleanStaleApplyCopies, markCommitted, readJournal, recoverInterrupted, UPDATE_DIR } from '../core/updater/apply.js';
+import { cleanStaleApplyCopies, markCommitted, readJournal, recoverInterrupted, settleAfterStart, UPDATE_DIR } from '../core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../core/updater/main-logic.js';
 import { trustedSender } from './admin-logic.js';
 
@@ -82,7 +82,8 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
 
 /** After the core proved healthy: a freshly swapped-in build confirms itself, so a dead helper cannot leave it unconfirmed. */
 function confirmIfNew(installDir: string): void {
-  try { const j = readJournal(installDir); if (j && j.state === 'awaiting-health' && j.to === VERSION) { markCommitted(installDir); void cleanPrev(installDir); } } catch { /* ignore */ }
+  try { const j = readJournal(installDir); if (j && j.state === 'awaiting-health' && j.to === VERSION) markCommitted(installDir); } catch { /* ignore */ }
+  void settleAfterStart(installDir, VERSION);
 }
 
 export function initUpdater(h: UpdaterHost): void {
