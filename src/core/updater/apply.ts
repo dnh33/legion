@@ -42,7 +42,7 @@ export const FULL_PACKAGE_SET: readonly string[] = Object.freeze([...CODE_SET, '
 export const UPDATE_DIR = '.update';
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
-export interface Journal { state: JournalState; from: string; to: string; entries: string[]; stagedDir: string; at: number; heartbeat: number }
+export interface Journal { state: JournalState; from: string; to: string; entries: string[]; /** The entries whose live copy was moved to .update/prev. A rollback restores exactly these. Absent in journals from older helpers. */ hadPrev?: string[]; stagedDir: string; at: number; heartbeat: number }
 export interface Outcome { at: string; from: string; to: string; result: 'ok' | 'rolled-back' | 'failed' | 're-exec'; reason?: string }
 
 const upDir = (installDir: string): string => join(installDir, UPDATE_DIR);
@@ -102,12 +102,17 @@ export async function swapIn(o: SwapOptions): Promise<void> {
   for (const n of o.names ?? []) if (!n || n === '.' || n === '..' || /[\\/:]/.test(n) || n === UPDATE_DIR) throw new Error(`refusing to swap "${n}"`);
   const names = (o.names ?? CODE_SET).filter((n) => existsSync(join(stagedDir, n)));
   if (!names.includes('package.json') || !names.includes('dist')) throw new Error('the staged tree is incomplete');
+  // A full-package swap replaces the dependency tree and the runtime, so a staged folder that lost any of them (an antivirus
+  // scanner, a cleanup) must be refused BEFORE anything moves, not swapped in with the missing part silently skipped.
+  if ((o.names ?? []).includes('node_modules')) {
+    for (const must of ['dist-ui', 'node_modules', 'runtime']) if (!names.includes(must)) throw new Error(`the staged update is incomplete: ${must} is missing, so nothing was changed`);
+  }
   for (const n of names) if (isLink(join(stagedDir, n))) throw new Error('a staged entry is a link');
   mkdirSync(upDir(installDir), { recursive: true });
   removeOwned(installDir, prevDir(installDir)); // exactly one previous version is kept: the older one goes
   removeOwned(installDir, failedDir(installDir));
   mkdirSync(prevDir(installDir), { recursive: true });
-  const j: Journal = { state: 'swapping', from: o.from, to: o.to, entries: names, stagedDir, at: Date.now(), heartbeat: Date.now() };
+  const j: Journal = { state: 'swapping', from: o.from, to: o.to, entries: names, hadPrev: names.filter((n) => existsSync(join(installDir, n))), stagedDir, at: Date.now(), heartbeat: Date.now() };
   saveJournal(installDir, j);
   step('journaled');
   try {
@@ -135,17 +140,26 @@ export async function swapIn(o: SwapOptions): Promise<void> {
 export async function rollback(installDir: string, reason: string, retryMs = 15_000): Promise<void> {
   const j = readJournal(installDir);
   if (!j) return;
+  // A build that was confirmed healthy is the install now. Whoever asks late (a helper whose window ended while the new build
+  // was still starting) must not undo it.
+  if (j.state === 'committed') return;
   mkdirSync(failedDir(installDir), { recursive: true });
+  const lost: string[] = [];
   for (const n of [...j.entries].reverse()) {
     const live = join(installDir, n);
     const prev = join(prevDir(installDir), n);
     const stagedHere = existsSync(join(j.stagedDir, n));
     if (stagedHere && !existsSync(prev)) continue; // never touched
+    if (!existsSync(prev)) {
+      // The previous copy is gone. If the old install HAD this entry, the live one is all that is left: never move it aside
+      // (that would restore nothing and delete the install). If the old install did not have it, the new one simply goes.
+      if (j.hadPrev?.includes(n) || !j.hadPrev) { if (existsSync(live)) lost.push(n); continue; }
+    }
     if (existsSync(live) && !stagedHere) await renameRetry(live, join(failedDir(installDir), n), retryMs); // the new copy goes aside
     if (existsSync(prev)) await renameRetry(prev, live, retryMs);
   }
   saveJournal(installDir, { ...j, state: 'rolled-back', heartbeat: Date.now() });
-  writeOutcome(installDir, { from: j.from, to: j.to, result: 'rolled-back', reason });
+  writeOutcome(installDir, { from: j.from, to: j.to, result: 'rolled-back', reason: lost.length ? `${reason}. The previous copy of ${lost.join(', ')} was already gone, so the new files were left in place.` : reason });
   try { removeOwned(installDir, failedDir(installDir)); } catch { /* leftovers are harmless */ }
 }
 
@@ -166,6 +180,18 @@ export async function cleanPrev(installDir: string): Promise<void> {
   const target = resolve(prevDir(installDir));
   if (!target.startsWith(base + sep) || isLink(target)) return;
   try { await rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }); } catch { /* leftovers are harmless; the next swap removes them */ }
+}
+
+/**
+ * The new build confirms itself only once its core really answers /health with THIS version. A start that is slow, or whose core
+ * never came up, must not confirm (and so must not delete the previous copy): the helper's own window decides that case.
+ */
+export async function confirmWhenHealthy(installDir: string, runningVersion: string, getHealth: () => Promise<{ ok?: boolean; version?: string } | null>): Promise<boolean> {
+  let h: { ok?: boolean; version?: string } | null = null;
+  try { h = await getHealth(); } catch { h = null; }
+  if (!h || h.ok !== true || h.version !== runningVersion) return false;
+  await settleAfterStart(installDir, runningVersion);
+  return true;
 }
 
 /**

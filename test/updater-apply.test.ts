@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { cleanPrev, cleanStaleApplyCopies, settleAfterStart, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
+import { cleanPrev, cleanStaleApplyCopies, settleAfterStart, confirmWhenHealthy, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
 
 function put(root: string, files: Record<string, string>): void {
   for (const [p, c] of Object.entries(files)) { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), c); }
@@ -327,4 +327,74 @@ test('H5c: a rolled-back journal is left alone', async () => {
   await rollback(f.install, 'test');
   await settleAfterStart(f.install, '1.1.0');
   assert.equal(readJournal(f.install)?.state, 'rolled-back');
+});
+
+// ---- review fixes: a rollback must never delete the install, and a start that is not healthy must not confirm
+
+test('R1: a rollback with the previous copy gone keeps the live install (it used to move it aside and restore nothing)', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  const landed = snap(f.install);
+  rmSync(join(f.install, '.update', 'prev'), { recursive: true, force: true });
+  await rollback(f.install, 'late timeout');
+  assert.deepEqual(snap(f.install), landed, 'the new install is still there and untouched');
+  assert.equal(existsSync(join(f.install, '.update', 'failed')), false);
+  assert.match(readOutcome(f.install)?.reason ?? '', /previous copy/i, 'the outcome says why nothing was restored');
+});
+
+test('R1: the reproduced sequence (swap, the new build settles and cleans prev, the old helper times out and rolls back) ends with a working install', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  const landed = snap(f.install);
+  await settleAfterStart(f.install, '1.1.0');
+  await rollback(f.install, 'the helper window ended');
+  assert.deepEqual(snap(f.install), landed);
+  assert.equal(snap(f.install)['dist/src/electron/main.js'], 'new-main');
+  assert.equal(readJournal(f.install)?.state, 'committed', 'a committed update is never rolled back');
+});
+
+test('R1: the journal records which entries had a previous copy, and a rollback restores exactly those', async () => {
+  const f = fixture();
+  rmSync(join(f.install, 'assets'), { recursive: true, force: true }); // an entry the old install did not have
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  const j = readJournal(f.install)!;
+  assert.ok(j.hadPrev?.includes('dist') && j.hadPrev.includes('node_modules'));
+  assert.equal(j.hadPrev?.includes('assets'), false);
+  await rollback(f.install, 'test');
+  assert.equal(snap(f.install)['dist/src/electron/main.js'], 'old-main');
+  assert.equal(existsSync(join(f.install, 'assets')), false, 'the entry the old install never had is removed again');
+});
+
+test('R1: a start that is slow or unhealthy does not confirm the update and does not touch prev', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  await confirmWhenHealthy(f.install, '1.1.0', async () => null); // the core is not up yet (a slow first start)
+  await confirmWhenHealthy(f.install, '1.1.0', async () => ({ ok: true, version: '1.0.0' }));
+  await confirmWhenHealthy(f.install, '1.1.0', async () => ({ ok: false, version: '1.1.0' }));
+  assert.equal(readJournal(f.install)?.state, 'awaiting-health');
+  assert.equal(existsSync(join(f.install, '.update', 'prev')), true);
+  await confirmWhenHealthy(f.install, '1.1.0', async () => ({ ok: true, version: '1.1.0' }));
+  assert.equal(readJournal(f.install)?.state, 'committed');
+  assert.equal(existsSync(join(f.install, '.update', 'prev')), false);
+});
+
+test('R2: a full swap whose staged folder lost an entry is refused before anything moves, and the old version stays', async () => {
+  for (const gone of ['runtime', 'node_modules', 'dist-ui']) {
+    const f = fixture();
+    const before = snap(f.install);
+    rmSync(join(f.staged, gone), { recursive: true, force: true });
+    await assert.rejects(swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET }), new RegExp(`${gone}.*missing|missing.*${gone}`));
+    assert.deepEqual(snap(f.install), before, `without ${gone}`);
+    assert.equal(readJournal(f.install), null, 'no swap was journaled');
+  }
+});
+
+test('R2: runApply on a vanished staged folder fails with a clear outcome and starts the old version', async () => {
+  const f = fixture();
+  const before = snap(f.install);
+  rmSync(f.staged, { recursive: true, force: true });
+  const d = deps({ f, newHealthy: true });
+  assert.equal(await runApply({ ...job(f), names: FULL_PACKAGE_SET }, d), 'failed');
+  assert.deepEqual(snap(f.install), before);
+  assert.match(readOutcome(f.install)?.reason ?? '', /incomplete|missing/i);
 });

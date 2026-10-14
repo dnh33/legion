@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
-import { cleanStaleApplyCopies, markCommitted, readJournal, recoverInterrupted, settleAfterStart, UPDATE_DIR } from '../core/updater/apply.js';
+import { cleanStaleApplyCopies, confirmWhenHealthy, recoverInterrupted, UPDATE_DIR } from '../core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../core/updater/main-logic.js';
 import { trustedSender } from './admin-logic.js';
 
@@ -80,14 +80,16 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
   } finally { applying = false; }
 }
 
-/** After the core proved healthy: a freshly swapped-in build confirms itself, so a dead helper cannot leave it unconfirmed. */
-function confirmIfNew(installDir: string): void {
-  try { const j = readJournal(installDir); if (j && j.state === 'awaiting-health' && j.to === VERSION) markCommitted(installDir); } catch { /* ignore */ }
-  void settleAfterStart(installDir, VERSION);
+/**
+ * A freshly swapped-in build confirms itself, so a dead helper cannot leave it unconfirmed, but ONLY once its core answers
+ * /health with this version. Call it after a boot whose core came up; a slow or failed core start leaves the decision (and the
+ * previous copy, which is the rollback) to the helper.
+ */
+export async function confirmAfterBoot(installDir: string, getHealth: () => Promise<{ ok?: boolean; version?: string } | null>): Promise<void> {
+  try { await confirmWhenHealthy(installDir, VERSION, getHealth); } catch { /* ignore */ }
 }
 
 export function initUpdater(h: UpdaterHost): void {
-  confirmIfNew(h.installDir);
   ipcMain.handle('legion:update-restart-now', async (e): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> => {
     const win = h.getWin();
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;

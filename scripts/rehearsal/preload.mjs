@@ -5,14 +5,25 @@
 // What it does, in memory only (no installed file is edited):
 //   1. fetch() calls to the three GitHub hosts the updater may use go to the loopback server instead. The updater has already
 //      checked the real URL against its allowlist by then, so every redirect hop is still validated by production code.
+//   3. optional, REHEARSAL_DELAY_FILE holding "<version>:<ms>": the core of that version (and only that one) waits <ms> before it
+//      starts, so the slow first start of a freshly swapped-in build can be rehearsed.
 //   2. when the updater's trust module loads, the PEM of the baked key is swapped for the throwaway one.
 import { registerHooks } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const port = process.env.REHEARSAL_PORT;
 const pemFile = process.env.REHEARSAL_PUBKEY_FILE;
 
 if (port && pemFile) {
+  const delayFile = process.env.REHEARSAL_DELAY_FILE;
+  const entry = process.argv[1] ? resolve(process.argv[1]) : '';
+  if (delayFile && existsSync(delayFile) && /legion-core\.js$/.test(entry)) {
+    const [want, ms] = readFileSync(delayFile, 'utf8').trim().split(':');
+    let have = '';
+    try { have = JSON.parse(readFileSync(join(dirname(entry), '..', '..', '..', 'package.json'), 'utf8')).version; } catch { /* not an install tree */ }
+    if (want === have && Number(ms) > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(ms));
+  }
   const HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
   const realFetch = globalThis.fetch;
   globalThis.fetch = (input, init) => {

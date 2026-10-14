@@ -7,6 +7,8 @@ name: Full-install rehearsal
 #   success   the new version starts and reports health, its files match the package list, user data survives, the old copy is cleaned
 #   rollback  a first start that fails puts the previous version back byte for byte
 #   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
+#   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
+#   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 # How the installed app is steered without any production switch: it is started with NODE_OPTIONS="--import scripts/rehearsal/preload.mjs"
 # (runner only), which in memory sends the app's GitHub requests to loopback and trusts the throwaway key. No source file reads those
 # variables (test/rehearsal-preload.test.ts pins that). The real signing key is not used, read or reachable here: no secrets, a
@@ -84,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [success, rollback, locked]
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished]
     defaults:
       run:
         shell: pwsh

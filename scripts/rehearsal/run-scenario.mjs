@@ -2,6 +2,9 @@
 //   success   the candidate (0.99.0) is staged, swapped in and reports healthy; user data survives; the old copy is cleaned
 //   rollback  the candidate's first start fails (0.99.1): the previous version is restored byte for byte and the failed one is held back
 //   locked    a file under node_modules is held open during the swap: the update is refused cleanly, the old version keeps running
+//   slow-short / slow-long   the new build's core starts 25 s / 75 s late (past the app's 15 s wait, and for slow-long past the old
+//             helper's 60 s window): whichever way it settles, the install is whole and runs (the new version, or the old one restored)
+//   vanished  the staged runtime folder disappears after staging (an antivirus): the swap is refused before anything moves
 // The installed app is started the way a shortcut starts it. The only difference from a user's PC is the environment it is started
 // with: LEGION_HOME (an isolated data folder) and NODE_OPTIONS (scripts/rehearsal/preload.mjs, which sends GitHub traffic to the
 // loopback server and trusts a throwaway key). No installed file is edited.
@@ -16,7 +19,7 @@ import { args, die } from '../lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { scenario: 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v' });
 for (const k of ['scenario', 'install', 'prepared', 'work', 'baseline']) if (!a[k]) die(`--${k} is required`);
-if (!['success', 'rollback', 'locked'].includes(a.scenario)) die('--scenario must be success, rollback or locked');
+if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long or vanished');
 const here = dirname(fileURLToPath(import.meta.url));
 const install = resolve(a.install), work = resolve(a.work), preparedDir = resolve(a.prepared);
 const prepared = { ...JSON.parse(readFileSync(join(preparedDir, 'prepared.json'), 'utf8')), pubKeyFile: join(preparedDir, 'legion-update-k1.pub.pem') };
@@ -32,6 +35,7 @@ for (const d of [home, art, join(home, 'updater')]) mkdirSync(d, { recursive: tr
 writeFileSync(join(home, 'updater', 'settings.json'), JSON.stringify({ checkEnabled: true, autoInstallWhenIdle: true, intervalHours: 1 }));
 writeFileSync(join(home, 'rehearsal-marker.txt'), 'user data that must survive an update\n');
 const control = join(work, 'control.txt'); writeFileSync(control, 'none');
+const delayFile = join(work, 'delay.txt');
 const serveLog = join(art, 'serve.log');
 const up = join(install, '.update');
 const good = prepared.versions.good, bad = prepared.versions.bad;
@@ -65,7 +69,7 @@ function killInstalled() {
 const children = [];
 const env = {
   ...process.env, CI: '', LEGION_HOME: home, REHEARSAL_PORT: String(PORT), REHEARSAL_PUBKEY_FILE: prepared.pubKeyFile,
-  NODE_OPTIONS: `--import ${pathToFileURL(join(here, 'preload.mjs')).href}`,
+  NODE_OPTIONS: `--import ${pathToFileURL(join(here, 'preload.mjs')).href}`, REHEARSAL_DELAY_FILE: delayFile,
   ELECTRON_ENABLE_LOGGING: '1', ELECTRON_DISABLE_GPU: '1',
 };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -104,6 +108,7 @@ try {
     await new Promise((res) => { holder.stdout.on('data', (d) => { if (String(d).includes('locked')) res(); }); setTimeout(res, 20000); });
   }
 
+  if (a.scenario.startsWith('slow-')) writeFileSync(delayFile, `${good}:${a.scenario === 'slow-short' ? 25000 : 75000}`);
   writeFileSync(control, a.scenario === 'rollback' ? 'bad' : 'good');
   log(`serving the ${a.scenario === 'rollback' ? 'bad' : 'good'} candidate; waiting for the app to find, stage and apply it`);
 
@@ -138,6 +143,37 @@ try {
     check(!!st, `${bad} is recorded as failed (held back)`);
     check(!existsSync(join(up, 'failed')), '.update/failed was removed');
     check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data survived the failed update');
+  } else if (a.scenario.startsWith('slow-')) {
+    // Whichever way this settles (committed: the new version; rolled back: the old one), the install must be whole and running.
+    const o = await waitFor('an outcome', async () => { const x = readJson(join(up, 'outcome.json')); return x && (x.result === 'ok' || x.result === 'rolled-back') ? x : null; }, 900000);
+    check(!!o, `the update settled (${o?.result})`);
+    const h1 = await waitFor('the app to answer /health again', async () => { const h = await health(); return h?.ok ? h : null; }, 300000);
+    check(!!h1 && [a.baseline, good].includes(h1.version), `Legion is running (version ${h1?.version})`);
+    for (const n of ['dist', 'dist-ui', 'node_modules', 'runtime', 'package.json']) check(existsSync(join(install, n)), `${n} is still in the install`);
+    if (h1?.version === good) {
+      const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));
+      const wrong = [];
+      for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
+      check(wrong.length === 0, `the install is the complete new package (${list?.files.length ?? 0} files${wrong.length ? `; wrong: ${wrong.slice(0, 5).join(', ')}` : ''})`);
+    } else {
+      const d = diff(before, await tree(install));
+      check(d.length === 0, `the install is byte-identical to the baseline${d.length ? `; differs: ${d.slice(0, 8).join(', ')}` : ''}`);
+    }
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n- ${a.scenario}: settled as ${o?.result}, running ${h1?.version}\n`);
+  } else if (a.scenario === 'vanished') {
+    const staged = join(up, 'staging', good, 'stage.json');
+    const seen = await waitFor('the package to be staged', async () => (existsSync(staged) ? true : null), 600000);
+    check(!!seen, 'the candidate was downloaded, checked and staged');
+    rmSync(join(up, 'staging', good, 'x', `legion-${good}`, 'runtime'), { recursive: true, force: true });
+    log('removed the staged runtime folder before the commit');
+    const o = await waitFor('a failed outcome', async () => (readJson(join(up, 'outcome.json'))?.result === 'failed' ? readJson(join(up, 'outcome.json')) : null), 600000);
+    check(!!o, 'the swap is refused (outcome failed)');
+    check(/incomplete|missing/i.test(o?.reason ?? ''), `the reason says the staged update is incomplete (${o?.reason})`);
+    const h1 = await waitFor(`/health to report ${a.baseline} again`, async () => { const h = await health(); return h?.ok && h.version === a.baseline ? h : null; }, 180000);
+    check(!!h1, `${a.baseline} is running again`);
+    const d = diff(before, await tree(install));
+    check(d.length === 0, `the install is byte-identical to the baseline${d.length ? `; differs: ${d.slice(0, 8).join(', ')}` : ''}`);
+    check(!existsSync(join(up, 'journal.json')) || readJson(join(up, 'journal.json'))?.state !== 'swapping', 'no swap was left half done');
   } else {
     const o = await waitFor('a failed outcome (files in use)', async () => (readJson(join(up, 'outcome.json'))?.result === 'failed' ? readJson(join(up, 'outcome.json')) : null), 900000);
     check(!!o, 'the swap is refused when a file is in use (outcome failed)');
