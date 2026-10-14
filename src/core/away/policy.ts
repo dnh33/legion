@@ -6,7 +6,7 @@
  *
  * With no policy the timer is one plain timeout of the base wait: exactly the old behaviour.
  */
-import { denyAt, nextQuietBoundary, parkAt, validQuiet } from '../../shared/ask-clock.js';
+import { denyAt, nextQuietBoundary, parkAt } from '../../shared/ask-clock.js';
 import type { QuietConfig } from '../../shared/ask-clock.js';
 
 /** What the brokers read per ask. Implemented by the away module; absent means today's behaviour. */
@@ -93,7 +93,8 @@ export function startAskTimer(o: AskTimerOpts): AskTimer {
 export function longestWaitSeconds(baseWaitMs: number, policy: AskPolicy | undefined): number {
   let ms = baseWaitMs;
   if (policy) {
-    ms = Math.max(baseWaitMs + (validQuiet(policy.quiet()) ? DAY_MS : 0), PARK_MAX_MS) + HOLD_MAX_MS;
+    // always a day for quiet hours, whether or not they are on right now: they can be switched on while the run is going and the hook is fixed at its start
+    ms = Math.max(baseWaitMs + DAY_MS, PARK_MAX_MS) + HOLD_MAX_MS;
   }
   // stay clear of the timer limit (and keep room for the minute the engine adds)
   return Math.ceil(Math.min(ms, MAX_TIMER_MS - 120_000) / 1000);

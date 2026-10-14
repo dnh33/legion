@@ -146,6 +146,18 @@ export function describeWait(ms: number): string {
   return `${mins} minute${mins === 1 ? '' : 's'}`;
 }
 
+/**
+ * The wait as the model should read it. Normally "10 minutes". When quiet hours paused the countdown the ask stayed open much longer,
+ * and saying only "10 minutes" would be a false statement, so it says both.
+ */
+export function describeWaited(elapsedMs: number, baseMs: number): string {
+  const base = describeWait(baseMs);
+  if (elapsedMs <= baseMs + 90_000) return base;
+  const mins = Math.round(elapsedMs / 60_000);
+  const long = mins < 120 ? `${mins} minutes` : `${Math.round(mins / 60)} hours`;
+  return `${base} of waiting (quiet hours paused the countdown, so it stayed open for ${long})`;
+}
+
 interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer }
 
 export class ApprovalBroker {
@@ -153,6 +165,8 @@ export class ApprovalBroker {
   private readonly timeoutMs: number;
   /** How long a card waits for an answer before it is denied, in words ("10 minutes"). For messages that explain a timeout. */
   get timeoutWait(): string { return describeWait(this.timeoutMs); }
+  /** The plain wait in milliseconds (before quiet hours lengthen it). */
+  get waitMs(): number { return this.timeoutMs; }
   /**
    * The longest an ask can wait, in whole seconds: a hook that awaits a card must be given at least this long. With no policy it is the
    * plain wait. With one (quiet hours lengthen the wait, a hold adds a few seconds, a park wait can be up to 120 minutes) it is the longest of those.
@@ -173,7 +187,7 @@ export class ApprovalBroker {
     taskId: string, agentId: string, toolName: string, input: Record<string, unknown>,
     origin?: ApprovalRequest['origin'],
     opts: {
-      onTimeout?: () => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean;
+      /** Called when the wait ends in a deny; gets how long the ask really stayed open (quiet hours make that longer than the wait). */ onTimeout?: (waitedMs?: number) => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean;
       /** The run's project (the engine knows it; a module that does not is asked of the policy by task). */ projectId?: string;
       /** What saying yes would do. Absent: worked out here from the tool and its input. */ consequence?: Consequence;
       /** The ask may be parked when its project is set to park (only the engine's own cards). Needs `onPark`. */ parkable?: boolean;
@@ -189,11 +203,12 @@ export class ApprovalBroker {
       ...(projectId ? { projectId } : {}),
       consequence: opts.consequence ?? classifySafe({ kind: 'approval', toolName, input }),
     };
+    const askedAt = (this.now ?? Date.now)();
     return new Promise<boolean>((resolvePromise) => {
       // the only automatic outcomes are "no" and "park" (which is also a "no" to the waiting call): there is no path to an allow here
       const timer = startAskTimer({
         baseWaitMs: this.timeoutMs, policy: this.policy, projectId, parkable: !!opts.parkable, now: this.now,
-        onDeny: () => { try { opts.onTimeout?.(); } catch { /* advisory */ } this.settle(req.id, false); },
+        onDeny: () => { try { opts.onTimeout?.((this.now ?? Date.now)() - askedAt); } catch { /* advisory */ } this.settle(req.id, false); },
         ...(opts.parkable && opts.onPark ? { onPark: () => { try { opts.onPark!(); } catch { /* advisory */ } this.settle(req.id, false); } } : {}),
       });
       this.items.set(req.id, { req, resolve: resolvePromise, timer });

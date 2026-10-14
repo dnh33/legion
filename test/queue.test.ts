@@ -196,3 +196,80 @@ test('cancelling a queued task removes it from the snapshot at once', async () =
   s.release('first');
   await s.tick(60);
 });
+
+/* ---------- review round ---------- */
+
+test('Queue after it does not wait behind a job the pause is holding', async () => {
+  const s = setup({ maxConcurrent: 4 });
+  s.away.paused.add(s.project.id);
+  const held = s.start('a1', 'held marshal', { trigger: 'marshal' });
+  const mine = s.start('a1', 'mine', { startAfter: true });
+  await s.tick();
+  let q = s.engine.queueSnapshot();
+  assert.equal(reasonOf(q, held.id), 'paused');
+  assert.equal(reasonOf(q, mine.id), undefined, 'the held job is not a run to wait for');
+  assert.equal(s.started.filter((t) => t.includes('mine')).length, 1);
+  s.release('mine');
+  s.away.paused.clear(); s.bus.emit({ type: 'away.updated' });
+  await s.tick(60);
+  s.release('held marshal');
+  await s.tick(80);
+  q = s.engine.queueSnapshot();
+  assert.deepEqual(q.items, []);
+});
+test('Queue after it still waits behind a job that is only waiting for a free slot', async () => {
+  const s = setup({ maxConcurrent: 1 });
+  s.start('a2', 'running');
+  await s.tick();
+  const first = s.start('a1', 'first');
+  const second = s.start('a1', 'second', { startAfter: true });
+  await s.tick();
+  const q = s.engine.queueSnapshot();
+  assert.equal(reasonOf(q, first.id), 'slot');
+  assert.equal(reasonOf(q, second.id), 'after');
+  s.release('running'); await s.tick(60); s.release('first'); await s.tick(60); s.release('second'); await s.tick(60);
+});
+
+test('a job that waits behind a held job when it is queued is freed when that job becomes held', async () => {
+  const s = setup({ maxConcurrent: 1 });
+  s.start('a2', 'running');
+  await s.tick();
+  const first = s.start('a1', 'first marshal', { trigger: 'marshal' });
+  const second = s.start('a1', 'second', { startAfter: true });
+  await s.tick();
+  assert.equal(reasonOf(s.engine.queueSnapshot(), second.id), 'after');
+  s.away.paused.add(s.project.id); s.bus.emit({ type: 'away.updated' });
+  await s.tick();
+  const q = s.engine.queueSnapshot();
+  assert.equal(reasonOf(q, first.id), 'paused');
+  assert.equal(reasonOf(q, second.id), 'slot', 'no longer waiting behind the held job, only for the slot');
+  s.away.paused.clear(); s.bus.emit({ type: 'away.updated' });
+  s.release('running'); await s.tick(60); s.release('first marshal'); await s.tick(60); s.release('second'); await s.tick(60);
+});
+
+test('a budget period that rolls over lets the held start go, with no event from anywhere', async () => {
+  const s = setup({ maxConcurrent: 4 });
+  s.away.budget.add(s.project.id);
+  s.away.rollsAt.set(s.project.id, Date.now() + 150);
+  const job = s.start('a1', 'held by budget');
+  await s.tick(40);
+  assert.equal(reasonOf(s.engine.queueSnapshot(), job.id), 'budget');
+  // the period rolls over: the budget no longer blocks, and nobody tells the engine
+  setTimeout(() => { s.away.budget.clear(); s.away.rollsAt.clear(); }, 100);
+  await s.tick(450);
+  assert.equal(s.started.filter((t) => t.includes('held by budget')).length, 1, 'the engine woke itself at the end of the period');
+  assert.deepEqual(s.engine.queueSnapshot().items, []);
+  assert.equal((s.engine as unknown as { budgetTimer?: unknown }).budgetTimer, undefined, 'no timer is left when nothing is held');
+  s.release('held by budget');
+  await s.tick(60);
+});
+
+test('no timer is armed when nothing waits for a budget', async () => {
+  const s = setup({ maxConcurrent: 1 });
+  s.away.rollsAt.set(s.project.id, Date.now() + 100000);
+  s.start('a1', 'one'); s.start('a2', 'two');
+  await s.tick();
+  assert.equal((s.engine as unknown as { budgetTimer?: unknown }).budgetTimer, undefined);
+  s.release('one'); s.release('two');
+  await s.tick(100);
+});

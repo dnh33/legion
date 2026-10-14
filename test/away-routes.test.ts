@@ -32,7 +32,7 @@ async function boot(opts: { now?: () => number } = {}) {
   f.bus.on((e) => events.push(e));
   const req = (headers: Record<string, string>) => (m: string, path: string, body?: unknown) =>
     fetch(s.base + path, { method: m, headers: { ...headers, ...J }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return { f, mod, pid: p.id, events, holds, call: req(AUTH), client: req(asClient), anon: req({}), close: async () => { await mod.dispose?.(); await s.close(); } };
+  return { f, mod, base: s.base, pid: p.id, events, holds, call: req(AUTH), client: req(asClient), anon: req({}), close: async () => { await mod.dispose?.(); await s.close(); } };
 }
 
 test('every new route is admin-only: a bearer token gets 403, nobody gets 401, none is a client route', async () => {
@@ -197,5 +197,52 @@ test('the away folder is protected from the agents\' file tools', async () => {
     assert.equal(paths.length, 1);
     assert.ok(/away$/.test(paths[0]!));
     assert.equal(paths[0], r.mod.store.folder);
+  } finally { await r.close(); }
+});
+
+test('reading the state or the queue never sends a budget notice; setting a budget below what was spent does, once', async () => {
+  const now = new Date(2026, 9, 14, 15).getTime();
+  const r = await boot({ now: () => now });
+  try {
+    r.mod.service.recordSpend({ taskId: 't', agentId: 'zealot', projectId: r.pid, usd: 6 });
+    const count = () => r.events.filter((e) => e.type === 'budget.reached').length;
+    assert.equal(count(), 0, 'no budget yet');
+    // a stored budget below the spend, not yet announced: reading must not announce it
+    r.mod.store.patchProject(r.pid, { budget: { limit: 5, period: 'week' } });
+    for (let i = 0; i < 3; i++) { await r.call('GET', '/api/state'); r.mod.service.budgetBlocked(r.pid); r.mod.service.budgetRollsAt(r.pid); }
+    assert.equal(count(), 0, 'reading is side-effect free');
+    assert.equal(r.mod.service.budgetBlocked(r.pid), true);
+    // the owner sets it through the route: that is the moment to tell once
+    await r.call('PATCH', `/api/away/projects/${r.pid}`, { budget: { limit: 4, period: 'week' } });
+    await r.call('PATCH', `/api/away/projects/${r.pid}`, { budget: { limit: 3, period: 'week' } });
+    assert.equal(count(), 1);
+    assert.equal(r.mod.service.budgetRollsAt(r.pid), new Date(2026, 9, 19).getTime(), 'the end of the week');
+    await r.call('PATCH', `/api/away/projects/${r.pid}`, { budget: null });
+    assert.equal(r.mod.service.budgetRollsAt(r.pid), undefined, 'no budget, no roll-over');
+  } finally { await r.close(); }
+});
+
+test('queue.updated on the event stream leaves out a hidden agent\'s tasks, like the snapshot', async () => {
+  const r = await boot();
+  try {
+    const hidden = { ...r.f.agents.get('scout')!, id: 'assayer', name: 'Assayer', requires: 'bsv' as const };
+    r.f.agents.set('assayer', hidden);
+    for (const [id, agentId] of [['task_v', 'scout'], ['task_h', 'assayer']] as const) {
+      r.f.ctx.store.upsertTask({ id, agentId, title: id, status: 'queued', source: 'ui', requestedModel: 'auto', createdAt: '', updatedAt: '' });
+    }
+    (r.f.ctx.engine as unknown as Record<string, unknown>).queueSnapshot = () => ({ cap: 4, running: 4, items: [{ taskId: 'task_v', reason: 'slot', position: 1 }, { taskId: 'task_h', reason: 'slot', position: 2 }] });
+    const snap = await (await r.call('GET', '/api/state')).json() as { queue: { items: Array<{ taskId: string }> } };
+    assert.deepEqual(snap.queue.items.map((i) => i.taskId), ['task_v']);
+    const res = await fetch(r.base + '/api/events', { headers: AUTH });
+    const reader = res.body!.getReader();
+    await reader.read();
+    r.f.bus.emit({ type: 'queue.updated', queue: { cap: 4, running: 4, items: [{ taskId: 'task_v', reason: 'slot', position: 1 }, { taskId: 'task_h', reason: 'slot', position: 2 }] } });
+    let text = '';
+    const dec = new TextDecoder();
+    for (let i = 0; i < 20 && !text.includes('queue.updated'); i++) { const { value } = await reader.read(); text += dec.decode(value ?? new Uint8Array()); }
+    await reader.cancel();
+    assert.ok(text.includes('queue.updated'));
+    assert.ok(text.includes('task_v'));
+    assert.ok(!text.includes('task_h'), 'the hidden agent\'s task is not in the stream');
   } finally { await r.close(); }
 });

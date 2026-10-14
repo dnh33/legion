@@ -29,7 +29,7 @@ export const mkAgent = (id: string, approval: AgentProfile['approval'] = 'full')
 });
 export const ok = (text = 'done') => ({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0.01, num_turns: 1, session_id: 's1' });
 
-export interface AwayState { paused: Set<string>; budget: Set<string>; spends: Array<Record<string, unknown>> }
+export interface AwayState { paused: Set<string>; budget: Set<string>; spends: Array<Record<string, unknown>>; rollsAt: Map<string, number> }
 
 export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
   const root = cleanupTemp('legion-queue-');
@@ -56,12 +56,13 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
     })();
     return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) });
   }) as unknown as QueryFn;
-  const awayState: AwayState = { paused: new Set(), budget: new Set(), spends: [] };
+  const awayState: AwayState = { paused: new Set(), budget: new Set(), spends: [], rollsAt: new Map() };
   const approvals = new ApprovalBroker(bus, { timeoutMs: opts.approvalTimeoutMs });
   const questions = new QuestionBroker(bus);
   const away: AwayHooks = {
     isPaused: (pid) => awayState.paused.has(pid),
     budgetBlocked: (pid) => awayState.budget.has(pid),
+    budgetRollsAt: (pid) => awayState.rollsAt.get(pid),
     recordSpend: (e) => { awayState.spends.push(e as unknown as Record<string, unknown>); },
   };
   const engine = new Engine({

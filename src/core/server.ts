@@ -4,7 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentHostSettings, AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick, CoreCaps, ParkedAsk,
+  AgentHostSettings, AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick, CoreCaps, ParkedAsk, QueueSnapshot,
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
@@ -245,6 +245,8 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   // ---- read-only -------------------------------------------------------
+  /** The queue without the tasks of an agent the caller may not see (a hidden agent's task is left out, as in the task list). */
+  const shownQueue = (q: QueueSnapshot): QueueSnapshot => ({ ...q, items: q.items.filter((i) => { const t = ctx.store.getTask(i.taskId); return !!t && taskShown(t); }) });
   /** True for the app window (it holds the admin secret); false for an MCP-class token. */
   const isAdminReq = (req: unknown): boolean => !!(req as { legionAdmin?: boolean }).legionAdmin;
   route('GET', '/api/state', ({ url, req }): StateSnapshot => ({
@@ -266,7 +268,7 @@ export function createServer(ctx: CoreContext): Server {
     // live progress of running runs, so a window opened mid-run shows the turn, tool and checklist at once (hidden agents' runs left out)
     progress: Object.fromEntries(Object.entries(ctx.engine.progressSnapshot?.() ?? {}).filter(([id]) => { const t = ctx.store.getTask(id); return !!t && taskShown(t); })),
     // who waits in the queue and why (a hidden agent's task is left out)
-    ...(ctx.engine.queueSnapshot ? { queue: (() => { const q = ctx.engine.queueSnapshot(); return { ...q, items: q.items.filter((i) => { const t = ctx.store.getTask(i.taskId); return !!t && taskShown(t); }) }; })() } : {}),
+    ...(ctx.engine.queueSnapshot ? { queue: shownQueue(ctx.engine.queueSnapshot()) } : {}),
     ...(ctx.away && isAdminReq(req) ? { parked: ctx.away.parked().filter((p) => agentIdVisible(ctx, p.agentId)), caps: ctx.away.caps() } : {}),
   }));
   // The history list: one page of tasks, newest first, optionally filtered. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES). Visibility is applied to
@@ -570,7 +572,8 @@ export function createServer(ctx: CoreContext): Server {
     const off = ctx.bus.on((ev: LegionEvent) => {
       if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
       if (!admin && adminOnlyEvent(ev)) return;
-      const out = admin ? ev : withholdEvent(ev, (id) => ctx.store.getTask(id));
+      const shown = ev.type === 'queue.updated' ? { ...ev, queue: shownQueue(ev.queue) } : ev;
+      const out = admin ? shown : withholdEvent(shown, (id) => ctx.store.getTask(id));
       if (!out) return;
       pushSse(res, !admin && out.type === 'boat.health' ? { type: 'boat.health', health: publicBoatHealth(out.health) } : out);
     });

@@ -33,6 +33,10 @@ const valid = (e: unknown): e is SpendEntry => {
 
 export class SpendLedger {
   private readonly months = new Map<string, SpendEntry[]>();
+  /** Months whose file ends in a broken line: the next append starts on a fresh line so it cannot be swallowed. */
+  private readonly needsNewline = new Set<string>();
+  /** Period totals, cleared by every new entry. */
+  private readonly totals = new Map<string, number>();
   constructor(private readonly dir: string, private readonly now: () => number = Date.now) {}
 
   private file(key: string): string { return join(this.dir, `spend-${key}.jsonl`); }
@@ -44,7 +48,9 @@ export class SpendLedger {
     try {
       const f = this.file(key);
       if (existsSync(f)) {
-        for (const line of readFileSync(f, 'utf8').split('\n')) {
+        const text = readFileSync(f, 'utf8');
+        if (text.length && !text.endsWith('\n')) this.needsNewline.add(key);
+        for (const line of text.split('\n')) {
           if (!line.trim()) continue;
           try { const e = JSON.parse(line); if (valid(e)) list.push(e); } catch { /* a bad line is skipped */ }
         }
@@ -62,9 +68,11 @@ export class SpendLedger {
       const key = monthKey(Date.parse(e.at));
       const list = this.load(key);
       list.push(line);
+      this.totals.clear();
       try {
         mkdirSync(this.dir, { recursive: true });
-        appendFileSync(this.file(key), JSON.stringify(line) + '\n', 'utf8');
+        appendFileSync(this.file(key), (this.needsNewline.has(key) ? '\n' : '') + JSON.stringify(line) + '\n', 'utf8');
+        this.needsNewline.delete(key);
       } catch { /* kept in memory; the run is not affected */ }
     } catch { /* never fails a run */ }
   }
@@ -87,7 +95,13 @@ export class SpendLedger {
 
   /** What was spent in the period that contains `nowMs`, for one project or all. */
   periodTotal(period: SpendPeriod, nowMs: number = this.now(), projectId?: string): number {
-    return this.between(periodStart(period, nowMs), periodEnd(period, nowMs), projectId).reduce((n, e) => n + e.usd, 0);
+    const from = periodStart(period, nowMs);
+    const key = `${period}|${from}|${projectId ?? ''}`;
+    const hit = this.totals.get(key);
+    if (hit !== undefined) return hit;
+    const total = this.between(from, periodEnd(period, nowMs), projectId).reduce((n, e) => n + e.usd, 0);
+    this.totals.set(key, total);
+    return total;
   }
 
   /** Spent since a moment (for the digest's "$6.10 spent"). */

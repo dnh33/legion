@@ -2,7 +2,7 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ApprovalBroker } from '../src/core/approvals.js';
+import { ApprovalBroker, describeWaited } from '../src/core/approvals.js';
 import { QuestionBroker } from '../src/core/questions.js';
 import { EventBus } from '../src/core/bus.js';
 import { HOLD_MAX_MS } from '../src/core/away/policy.js';
@@ -207,17 +207,45 @@ test('the hook timeout is the longest possible wait, and is still the old number
   assert.ok(withPark.timeoutSeconds >= 120 * 60, 'a park wait can be up to 120 minutes');
 });
 
-test('cancelling a task leaves no timer behind', () => {
+test('cancelling a task leaves no timer behind: nothing fires when the old deadline passes', async () => {
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: local(12) });
   try {
     const b = new ApprovalBroker(new EventBus(), { policy: policy({ quiet }) });
-    void b.request('t1', 'a1', 'Bash', { command: 'ls' });
-    b.cancelForTask('t1');
-    assert.equal(b.pending().length, 0);
     let fired = 0;
+    const p = b.request('t1', 'a1', 'Bash', { command: 'ls' }, undefined, { onTimeout: () => { fired++; } });
+    const done = settled(p);
+    b.cancelForTask('t1');
+    await flush();
+    assert.equal(b.pending().length, 0);
+    assert.deepEqual(done, { done: true, value: false }, 'cancelled is a no');
     mock.timers.tick(48 * 60 * MIN);
-    assert.equal(fired, 0);
+    await flush();
+    assert.equal(fired, 0, 'the deny timer was cleared with the ask');
   } finally { mock.timers.reset(); }
+});
+
+test('a hook must outlive any wait, even when quiet hours are switched on while the run is going', () => {
+  let q: QuietConfig | undefined;
+  const b = new ApprovalBroker(new EventBus(), { policy: { policyFor: () => ({ onSilence: 'deny', parkMinutes: 3 }), quiet: () => q } });
+  const before = b.timeoutSeconds;
+  q = quiet;
+  const after = b.timeoutSeconds;
+  assert.equal(before, after, 'the number does not depend on the setting at the moment it is read');
+  assert.ok(before >= 600 + 24 * 3600, `${before}`);
+  assert.ok(before * 1000 < 2 ** 31 - 1);
+});
+
+test('the deny callback learns how long the ask really waited, so the model can be told the truth', async (t) => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: local(21, 56) });
+  t.after(() => mock.timers.reset());
+  const b = new ApprovalBroker(new EventBus(), { policy: policy({ quiet }) });
+  let waited = -1;
+  void b.request('t1', 'a1', 'Bash', { command: 'ls' }, undefined, { onTimeout: (ms?: number) => { waited = ms ?? -1; } });
+  mock.timers.tick(9 * 60 * MIN + 10 * MIN); await flush();
+  assert.equal(waited, 9 * 60 * MIN + 10 * MIN, 'from 21:56 to 07:06');
+  assert.equal(describeWaited(waited, b.waitMs), '10 minutes of waiting (quiet hours paused the countdown, so it stayed open for 9 hours)');
+  assert.equal(describeWaited(10 * MIN, 10 * MIN), '10 minutes');
+  assert.equal(describeWaited(10 * MIN + 3000, 10 * MIN), '10 minutes', 'a timer that fires a moment late is not quiet hours');
 });
 
 test('questions follow the same policy: declined at the old wait, parked on request, quiet hours extend', async (t) => {

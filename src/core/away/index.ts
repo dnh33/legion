@@ -41,10 +41,19 @@ export class AwayService implements AwayHooks {
 
   status(projectId: string): BudgetStatus { return budgetStatus(this.d.ledger, this.d.store.project(projectId), projectId, this.now()); }
 
-  budgetBlocked(projectId: string): boolean {
+  /** Pure: reading it (the queue snapshot, a state request) never sends a notice. Notices come from `recordSpend` and `checkBudget`. */
+  budgetBlocked(projectId: string): boolean { return this.status(projectId).reached; }
+
+  /** When the period that holds this project's starts ends, or undefined when no budget holds it. */
+  budgetRollsAt(projectId: string): number | undefined {
+    const st = this.status(projectId);
+    return st.reached ? st.periodEnd : undefined;
+  }
+
+  /** The owner changed a budget: tell once if it is already reached. */
+  checkBudget(projectId: string): void {
     const st = this.status(projectId);
     if (st.reached) this.noteReached(projectId, st);
-    return st.reached;
   }
 
   recordSpend(e: { taskId: string; agentId: string; projectId?: string; usd: number }): void {
@@ -143,7 +152,7 @@ export function createAwayModule(deps: ModuleDeps, opts: AwayModuleOpts): AwayMo
     routes: (add) => {
       add('GET', '/api/away', () => store.view(opts.projects.list().map((p) => p.id)));
       add('PATCH', '/api/away/app', (c) => { const r = wrap(() => store.patchApp(body(c))); emit(); return r; });
-      add('PATCH', '/api/away/projects/:id', (c) => { const id = must(c.params[0]); const r = wrap(() => store.patchProject(id, body(c))); emit(); return r; });
+      add('PATCH', '/api/away/projects/:id', (c) => { const id = must(c.params[0]); const r = wrap(() => store.patchProject(id, body(c))); service.checkBudget(id); emit(); return r; });
       add('POST', '/api/away/projects/:id/seen', (c) => { const id = must(c.params[0]); const at = new Date(now()).toISOString(); store.markSeen(id, at); emit(); return { looked: at }; });
       add('POST', '/api/away/projects/:id/budget-override', (c) => { const id = must(c.params[0]); wrap(() => service.overrideBudget(id)); emit(); return { ok: true }; });
       add('GET', '/api/attention', (): AttentionView => attention.get());

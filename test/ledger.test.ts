@@ -144,3 +144,30 @@ test('budget: an override lasts to the end of the period, then the budget applie
   l.record(entry(at(2026, 10, 20, 9), 6));
   assert.equal(budgetStatus(l, over, 'p1', later).reached, true);
 });
+
+test('a truncated last line does not swallow the next entry', () => {
+  const dir = tmp();
+  const now = at(2026, 10, 14, 15);
+  const first = new SpendLedger(dir, () => now);
+  first.record(entry(at(2026, 10, 14, 9), 1));
+  // the core died in the middle of the next write: half a line, no newline
+  writeFileSync(join(dir, 'spend-2026-10.jsonl'), readFileSync(join(dir, 'spend-2026-10.jsonl'), 'utf8') + '{"at":"2026-10-14T10:00:00.000Z","taskId":"t9","agentId":"bui');
+  const second = new SpendLedger(dir, () => now);
+  second.record(entry(at(2026, 10, 14, 11), 2));
+  const third = new SpendLedger(dir, () => now);
+  assert.equal(third.periodTotal('day', now, 'p1'), 3, 'the broken line is skipped and the new entry survives');
+  const text = readFileSync(join(dir, 'spend-2026-10.jsonl'), 'utf8');
+  assert.ok(text.endsWith('\n'));
+  assert.equal(text.trim().split('\n').length, 3, 'the good line, the broken one, the new one');
+});
+
+test('totals are cached per period and refreshed by every new entry', () => {
+  const now = at(2026, 10, 14, 15);
+  const l = new SpendLedger(tmp(), () => now);
+  l.record(entry(at(2026, 10, 14, 9), 1));
+  assert.equal(l.periodTotal('week', now, 'p1'), 1);
+  assert.equal(l.periodTotal('week', now, 'p1'), 1);
+  l.record(entry(at(2026, 10, 14, 10), 2));
+  assert.equal(l.periodTotal('week', now, 'p1'), 3, 'a new entry is counted at once');
+  assert.equal(l.periodTotal('week', at(2026, 10, 20, 9), 'p1'), 0, 'a new period starts at zero');
+});
