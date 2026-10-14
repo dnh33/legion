@@ -88,7 +88,7 @@ for (const name of ['base', 'good', 'bad', 'later']) {
   if (name === 'good') {
     // The stepping-stone layout first: old name = the code-only candidate's own signed manifest, second name = this full candidate. Verified
     // with the real release-verify (offline, and with the throwaway stone version declared), so the layout the scenarios serve is the one the tooling accepts.
-    run('release-manifest.mjs', [...manifestArgs, '--stepping-stone', join(served, 'codeonly')]);
+    run('release-manifest.mjs', [...manifestArgs, '--stepping-stone', join(served, 'codeonly'), '--stones', versions.base]);
     run('release-sign.mjs', ['--key', key, '--manifest', join(pkg, 'legion-update-manifest-2.json'), '--trust-module', trustFile]);
     run('release-verify.mjs', ['--dir', pkg, '--trust-module', trustFile, '--no-network', '--stones', versions.base]);
     const sd = join(served, 'stone'); mkdirSync(sd, { recursive: true });
