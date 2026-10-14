@@ -18,6 +18,8 @@ import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { decideSingleInstance } from './instance-logic.js';
 import { projectChange } from './project-ipc.js';
+import { startSignals } from './signals.js';
+import type { Signals } from './signals.js';
 import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
@@ -51,6 +53,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let signals: Signals | undefined;
 let coreProc: ChildProcess | null = null;
 let quitting = false;
 let booting = true;
@@ -280,6 +283,13 @@ async function restartCore(): Promise<void> {
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
+/** The port and admin header of our own proven core, or undefined: only a core that proved it holds our secret ever sees it. */
+function ownCore(): { port: number; headers: Record<string, string> } | undefined {
+  const live = !!coreProc && coreProc.exitCode === null;
+  if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined;
+  return { port: pinned.port, headers: { 'X-Legion-Admin': adminSecret } };
+}
+
 async function ownCoreCall(method: 'GET' | 'POST' | 'PUT', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
   const live = !!coreProc && coreProc.exitCode === null;
   if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined; // only a core that proved it holds our secret ever sees it
@@ -391,6 +401,7 @@ function createWindow(showOnReady: boolean): void {
     },
   });
   win.setMenuBarVisibility(false);
+  signals?.attach(win);
   // the taskbar can pin this window and start Legion again from the pin (taskbar.ts)
   if (isWin) win.setAppDetails(windowDetails(process.execPath, root));
   if (showOnReady) win.once('ready-to-show', () => win?.show());
@@ -499,9 +510,41 @@ async function boot(): Promise<void> {
   splash = null;
   if (!tray) createTray();
   startSpendPoll();
+  if (!signals) {
+    signals = startSignals({ core: ownCore, overlayDir: assetPath('overlay'), showWindow, getWin: () => win, setTray: setTrayState, openAsk: sendOpenAsk });
+    const w0 = win as BrowserWindow | null; // set by createWindow above; the compiler cannot see that
+    if (w0 && !w0.isDestroyed()) signals.attach(w0);
+  }
   const mainWin = win as BrowserWindow | null;
   mainWin?.show();
   mainWin?.focus();
+}
+
+/** What the tray shows now: `Legion: 3 need you`, and the "Open what needs you" item only while something does (signals.ts sets it). */
+let trayText = 'Legion';
+let trayAsks = false;
+function trayMenu(): Menu {
+  return Menu.buildFromTemplate([
+    ...(trayAsks ? [{ label: 'Open what needs you', click: () => { showWindow(); sendOpenAsk({}); } }] : []),
+    { label: 'Show Legion', click: showWindow },
+    { label: 'Freeze BSV chain', click: () => void bsvPolicyChange({ kind: 'freeze' }) },
+    { label: 'Restart core', click: () => void restartCore() },
+    { label: 'Open data folder', click: () => void shell.openPath(dataDir()) },
+    { type: 'separator' as const },
+    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+  ]);
+}
+function setTrayState(tooltip: string, hasAsks: boolean): void {
+  const menuChanged = hasAsks !== trayAsks;
+  trayText = tooltip; trayAsks = hasAsks;
+  if (!tray) return;
+  tray.setToolTip(trayText);
+  if (menuChanged) tray.setContextMenu(trayMenu());
+}
+/** A notification or the tray asks the window to open an ask; the window routes it (ui `openAsk`). Empty ref: the first one waiting. */
+function sendOpenAsk(ref: { projectId?: string; taskId?: string }): void {
+  const send = (): void => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:open-ask', ref); } catch { /* the window is gone */ } };
+  if (win && !win.isDestroyed() && !win.webContents.isLoading()) send(); else setTimeout(send, 800);
 }
 
 function createTray(): void {
@@ -510,15 +553,8 @@ function createTray(): void {
     if (existsSync(assetPath('tray.png'))) img = nativeImage.createFromPath(assetPath('tray.png'));
   } catch { /* fall back to empty */ }
   tray = new Tray(img);
-  tray.setToolTip('Legion');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show Legion', click: showWindow },
-    { label: 'Freeze BSV chain', click: () => void bsvPolicyChange({ kind: 'freeze' }) },
-    { label: 'Restart core', click: () => void restartCore() },
-    { label: 'Open data folder', click: () => void shell.openPath(dataDir()) },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
-  ]));
+  tray.setToolTip(trayText);
+  tray.setContextMenu(trayMenu());
   tray.on('click', showWindow);
 }
 
@@ -600,6 +636,15 @@ if (instance.quit) {
     return false;
   });
 
+  // The window says which project page and which thread it shows, so a notification is never sent for what you are already looking at.
+  ipcMain.on('legion:view', (e, v: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return;
+    const id = (x: unknown): string | null => (typeof x === 'string' && x.length > 0 && x.length <= 120 ? x : null);
+    const o = (v && typeof v === 'object' ? v : {}) as { pageProjectId?: unknown; threadTaskId?: unknown };
+    signals?.setView({ pageProjectId: id(o.pageProjectId), threadTaskId: id(o.threadTaskId) });
+  });
+
   // Opens the logs folder and nothing else: the handler takes NO argument, so no path can come from the window.
   ipcMain.handle('legion:open-logs', async (e): Promise<boolean> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
@@ -609,7 +654,7 @@ if (instance.quit) {
   });
 
   app.on('before-quit', () => { quitting = true; });
-  app.on('will-quit', () => { if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
+  app.on('will-quit', () => { signals?.stop(); if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
   app.on('window-all-closed', () => { /* stay in tray */ });
   app.on('activate', () => showWindow());
 
