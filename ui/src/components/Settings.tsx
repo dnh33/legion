@@ -18,6 +18,7 @@ import { GithubSection } from '../connectors/GithubSection';
 import { LogsSection } from '../logs/LogsSection';
 import { GatesSection } from '../gates/GatesSection';
 import { NotificationsSection } from '../away/NotificationsSection';
+import { SoundsSection } from '../sound/SoundsSection';
 import { SpendingSection } from '../away/SpendingSection';
 import { NAV, groupNav } from './settingsNav';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
@@ -69,7 +70,7 @@ export function SettingsPanel() {
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
               : section === 'gates' ? <GatesSection s={settings} />
-              : section === 'notifications' ? <NotificationsSection />
+              : section === 'notifications' ? <><NotificationsSection /><SoundsSection /></>
               : section === 'spending' ? <SpendingSection />
               : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />
