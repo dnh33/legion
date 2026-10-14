@@ -1,5 +1,5 @@
 /** Pure view logic of the CI panel (no DOM, no CSS), shared by ui/src/ci and its tests. */
-import type { CiProblem } from './ci.js';
+import type { CiProblem, CiRun } from './ci.js';
 
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return '';
@@ -63,4 +63,48 @@ export function clampGeometry(g: PanelGeometry, vw: number, vh: number): PanelGe
   const h = Math.min(Math.max(g.h, PANEL_MIN_H), Math.max(PANEL_MIN_H, vh - PANEL_TOP - 16));
   const dockW = Math.min(Math.max(g.dockW, PANEL_MIN_W), Math.max(PANEL_MIN_W, Math.floor(vw * 0.6)));
   return { ...g, w, h, dockW, x: Math.min(Math.max(g.x, 8), Math.max(8, vw - w - 8)), y: Math.min(Math.max(g.y, PANEL_TOP + 4), Math.max(PANEL_TOP + 4, vh - h - 8)) };
+}
+
+/* ---------- which runs count, and the failure badge's dismiss ---------- */
+
+/** When a run last started: a re-run keeps its id and creation time but starts again, so it ranks by this. */
+const startOf = (r: CiRun): string => r.startedAt ?? r.createdAt;
+
+/** The latest run of each workflow on `branch` (null: every branch). A later run of a workflow supersedes every earlier one, failed or not. */
+export function latestRuns(runs: readonly CiRun[], branch: string | null): CiRun[] {
+  const latest = new Map<string, CiRun>();
+  for (const r of runs) {
+    if (branch !== null && r.branch !== branch) continue;
+    const cur = latest.get(r.workflow);
+    if (!cur) { latest.set(r.workflow, r); continue; }
+    const a = startOf(r), b = startOf(cur);
+    if (a > b || (a === b && (r.attempt > cur.attempt || (r.attempt === cur.attempt && r.id > cur.id)))) latest.set(r.workflow, r);
+  }
+  return [...latest.values()];
+}
+
+/** Failures the badge shows: the latest run of a workflow failed, and it ended after the owner last dismissed (ISO time, or null). */
+export function activeFailures(runs: readonly CiRun[], branch: string | null, dismissedAt: string | null): CiRun[] {
+  return latestRuns(runs, branch).filter((r) => r.status === 'completed' && runLook(r.status, r.conclusion).tone === 'bad' && (!dismissedAt || r.updatedAt > dismissedAt));
+}
+
+export type CiDismissed = Record<string, string>;
+export const dismissKey = (repo: string | null, branch: string | null): string => `${repo ?? ''}#${branch ?? ''}`;
+const DISMISS_STORE = 'legion.ci.dismissed';
+interface TextStore { getItem(k: string): string | null; setItem(k: string, v: string): void }
+
+/** Dismiss: remember the end time of the newest failure now showing. Only a failure that ends after it brings the badge back. */
+export function dismissFailures(prev: CiDismissed, key: string, failing: readonly CiRun[]): CiDismissed {
+  const newest = failing.reduce((m, r) => (r.updatedAt > m ? r.updatedAt : m), prev[key] ?? '');
+  return newest ? { ...prev, [key]: newest } : prev;
+}
+export function readDismissed(store: TextStore | null): CiDismissed {
+  try {
+    const v: unknown = JSON.parse(store?.getItem(DISMISS_STORE) ?? 'null');
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  } catch { return {}; }
+}
+export function writeDismissed(store: TextStore | null, d: CiDismissed): void {
+  try { store?.setItem(DISMISS_STORE, JSON.stringify(d)); } catch { /* the dismiss lasts until the window closes */ }
 }
