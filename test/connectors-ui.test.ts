@@ -40,7 +40,9 @@ test('after the restart the window reopens Settings, GitHub; the restart error i
 test('the editor shows the warning and saves the opt-in; Settings has the GitHub page; the page shows the not-available state and the revoke link', () => {
   const editor = src('ui/src/components/AgentEditor.tsx');
   assert.match(editor, /connectorsShellWarning\(\{ connectors: github, approval, onProvider, vmOn \}\)/);
-  assert.match(editor, /connectors: github \? \['github'\] : \[\]/);
+  // the opt-in is saved through accessPatch, which sets connectors: ['github'] for the read and write levels
+  assert.match(editor, /\.\.\.accessPatch\(ghLevel, ghRepos\)/);
+  assert.match(src('ui/src/github/agentAccess.ts'), /connectors: \['github'\]/);
   assert.match(src('ui/src/components/Settings.tsx'), /section === 'github' \? <GithubSection \/>/);
   const page = src('ui/src/connectors/GithubSection.tsx');
   assert.match(page, /Not available yet/);
