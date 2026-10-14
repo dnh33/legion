@@ -407,9 +407,20 @@ export class GitHubClient {
         const reset = retryAfter !== undefined ? this.now() + retryAfter * 1000 : (num(res.headers.get('x-ratelimit-reset')) ?? 0) * 1000;
         throw new GhError('rate-limited', { resetAt: new Date(reset).toISOString() });
       }
+      await this.logRefusal(res);
       throw new GhError('forbidden', { needs: isRead(method) ? 'read' : 'write' });
     }
     throw new GhError('network', { retryable: res.status >= 500, status: res.status });
+  }
+
+  /** GitHub's own short reason for a refusal goes to the log (printable text only, capped), so "403" can be told apart from "403 because". */
+  private async logRefusal(res: Response): Promise<void> {
+    try {
+      const m = (JSON.parse(await this.readText(res, 4096)) as { message?: unknown }).message;
+      // plain words only: anything that could carry a URL, a query, an address or a value (= / ? @ :) is never logged
+      const words = typeof m === 'string' ? m.replace(/[^\x20-\x7e]/g, '').trim().slice(0, 200) : '';
+      if (/^[A-Za-z0-9 .,'()-]+$/.test(words) && !/gh[uprs]_/.test(words)) this.logLine(`github: refused: ${words}`);
+    } catch { /* no readable reason */ }
   }
 
   // ---------------------------------------------------------------------------------------------- connection and permissions

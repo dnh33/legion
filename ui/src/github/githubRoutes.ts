@@ -3,7 +3,7 @@
  * Shapes are the ones src/core/connectors/github/area.ts and repo-admin.ts send. A reply that does not match throws a plain error:
  * the area never guesses at a shape it was not sent.
  */
-import type { GithubActivityItem } from '../../../src/shared/github-area.js';
+import type { GithubActivityItem, GithubPickerRow, GithubPickerView } from '../../../src/shared/github-area.js';
 import type { GithubActivity, GithubProjectUse } from './types.js';
 
 const BAD = 'Legion sent a reply it could not read.';
@@ -69,4 +69,19 @@ export function plainError(status: number, message: string): string {
   // a sentence from the core is already plain; a lone code word is not
   if (/\s/.test(message.trim()) && message.length < 200) return message;
   return 'Something went wrong.';
+}
+
+/** GET /api/github/apps/:app/repos answers one of three phases (src/core/connectors/github/repo-picker.ts). */
+export function parsePicker(v: unknown): GithubPickerView {
+  const o = rec(v);
+  if (!o) throw new Error(BAD);
+  if (o.phase === 'needs-signin') return { phase: 'needs-signin' };
+  if (o.phase === 'not-installed' && str(o.installUrl)) return { phase: 'not-installed', installUrl: o.installUrl };
+  if (o.phase !== 'ready' || typeof o.installationId !== 'number' || !str(o.account) || !str(o.installUrl) || !Array.isArray(o.rows)) throw new Error(BAD);
+  const rows: GithubPickerRow[] = o.rows.map((r) => {
+    const x = rec(r);
+    if (!x || typeof x.id !== 'number' || !str(x.fullName) || typeof x.private !== 'boolean' || typeof x.admin !== 'boolean' || typeof x.installed !== 'boolean') throw new Error(BAD);
+    return { id: x.id, fullName: x.fullName, private: x.private, admin: x.admin, installed: x.installed };
+  });
+  return { phase: 'ready', installationId: o.installationId, selection: o.selection === 'all' ? 'all' : 'selected', account: o.account, rows, seesUninstalled: o.seesUninstalled === true, installUrl: o.installUrl, truncated: o.truncated === true };
 }
