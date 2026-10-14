@@ -65,7 +65,7 @@ test('install.ps1 does not use iex itself, and runs setup through a file with th
 const installYml = raw('.github/workflows/install.yml').replace(/\r\n/g, '\n');
 const ciYml = raw('.github/workflows/ci.yml').replace(/\r\n/g, '\n');
 const esc = (x: string): string => x.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
-const smokeJobs = ['install-windows', 'install-unix'];
+const smokeJobs = ['install-windows', 'install-pr-package', 'install-unix'];
 
 test('install.yml runs on installer-path changes, nightly and by hand, never on pull_request_target', () => {
   assert.doesNotMatch(installYml.replace(/^s*#.*$/gm, ""), /pull_request_target/);
@@ -84,6 +84,18 @@ test('install.yml runs on installer-path changes, nightly and by hand, never on 
   for (const job of smokeJobs) assert.match(installYml, new RegExp(`^ {2}${job}:\n(?: {4}.*\n)*? {4}timeout-minutes: [0-9]+`, 'm'), `${job} has a time limit`);
   // every action is pinned to a full commit SHA
   for (const m of installYml.matchAll(/uses: (\S+)/g)) assert.match(m[1], /@[0-9a-f]{40}$/, `unpinned action ${m[1]}`);
+});
+
+test('install.yml installs the package built from the checkout (not the live release) and launches it', () => {
+  const job = installYml.slice(installYml.indexOf('  install-pr-package:'), installYml.indexOf('  install-unix:'));
+  assert.match(job, /node scripts\/build-package\.mjs --out/);
+  assert.match(job, /LEGION_INSTALL_BASE: http:\/\/127\.0\.0\.1:8099/);
+  assert.doesNotMatch(job, /releases\/latest/, 'it must not look at the live release');
+  assert.doesNotMatch(job, /Add-MpPreference/, 'Defender stays on, as on a user PC');
+  assert.match(job, /default_app\.asar/);
+  assert.match(job, /runtime\\electron\\electron\.exe/);
+  assert.match(job, /\/health/);
+  assert.match(installYml, /continue-on-error: \$\{\{ github\.event_name == 'pull_request' \}\}/, 'the live-release job cannot judge a pull request');
 });
 
 test('install.yml clears CI and ELECTRON_SKIP_BINARY_DOWNLOAD for install.sh and asserts the Electron binary exists', () => {
