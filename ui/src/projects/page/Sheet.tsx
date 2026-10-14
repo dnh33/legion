@@ -250,7 +250,7 @@ function NewTaskSheet({ f, project }: { f: PageFacts; project: Project }) {
           <span className="pl">To:</span>
           <button ref={toBtn} type="button" className="pg-pill" aria-haspopup="menu" aria-expanded={toMenu} onClick={() => setToMenu((v) => !v)}>
             {agentId && <AgentBust agentId={agentId} size={22} calm />}
-            <span className="ell">{to && members.includes(to) ? nameOf(to) : 'Best fit (Marshal chooses)'}</span><PIcon name="chev" size={12} />
+            <span className="ell">{to && members.includes(to) ? nameOf(to) : 'Best fit'}</span><PIcon name="chev" size={12} />
           </button>
           <span className="pl">in</span>
           <button ref={inBtn} type="button" className="pg-pill" aria-haspopup="menu" aria-expanded={inMenu} onClick={() => setInMenu((v) => !v)}>
@@ -259,7 +259,7 @@ function NewTaskSheet({ f, project }: { f: PageFacts; project: Project }) {
           {toMenu && (
             <Menu anchor={toBtn} label="Who does it" onClose={() => setToMenu(false)} minWidth={260}>
               <button type="button" role="menuitemradio" aria-checked={to === null} onClick={() => { setTo(null); setToMenu(false); }}>
-                <span className="mm"><b>Best fit (Marshal chooses)</b><span>{fitName ? `The member with the fewest runs here, now ${fitName}` : 'Add a member first'}</span></span>
+                <span className="mm"><b>Best fit</b><span>{fitName ? `The member with the fewest running tasks here, now ${fitName}` : 'Add a member first'}</span></span>
                 {to === null && <PIcon name="check" size={14} className="ck" />}
               </button>
               {members.map((id) => (
@@ -290,7 +290,7 @@ function NewTaskSheet({ f, project }: { f: PageFacts; project: Project }) {
             </div>
           </div>
         ) : (
-          <p className="pg-sh-note">{fit && to === null ? `The Marshal reads the task and hands it to the best member (${fitName} right now). ` : ''}Type @ in the text to pick someone else.</p>
+          <p className="pg-sh-note">{fit && to === null ? `Legion picks the member with the fewest running tasks (${fitName} right now). ` : ''}Type @ in the text to pick someone else.</p>
         )}
       </div>
       <footer className="pg-sh-f">

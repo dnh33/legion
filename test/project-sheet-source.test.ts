@@ -35,3 +35,19 @@ test('the second-run box offers exactly the two spec choices as pressed buttons'
   assert.match(s, /aria-pressed=\{choice === 'run'\}.*>Run anyway</);
   assert.match(s, /aria-pressed=\{choice === 'after'\}.*>Queue after it</);
 });
+
+test('the Best fit copy says what the code does: the member with the fewest running tasks, chosen by Legion, not read by the Marshal', () => {
+  const s = read('Sheet.tsx');
+  assert.equal(/Marshal/.test(s), false, 'Best fit is chosen in the window by counting runs; no Marshal is involved');
+  assert.match(s, /Legion picks the member with the fewest running tasks/);
+  assert.equal(/[–—]/.test(s), false, 'no em or en dash');
+});
+
+test('the Settings section nav wraps in the narrow layout: no sideways scroll, so the legend is never clipped', () => {
+  const css = read('settings.css');
+  const narrow = /@container pg \(max-width: 760px\) \{[\s\S]*?\n\}/.exec(css)?.[0] ?? '';
+  const snav = /\.pg-snav \{[^}]*\}/.exec(narrow)?.[0] ?? '';
+  assert.ok(snav, 'the narrow .pg-snav rule exists');
+  assert.match(snav, /flex-wrap:\s*wrap/);
+  assert.equal(/overflow-x:\s*(auto|scroll)/.test(snav), false, snav);
+});

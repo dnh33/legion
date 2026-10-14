@@ -83,7 +83,7 @@ test('review fixes: one proposal source for switcher and rail, a picker for 2+ m
   assert.match(rail, /board: \{ items: \[\], inbox: proposals \}/);
   const frame = read('ProjectPage.tsx');
   assert.doesNotMatch(frame, /Agent for the new task/, 'the old To: select is replaced by the New task sheet pills');
-  assert.match(read('Sheet.tsx'), /Best fit \(Marshal chooses\)/);
+  assert.match(read('Sheet.tsx'), /Best fit/);
   assert.match(readFileSync(join(ui, 'App.tsx'), 'utf8'), /opsOpenPref && view !== 'project'/);
   assert.doesNotMatch(read('TabsContent.tsx'), /disabled=\{busy \|\| archived\}/);
   assert.match(read('Overview.tsx'), /Viewing \{projectLabel\(project\)\}/);
