@@ -1,6 +1,6 @@
 # Legion 0.3.0 "Runs without you": design spec
 
-Date: 2026-10-14. Branch: feat/0.3.0-runs-without-you (main 3028d59). Status: APPROVED 2026-10-14 by Rune under the owner's overnight goal (D1-D5 accepted, O1-O5 defaults kept, one 8 s hold for every allow). Path: architectural.
+Date: 2026-10-14. Branch: feat/0.3.0-runs-without-you (main 3028d59). Status: APPROVED 2026-10-14 by Rune under the owner's overnight goal (D1-D5 accepted, O1-O5 defaults kept, one hold for every allow: 5 s, 10 s for irreversible asks, set later the same day, decisions-log "Allow hold length"). Path: architectural.
 Approved target: `docs/superpowers/specs/assets/2026-10-14-project-page/project-page-v1.html` (the mockup). Every state, string and interaction below comes from its source unless a section says "deviation".
 Code facts are cited as `file:line` at 3028d59. Anything not checked is marked **unverified**.
 
@@ -27,7 +27,7 @@ Work continues while the owner is away, and coming back takes under a minute:
 
 | Feature | Can it stop or slow work? | Answer |
 |---|---|---|
-| Hold-then-send | Delays an Allow typed in the digest by 8 s | Only in the digest, only after the owner clicked Allow, "Send now" skips it. The thread card is unchanged (immediate). |
+| Hold-then-send | Delays an Allow typed in the digest by 5 s (10 s for an irreversible ask) | Only in the digest, only after the owner clicked Allow, "Send now" skips it. The thread card is unchanged (immediate). |
 | Wait 10 min, then deny | Same as today (core already denies at 10 min, `src/core/approvals.ts:155`) | Default unchanged. |
 | Quiet hours | An ask waits longer | Off by default. Extends a wait, never shortens it. |
 | Park | Stops a run | Off by default, per project, opt-in, explained in the row. |
@@ -115,7 +115,7 @@ Order in `#content`: banner, Working-now strip, digest, body (state groups or By
 - Keyboard: Tab through rows; J/K move between asks; A allows and D denies only under the same arming rule as the thread (`threadKey`, `ARM_MS`) and never on click-only rows. Stray keys never answer (0.2.6-z).
 
 **Answers and the hold** (resolves A2; deviation D1 in 11.1):
-- **Allow-type answers are held on the client for 8 s, then sent.** This is every answer that makes something happen: Allow, Allow all, a question option, Accept. The row becomes `Publishing in 8 s.` (verb from the classifier, else `Allowing in 8 s.`) with a visible bar, **Undo** and **Send now**. The countdown pauses while the pointer is over the row (only after the pointer has left the row once, so a resting pointer does not freeze it) or while keyboard focus is inside it (`:focus-visible`). Focus and a live-region announcement follow each state.
+- **Allow-type answers are held on the client, then sent: 5 s for every one, 10 s when the ask is irreversible (consequence level 3 and certain).** This is every answer that makes something happen: Allow, Allow all, a question option, Accept. The keyboard A on an irreversible ask needs a second A within 2 s of the first (the first only arms it; a click does not need the second press). The row becomes `Publishing in 10 s.` (verb from the classifier, else `Allowing in 5 s.`) with a visible bar, **Undo** and **Send now**. The countdown pauses while the pointer is over the row (only after the pointer has left the row once, so a resting pointer does not freeze it) or while keyboard focus is inside it (`:focus-visible`). Focus and a live-region announcement follow each state.
 - **Deny and Reject are sent at once** and show a final row (`Denied. Builder was told no.`) with no Undo. A mistaken deny is recoverable (the agent asks again); a mistaken allow is not.
 - **The hold lives only in the renderer's memory.** Nothing is sent until the countdown ends or "Send now" is pressed. A crash, a reload or a power cut during the hold sends nothing; the ask is still pending in the core and reappears as open. This is the safety property, tested (section 9).
 - If the core settled the ask during the hold (its own deadline passed), the send returns `ok:false`; the row says `This approval was already denied after 10 min.` and nothing else happens. To avoid that race for an ask in its last 20 s, the client first calls `POST /api/approvals/:id/hold` (4.5), which only delays the core's deny.
@@ -248,7 +248,7 @@ Consequence = { level: 0|1|2|3, tags: ('spends'|'leaves'|'deletes'|'irreversible
 ## 5. Safety rules
 
 1. **Nothing is ever auto-allowed.** The only automatic outcomes are deny, park, and wait. There is no timer path to `resolve(id, true)`. A test greps the away module and the broker for any `true` resolution reachable from a timer.
-2. **The hold is client-side.** The renderer sends Allow only after the countdown or "Send now". No new core state can send it. A reload, crash or kill during the hold sends nothing and the ask remains pending (5.7).
+2. **The hold is client-side.** The renderer sends Allow only after the countdown (5 s, or 10 s for an irreversible ask) or "Send now". No new core state can send it. A reload, crash or kill during the hold sends nothing and the ask remains pending (5.7).
 3. **Fail-safe classifier.** Unknown is the highest level and disables inline Allow (4.10). `classify` never returns a lower level on error.
 4. **Inline Allow is never offered** for `clickOnly` cards (`approval-keys.ts:15`), `noRemember` cards, or `certain:false`. The digest cannot become a faster way past a card the thread already makes you read.
 5. **Settings that can loosen live where they are protected.** The away store never allows an ask (4.1); it can be edited back to undo the owner's own pause or budget. Allow-capable state is a gate rule in `config.json`, an existing exposure; creating one needs the Confirm step. Folder and member changes keep the native confirmation (`projects/index.ts:31-36`). `main.ts` has **no** protected-path list: it pins port and token at start and does not re-read `config.json` (`main.ts:70, 554`). The real protection hook is `CoreModule.protectedPaths()` (`modules.ts:90`) consumed by the PreToolUse hook (`engine.ts:1141-1146, 1440-1447`); the away module returns `[<dataDir>/away]`. **Stated limit, as for the Armory: this stops the file tools, not Bash.** The core keeps the policy in memory and treats the file as persistence (re-read only at start), so a Bash edit takes effect after the next core start. By 4.1 it can never allow an ask, but it can undo the owner's own pause or budget (same exposure as `config.json`).
@@ -316,7 +316,7 @@ No DOM runner exists. Logic stays in pure modules (above). For rendering, extend
 
 ### 9.3 Hands-on test list in the real app (record each in `claude/tracker-pc-checks.md`; "Needs a real PC")
 - H1 Open a project with 6+ asks: top 3 shown, `N more` expands, Working-now strip above the fold at 1280x820 and 960x600.
-- H2 Allow an irreversible command: 8 s hold, hover pauses, keyboard focus pauses, Undo restores, Send now sends, closing and reopening the window during the hold sends nothing and the ask is still pending.
+- H2 Allow an irreversible command: 10 s hold (5 s for any other Allow), a second A within 2 s on the keyboard, hover pauses, keyboard focus pauses, Undo restores, Send now sends, closing and reopening the window during the hold sends nothing and the ask is still pending.
 - H3 Kill the app (task manager) during a hold: nothing ran; restart: the ask is gone with the run (existing) or open (if the core lived).
 - H4 Leave an ask 10 min on "Wait, then deny": denied, row says `Denied after 10 min`, the agent reads the timeout text.
 - H5 Quiet hours on, raise an ask inside them: it waits, no popup; at quiet end one summary and the 10 min clock starts; an ask raised 4 min before quiet start keeps its remaining time.
@@ -361,7 +361,7 @@ Why first: the page puts 20+ busts on screen; without it the mockup's measured j
 ## 11. Deviations, data gaps, layouts, open points
 
 ### 11.1 Deviations from the mockup (each needs the owner's nod)
-- **D1 Undo semantics.** The mockup folds every answer into "Undo 8 s". The core cannot take back an answer once sent. This spec holds every allow-type answer for 8 s (Undo is real) and sends Deny/Reject at once with no Undo. Copy changes from past tense ("Allowed. Builder continues.") to truthful present ("Allowing in 8 s.") until sent.
+- **D1 Undo semantics.** The mockup folds every answer into "Undo 8 s" (the shipped lengths are 5 s and 10 s). The core cannot take back an answer once sent. This spec holds every allow-type answer for 5 s, or 10 s when the ask is irreversible (Undo is real) and sends Deny/Reject at once with no Undo. Copy changes from past tense ("Allowed. Builder continues.") to truthful present ("Allowing in 5 s.") until sent.
 - **D2** Owner's "Start with <agent>" on a paused project runs (4.4).
 - **D3** Native project `<select>` becomes a menu button as in the mockup; a11y requirements in section 8.
 - **D4** "Keep your computer awake" and the Marshal switch live in this tab per the mockup; the awake row is hidden until `caps.keepAwake`.
@@ -425,7 +425,7 @@ Keys live in `src/shared/away-copy.ts`. "Ships" differs from the mockup only whe
 | Buttons | `Allow`, `Deny`, `Deny and stop`, `Open`, `Read it`, `Accept, keep it marked`, `Reject`, `Allow all 3`, `Review`, `Undo`, `Send now`, `Retry`, `Continue`, `Stop`, `Stop waiting`, `Mark done`, `Resume`, `Change budget`, `Save budget`, `Run anyway this week` |
 | Untrusted line | `Accepting or editing keeps it marked untrusted. Only "Mark as reviewed" clears it.` |
 | Reads ledger | `Scout: 22 of 22 file reads approved this week.` |
-| Hold | `Publishing in 8 s.` / `Deleting in 8 s.` (ships also `Allowing in 8 s.`), `Hover or focus pauses the countdown.` |
+| Hold | `Publishing in 10 s.` / `Deleting in 10 s.` (irreversible, 10 s), `Allowing in 5 s.` (any other Allow, 5 s), `Hover or focus pauses the countdown.` |
 | Hold race | ships: `This approval was already denied after 10 min.` |
 | Answers | `Denied. Builder was told no.` (ships); `Denied. Builder was stopped. Work kept.`; `You chose A. Scribe continues.` (ships after send); `Rejected. Nothing was added to the board.`; `Accepted. Still marked untrusted until you mark it reviewed.` |
 | Wait line | `Waiting 28 min, denied at 10 min`; `Waiting 7 min, parks at 3 min`; `Parked 14 min, work kept`; `Denied after 10 min`; ships: `Waiting: quiet hours until 07:00` |

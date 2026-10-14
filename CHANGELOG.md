@@ -4,6 +4,27 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows
+  who is working right now, then "Since you last looked": the three riskiest asks first, each with what saying yes would do, and
+  the rest behind "N more". Failed, stopped and finished work folds into one line. "Mark as seen" moves the starting point. You
+  can allow or deny a command, answer a question, or accept or reject a board proposal right there.
+- **Allow waits a few seconds first, so you can take it back.** On the project page an Allow is held for 5 seconds (10 seconds
+  for something that leaves your computer, deletes files or cannot be undone), with Undo and Send now. Deny goes at once. If you
+  close or reload the window during the wait, nothing is sent and the ask is still waiting. With the keyboard, A on an
+  irreversible ask needs a second A within 2 seconds.
+- **Two ways to see the work.** "By status" groups it as working, waiting for a slot, in review, stopped and done today. "By agent"
+  shows one row per agent with what it is doing, how many runs it has, and its cost this week. Click a name under "Working now"
+  or "2 runs" to see every run of that agent, in every project.
+- **The rail says more in one line.** Each member shows what needs you, what it is working on, or where else it works. An agent
+  with two or more runs going shows the number on its picture. The project control is a menu with a dot and "N elsewhere" when
+  something waits for you in another project.
+- **An Allow you started keeps its countdown if you leave the page.** A small chip at the bottom of the window says "Publishing in 6 s" with Undo and Send now, so a pending Allow is never out of sight.
+  The project page also has its own side column, so the agent panel is closed there and comes back with the chat.
+- **Budget and pause show on the page.** A banner says when the budget is reached (with a way to change it or run anyway) or when
+  new starts are paused (with Resume).
+
 ### Fixed
 
 - **Updates that change Legion's parts now install by themselves.** When a release changes the libraries Legion runs on, it comes as one larger download (about 285 MB). Before, a forgotten step could ship such a release as a notice only. Now the release build decides this from the files, and the release checks refuse a release that is missing the larger download.
@@ -13,6 +34,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **If Legion cannot prepare an update, it says so and keeps working.** Nothing is changed and your current version starts again.
 - **Updates use less disk.** The downloaded file is deleted once it is unpacked, the old copy is removed after the new version starts well, and the free space check now counts the real size.
 
+- The big picture of the selected agent no longer asks for you when a different agent has an approval waiting.
+- A queued run that is waiting for a free slot now says so on the project page.
 - **The message box keeps its controls while a run is going.** With "Stop all" showing, the model name no longer shrinks to "A..." and the key hint no longer gets cut off. The hint hides first when the box is narrow; the model name, Add or Queue, Stop all and Stop always stay.
 - **Settings, Providers no longer shows an old version number.** The Codex note now says "Codex: later" instead of a version from the past.
 

@@ -22,6 +22,8 @@ import { Toasts } from './components/Toasts';
 import { initLibrary } from './library/libraryStore';
 import { LibraryView } from './library/LibraryView';
 import { ProjectView } from './projects/ProjectView';
+import { LiveRegion } from './projects/page/announce';
+import { HoldChip } from './projects/page/HoldChip';
 import { initProjects } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
@@ -60,12 +62,14 @@ function useWindowAway() {
 }
 
 export function App() {
-  const opsOpen = useStore((s) => s.opsOpen);
+  const opsOpenPref = useStore((s) => s.opsOpen);
   const palette = useStore((s) => s.palette);
   const doctorOpen = useStore((s) => s.doctorOpen);
   const editor = useStore((s) => s.editor);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const view = useStore((s) => s.view);
+  // the agent panel is closed on the project page, which has its own side column; it comes back with the chat (the choice is kept)
+  const opsOpen = opsOpenPref && view !== 'project';
   const opsMounted = useOpsMounted(opsOpen);
   useWindowAway();
 
@@ -94,7 +98,7 @@ export function App() {
       else if (mod && !e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newTask(); }
       else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'm') { e.preventDefault(); window.dispatchEvent(new Event('legion:model-picker')); }
       else if (mod && e.key === ',') { e.preventDefault(); toggleSettings(); }
-      else if (mod && e.key === '.') { e.preventDefault(); toggleOps(); }
+      else if (mod && e.key === '.') { e.preventDefault(); if (getState().view !== 'project') toggleOps(); }
       else if (e.key === 'Escape') { const s = getState(); if (s.palette || s.doctorOpen) { e.preventDefault(); closeOverlays(); } else if (s.settingsOpen && !document.querySelector('.scrim .modal') && !(e.target as HTMLElement)?.closest?.('input, textarea, select')) { e.preventDefault(); closeSettings(); } }
       else if (e.altKey && !mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); switchAgentByIndex(Number(e.key) - 1); }
     };
@@ -122,6 +126,8 @@ export function App() {
       {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} {...(editor.focus ? { focus: editor.focus } : {})} />}
       <TaskMenu />
       <Toasts />
+      <HoldChip />
+      <LiveRegion />
       <ChainOverlay />
       <CiPanel />
       <EnableBlenderDialog />

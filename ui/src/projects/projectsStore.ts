@@ -2,6 +2,8 @@
 import type { Project } from '../../../src/shared/projects';
 import { api, ApiError } from '../api';
 import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
+import { initAway } from './awayStore';
+import { enterProject, setTab } from './page/pageState';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -14,7 +16,7 @@ export async function loadProjects(): Promise<void> {
     setState((s) => ({ projects, projectFilter: resolveFilter(projects, s.projectFilter) }));
   } catch { /* no admin access: no projects */ }
 }
-export const initProjects = (): void => { void loadProjects(); };
+export const initProjects = (): void => { void loadProjects(); initAway(); };
 
 /** Chooses what the rail, the task tabs and Recent tasks show: null = All. Keeps the selected agent and task inside the choice. */
 export function setProjectFilter(id: string | null): void {
@@ -30,6 +32,12 @@ export function setProjectFilter(id: string | null): void {
 export function openProject(id: string): void {
   setProjectFilter(id);
   setView('project');
+}
+/** Opens a project's page on its Board tab (where its proposals wait). */
+export function openProjectBoard(id: string): void {
+  enterProject(id);
+  setTab('board');
+  openProject(id);
 }
 export const closeProjectPage = (): void => setView('chat');
 
