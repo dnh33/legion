@@ -9,6 +9,8 @@ import { ApiError, request } from '../api';
 import { getState as getApp, openSettings, toast, errText } from '../store';
 import type { CiJobsView, CiLogView, CiRunsView, CiStateView, CiUpdateSummary } from '../../../src/shared/ci';
 import { CI_HEARTBEAT_MS } from '../../../src/shared/ci';
+import { activeFailures, dismissFailures, dismissKey, readDismissed, writeDismissed } from '../../../src/shared/ci-view';
+import type { CiDismissed } from '../../../src/shared/ci-view';
 
 export interface CiUiState {
   loaded: boolean;
@@ -29,9 +31,13 @@ export interface CiUiState {
   refreshing: boolean;
   /** Text for the screen-reader live region. */
   say: string;
+  /** Per repo and branch: the end time of the newest failure the owner dismissed. Kept in this window's storage, so it survives a reload. */
+  dismissed: CiDismissed;
 }
 
-let st: CiUiState = { loaded: false, absent: false, offline: false, state: null, runs: null, summary: null, panelOpen: false, expanded: null, jobs: {}, logs: {}, openLogs: {}, busy: null, refreshing: false, say: '' };
+function safeStorage(): Storage | null { try { return localStorage; } catch { return null; } }
+
+let st: CiUiState = { loaded: false, absent: false, offline: false, state: null, runs: null, summary: null, panelOpen: false, expanded: null, jobs: {}, logs: {}, openLogs: {}, busy: null, refreshing: false, say: '', dismissed: readDismissed(safeStorage()) };
 const listeners = new Set<() => void>();
 const set = (p: Partial<CiUiState>) => { st = { ...st, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -39,6 +45,32 @@ export const getCi = () => st;
 export function useCi<T>(selector: (s: CiUiState) => T): T { return useSyncExternalStore(sub, () => selector(st)); }
 
 const projectParam = (): string | undefined => { const p = getApp().projectFilter; return p && /^proj_[a-f0-9]{12}$/.test(p) ? p : undefined; };
+
+/** The failures the badge counts right now: the latest run of a workflow failed and the owner has not dismissed it. `all` ignores the dismiss. */
+export function failureView(s: CiUiState): { active: number; all: number; key: string } {
+  const repo = s.summary?.repo ?? null;
+  const branch = s.summary?.branch ?? null;
+  const key = dismissKey(repo, branch);
+  // until the run list is read, the core's own count stands (nothing to dismiss yet)
+  if (!s.runs) { const n = s.summary?.counts.failure ?? 0; return { active: n, all: n, key }; }
+  return { active: activeFailures(s.runs.runs, branch, s.dismissed[key] ?? null).length, all: activeFailures(s.runs.runs, branch, null).length, key };
+}
+
+/** Hides the failures showing now. A failure that ends later brings the badge back. */
+export function dismissCi(): void {
+  if (!st.runs) return;
+  const branch = st.summary?.branch ?? null;
+  const key = dismissKey(st.summary?.repo ?? null, branch);
+  const dismissed = dismissFailures(st.dismissed, key, activeFailures(st.runs.runs, branch, st.dismissed[key] ?? null));
+  writeDismissed(safeStorage(), dismissed);
+  set({ dismissed, say: 'CI failures dismissed. They show again if a new run fails.' });
+}
+/** Takes the dismiss back. */
+export function restoreCi(): void {
+  const { [dismissKey(st.summary?.repo ?? null, st.summary?.branch ?? null)]: _gone, ...dismissed } = st.dismissed;
+  writeDismissed(safeStorage(), dismissed);
+  set({ dismissed, say: 'CI failures are showing again.' });
+}
 
 /** Whether the title-bar chip shows: the core knows a repo and has a GitHub client. */
 export const chipVisible = (s: CiUiState): boolean => !s.absent && !!s.state && s.state.available && !!s.state.repo;
@@ -72,7 +104,8 @@ export async function loadRuns(): Promise<void> {
   try {
     const runs = await request<CiRunsView>('GET', '/api/ci/runs');
     const summary: CiUpdateSummary = { repo: st.state.repo ? `${st.state.repo.owner}/${st.state.repo.name}` : null, branch: st.state.branch, counts: runs.counts, running: runs.runs.some((r) => r.status !== 'completed'), problem: runs.problem, rev: st.summary?.rev ?? 0 };
-    set({ runs, offline: false, summary: st.summary && st.summary.rev >= summary.rev && st.summary.repo === summary.repo ? st.summary : summary });
+    // the run list is the core's current answer: the chip follows it, so a missed `ci.updated` cannot leave an old count on screen
+    set({ runs, offline: false, summary });
   } catch (e) { noteError(e); }
 }
 
