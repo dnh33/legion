@@ -37,9 +37,13 @@ test('the pack picker lists every built-in pack, no placeholder for the lore pac
   assert.ok(packs.some((p) => p.id === 'minimal'));
   assert.ok(packs.every((p) => !p.custom && p.label && p.description));
   assert.equal(m.CUSTOM_PACKS.length, 0);
+  assert.equal(m.defaultPack(packs), 'minimal'); // Forge is not registered yet
   assert.equal(m.packOrDefault('forge', packs), 'minimal');
+  assert.equal(m.packOrDefault('gone', packs), 'minimal');
   assert.equal(m.packOrDefault('zen', packs), 'zen');
   const withCustom = m.listPacks([{ id: 'forge', label: 'Forge', description: 'x', recipes: {} }, { id: 'minimal', label: 'Dup', description: 'x', recipes: {} }]);
+  assert.equal(m.defaultPack(withCustom), 'forge');
+  assert.equal(m.packOrDefault('gone', withCustom), 'forge');
   assert.equal(withCustom.length, 13);
   assert.equal(withCustom.filter((p) => p.id === 'minimal').length, 1);
 });

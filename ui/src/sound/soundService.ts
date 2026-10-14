@@ -71,7 +71,7 @@ function playNow(cue: Cue, pack: string, volume: number, p: UISFXPlayer | null):
 function makePlayer(): UISFXPlayer | null {
   const c = audio();
   // cooldownMs 0: the CueGate is the only rate limit, so two limiters cannot disagree. No `preferences`: the core keeps the choice, never localStorage.
-  return c ? createUISFX({ context: c, cooldownMs: 0, pack: DEFAULT_SOUND_PREFS.pack as PackName }) : null;
+  return c ? createUISFX({ context: c, cooldownMs: 0, pack: 'minimal' }) : null;
 }
 const mainPlayer = (): UISFXPlayer | null => (player ??= makePlayer());
 

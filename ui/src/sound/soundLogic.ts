@@ -36,7 +36,7 @@ export interface SoundPrefs {
 export interface SoundCtx { now: number; focused: boolean; prefs: SoundPrefs }
 
 /** Defaults for a person who never opened the setting. The core keeps the same values (src/core/away/store.ts). */
-export const DEFAULT_SOUND_PREFS: SoundPrefs = { enabled: true, volume: 0.6, pack: 'minimal', queuedCue: false };
+export const DEFAULT_SOUND_PREFS: SoundPrefs = { enabled: true, volume: 0.6, pack: 'forge', queuedCue: false };
 
 /** Attention cues play without focus; the rest answer your own click. */
 const ATTENTION = new Set<SoundEvent['type']>(['ask', 'run-done', 'run-failed']);

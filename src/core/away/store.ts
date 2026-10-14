@@ -47,7 +47,7 @@ export const PARK_MIN = 1;
 export const PARK_MAX = 120;
 export const DEFAULT_QUIET: QuietConfig = { enabled: false, from: '22:00', to: '07:00' };
 export const DEFAULT_PROJECT_AWAY: ProjectAway = { onSilence: { mode: 'deny', parkMinutes: 3 }, paused: false, budget: null, notify: 'problems' };
-export const DEFAULT_SOUNDS: SoundsConfig = { enabled: true, pack: 'minimal', volume: 0.6 };
+export const DEFAULT_SOUNDS: SoundsConfig = { enabled: true, pack: 'forge', volume: 0.6 };
 const DEFAULT_APP: AppAway = { quiet: DEFAULT_QUIET, notify: { enabled: true, returnSummary: true }, sounds: DEFAULT_SOUNDS };
 const PACK_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const validVolume = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;

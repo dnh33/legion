@@ -13,12 +13,14 @@ export interface SoundPackInfo { id: string; label: string; description: string;
 export interface CustomPack { id: string; label: string; description: string; recipes: Partial<Record<Cue, SoundRecipe>> }
 
 /**
- * Placeholder registry for the two original Legion packs (Forge and Reliquary). They come from a separate sound-design round and are
- * not shipped yet: this stays empty, so the picker shows no pack that does not exist. To add one, put a CustomPack here.
+ * Registry for the two original Legion packs (Forge and Reliquary). They come from a separate sound-design round and are
+ * not shipped yet (the final recipe module is handed over when approved): this stays empty, so the picker shows no pack that does not exist. To add one, put a CustomPack here.
  */
 export const CUSTOM_PACKS: readonly CustomPack[] = [];
 
-export const DEFAULT_PACK = 'minimal';
+/** New users get Forge. Until the Forge module is registered above, the built-in Minimal pack stands in, so a fresh install is never silent or broken. */
+export const DEFAULT_PACK = 'forge';
+export const FALLBACK_PACK = 'minimal';
 
 export function listPacks(custom: readonly CustomPack[] = CUSTOM_PACKS): SoundPackInfo[] {
   const built = PACKS.map((p) => ({ id: p.name as string, label: p.label as string, description: p.description as string, custom: false }));
@@ -26,9 +28,14 @@ export function listPacks(custom: readonly CustomPack[] = CUSTOM_PACKS): SoundPa
   return [...built, ...custom.filter((c) => !ids.has(c.id)).map((c) => ({ id: c.id, label: c.label, description: c.description, custom: true }))];
 }
 
-/** A stored pack id that no longer exists (a pack removed in an update) falls back to Minimal. */
+/** The pack a new user hears: Forge when it exists, else Minimal. */
+export function defaultPack(packs: readonly SoundPackInfo[] = listPacks()): string {
+  return packs.some((p) => p.id === DEFAULT_PACK) ? DEFAULT_PACK : FALLBACK_PACK;
+}
+
+/** A stored pack id that does not exist (a pack removed in an update, or Forge before it ships) becomes the default pack. */
 export function packOrDefault(id: string, packs: readonly SoundPackInfo[] = listPacks()): string {
-  return packs.some((p) => p.id === id) ? id : DEFAULT_PACK;
+  return packs.some((p) => p.id === id) ? id : defaultPack(packs);
 }
 
 /** The preview: three cues one after the other (ms from the start). */

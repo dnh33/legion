@@ -180,10 +180,10 @@ test('the doc comment says the truth about the file', () => {
   assert.doesNotMatch(src, /can only RESTRICT/);
 });
 
-test('sounds: defaults on, Minimal, 60 percent; a patch is validated and kept across a restart', async () => {
+test('sounds: defaults on, Forge, 60 percent; a patch is validated and kept across a restart', async () => {
   const d = dir();
   const s = new AwayStore(d);
-  assert.deepEqual(s.app().sounds, { enabled: true, pack: 'minimal', volume: 0.6 });
+  assert.deepEqual(s.app().sounds, { enabled: true, pack: 'forge', volume: 0.6 });
   s.patchApp({ sounds: { enabled: false, pack: 'zen', volume: 0.25 } });
   await s.flush();
   assert.deepEqual(new AwayStore(d).app().sounds, { enabled: false, pack: 'zen', volume: 0.25 });
@@ -198,5 +198,5 @@ test('sounds: defaults on, Minimal, 60 percent; a patch is validated and kept ac
 test('sounds: a damaged stored value falls back to the defaults', () => {
   const d = dir(); mkd(d);
   write(d, { version: 1, app: { sounds: { enabled: 'x', pack: 7, volume: 9 } }, projects: {} });
-  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: true, pack: 'minimal', volume: 0.6 });
+  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: true, pack: 'forge', volume: 0.6 });
 });
