@@ -28,14 +28,14 @@ export function NotificationsSection() {
 
   return (
     <div className="set-section away-section">
-      <header className="set-head"><h3>Notifications</h3><p>Legion shows a number on its taskbar icon and a pop-up when something needs you. A pop-up never shows what an agent wrote or the command it wants to run.</p></header>
+      <header className="set-head"><h3>Notifications</h3><p>Legion puts a mark on its taskbar button and shows a pop-up when something needs you. A pop-up never shows what an agent wrote or the command it wants to run.</p></header>
       {err && <p className="set-error" role="alert">{err}</p>}
       {!app && !err && <div className="set-loading"><span className="spin" /> Loading{'…'}</div>}
       {app && quiet && (
         <>
           <label className="set-check">
             <input type="checkbox" checked={app.notify.enabled} onChange={(e) => void patch({ notify: { enabled: e.target.checked } })} />
-            <span><b>Pop-ups when something needs you</b><em>An approval, a question, a run that failed, a run waiting for you, or a budget reached. The taskbar number stays on either way. Each project can ask for fewer or more in its own settings.</em></span>
+            <span><b>Pop-ups when something needs you</b><em>An approval, a question, a run that failed, a run waiting for you, or a budget reached. The mark on the Legion button stays on either way. Each project can ask for fewer or more in its own settings.</em></span>
           </label>
           <label className="set-check">
             <input type="checkbox" checked={app.notify.returnSummary} onChange={(e) => void patch({ notify: { returnSummary: e.target.checked } })} />
