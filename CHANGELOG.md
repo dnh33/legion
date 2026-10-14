@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Banners, notices, tips and selected rows no longer use a coloured stripe down their left edge. They now show their state with a full outline, a soft tint and a small icon. A board card that read outside content carries an "Outside content, not reviewed" label with an amber outline.
+
 ### Added
 
 - **Agents see only the GitHub repos you turned on.** An agent that reads GitHub can now use a repo only if you turned that repo on in Legion, and the "Let agents use GitHub" switch stops all of them at once. The repo list an agent sees holds only those repos. You can also give an agent write access to named repos; a repo you turn off stops its writes right away, and an agent that can only read can never write. Older agents keep working as read-only. If you turn a repo (or the GitHub switch) off while an agent is waiting on a CI run, the wait ends at once. A repo that GitHub has renamed or moved is not followed to its new name until you turn the new name on.

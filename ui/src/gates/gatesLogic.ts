@@ -101,7 +101,7 @@ export function ruleHostless(when: GateWhen, agents: readonly Pick<{ id: string;
 
 /** The consequence line under "Then": computed from the rule and the agent's real mode — never a made-up number. */
 export function consequenceLine(then: GateVerdict, mode: ApprovalMode): string {
-  if (then === 'deny') return 'Applies in every mode, Full included — the one class that survives Full access.';
+  if (then === 'deny') return 'Applies in every mode, Full included. It is the one class that survives Full access.';
   if (then === 'ask') return mode === 'full'
     ? 'This agent has Full access, so Ask rules are off here. Block rules still apply.'
     : 'Makes matching calls ask you, on top of this agent\u2019s mode (' + MODE_TEXT[mode] + ').';
@@ -159,7 +159,7 @@ export const VERDICT_TEXT: Record<GateTestResult['verdict'], string> = {
   allow: 'ALLOW (no card)',
   ask: 'ASK (a card appears)',
   deny: 'DENY (the call is blocked)',
-  baseline: 'BASELINE (no rule matched — your agent\u2019s mode decides)',
+  baseline: 'BASELINE (no rule matched; your agent\u2019s mode decides)',
 };
 
 /** The locked rails: decided before rules, visible so a rule can never look like it failed silently. */
