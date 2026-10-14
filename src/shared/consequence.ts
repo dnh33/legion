@@ -320,7 +320,40 @@ function combine(parts: Consequence[]): Consequence {
   return { level: worst, tags, chip: lead.chip, certain: !uncertain, ...(lead.ing && !unknown ? { ing: lead.ing } : {}) };
 }
 
-function classifyShell(toolName: string, input: unknown): Consequence {
+/** Programs whose arguments are text, not paths. */
+const TEXT_ARGS: ReadonlySet<string> = new Set(['echo', 'printf', 'write-output', 'write-host', 'pwd', 'whoami', 'hostname', 'uname', 'date']);
+/** Programs whose first plain argument is a pattern, not a path. */
+const PATTERN_FIRST: ReadonlySet<string> = new Set(['grep', 'rg', 'fd', 'select-string', 'sls']);
+/** Places that hold secrets: reading them is never "read only, inside this project", wherever they are. */
+const SECRET_PATH = /(^|[\\/])(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config[\\/]gcloud|\.env(\.[^\\/]*)?|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)[^\\/]*|credentials?|secrets?(\.[^\\/]*)?|[^\\/]*\.(pem|key|pfx|p12|kdbx))$/i;
+const PATH_LIKE = /^([\\/~.]|[A-Za-z]:)|[\\/]/;
+
+/**
+ * A level 1 shell read is only "inside this project" when its path-like arguments are: inside the folders, or a plain relative path.
+ * Outside, a secret location, `~`, `..` or a variable cannot be told: level 2 and not certain (never lower than the file tools).
+ */
+function checkShellReads(c: Consequence, words: string[], folders: readonly string[]): Consequence {
+  if (c.level !== 1 || !c.tags.includes('reads')) return c;
+  const name = lc(words[0]!).replace(/\.exe$/, '');
+  if (TEXT_ARGS.has(name)) return c;
+  let skipFirst = PATTERN_FIRST.has(name);
+  let verdict: 'ok' | 'outside' | 'unchecked' = 'ok';
+  for (const w of words.slice(1)) {
+    if (w.startsWith('-')) continue;
+    if (skipFirst) { skipFirst = false; continue; }
+    if (SECRET_PATH.test(w)) { verdict = 'outside'; break; }
+    if (!PATH_LIKE.test(w) && !/[*?]/.test(w)) continue;
+    if (w.startsWith('~') || /(^|[\\/])\.\.([\\/]|$)/.test(w) || w === '..' || /[$%]/.test(w)) { verdict = 'unchecked'; continue; }
+    const abs = absolute(w);
+    if (abs === null) continue; // a plain relative path stays where the command runs
+    const inside = insideFolders(w, folders);
+    if (inside !== true) { verdict = verdict === 'outside' ? 'outside' : inside === false ? 'outside' : 'unchecked'; }
+  }
+  if (verdict === 'ok') return c;
+  return { level: 2, tags: ['reads'], chip: verdict === 'outside' ? C.readsOutside : C.readsUnchecked, certain: false };
+}
+
+function classifyShell(toolName: string, input: unknown, folders: readonly string[] = []): Consequence {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return unknownConsequence();
   const command = (input as Record<string, unknown>).command;
   if (typeof command !== 'string' || !command.trim()) return unknownConsequence();
@@ -331,7 +364,7 @@ function classifyShell(toolName: string, input: unknown): Consequence {
   }
   const parsed = parseShell(command);
   if (!parsed || !parsed.segments.length) return unknownConsequence();
-  const parts = parsed.segments.map(classifySegment);
+  const parts = parsed.segments.map((w) => checkShellReads(classifySegment(w), w, folders));
   if (parsed.redirects) parts.push(rule(2, ['edits'], C.writesFile));
   return combine(parts);
 }
@@ -353,7 +386,7 @@ function classifyTool(call: ConsequenceCall): Consequence {
   if (typeof name !== 'string' || !Object.prototype.hasOwnProperty.call(TOOL_RULES, name)) return unknownConsequence();
   const tr = TOOL_RULES[name]!;
   const folders = (call.projectFolders ?? []).filter((f) => typeof f === 'string' && f);
-  if (tr.shell) return classifyShell(name, call.input);
+  if (tr.shell) return classifyShell(name, call.input, folders);
   if (!call.input || typeof call.input !== 'object' || Array.isArray(call.input)) return unknownConsequence();
   const input = call.input as Record<string, unknown>;
   if (tr.read) {

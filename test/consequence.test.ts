@@ -227,3 +227,27 @@ test('a read with a relative or missing path is not certain even with folders', 
   assert.equal(classify(tool('Grep', { pattern: 'x' })).certain, false);
   assert.equal(classify(tool('Read', { file_path: 'D:/work/shop/a' })).certain, true);
 });
+
+/* ---------- shell reads are checked against the project folders like file tools ---------- */
+
+test('a shell read of a secret or outside location is never level 1 and certain', () => {
+  for (const cmd of ['cat ~/.ssh/key', 'type C:\\Users\\x\\.aws\\credentials', 'Get-Content $env:USERPROFILE\\.ssh\\id_ed25519', 'head ../../secrets.env', 'cat /etc/passwd', 'ls C:/Users/x', 'cat ./.env', 'cat .aws/credentials', 'tail id_rsa']) {
+    const c = classify(bash(cmd));
+    assert.ok(!(c.level === 1 && c.certain), cmd);
+    assert.equal(c.certain, false, cmd);
+    assert.ok(c.level >= 2, cmd);
+  }
+});
+
+test('a shell read inside the project, or of a plain relative path, stays level 1 and certain', () => {
+  for (const cmd of ['cat README.md', 'ls src', 'cat D:/work/shop/src/a.ts', 'ls D:\\work\\shop', 'git log -5', 'git diff HEAD~2', 'head -20 src/a.ts', 'rg -n foo src', 'grep -rn "a/b" src', 'echo ~', 'pwd']) {
+    const c = classify(bash(cmd));
+    assert.equal(c.level, 1, cmd);
+    assert.equal(c.certain, true, cmd);
+  }
+});
+
+test('with no project folders an absolute shell path cannot be checked', () => {
+  const c = classify({ kind: 'approval', toolName: 'Bash', input: { command: 'cat D:/work/shop/src/a.ts' }, projectFolders: [] });
+  assert.equal(c.certain, false);
+});
