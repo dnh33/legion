@@ -155,3 +155,27 @@ test('without an away module nothing is recorded and the run is unchanged', asyn
   assert.equal(done.costUsd, 2);
   assert.equal(s.away.spends.length, 0);
 });
+
+test('with no project, "inside" means the agent\'s own working folder: a write there is certain, one outside is not', async () => {
+  let ws = '';
+  const s = setup({
+    approval: 'ask',
+    script: (p) => (async function* () {
+      yield init;
+      for (const file of [join(ws, 'a1', 'notes.txt'), 'C:/Users/someone/.bashrc']) {
+        await (p.options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<unknown>)('Write', { file_path: file, content: 'x' }, sig);
+      }
+      yield ok();
+    })(),
+  });
+  ws = s.config.workspaceDir;
+  const task = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  const next = async () => { for (let i = 0; i < 100 && !s.approvals.pending().length; i++) await s.tick(5); const c = s.approvals.pending()[0]!; s.approvals.resolve(c.id, false); return c; };
+  const inside = await next();
+  const outside = await next();
+  await s.engine.waitFor(task.id, 3000);
+  assert.equal(inside.consequence!.level, 2);
+  assert.equal(inside.consequence!.certain, true, 'inside the agent\'s own folder');
+  assert.equal(outside.consequence!.level, 3);
+  assert.equal(outside.consequence!.certain, false);
+});

@@ -20,7 +20,7 @@ test('level 1: read tools inside the project', () => {
 test('a read outside the project folders is not level 1', () => {
   const c = classify(tool('Read', { file_path: 'C:/Users/me/.ssh/id_rsa' }));
   assert.equal(c.level, 2);
-  assert.equal(c.certain, true);
+  assert.equal(c.certain, false);
   assert.equal(classify(tool('Read', { file_path: 'D:/work/shop/../other/x' })).level, 2, '.. does not escape the check');
 });
 
@@ -250,4 +250,17 @@ test('a shell read inside the project, or of a plain relative path, stays level 
 test('with no project folders an absolute shell path cannot be checked', () => {
   const c = classify({ kind: 'approval', toolName: 'Bash', input: { command: 'cat D:/work/shop/src/a.ts' }, projectFolders: [] });
   assert.equal(c.certain, false);
+});
+
+test('the Read tool outside the project folders, or at a secret location, is never certain', () => {
+  const outside = classify(tool('Read', { file_path: 'C:/Users/x/.ssh/id_rsa' }));
+  assert.ok(outside.level >= 2);
+  assert.equal(outside.certain, false);
+  assert.equal(classify(tool('Read', { file_path: 'C:/Users/x/notes.txt' })).certain, false, 'outside is uncertain, secret or not');
+  for (const p of ['D:/work/shop/.env', 'D:/work/shop/.aws/credentials', 'D:/work/shop/keys/server.pem']) {
+    const c = classify(tool('Read', { file_path: p }));
+    assert.ok(c.level >= 2, p);
+    assert.equal(c.certain, false, `a secret location even inside the project: ${p}`);
+  }
+  assert.equal(classify(tool('Read', { file_path: 'D:/work/shop/src/a.ts' })).certain, true);
 });

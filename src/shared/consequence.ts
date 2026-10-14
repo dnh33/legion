@@ -392,9 +392,12 @@ function classifyTool(call: ConsequenceCall): Consequence {
   if (tr.read) {
     // nothing to be inside of: never certain
     if (!folders.length) return { ...rule(1, ['reads'], C.readOnlyNoProject), certain: false };
-    const where = insideFolders(pathOf(input), folders);
+    const target = pathOf(input);
+    const where = insideFolders(target, folders);
+    // a secret location is never "read only, inside this project", even inside it (same rule as shell reads)
+    if (typeof target === 'string' && SECRET_PATH.test(target)) return { ...rule(2, ['reads'], C.readsOutside), certain: false };
     if (where === true) return rule(1, ['reads'], C.readOnly);
-    if (where === false) return rule(2, ['reads'], C.readsOutside);
+    if (where === false) return { ...rule(2, ['reads'], C.readsOutside), certain: false };
     return { ...rule(2, ['reads'], C.readsUnchecked), certain: false };
   }
   if (tr.edit) {
