@@ -73,44 +73,91 @@ function pathOf(input: Record<string, unknown>): unknown {
 
 /* ---------- shell ---------- */
 
-type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }> };
+type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** flags that make the call run something else: unknown. */ unknownFlags?: string[] };
 interface ProgramRule extends Sub {
   /** Per subcommand (git, npm, ...). When present a subcommand with no entry is unknown. */
   subs?: Record<string, Sub>;
   /** Any of these flags (prefix match for --long=value) makes the call unknown: it runs something else. */
-  unknownFlags?: string[];
   /** Reads the arguments itself (curl and friends); returns undefined for "use the rule above". */
   inspect?: (args: string[]) => Consequence | undefined;
 }
 
 const R1: Sub = { level: 1, tags: ['reads'], chip: C.readOnly };
+/** git reads that can write a file (--output) or run a configured program (--ext-diff, --textconv). */
+const GITREAD: Sub = { level: 1, tags: ['reads'], chip: C.readOnly, unknownFlags: ['--ext-diff', '--textconv'], flagRules: [{ flags: ['--output'], to: { level: 2, tags: ['edits'], chip: C.writesFile, certain: true } }] };
 const R2: Sub = { level: 2, tags: ['edits'], chip: C.edits };
 
 /** A method word that sends data out. */
 const WRITE_METHOD = /^(post|put|delete|patch)$/i;
 
-const curlLike = (args: string[]): Consequence | undefined => {
+/** curl's options, case sensitive (-d data, -F form, -T upload, -X method), also clustered or attached: `-sSd @f`, `-d@secrets`, `-XPOST`. */
+const curlRule = (args: string[]): Consequence | undefined => {
   for (let i = 0; i < args.length; i++) {
-    const a = args[i]!.toLowerCase();
-    if (a === '-x' || a === '--request' || a === '-method') { if (WRITE_METHOD.test(args[i + 1] ?? '')) return LEAVES(); continue; }
-    if (/^-x(post|put|delete|patch)$/.test(a) || /^--request=(post|put|delete|patch)$/.test(a)) return LEAVES();
-    if (['-d', '--data', '--data-raw', '--data-binary', '--data-urlencode', '-f', '--form', '-t', '--upload-file', '--json', '-body', '-infile', '-form'].includes(a) || /^--(data|form|json|upload-file)/.test(a)) return LEAVES();
+    const a = args[i]!;
+    if (a.startsWith('--')) {
+      const l = a.toLowerCase();
+      if (l === '--request') { if (!/^(get|head)$/i.test(args[i + 1] ?? 'get')) return LEAVES(); continue; }
+      if (l.startsWith('--request=')) { if (!/^(get|head)$/i.test(l.slice(10))) return LEAVES(); continue; }
+      if (/^--(data|form|json|upload-file)/.test(l)) return LEAVES();
+      continue;
+    }
+    if (!a.startsWith('-') || a.length < 2) continue;
+    if (/^-[A-Za-z]*[dFT]/.test(a)) return LEAVES();
+    const x = a.indexOf('X');
+    if (x > 0) {
+      const attached = a.slice(x + 1);
+      if (!/^(get|head)$/i.test(attached || args[i + 1] || 'get')) return LEAVES();
+    }
   }
   return undefined;
 };
 
+/** wget's options that send a body or use another method. */
+const wgetRule = (args: string[]): Consequence | undefined => {
+  for (let i = 0; i < args.length; i++) {
+    const l = args[i]!.toLowerCase();
+    if (/^--(post|body)-(data|file)/.test(l)) return LEAVES();
+    if (l === '--method') { if (!/^(get|head)$/i.test(args[i + 1] ?? 'get')) return LEAVES(); continue; }
+    if (l.startsWith('--method=')) { if (!/^(get|head)$/i.test(l.slice(9))) return LEAVES(); continue; }
+  }
+  return undefined;
+};
+
+/** PowerShell's web cmdlets (and the aliases curl and wget are there): parameters may be shortened (-me Post). */
+const pwshWebRule = (args: string[]): Consequence | undefined => {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (/^-me(t(h(o(d)?)?)?)?$/i.test(a)) { if (!/^(get|head)$/i.test(args[i + 1] ?? 'get')) return LEAVES(); continue; }
+    if (/^-(b|bo|bod|body|in|inf|infi|infil|infile|fo|for|form)$/i.test(a)) return LEAVES();
+  }
+  return undefined;
+};
+
+const webRule = (args: string[]): Consequence | undefined => curlRule(args) ?? wgetRule(args) ?? pwshWebRule(args);
+
+/** Does the argument list carry this flag (lower case)? A short flag also matches clustered or attached (-ro, -ofile); a long one with =value. */
+const hasFlag = (lowered: readonly string[], f: string): boolean =>
+  lowered.some((a) => a === f || (f.startsWith('--') ? a.startsWith(f + '=') : /^-[a-z]$/.test(f) && /^-[^-]/.test(a) && a.includes(f[1]!)));
+
+const positional = (args: readonly string[]): string[] => args.filter((a) => !a.startsWith('-'));
+const WRITES = (): Consequence => rule(2, ['edits'], C.writesFile);
+
 /** Shell programs by lower-case name (no path, no .exe). A program not here is unknown. */
 export const PROGRAM_RULES: Record<string, ProgramRule> = {
   // read only
-  ls: R1, dir: R1, pwd: R1, cat: R1, type: R1, head: R1, tail: R1, wc: R1, grep: R1, tree: R1, stat: R1, file: R1, du: R1, df: R1,
-  whoami: R1, which: R1, where: R1, echo: R1, printf: R1, uniq: R1, cut: R1, basename: R1, dirname: R1, realpath: R1, hostname: R1, uname: R1,
+  ls: R1, dir: R1, pwd: R1, cat: R1, type: R1, head: R1, tail: R1, wc: R1, grep: R1, stat: R1, du: R1, df: R1,
+  whoami: R1, which: R1, where: R1, echo: R1, printf: R1, cut: R1, basename: R1, dirname: R1, realpath: R1, uname: R1,
   'get-childitem': R1, gci: R1, 'get-content': R1, gc: R1, 'get-location': R1, 'select-string': R1, sls: R1, 'measure-object': R1,
   'write-output': R1, 'write-host': R1, 'test-path': R1, cd: R1, 'set-location': R1,
   rg: { ...R1, unknownFlags: ['--pre', '--pre-glob'] },
   fd: { ...R1, unknownFlags: ['-x', '-X', '--exec', '--exec-batch'] },
-  sort: { ...R1, flagRules: [{ flags: ['-o', '--output'], to: rule(2, ['edits'], C.writesFile) }] },
-  date: { ...R1, unknownFlags: ['-s', '--set'] },
-  find: { ...R1, unknownFlags: ['-exec', '-execdir', '-ok', '-okdir'], flagRules: [{ flags: ['-delete'], to: DELETES() }] },
+  sort: { ...R1, unknownFlags: ['--compress-program'], flagRules: [{ flags: ['-o', '--output'], to: WRITES() }] },
+  date: { ...R1, unknownFlags: ['-s', '--set'], inspect: (a) => (positional(a).some((p) => /^\d{8,12}(\.\d\d)?$/.test(p)) ? unknownConsequence() : undefined) },
+  find: { ...R1, unknownFlags: ['-exec', '-execdir', '-ok', '-okdir'], flagRules: [{ flags: ['-delete'], to: DELETES() }, { flags: ['-fprint', '-fprint0', '-fprintf', '-fls'], to: WRITES() }] },
+  tree: { ...R1, flagRules: [{ flags: ['-o'], to: WRITES() }] },
+  uniq: { ...R1, inspect: (a) => (positional(a).length >= 2 ? WRITES() : undefined) },
+  hostname: { ...R1, inspect: (a) => (positional(a).length ? unknownConsequence() : undefined) },
+  file: { ...R1, unknownFlags: ['--compile'] },
   // reversible local changes
   mkdir: R2, md: R2, touch: R2, cp: R2, copy: R2, 'copy-item': R2, mv: R2, move: R2, 'move-item': R2, ren: R2, rename: R2, 'rename-item': R2,
   'new-item': R2, 'set-content': R2, 'add-content': R2, 'out-file': R2, chmod: R2,
@@ -126,16 +173,17 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
   shred: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
   unlink: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
   // leaves your computer
-  curl: { level: 2, tags: [], chip: C.fetches, inspect: curlLike },
-  wget: { level: 2, tags: [], chip: C.fetches, inspect: curlLike },
-  'invoke-webrequest': { level: 2, tags: [], chip: C.fetches, inspect: curlLike },
-  iwr: { level: 2, tags: [], chip: C.fetches, inspect: curlLike },
-  'invoke-restmethod': { level: 2, tags: [], chip: C.fetches, inspect: curlLike },
-  irm: { level: 2, tags: [], chip: C.fetches, inspect: curlLike },
+  curl: { level: 2, tags: [], chip: C.fetches, inspect: webRule },
+  wget: { level: 2, tags: [], chip: C.fetches, inspect: webRule },
+  'invoke-webrequest': { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
+  iwr: { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
+  'invoke-restmethod': { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
+  irm: { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
   git: {
     level: 1, tags: ['reads'], chip: C.readOnly,
     subs: {
-      status: R1, log: R1, diff: R1, show: R1, 'ls-files': R1, 'rev-parse': R1, blame: R1, describe: R1, shortlog: R1, grep: R1,
+      status: R1, 'ls-files': R1, 'rev-parse': R1, describe: R1, shortlog: R1,
+      log: GITREAD, diff: GITREAD, show: GITREAD, blame: GITREAD,
       add: R2, commit: R2, pull: R2, merge: R2,
       push: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Pushing' },
       clean: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
@@ -235,14 +283,15 @@ function classifySegment(words: string[]): Consequence {
   const pr = PROGRAM_RULES[name]!;
   let args = words.slice(1);
   const lowered = args.map(lc);
-  if (pr.unknownFlags?.some((f) => lowered.some((a) => a === f || (f.startsWith('--') && a.startsWith(f + '='))))) return unknownConsequence();
+  if (pr.unknownFlags?.some((f) => hasFlag(lowered, f))) return unknownConsequence();
   let base: Sub = pr;
   if (pr.subs) {
     // git: options before the subcommand are skipped when they are the harmless kind
     let i = 0;
     while (i < args.length && args[i]!.startsWith('-')) {
       const a = lc(args[i]!);
-      if (name === 'git' && (a === '-c' || a === '-C')) { i += 2; continue; }
+      // -C changes the folder; -c sets a config value that can name a program to run (core.pager, an alias): unknown
+      if (name === 'git' && args[i] === '-C') { i += 2; continue; }
       if (name === 'git' && a === '--no-pager') { i++; continue; }
       if (name !== 'git' && (a === '--silent' || a === '--quiet')) { i++; continue; }
       return unknownConsequence();
@@ -253,7 +302,8 @@ function classifySegment(words: string[]): Consequence {
     args = args.slice(i + 1);
   }
   const subLowered = args.map(lc);
-  const flagged = base.flagRules?.find((r) => r.flags.some((f) => subLowered.some((a) => a === f || (f.startsWith('--') && a.startsWith(f + '=')))));
+  if (base.unknownFlags?.some((f) => hasFlag(subLowered, f))) return unknownConsequence();
+  const flagged = base.flagRules?.find((r) => r.flags.some((f) => hasFlag(subLowered, f)));
   if (flagged) return { ...flagged.to, tags: [...flagged.to.tags] };
   const inspected = pr.inspect?.(args);
   if (inspected) return inspected;
@@ -307,14 +357,15 @@ function classifyTool(call: ConsequenceCall): Consequence {
   if (!call.input || typeof call.input !== 'object' || Array.isArray(call.input)) return unknownConsequence();
   const input = call.input as Record<string, unknown>;
   if (tr.read) {
-    if (!folders.length) return rule(1, ['reads'], C.readOnlyNoProject);
+    // nothing to be inside of: never certain
+    if (!folders.length) return { ...rule(1, ['reads'], C.readOnlyNoProject), certain: false };
     const where = insideFolders(pathOf(input), folders);
     if (where === true) return rule(1, ['reads'], C.readOnly);
     if (where === false) return rule(2, ['reads'], C.readsOutside);
-    return rule(2, ['reads'], C.readsUnchecked);
+    return { ...rule(2, ['reads'], C.readsUnchecked), certain: false };
   }
   if (tr.edit) {
-    if (!folders.length) return rule(2, ['edits'], C.editsNoProject);
+    if (!folders.length) return { level: 3, tags: ['edits'], chip: C.editsOutside, certain: false };
     const where = insideFolders(pathOf(input), folders);
     if (where === true) return rule(2, ['edits'], C.edits);
     return { level: 3, tags: ['edits'], chip: C.editsOutside, certain: false };

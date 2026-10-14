@@ -7,6 +7,7 @@ import type { ApprovalRequest, ParkedAsk, PendingQuestion } from '../src/shared/
 const iso = (min: number): string => new Date(Date.UTC(2026, 9, 14, 12, min)).toISOString();
 const apr = (id: string, toolName: string, input: Record<string, unknown>, min: number, extra: Partial<ApprovalRequest> = {}): ApprovalRequest => ({ id, taskId: `t-${id}`, agentId: 'scout', toolName, summary: '', input, at: iso(min), ...extra });
 const question = (id: string, min: number, projectId?: string): PendingQuestion => ({ id, taskId: `t-${id}`, agentId: 'scribe', questions: [], at: iso(min), ...(projectId ? { projectId } : {}) });
+const READ = { level: 1 as const, tags: ['reads' as const], chip: 'Read only', certain: true };
 const parked = (id: string, min: number): ParkedAsk => ({ id, kind: 'approval', taskId: `t-${id}`, agentId: 'builder', projectId: 'p1', toolName: 'Bash', summary: 's', consequence: { level: 3, tags: ['leaves'], chip: 'c', certain: true }, askedAt: iso(min), parkedAt: iso(min + 3) });
 
 test('deriveAsks counts approvals, questions, parked asks and proposals', () => {
@@ -72,10 +73,10 @@ test('top 3 at full size, the rest counted exactly', () => {
 
 test('merge: repeated reads in one folder by one agent become one group; other asks stay rows', () => {
   const reads = [
-    apr('r1', 'Read', { file_path: 'D:/p/src/a.ts' }, 1),
-    apr('r2', 'Read', { file_path: 'D:/p/src/b.ts' }, 2),
-    apr('r3', 'Read', { file_path: 'D:/p/lib/c.ts' }, 3),
-    apr('r4', 'Read', { file_path: 'D:\\p\\src\\d.ts' }, 4),
+    apr('r1', 'Read', { file_path: 'D:/p/src/a.ts' }, 1, { consequence: READ }),
+    apr('r2', 'Read', { file_path: 'D:/p/src/b.ts' }, 2, { consequence: READ }),
+    apr('r3', 'Read', { file_path: 'D:/p/lib/c.ts' }, 3, { consequence: READ }),
+    apr('r4', 'Read', { file_path: 'D:\\p\\src\\d.ts' }, 4, { consequence: READ }),
     apr('x1', 'Bash', { command: 'rm -rf x' }, 5),
   ];
   const { groups, singles } = mergeReads(reads);
@@ -87,8 +88,8 @@ test('merge: repeated reads in one folder by one agent become one group; other a
 
 test('merge: reads by two agents are not merged; a command is never merged', () => {
   const { groups } = mergeReads([
-    apr('r1', 'Read', { file_path: 'D:/p/a' }, 1, { agentId: 'one' }),
-    apr('r2', 'Read', { file_path: 'D:/p/b' }, 2, { agentId: 'two' }),
+    apr('r1', 'Read', { file_path: 'D:/p/a' }, 1, { agentId: 'one', consequence: READ }),
+    apr('r2', 'Read', { file_path: 'D:/p/b' }, 2, { agentId: 'two', consequence: READ }),
     apr('b1', 'Bash', { command: 'ls' }, 3), apr('b2', 'Bash', { command: 'ls' }, 4),
   ]);
   assert.equal(groups.length, 0);

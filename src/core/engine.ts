@@ -1325,7 +1325,8 @@ export class Engine {
    */
   private askExtras(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): { projectId?: string; consequence: ReturnType<typeof classifySafe> } {
     const projectId = this.store.getTask(job.taskId)?.projectId;
-    const folder = this.projectOf(job.taskId, agent.id)?.folder;
+    // "inside" means inside the project's folder, else inside the agent's own working folder: with neither there is nothing to check against
+    const folder = this.projectOf(job.taskId, agent.id)?.folder ?? this.agentCwd(agent.id);
     return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }) };
   }
 
