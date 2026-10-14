@@ -101,9 +101,11 @@ test('R3.3 pending cap: every path that makes a pending note is refused at 50, o
 });
 
 test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (event loop stays free)', () => {
-  // Machine independent: the same input at N and 4N characters. A linear scrub takes ~4x as long, a quadratic one ~16x, on every machine and
-  // under any load, so the guard is the RATIO (median of three at each size: the minimum is optimistic at the small size and inflated the ratio on a loaded CPU, one slow run does not decide a median).
-  // The small time is floored at 2 ms so a sub-millisecond case cannot fail on timer noise; a case that is that fast at N is not a stall risk.
+  // Machine independent: the same total work as 4 x N characters and as 1 x 4N characters, measured in CPU time of this process (process.cpuUsage), not wall time.
+  // A linear scrub costs the same for both, a quadratic one 4x as much. Wall time is useless on a shared CI runner: node --test runs test files in parallel
+  // processes, and on a 4-core runner a 200 ms scheduler slice lands on whichever call is running (measured: 3 busy processes on 2 cores turned 20k/80k
+  // timings of 5/10 ms into 15/200 ms for EVERY shape; there is no size threshold: 50k to 120k grows smoothly). CPU time does not count time spent waiting.
+  // Windows counts CPU in ~15 ms ticks, so each measurement covers 20k to 80k characters of work and a ratio only counts when the big call used over 150 ms of CPU.
   const N = 20_000;
   const cases = (n: number): Record<string, string> => ({
     token: 'token'.repeat(n / 5), secret_eq: 'secret_'.repeat(n / 7), http: 'http://'.repeat(n / 7), boat: 'https://boat.dev/'.repeat(n / 17),
@@ -113,25 +115,34 @@ test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (
     priv: 'private key '.repeat(n / 12), words: 'word '.repeat(n / 5), ws: ' '.repeat(n) + 'x', nl: '\n'.repeat(n), under: 'a_'.repeat(n / 2) + '=',
     colon: 'password:'.repeat(n / 9), quote: '"'.repeat(n), tokenquote: 'token"'.repeat(n / 6), tokenws: 'token' + ' '.repeat(n),
   });
-  const median = (s: string): number => {
+  const cpuMs = (s: string, reps: number): number => {
     const runs: number[] = [];
     for (let k = 0; k < 3; k++) {
-      const t0 = performance.now();
-      scrubSecrets(s, { keepHex: true, exact: ['abcdefghijkl'] });
-      findForbiddenSecret(s);
-      runs.push(performance.now() - t0);
+      const c0 = process.cpuUsage();
+      for (let r = 0; r < reps; r++) {
+        scrubSecrets(s, { keepHex: true, exact: ['abcdefghijkl'] });
+        findForbiddenSecret(s);
+      }
+      const c = process.cpuUsage(c0);
+      runs.push((c.user + c.system) / 1000);
     }
-    return runs.sort((a, b) => a - b)[1]!;
+    return runs.sort((a, b) => a - b)[1]!; // median of three: one slow run does not decide
   };
   const small = cases(N);
   const big = cases(4 * N);
-  for (const s of Object.values(small)) median(s); // warm up the regex engine and the JIT
+  for (const s of Object.values(small)) cpuMs(s, 1); // warm up the regex engine and the JIT
   const slow: string[] = [];
+  // A real quadratic scrub is slow on every attempt, so a case is only slow when it fails on all of three.
   for (const name of Object.keys(small)) {
-    const t1 = Math.max(median(small[name]!), 2);
-    const t4 = median(big[name]!);
-    // a ratio of two millisecond timings is noise: only call it slow when the big input also takes a visible time (the old quadratic shapes took 1.7 s here)
-    if (t4 / t1 > 8 && t4 > 150) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
+    let verdict = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const t1 = Math.max(cpuMs(small[name]!, 4), 15); // 4 x N characters
+      const t4 = cpuMs(big[name]!, 1); // 1 x 4N characters
+      // only call it slow when the big input also takes a visible time (the old quadratic shapes took 1.7 s here)
+      if (!(t4 / t1 > 2.5 && t4 > 150)) { verdict = ''; break; }
+      verdict = `${name}: ${t1.toFixed(0)} ms CPU for 4 x ${N} chars, ${t4.toFixed(0)} ms for 1 x ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x1, quadratic x4)`;
+    }
+    if (verdict) slow.push(verdict);
   }
   assert.deepEqual(slow, []);
 });
