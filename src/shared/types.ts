@@ -344,6 +344,8 @@ export type LegionEvent =
   | { type: 'attention.updated'; attention: AttentionView }
   /** The away policy changed (a project's wait, pause, budget or notification level, or the quiet hours). */
   | { type: 'away.updated' }
+  /** The gates settings changed (a preset, a limit, or a reload from disk). */
+  | { type: 'gates.updated' }
   /** A project's budget was reached; sent once per period. */
   | { type: 'budget.reached'; projectId: string; period: 'day' | 'week' | 'month' };
 
