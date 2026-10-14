@@ -116,7 +116,7 @@ test('stone rules: a good pair passes; the signed size and hash of the stone pac
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...p.asset, size: p.asset.size + 1 }) })).join(), /returns \d+ bytes/);
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...p.asset, sha256: 'a'.repeat(64) }) })).join(), /returns sha256/);
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => { throw new Error('HTTP 404'); } })).join(), /not reachable/);
-  assert.match((await L.stoneProblems({ ...base, stones: ['0.3.0'] })).join(), /not listed/);
+  assert.match((await L.stoneProblems({ ...base, stones: ['0.1.0'] })).join(), /not listed/);
   assert.match((await L.stoneProblems({ ...base, oldBytes: p.newB })).join(), /itself a full-install|same manifest/);
 });
 test('stone rules: the daily check fails loudly when the live old-name manifest or the stone package is gone', async () => {

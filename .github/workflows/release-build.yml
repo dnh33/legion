@@ -197,7 +197,6 @@ jobs:
           V: ${{ steps.v.outputs.version }}
           NOTES: ${{ steps.v.outputs.notes }}
           REQUIRES: ${{ steps.deps.outputs.requires }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           $argv = @('--zip', "$env:PKG\legion-$env:V-app.zip", '--out', $env:PKG)
           if ($env:NOTES) { $argv += @('--notes', $env:NOTES) }
@@ -206,8 +205,11 @@ jobs:
             # A full-install release names a stepping stone (docs/SHIPPING.md): its own published, signed old-name manifest, copied unchanged.
             $stone = (Get-Content -Raw scripts/stepping-stones.json | ConvertFrom-Json).stones | Select-Object -Last 1
             $stoneDir = Join-Path $env:RUNNER_TEMP 'stone'
-            gh release download "v$stone" --repo dnh33/legion -p 'legion-update-manifest.json' -p 'legion-update-manifest.json.sig' -D $stoneDir --clobber
-            if ($LASTEXITCODE -ne 0) { throw "could not download the stepping stone v$stone manifest" }
+            New-Item -ItemType Directory -Force -Path $stoneDir | Out-Null
+            foreach ($n in 'legion-update-manifest.json', 'legion-update-manifest.json.sig') {
+              curl.exe -fsSL -o (Join-Path $stoneDir $n) "https://github.com/dnh33/legion/releases/download/v$stone/$n"
+              if ($LASTEXITCODE -ne 0) { throw "could not download $n of the stepping stone v$stone" }
+            }
             $argv += @('--stepping-stone', $stoneDir)
           }
           node scripts/release-manifest.mjs @argv
