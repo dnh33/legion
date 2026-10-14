@@ -22,7 +22,7 @@ import type { ActivityEntry, LogOp } from './activity.js';
 import { bulkHold } from '../../shared/kg-library.js';
 import {
   clipCp, effectiveTrust, guarded, isInactive, makeSnippet, oneLine, rankFactor, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode,
-  DATA_LINE, isUntrusted, lastTouchedMs,
+  DATA_LINE, isUntrusted,
 } from './text.js';
 import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isAskCapped, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
 import type {
@@ -624,7 +624,7 @@ export class Graph {
       const list = titles.get(normTitle(n.title)) ?? [];
       list.push(n);
       titles.set(normTitle(n.title), list);
-      const t = lastTouchedMs(n);
+      const t = Date.parse(n.updatedAt);
       const days = Number.isFinite(t) ? Math.floor((nowMs - t) / 86_400_000) : 0;
       if (days > staleDaysFor(n.type)) stale.push({ id: n.id, daysOld: days });
       if (isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
@@ -637,17 +637,47 @@ export class Graph {
     };
   }
 
-  /** True when a pending note in the Inbox proposes an edit to, or the supersession of, this note. */
-  hasPendingProposalFor(id: string): boolean {
-    for (const eid of this.inn.get(id) ?? []) {
-      const e = this.edges.get(eid);
-      const from = e?.rel === 'supersedes' ? this.nodes.get(e.from) : undefined;
-      if (from && statusOf(from) === 'pending') return true;
-    }
+  /**
+   * The ids a proposal in the Inbox names: the target of a pending edit copy (its `supersedes` link), both ends of a supersede
+   * proposal, the kept and dropped notes of a merge, and the old and new notes of a sweep. One pass over the notes.
+   */
+  pendingProposalTargets(): Set<string> {
+    const out = new Set<string>();
+    const list = (v: unknown) => { if (typeof v === 'string') for (const i of v.split(',')) if (i.trim()) out.add(i.trim()); };
     for (const x of this.nodes.values()) {
-      if (statusOf(x) === 'pending' && (x.props?.oldId === id || x.props?.newId === id)) return true;
+      if (statusOf(x) !== 'pending') continue;
+      for (const eid of this.out.get(x.id) ?? []) {
+        const e = this.edges.get(eid);
+        if (e?.rel === 'supersedes') out.add(e.to);
+      }
+      const p = x.props;
+      if (!p) continue;
+      for (const k of ['oldId', 'newId', 'keep', 'drop', 'oldIds', 'newIds']) list(p[k]);
     }
-    return false;
+    return out;
+  }
+
+  /** True when a proposal in the Inbox names this note (one note: see pendingProposalTargets for many). */
+  hasPendingProposalFor(id: string): boolean { return this.pendingProposalTargets().has(id); }
+
+  /** A note for reading only, without the copy getNode makes. The caller must not change it. Human only. */
+  peekNode(actor: Actor, id: string): Readonly<KgNode> | undefined {
+    this.requireHuman(actor, 'peek at a note');
+    return this.seen(actor, id);
+  }
+
+  /** "Still current": the human checked a live note and it holds. Moves its updatedAt to now and changes nothing else. */
+  touch(actor: Actor, id: string): KgNode {
+    this.requireHuman(actor, 'mark a note as still current');
+    const n = this.mustSee(actor, id);
+    if (isInactive(n)) throw new KgError('conflict', `"${id}" is ${statusOf(n)}.`);
+    this.requireNotPending(n);
+    const ops: LogOp[] = [{ op: 'patch', id, fields: { updatedAt: this.stamp() } }];
+    const undo = this.inverseOf(ops);
+    this.apply(ops);
+    this.logActivity(actor, 'update', undo, this.nodes.get(id));
+    this.changed([id]);
+    return structuredClone(this.nodes.get(id)!);
   }
 
   // ------------------------------------------------------------------ writes
@@ -1907,7 +1937,7 @@ export class Graph {
     for (const n of this.nodes.values()) {
       if (statusOf(n) === 'pending') pending++;
       if (isInactive(n) || statusOf(n) === 'pending') continue;
-      const t = lastTouchedMs(n);
+      const t = Date.parse(n.updatedAt);
       if (Number.isFinite(t) && (nowMs - t) / DAY_MS > staleDaysFor(n.type)) { stale++; if (staleIds.length < 50) staleIds.push(n.id); }
     }
     const report: KgLintLite = {

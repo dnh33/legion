@@ -146,11 +146,3 @@ export function capText(text: string, max: number): string {
   if (open > head.lastIndexOf('</kg-node>')) head += '\n</kg-node>';
   return (head + note(text.length - head.length) + tail).slice(0, max);
 }
-
-/** When the note was last touched or checked by the owner: the later of updatedAt and props.checkedAt. NaN when neither reads as a date. */
-export function lastTouchedMs(n: Pick<KgNode, 'updatedAt' | 'props'>): number {
-  const u = Date.parse(n.updatedAt);
-  const c = typeof n.props?.checkedAt === 'string' ? Date.parse(n.props.checkedAt) : Number.NaN;
-  if (Number.isFinite(u) && Number.isFinite(c)) return Math.max(u, c);
-  return Number.isFinite(u) ? u : c;
-}

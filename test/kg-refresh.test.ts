@@ -100,10 +100,5 @@ describe('refreshCheck: who must not be sent to the Archivist', () => {
     assert.equal(r.ok, false);
     if (!r.ok) { assert.equal(r.block, 'proposal'); assert.match(r.message, /already in your Inbox/); }
   });
-  it('counts a recent checkedAt as the last time the note was touched', () => {
-    const r = refreshCheck(node({ props: { checkedAt: new Date(NOW - 2 * DAY).toISOString() } }), NOW);
-    assert.equal(r.ok, false);
-    if (!r.ok) assert.match(r.message, /2 days ago/);
-  });
   it('caps live refreshes at three', () => assert.equal(MAX_LIVE_REFRESHES, 3));
 });

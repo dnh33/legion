@@ -4,7 +4,7 @@
  */
 import type { KgNode, KgRefreshBlock } from '../../shared/kg.js';
 import { staleDaysFor } from './graph.js';
-import { isInactive, isUntrusted, lastTouchedMs, statusOf } from './text.js';
+import { isInactive, isUntrusted, statusOf } from './text.js';
 
 /** A note of a type that never goes stale (decision, pattern, mistake) can still be refreshed once it is this old. */
 export const REFRESH_MIN_DAYS = 30;
@@ -29,9 +29,9 @@ export interface RefreshEnv {
   hasProposal?: boolean;
 }
 
-/** Whole days since the note was last touched or checked (0 when its date cannot be read, as in the lint). */
-export function daysSinceUpdate(n: Pick<KgNode, 'updatedAt' | 'props'>, nowMs: number): number {
-  const t = lastTouchedMs(n);
+/** Whole days since the note was last touched (0 when its date cannot be read, as in the lint). */
+export function daysSinceUpdate(n: Pick<KgNode, 'updatedAt'>, nowMs: number): number {
+  const t = Date.parse(n.updatedAt);
   return Number.isFinite(t) ? Math.max(0, Math.floor((nowMs - t) / DAY_MS)) : 0;
 }
 

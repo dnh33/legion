@@ -236,11 +236,12 @@ test('at most three refreshes run at once; a fourth waits', async () => {
   await s.close();
 });
 
-test('Still current: admin-only, takes the note out of the stale list and out of Refresh', async () => {
+test('Still current: admin-only, a plain touch that takes the note out of the stale list and out of Refresh', async () => {
   const s = await setup();
   const g = s.mod.graph();
   const id = g.upsertNode(HUMAN, { title: 'Checked by me', props: { keep: 'this' } }).node.id;
   const seed = g.upsertNode(SYSTEM, { title: 'Built-in note' }).node.id;
+  const before = g.getNode(HUMAN, id)!;
   s.advanceDays(200);
   assert.equal(isClientRoute('POST', `/api/kg/nodes/${id}/checked`), false);
   assert.equal((await s.call('POST', `/api/kg/nodes/${id}/checked`, {}, 'none')).status, 401);
@@ -250,10 +251,64 @@ test('Still current: admin-only, takes the note out of the stale list and out of
   assert.ok((await s.call('GET', '/api/kg/lint')).body.stale.some((x: any) => x.id === id));
   const ok = await s.call('POST', `/api/kg/nodes/${id}/checked`, {});
   assert.equal(ok.status, 200);
-  assert.equal(typeof ok.body.checkedAt, 'string');
+  assert.deepEqual(ok.body, { ok: true });
   assert.ok(!(await s.call('GET', '/api/kg/lint')).body.stale.some((x: any) => x.id === id), 'no longer stale');
-  assert.equal(g.getNode(HUMAN, id)!.props?.keep, 'this', 'other props are kept');
-  assert.equal(g.getNode(HUMAN, id)!.trust ?? 'human', 'human', 'trust is untouched');
+  const after = g.getNode(HUMAN, id)!;
+  assert.deepEqual(after.props, before.props, 'props are untouched: nothing is added to the note');
+  assert.equal(after.body, before.body);
+  assert.equal(after.trust, before.trust, 'trust is untouched');
+  assert.ok(Date.parse(after.updatedAt) >= Date.parse(before.updatedAt) + 199 * DAY, 'updatedAt moved to now');
+  assert.equal((after.rev ?? 0), (before.rev ?? 0) + 1);
   assert.equal((await s.call('POST', `/api/kg/nodes/${id}/refresh`, {})).status, 409, 'just checked, so too fresh to refresh');
+  await s.close();
+});
+
+test('Still current works for a note that is already at the props limit', async () => {
+  const s = await setup();
+  const props: Record<string, string> = {};
+  for (let i = 0; i < 32; i++) props[`p${i}`] = 'v';
+  const id = s.mod.graph().upsertNode(HUMAN, { title: 'Full of props', props }).node.id;
+  s.advanceDays(200);
+  assert.equal((await s.call('POST', `/api/kg/nodes/${id}/checked`, {})).status, 200);
+  await s.close();
+});
+
+test('a pending merge or sweep from the Archivist blocks Refresh on every note it names (real proposal functions)', async () => {
+  const s = await setup();
+  const g = s.mod.graph();
+  const bot = agentActor('archivist');
+  const [a, b, c, d, e] = ['A', 'B', 'C', 'D', 'E'].map((t) => g.upsertNode(HUMAN, { title: `Note ${t}` }).node.id);
+  assert.equal(g.merge(bot, a!, [b!]).mode, 'proposal');
+  assert.equal(g.sweep(bot, [{ oldId: c!, newId: d! }]).mode, 'proposal');
+  s.advanceDays(200);
+  for (const id of [a, b, c, d]) {
+    const r = await s.call('POST', `/api/kg/nodes/${id}/refresh`, {});
+    assert.equal(r.status, 409, `refresh ${id}`);
+    assert.match(JSON.stringify(r.body), /already in your Inbox/);
+  }
+  const lint = (await s.call('GET', '/api/kg/lint')).body;
+  for (const id of [a, b, c, d]) assert.equal(lint.stale.find((x: any) => x.id === id).refreshBlock, 'proposal', id);
+  assert.equal(lint.stale.find((x: any) => x.id === e).refreshBlock, undefined, 'an unrelated note is free');
+  assert.equal((await s.call('POST', `/api/kg/nodes/${e}/refresh`, {})).status, 200);
+  await s.close();
+});
+
+test('the proposal targets are read once per lint request, not once per stale row', async () => {
+  const s = await setup();
+  const g = s.mod.graph();
+  for (let i = 0; i < 5; i++) g.upsertNode(HUMAN, { title: `Old ${i}` });
+  s.advanceDays(200);
+  let targets = 0; let perRow = 0; let clones = 0;
+  const realTargets = g.pendingProposalTargets.bind(g);
+  const realPer = g.hasPendingProposalFor.bind(g);
+  const realGet = g.getNode.bind(g);
+  g.pendingProposalTargets = () => { targets++; return realTargets(); };
+  g.hasPendingProposalFor = (id: string) => { perRow++; return realPer(id); };
+  g.getNode = (...a: Parameters<typeof g.getNode>) => { clones++; return realGet(...a); };
+  const lint = (await s.call('GET', '/api/kg/lint')).body;
+  assert.equal(lint.stale.length, 5);
+  assert.equal(targets, 1);
+  assert.equal(perRow, 0);
+  assert.equal(clones, 0, 'no copy of a note per row');
   await s.close();
 });
