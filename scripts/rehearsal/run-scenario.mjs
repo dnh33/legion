@@ -98,7 +98,7 @@ try {
     const find = (d, depth) => { for (const n of readdirSync(d)) { const p = join(d, n); const st = statSync(p); if (st.isFile() && /^licen[sc]e/i.test(n) && depth > 0) return p; if (st.isDirectory() && depth < 3) { const r = find(p, depth + 1); if (r) return r; } } return null; };
     const target = find(nm, 0);
     if (!target) throw new Error('no file to lock under node_modules');
-    lockedRel = target.slice(install.length + 1).replace(/\/g, '/');
+    lockedRel = target.slice(install.length + 1).replaceAll(String.fromCharCode(92), '/');
     log(`holding ${target} open`);
     holder = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(here, 'hold-file.ps1'), '-Path', target], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
     await new Promise((res) => { holder.stdout.on('data', (d) => { if (String(d).includes('locked')) res(); }); setTimeout(res, 20000); });
