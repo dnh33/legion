@@ -1,6 +1,7 @@
 /** A resting bust wakes and sleeps through a readiness gate: the still never steps aside before the live bust has painted (no flash). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { stillBox } from '../ui/src/mascot/stillsLogic.js';
 import { wakeReduce, engineMounted, stillVisible, type WakePhase, type WakeEvent } from '../ui/src/mascot/bustWake.js';
 
 const run = (start: WakePhase, ...evs: WakeEvent[]): WakePhase => evs.reduce(wakeReduce, start);
@@ -39,4 +40,16 @@ test('leaving before the live bust ever showed just drops it: the still was neve
 test('pointing at the bust again while it fades out keeps the live bust (no remount)', () => {
   assert.equal(run('live', 'sleep', 'wake'), 'live');
   assert.equal(engineMounted(run('live', 'sleep', 'wake')), true);
+});
+
+test('the live resting bust is laid out exactly like the still it replaces (same box, scaled)', () => {
+  const f = [120, 0, 400, 480]; // the Marshal's rail crop
+  const b = stillBox(f, 34);
+  // the still was painted with a host of round(400 * 80/480) = 67 by 80 px in an 80 px slot
+  assert.equal(b.h, 34);
+  assert.ok(Math.abs(b.w - (67 / 80) * 34) < 1e-9);
+  assert.ok(Math.abs(stillBox(f, 80).w - 67) < 1e-9 && stillBox(f, 80).h === 80);
+  // a wide crop is fitted by width, like the painter does
+  const w = stillBox([0, 0, 600, 300], 40);
+  assert.ok(Math.abs(w.w - 40) < 1e-9 && Math.abs(w.h - 20) < 1e-9);
 });

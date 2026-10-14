@@ -16,7 +16,7 @@ import { memo, useEffect, useMemo, useReducer, useRef, useState, type Transition
 import { useStore, type RelicState } from '../store';
 import { createMascot, type MascotHandle } from './engine.js';
 import { hasStill, stillUrl, warmStills } from './stills';
-import { stillState } from './stillsLogic';
+import { stillBox, stillState } from './stillsLogic';
 import { engineMounted, stillVisible, wakeReduce, type WakePhase } from './bustWake';
 import { hasBust, loadBust, type LoadedBust } from './busts';
 import { useBustState } from './useBustState';
@@ -84,9 +84,10 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
   const box = useMemo(() => {
     if (!asset) return null;
     const f = asset.persona.cropRail || asset.data.cropRail || asset.data.crop;
+    if (rest) return stillBox(f, size); // the same box the still was painted in, so the cross-fade blends two equal pictures
     const s = Math.min((width ?? size) / f[2], (stage ? size * 0.8 : size) / f[3]);
     return { w: Math.round(f[2] * s), h: Math.round(f[3] * s) };
-  }, [asset, size, width, stage]);
+  }, [asset, size, width, stage, rest]);
 
   useEffect(() => {
     const h = host.current;
@@ -96,10 +97,13 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
       rail: !stage, railCrop: stage, cropRail: p.cropRail, persona: p, quips: p.quips, annoyedQuip: p.annoyedQuip,
       hoverEl: (h.closest('.agent') as HTMLElement | null) ?? undefined,
     });
-    // the still stays on screen until the engine has had two frames to paint, so waking never flashes an empty tile
-    let r2 = 0;
-    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => fire('painted')); });
-    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); m.current?.destroy(); m.current = null; };
+    // the still stays on screen until the engine has had two frames to paint and the main thread has gone quiet (a slow PC may still be
+    // building the layers), so waking never flashes an empty tile
+    let r2 = 0, idle = 0, t = 0;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (n: number) => void };
+    const done = () => fire('painted');
+    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => { if (w.requestIdleCallback) idle = w.requestIdleCallback(done, { timeout: 250 }); else t = window.setTimeout(done, 0); }); });
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); if (idle) w.cancelIdleCallback?.(idle); clearTimeout(t); m.current?.destroy(); m.current = null; };
   }, [asset, stage]);
   useEffect(() => { m.current?.setState(state); }, [state, asset, stage]);
   useEffect(() => { m.current?.setVm(vm); }, [vm, asset, stage]);
