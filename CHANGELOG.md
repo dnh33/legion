@@ -20,6 +20,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **The agent list and the agent's picture now agree.** When an agent works in another project, its row shows it as busy
+  and says where ("Working in Atlas: ..."). Under a project, a row counts only that project's "needs your OK" asks.
+  The agent's picture also asks for you when the agent asks a question, not only for an approval.
 - **An agent working in one project no longer stops you starting a task in another.** A room or agent call in another
   project only shows a line above the message box ("Also working in Shop: ..."). In the same project, it still queues
   your message first.
