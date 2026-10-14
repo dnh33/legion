@@ -185,7 +185,8 @@ export function buildConnectorsServer(agent: AgentProfile, job: ModuleJob, d: Ga
     taint();
     try { job.markConnectorData?.(); } catch { /* bookkeeping only */ }
     const dir = d.dataDir;
-    const ctx: ToolCtx = { ...ctxFor(extra), ticked: () => (dir ? readAllowlist(dir).ticked : []) };
+    const wantRepo = typeof args.repo === 'string' ? args.repo : '';
+    const ctx: ToolCtx = { ...ctxFor(extra), ticked: () => (dir ? readAllowlist(dir).ticked : []), revoked: () => !dir || !masterOn(dir) || (!NO_REPO.has(name) && !isTicked(dir, wantRepo)) };
     try { return text(wrapGithub(name, await fn(client, args, ctx))); } catch (e) { return text(errorText(e), true); }
   };
 

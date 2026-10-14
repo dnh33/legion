@@ -22,6 +22,8 @@ export interface ToolCtx {
   sleep: (ms: number) => Promise<void>;
   /** True once the run that called the tool is over or cancelled (github_ci_wait stops waiting). */
   stopped: () => boolean;
+  /** True once the owner turned the repo (or the agents switch) off in Legion. github_ci_wait checks it before every poll. */
+  revoked?: () => boolean;
   /** The repos turned on in Legion, lower-case (design 4.2). `github_repo_list` lists these only. */
   ticked?: () => string[];
   /** Who is calling (a write card names the agent). Set for write tools. */
@@ -191,7 +193,9 @@ async function ciWait(c: GhApi, a: Record<string, unknown>, x: ToolCtx): Promise
   let etag: string | undefined;
   let last: ReturnType<typeof parseRun> = null;
   const partial = (): RunSummary => (last ? summarizeRun(last, []) : { status: 'unknown', conclusion: null, url: '', failedJobs: [] });
+  const turnedOff = (): ToolOut => ok(partial(), 'That repo was turned off in Legion while waiting.');
   for (;;) {
+    if (x.revoked?.()) return turnedOff();
     let wait = CI_WAIT_MIN_INTERVAL_MS;
     try {
       const r = await c.request(path, etag ? { ifNoneMatch: etag } : {});
@@ -216,5 +220,6 @@ async function ciWait(c: GhApi, a: Record<string, unknown>, x: ToolCtx): Promise
     }
     await x.sleep(wait);
     if (x.stopped()) return ok(partial(), 'Stopped: the run that was waiting is over.');
+    if (x.revoked?.()) return turnedOff();
   }
 }

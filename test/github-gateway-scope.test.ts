@@ -33,12 +33,12 @@ interface Rig {
   call(name: string, args?: Record<string, unknown>): Promise<{ text: string; isError: boolean }>;
 }
 
-function mk(o: { agent?: Partial<AgentProfile>; withWriteApp?: boolean; defaultWriteApp?: boolean; realWriteTable?: boolean } = {}): Rig {
+function mk(o: { agent?: Partial<AgentProfile>; withWriteApp?: boolean; defaultWriteApp?: boolean; realWriteTable?: boolean; answer?: (p: string) => unknown; sleep?: (ms: number) => Promise<void> } = {}): Rig {
   const dir = tempDir('legion-ghscope-');
   const paths: string[] = [];
   const cards: string[] = [];
   const writes: Rig['writes'] = [];
-  const api = { request: async (p: string) => { paths.push(p); return { json: { full_name: p.replace('/repos/', ''), private: false } }; }, connection: async () => ({}) } as unknown as GhApi;
+  const api = { request: async (p: string) => { paths.push(p); return { json: o.answer ? o.answer(p) : { full_name: p.replace('/repos/', ''), private: false }, rate: { limit: 5000, remaining: 4000, resetAt: new Date(0).toISOString() } }; }, connection: async () => ({}) } as unknown as GhApi;
   const agents = new Map([['alpha', mkAgent('alpha', { connectors: ['github'], mcpServers: ['*'], ...o.agent })]]);
   const tasks = new Map<string, { status?: string; origin?: { viaMcpClient?: boolean } }>();
   const deps = { dataDir: dir, store: { getAgent: (id: string) => agents.get(id), getTask: (id: string) => tasks.get(id) } } as unknown as ModuleDeps;
@@ -48,6 +48,7 @@ function mk(o: { agent?: Partial<AgentProfile>; withWriteApp?: boolean; defaultW
   const writeTools = Object.fromEntries(WRITE_NAMES.map((n) => [n, spy(n)]));
   const mod = createConnectorsModule(deps, {
     keys: new ConnectorKeyring(), client: () => api as never,
+    ...(o.sleep ? { sleep: o.sleep } : {}),
     ...(o.realWriteTable ? {} : { writeTools }),
     ...(o.defaultWriteApp ? {} : { writeApp: () => app.value }),
   });
@@ -79,7 +80,8 @@ test('every read tool refuses a repo that is not turned on, and no request leave
   assert.equal(GITHUB_UNTICKED_TEXT, 'That repo is not turned on in Legion. Turn it on in the GitHub area.');
   assert.deepEqual(r.paths, [], 'nothing was requested');
   // a missing or odd repo argument is the same refusal, never a request
-  for (const bad of [undefined, 7, '', '../x', 'o/r/../x', 'o/r?x=1']) assert.equal((await r.call('github_repo_get', { repo: bad })).text, GITHUB_UNTICKED_TEXT);
+  const bad = [undefined, 7, '', '../x', 'o/r/../x', 'o/r?x=1', 'о/r', 'o/г', 'ｏ/ｒ', 'o​/r', 'o/r‍', 'https://github.com/o/r', 'github.com/o/r', 'https://api.github.com/repos/o/r', '//evil.example/o/r'];
+  for (const b of bad) for (const t of READ_REPO_TOOLS) assert.equal((await r.call(t, { repo: b, ...ARGS })).text, GITHUB_UNTICKED_TEXT, `${t} ${JSON.stringify(b)}`);
   assert.deepEqual(r.paths, []);
   // ticking it lets the same call through
   setTicked(r.dir, 'o/r', true);
@@ -208,4 +210,18 @@ test('the default write app is "not signed in": a granted, ticked write is refus
   const out = await r.call('github_ci_rerun', { repo: 'o/r', fields: { runId: 9 } });
   assert.equal(out.text, GITHUB_NOT_SIGNED_FOR_WRITE_TEXT);
   assert.deepEqual(r.cards, []);
+});
+
+test('github_ci_wait ends with a plain message, and no further GitHub call, when the repo or the master switch is turned off mid-wait (mutation: drop the per-poll re-check)', async () => {
+  const run = { id: 5, name: 'CI', head_branch: 'main', head_sha: 'a', display_title: 't', status: 'in_progress', conclusion: null, html_url: 'https://github.com/o/r/actions/runs/5', event: 'push', run_attempt: 1, created_at: '2026-10-07T10:00:00Z', run_started_at: '2026-10-07T10:00:00Z', updated_at: '2026-10-07T10:05:00Z' };
+  for (const off of ['repo', 'master'] as const) {
+    const turn: { f?: () => void } = {};
+    let slept = 0;
+    const r = mk({ answer: () => run, sleep: async () => { if (++slept > 3) throw new Error('kept waiting'); turn.f?.(); } });
+    setTicked(r.dir, 'o/r', true);
+    turn.f = () => { if (off === 'repo') setTicked(r.dir, 'o/r', false); else setMaster(r.dir, false); };
+    const out = await r.call('github_ci_wait', { repo: 'o/r', runId: 5 });
+    assert.match(out.text, /That repo was turned off in Legion while waiting\./, off);
+    assert.equal(r.paths.length, 1, `${off}: only the first poll was made`);
+  }
 });
