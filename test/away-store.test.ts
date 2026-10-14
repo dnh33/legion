@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { periodEnd } from '../src/shared/spend-periods.js';
 import { AwayError, AwayStore, DEFAULT_PROJECT_AWAY } from '../src/core/away/store.js';
 
 const dir = (): string => join(mkdtempSync(join(tmpdir(), 'away-')), 'away');
@@ -57,7 +58,7 @@ test('a budget can be switched off with null', () => {
   assert.equal(s.project('p1').budget, null);
 });
 
-test('a tampered file can only restrict: allow-like or out-of-bounds values fall back to the defaults', () => {
+test('a tampered file cannot allow anything: allow-like or out-of-bounds values fall back to the defaults', () => {
   const d = dir();
   mkd(d);
   write(d, {
@@ -150,4 +151,31 @@ test('budget override and the once-per-period note', () => {
   assert.equal(s.budgetNoted('p1'), undefined);
   s.noteBudget('p1', '2026-10-12T00:00:00.000Z');
   assert.equal(s.budgetNoted('p1'), '2026-10-12T00:00:00.000Z');
+});
+
+test('a hostile file cannot keep a budget off for long: the override is cut to the end of the current period and dropped without a budget', () => {
+  const d = dir();
+  mkd(d);
+  write(d, {
+    version: 1,
+    projects: {
+      far: { budget: { limit: 5, period: 'week' }, budgetOverrideUntil: '2999-01-01T00:00:00.000Z' },
+      none: { budgetOverrideUntil: '2999-01-01T00:00:00.000Z' },
+      junk: { budget: { limit: 5, period: 'day' }, budgetOverrideUntil: 'not a date' },
+      ok: { budget: { limit: 5, period: 'month' } },
+    },
+  });
+  const s = new AwayStore(d);
+  const now = Date.now();
+  const far = s.project('far').budgetOverrideUntil!;
+  assert.ok(Date.parse(far) <= periodEnd('week', now), `cut to the week end, got ${far}`);
+  assert.equal(s.project('none').budgetOverrideUntil, undefined, 'no budget, no override');
+  assert.equal(s.project('junk').budgetOverrideUntil, undefined, 'not a date is not an override');
+  assert.equal(s.project('ok').budgetOverrideUntil, undefined);
+});
+
+test('the doc comment says the truth about the file', () => {
+  const src = readFileSync(join(process.cwd(), 'src/core/away/store.ts'), 'utf8');
+  assert.match(src, /undo the owner's own pause or budget/);
+  assert.doesNotMatch(src, /can only RESTRICT/);
 });

@@ -3,19 +3,23 @@
  * notification level, quiet hours) and the "since you last looked" times. File: <dataDir>/away/policy.json.
  *
  * Why its own file in its own folder (spec 4.1): not config.json (a bot can edit it) and not projects.json. The folder is one
- * `protectedPaths()` entry. The core keeps the policy in memory and treats the file as persistence (read at start only), so even a
- * shell edit takes effect after the next core start, and by the rule below it can only RESTRICT:
+ * `protectedPaths()` entry, which stops the file tools, not Bash. The core keeps the policy in memory and treats the file as
+ * persistence (read at start only), so a shell edit takes effect after the next core start. Be honest about what that allows:
  *
- *   Nothing in this file can allow anything. The worst a tampered file does is park sooner, pause starts, set a tiny budget,
- *   silence notifications, lengthen a wait, or move the digest window. Allow-capable state is a gate rule, never here.
+ *   - Nothing in this file can allow an ask. There is no setting that approves anything; allow-capable state is a gate rule.
+ *   - It CAN undo the owner's own choices after a restart: turn a pause off, remove a budget, shorten a park time. That is the
+ *     same exposure as config.json, and the reason a budget override is cut on load to the end of the current period (and dropped
+ *     without a budget), so an edit cannot switch a budget off for years.
  *
  * Values are bounded on load (park 1 to 120 minutes, budget finite and above zero, times valid and from != to); an invalid value is
  * replaced by its default. Writes are debounced, tmp + rename, unknown fields are kept, a corrupt file is renamed aside.
+ * In short: it can undo the owner's own pause or budget, it can never allow an ask.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { validQuiet } from '../../shared/ask-clock.js';
 import type { QuietConfig } from '../../shared/ask-clock.js';
+import { periodEnd } from '../../shared/spend-periods.js';
 
 export class AwayError extends Error {
   constructor(public readonly status: number, message: string) { super(message); this.name = 'AwayError'; }
@@ -208,12 +212,19 @@ export class AwayStore {
       for (const [id, p] of Object.entries(projects)) {
         if (!isObj(p)) continue;
         const { onSilence, paused, budget, budgetOverrideUntil, notify, ...rest } = p;
+        const parsedBudget = parseBudget(budget) ?? null;
+        // an override ("run anyway") only ever lasts to the end of the current period, and needs a budget: a file that says later is cut
+        let override: string | undefined;
+        if (parsedBudget && isIso(budgetOverrideUntil)) {
+          const cap = periodEnd(parsedBudget.period, Date.now());
+          override = Date.parse(budgetOverrideUntil) > cap ? new Date(cap).toISOString() : budgetOverrideUntil;
+        }
         const cur: ProjectAway = {
           onSilence: parseSilence(onSilence) ?? structuredClone(DEFAULT_PROJECT_AWAY.onSilence),
           paused: paused === true,
-          budget: parseBudget(budget) ?? null,
+          budget: parsedBudget,
           notify: parseNotify(notify) ?? DEFAULT_PROJECT_AWAY.notify,
-          ...(isIso(budgetOverrideUntil) ? { budgetOverrideUntil } : {}),
+          ...(override ? { budgetOverrideUntil: override } : {}),
         };
         this.projects.set(id, cur);
         if (Object.keys(rest).length) this.projectExtra.set(id, rest);
