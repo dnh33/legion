@@ -59,3 +59,7 @@ test('other fixed pieces use the token instead of a hard-coded 40px or 48px', ()
   assert.match(read('ui/src/mascot/takeover.css'), /\.takeover \{[^}]*top: calc\(var\(--titlebar-h\) \+ 8px\)/);
   assert.match(read('src/electron/main.ts'), /--titlebar-h/, 'main.ts points at --titlebar-h');
 });
+
+test('the last child of a dialog follows its rounded bottom corners instead of painting square past them', () => {
+  assert.match(app, /\.modal > :last-child \{ border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; \}/);
+});
