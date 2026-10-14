@@ -2,7 +2,7 @@
  * UI sounds: the window's one place that makes a sound. soundLogic.ts decides; this file watches the app, batches what happens
  * together, and plays through the vendored runtime. It never fetches or decodes a file: the runtime synthesises each cue in the page.
  */
-import { createUISFX, renderRecipe } from './vendor/uisfx/index.js';
+import { createUISFX } from './vendor/uisfx/index.js';
 import type { UISFXPlayer, PackName, CueName } from './vendor/uisfx/index.js';
 import { getState, subscribeStore, tapDecisions } from '../store';
 import { getAway, initAway } from '../projects/awayStore';
@@ -40,23 +40,31 @@ export function currentPrefs(): SoundPrefs {
 
 const customPack = (id: string) => CUSTOM_PACKS.find((p) => p.id === id);
 
+/** Cues that happen often get a tiny pitch change (about 1 percent either way) so repeats do not sound mechanical; the urgent ones never do. */
+const VARIED = new Set<Cue>(['complete', 'success', 'cancel', 'check', 'deselect', 'queued']);
+
 function playCustom(packId: string, cue: Cue, volume: number): void {
-  const recipe = customPack(packId)?.recipes[cue];
+  const pack = customPack(packId);
   const c = audio();
-  if (!recipe || !c) return;
+  if (!pack || !c) return;
   const key = `${packId}/${cue}/${c.sampleRate}`;
   let buf = rendered.get(key);
   if (!buf) {
-    const r = renderRecipe(recipe, c.sampleRate);
+    const r = pack.render(cue, c.sampleRate);
+    if (!r) return;
     buf = c.createBuffer(2, r.left.length, r.sampleRate);
     buf.copyToChannel(r.left as Float32Array<ArrayBuffer>, 0);
     buf.copyToChannel(r.right as Float32Array<ArrayBuffer>, 1);
     rendered.set(key, buf);
   }
+  void c.resume?.();
   const src = c.createBufferSource();
   const gain = c.createGain();
   src.buffer = buf; gain.gain.value = volume;
-  src.connect(gain); gain.connect(c.destination); src.start();
+  if (VARIED.has(cue)) src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.02;
+  src.connect(gain); gain.connect(c.destination);
+  src.onended = () => { src.disconnect(); gain.disconnect(); };
+  src.start();
 }
 
 function playNow(cue: Cue, pack: string, volume: number, p: UISFXPlayer | null): void {
