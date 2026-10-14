@@ -21,7 +21,7 @@ async function rig(o: { key?: boolean; registered?: boolean } = {}) {
   const keys = new ConnectorKeyring();
   if (o.key) keys.install(randomBytes(32));
   const store = new TokenStore(join(tempDir('legion-cr-'), 'connectors'), keys);
-  const client = new GitHubClient({ tokens: store, fetchFn: fake.fetchFn(), ...(o.registered === false ? {} : { clientId: FAKE_CLIENT_ID }), sleep: async () => undefined });
+  const client = new GitHubClient({ tokens: store, fetchFn: fake.fetchFn(), clientId: o.registered === false ? 'unregistered' : FAKE_CLIENT_ID, sleep: async () => undefined });
   const mod = createConnectorsModule({ store: { getAgent: () => undefined, getTask: () => undefined } } as unknown as ModuleDeps, { keys, client: () => client });
   const handlers = new Map<string, (c: unknown) => unknown>();
   const add: RouteAdder = (m, p, h) => { handlers.set(`${m} ${p}`, h as (c: unknown) => unknown); };
