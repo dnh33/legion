@@ -145,7 +145,7 @@ export const stateDone = (name: string, s: SkillState): string =>
   s === 'on' ? `${name}: agents decide.` : s === 'manual' ? `${name}: only when you ask.` : `${name}: off.`;
 
 export const RUNS_FLAG = 'Runs commands when loaded';
-export const RUNS_WHY = 'This skill has a line that Claude Code runs on this computer the moment the skill loads, before the agent reads it.';
+export const RUNS_WHY = 'This skill has a line that Claude Code runs on your computer the moment the skill loads, before the agent reads it.';
 export const RUNS_BLOCKED = 'Blocked in Legion: the commands are not run.';
 export const RUNS_ALLOWED = 'Allowed in Legion: the commands run when the skill loads.';
 /** The one line under a flagged row, which depends on the Advanced switch. */
@@ -153,7 +153,7 @@ export const runsNote = (allowShell: boolean): string => `${RUNS_WHY} ${allowShe
 
 export const NOTICE_TEXT = 'Choose which Claude Code skills your agents get. They are off until you turn them on.';
 export const HEADER_TEXT = 'Skills your agents can pick up when a task calls for one. They are not rules: an agent reads one only when it needs it.';
-export const SHELL_WARNING = 'A skill could run any command on this computer when it loads, without asking. Leave this off unless you trust every skill that is on.';
+export const SHELL_WARNING = 'A skill could run any command on your computer when it loads, without asking. Leave this off unless you trust every skill that is on.';
 /** How the switch relates to the import refusal: one sentence, so neither reads as a contradiction of the other. */
 export const SHELL_SCOPE = 'This only covers skills Claude Code already has. Adding a SKILL.md with such a line is still refused: Legion does not import skills that do that.';
 /** The line shown for as long as the switch is on. */
@@ -163,7 +163,7 @@ export function shellConfirm(withLine: number, withLineOn: number): string {
   const who = withLine
     ? `${plural(withLine, 'skill')} ${withLine === 1 ? 'has' : 'have'} such a line now${withLineOn ? `, ${withLineOn} of them on` : ', none of them on'}.`
     : 'No skill has such a line now.';
-  return `Skills would run commands on this computer the moment they load, before an agent reads them, and nothing asks you first. ${who} Turn on anyway?`;
+  return `Skills would run commands on your computer the moment they load, before an agent reads them, and nothing asks you first. ${who} Turn on anyway?`;
 }
 /** A description that hit the cap ends in "…" at nearly the cap (trimming a space before the mark can take a few characters), and the screen says so. A short one never counts. */
 export const descriptionCut = (text: string): boolean => text.length >= DESCRIPTION_CAP - 20 && text.endsWith('…');

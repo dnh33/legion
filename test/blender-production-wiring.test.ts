@@ -77,7 +77,7 @@ test('production wiring: auto resolves to local, one blender_exec runs through t
     assert.equal(st.mode, 'auto');
     assert.equal(st.light, 'local');
     assert.equal(st.localReady, true);
-    assert.match(st.nextRun ?? '', /On this computer/);
+    assert.match(st.nextRun ?? '', /On your computer/);
   } finally { await mod.dispose?.(); }
 });
 

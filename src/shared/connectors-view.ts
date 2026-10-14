@@ -32,13 +32,13 @@ export function connectorsShellWarning(o: { connectors: boolean; approval: strin
   if (!o.connectors || o.approval !== 'full') return undefined;
   const shell = !o.onProvider || o.vmOn;
   if (!shell) return undefined;
-  return 'This agent can run shell commands and never asks. A shell runs as you, so it can read files Legion keeps on this computer, including the encrypted GitHub sign-in and the key that opens it. Legion does not hand tokens to agents, but it cannot stop code running as you from reading them. Use "Ask before Bash" for an agent that reads GitHub.';
+  return 'This agent can run shell commands and never asks. A shell runs as you, so it can read files Legion keeps on your computer, including the encrypted GitHub sign-in and the key that opens it. Legion does not hand tokens to agents, but it cannot stop code running as you from reading them. Use "Ask before Bash" for an agent that reads GitHub.';
 }
 
 /** One plain line for where the sign-in is kept. */
 export function storageLine(s: GithubStatusView['storage']): string {
   switch (s) {
-    case 'ok': return 'Kept encrypted on this computer.';
+    case 'ok': return 'Kept encrypted on your computer.';
     case 'memory-only': return 'Kept in memory only: you sign in again each time Legion starts.';
     case 'sign-in-again': return 'The stored sign-in could not be read. Sign in again.';
     default: return '';

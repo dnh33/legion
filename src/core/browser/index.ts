@@ -47,7 +47,7 @@ export interface BrowserModuleOptions {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const ISOLATION_NOTE = 'The browser runs on this computer with your user rights, in a fresh empty profile. A cloud VM is the only isolated way to browse: use the VM live view when you need that.';
+const ISOLATION_NOTE = 'The browser runs on your computer with your user rights, in a fresh empty profile. A cloud VM is the only isolated way to browse: use the VM live view when you need that.';
 
 export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions = {}): CoreModule & { state: BrowserState; manager: BrowserManager; engines: BrowserEngineDef[] } {
   const log = opts.log ?? (() => undefined);

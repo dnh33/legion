@@ -229,9 +229,9 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     else if (socketOpen && lastError && !connected) { light = 'error'; summary = lastError.slice(0, 200); }
     else if (busy) { light = 'busy'; summary = busy.mode === 'live' && busy.kind === 'timed-out' ? 'A live script timed out and may still be running in Blender.' : 'Running a script.'; }
     else if (liveUsable && (mode === 'live' || (mode === 'auto' && !lr.ready && !rd.ready))) { light = 'connected'; summary = `Blender is reachable (${choice.kind} backend${selected ? `, Blender ${selected.version}` : ''}).`; }
-    else if (lr.ready && localAllowed) { light = 'local'; summary = `Scripts run in the background on this computer${selected ? ` (Blender ${selected.version})` : ''}.${rd.ready && mode === 'auto' ? ' Cloud VM ready.' : ''}`; }
-    else if (rd.ready && vmAllowed) { light = 'sandbox'; summary = selected ? `Sandbox VM ready; live Blender ${selected.version} is not connected.` : 'Sandbox VM ready; no Blender found on this computer.'; }
-    else if (!selected) { light = 'not-found'; summary = 'Blender was not found on this computer.'; }
+    else if (lr.ready && localAllowed) { light = 'local'; summary = `Scripts run in the background on your computer${selected ? ` (Blender ${selected.version})` : ''}.${rd.ready && mode === 'auto' ? ' Cloud VM ready.' : ''}`; }
+    else if (rd.ready && vmAllowed) { light = 'sandbox'; summary = selected ? `Sandbox VM ready; live Blender ${selected.version} is not connected.` : 'Sandbox VM ready; no Blender found on your computer.'; }
+    else if (!selected) { light = 'not-found'; summary = 'Blender was not found on your computer.'; }
     else if (!choice.kind) { light = 'error'; summary = choice.reason; }
     else if (!setupDone) { light = 'needs-setup'; summary = `Blender ${selected.version} found. Press Set up to install the add-on.`; }
     else { light = 'disconnected'; summary = `Blender ${selected.version} found, but its add-on is not listening on port ${c.port}. Open Blender or press Launch.`; }
@@ -249,7 +249,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     const next = c.enabled && sbAgent ? guard.routeNow(sbAgent) : null;
     const nextRun = !c.enabled ? 'The bridge is off.' : !next ? 'The Sculptor agent does not exist.'
       : 'error' in next ? next.error
-        : next.mode === 'local' ? `On this computer${selected ? ` (Blender ${selected.version})` : ''}.`
+        : next.mode === 'local' ? `On your computer${selected ? ` (Blender ${selected.version})` : ''}.`
           : next.mode === 'sandbox' ? `In the cloud VM${next.note ? ` (${next.note.replace(/\.$/, '')})` : ''}.` : 'In your open Blender (a LIVE card).';
     return {
       enabled: c.enabled, light, summary, backendChoice: c.backend, chosenBackend: choice.kind, backendReason: choice.reason,

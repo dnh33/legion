@@ -121,7 +121,7 @@ export function parseDevToolsActivePort(text: string): { port: number; path: str
 export function chromiumEngine(o: { io: ChromiumIo; platform: NodeJS.Platform; env: NodeJS.ProcessEnv; userPath: () => string | undefined }): BrowserEngineDef {
   return {
     id: 'chromium',
-    label: 'Microsoft Edge, Google Chrome or Brave (already on this computer)',
+    label: 'Microsoft Edge, Google Chrome or Brave (already on your computer)',
     detect: () => detectChromium(o.io, o.platform, o.env, o.userPath()),
     launch: (ports, found, opts) => launchBrowser(ports, found, opts),
   };

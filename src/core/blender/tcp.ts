@@ -9,7 +9,7 @@ import { isLoopbackHost } from '../../shared/blender.js';
 export class TimedOutError extends Error { readonly timedOut = true; }
 
 function assertLoopback(host: string): void {
-  if (!isLoopbackHost(host)) throw new Error(`Refusing to connect to ${host}: the Blender bridge only talks to this computer (127.0.0.1)`);
+  if (!isLoopbackHost(host)) throw new Error(`Refusing to connect to ${host}: the Blender bridge only talks to your computer (127.0.0.1)`);
 }
 
 /** True when something accepts a TCP connection on host:port within timeoutMs. Never throws. */

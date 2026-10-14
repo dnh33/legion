@@ -47,15 +47,15 @@ export async function browserChange(raw: unknown, deps: BrowserIpcDeps): Promise
   if (ch.kind === 'chromium') {
     title = ch.path ? 'Run this browser for the browser tool?' : 'Go back to the automatic browser?'; confirmLabel = ch.path ? 'Allow this browser' : 'Use automatic';
     message = ch.path ? 'Let Legion start this browser program when an agent opens a web page?' : 'Let Legion look for Microsoft Edge or Chrome itself again?';
-    detail = ch.path ? `Program: ${dialogLine(ch.path, 300)}\n\nLegion will start it hidden (headless) on this computer with your user rights, in a fresh empty profile, once for each task that opens a page. Only continue if you chose this program yourself.` : 'Legion looks in the usual install places for Microsoft Edge, Google Chrome or Brave.';
+    detail = ch.path ? `Program: ${dialogLine(ch.path, 300)}\n\nLegion will start it hidden (headless) on your computer with your user rights, in a fresh empty profile, once for each task that opens a page. Only continue if you chose this program yourself.` : 'Legion looks in the usual install places for Microsoft Edge, Google Chrome or Brave.';
     route = '/api/browser/config'; body = { chromiumPath: ch.path };
   } else if (ch.allow) {
     title = 'Allow local addresses?'; confirmLabel = 'Allow until restart';
-    message = 'Let agents open pages on this computer or your private network?';
+    message = 'Let agents open pages on your computer or your private network?';
     detail = `Only on these ports: ${ch.ports.length ? ch.ports.join(', ') : '(none, so nothing is reachable)'}.\n\nThis lasts until Legion restarts. Pages on your own network are then reachable by an agent that read untrusted text. One port that belongs to your BSV wallet stays blocked whatever you choose here.`;
     route = '/api/browser/local'; body = { allow: true, ports: ch.ports };
   } else {
-    title = 'Turn local addresses off?'; confirmLabel = 'Turn off'; message = 'Stop agents from opening pages on this computer or your private network?'; detail = 'This is the default.';
+    title = 'Turn local addresses off?'; confirmLabel = 'Turn off'; message = 'Stop agents from opening pages on your computer or your private network?'; detail = 'This is the default.';
     route = '/api/browser/local'; body = { allow: false, ports: [] };
   }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };

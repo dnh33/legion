@@ -21,6 +21,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **A tool call with bad arguments now says what is wrong.** The model is told if the arguments were not valid JSON, an
   array, a string, or too large, and is asked to send one JSON object. A JSON object sent inside a string is accepted.
 
+### Changed
+
+- **Messages say "your computer".** Dialogs, warnings and status lines that said "this computer" or "this machine" now
+  say "your computer".
+
 ## [0.2.6] - 2026-10-13
 
 ### Fixed

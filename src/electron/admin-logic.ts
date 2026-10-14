@@ -333,12 +333,12 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
       return {
         ...base, needsDialog: true, route: '/api/bsv/wallet/connect', body: { url: action.url }, type: 'warning',
         title: 'Connect to a wallet?',
-        message: `Connect to the program listening at ${shown} on this computer?`,
+        message: `Connect to the program listening at ${shown} on your computer?`,
         detail: [
           `Connecting sends four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
           'The connection itself does not ask for balances, outputs, addresses or keys.',
           facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in native dialogs; whether the wallet asks too depends on the wallet.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
-          'Whatever answers at that address is unverified: any program on this computer can listen on a port.',
+          'Whatever answers at that address is unverified: any program on your computer can listen on a port.',
           'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
         ].join('\n'),
         buttons: ['Cancel', 'Connect'],

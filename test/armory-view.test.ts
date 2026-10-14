@@ -537,7 +537,7 @@ describe('markup contracts', () => {
     assert.match(section, /Rules and drills live in Doctrine/);
     assert.equal(read('src/shared/armory-view.ts').includes("'Skills your agents can pick up when a task calls for one. They are not rules: an agent reads one only when it needs it.'"), true);
     assert.match(read('src/shared/armory-view.ts'), /'Choose which Claude Code skills your agents get\. They are off until you turn them on\.'/);
-    assert.match(read('src/shared/armory-view.ts'), /'A skill could run any command on this computer when it loads, without asking\. Leave this off unless you trust every skill that is on\.'/);
+    assert.match(read('src/shared/armory-view.ts'), /'A skill could run any command on your computer when it loads, without asking\. Leave this off unless you trust every skill that is on\.'/);
     assert.match(section, /'Turn all on'/);
     assert.match(section, />Got it<\/button>/);
     assert.match(section, /aria-label="Let skills run commands when they load"/);

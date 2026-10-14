@@ -55,7 +55,7 @@ test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-c
   const why = (n.dropped ?? []).join(' | ');
   assert.match(why, /CLI providers are not available/);
   assert.match(why, /wire must be chat or responses/);
-  assert.match(why, /http is only allowed for this computer/);
+  assert.match(why, /http is only allowed for your computer/);
 });
 
 test('C19 a fresh install has no providers and config round-trips unknown keys', () => {

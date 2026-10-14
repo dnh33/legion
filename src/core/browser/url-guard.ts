@@ -131,10 +131,10 @@ export function inAllowedDomains(host: string, list: readonly string[] | undefin
 /** The rule for one address class on one port. Returns a refusal reason, or null when allowed. */
 export function classRefusal(cls: AddressClass, port: number, o: GuardOptions): string | null {
   if (cls === 'public') return null;
-  if (port === PROTECTED_LOCAL_PORT && (LOCAL_CLASSES.has(cls) || cls === 'metadata')) return 'that port on this computer or a private address is never allowed (it belongs to a program Legion must not reach)';
+  if (port === PROTECTED_LOCAL_PORT && (LOCAL_CLASSES.has(cls) || cls === 'metadata')) return 'that port on your computer or a private address is never allowed (it belongs to a program Legion must not reach)';
   if (cls === 'metadata') return 'cloud metadata addresses are never allowed';
   if (cls === 'reserved') return 'that address is reserved and is never allowed';
-  if (!o.allowLocal) return `${cls === 'loopback' ? 'this computer' : cls === 'linklocal' ? 'a link-local address' : cls === 'cgnat' ? 'a shared carrier-grade address' : 'a private network address'} is not allowed (the owner has not enabled local addresses)`;
+  if (!o.allowLocal) return `${cls === 'loopback' ? 'your computer' : cls === 'linklocal' ? 'a link-local address' : cls === 'cgnat' ? 'a shared carrier-grade address' : 'a private network address'} is not allowed (the owner has not enabled local addresses)`;
   if (!o.localPorts || !o.localPorts.includes(port)) return `local addresses are enabled but port ${port} is not on the owner's port list`;
   return null;
 }

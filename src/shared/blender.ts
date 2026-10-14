@@ -473,14 +473,14 @@ export interface BlenderTestResult { ok: boolean; steps: BlenderSetupStep[]; sta
 
 /** True of both backends today: the add-on in Blender opens a local socket with no password (checked in the v1.0.3 official source and the community addon.py). */
 export const BLENDER_SOCKET_NOTICE =
-  'While the add-on\'s server is running in Blender, any program on this computer can send code to its port (127.0.0.1) without Legion\'s approval card: the add-on has no password and Legion cannot add one. Stop the server (or close Blender) when you are not using the bridge, and do not give a Bash tool to an agent that reads untrusted content.';
+  'While the add-on\'s server is running in Blender, any program on your computer can send code to its port (127.0.0.1) without Legion\'s approval card: the add-on has no password and Legion cannot add one. Stop the server (or close Blender) when you are not using the bridge, and do not give a Bash tool to an agent that reads untrusted content.';
 
 /** Shown while "Use both backends at once" is on: two sockets, neither with a password. */
 export const BLENDER_BOTH_NOTICE =
-  'Use both backends at once is on: two add-on servers are listening in Blender, one per port, and neither has a password. Any program on this computer can send code to either port without Legion\'s approval card. Legion checks which add-on answers on which port, but that identifies the server; it does not authenticate a caller. Stop the servers (or close Blender) when you are not using the bridge.';
+  'Use both backends at once is on: two add-on servers are listening in Blender, one per port, and neither has a password. Any program on your computer can send code to either port without Legion\'s approval card. Legion checks which add-on answers on which port, but that identifies the server; it does not authenticate a caller. Stop the servers (or close Blender) when you are not using the bridge.';
 
 /** Shown in Settings and the Ops card while an install that enabled the bridge before this version has never saved a mode (it disappears once any mode is saved). */
-export const BLENDER_UPGRADE_NOTICE = 'Scripts now run in Blender on this computer by default when it is found. Pick Cloud VM to keep the old behaviour.';
+export const BLENDER_UPGRADE_NOTICE = 'Scripts now run in Blender on your computer by default when it is found. Pick Cloud VM to keep the old behaviour.';
 
 /** Words shown next to the Set up button and in docs/BLENDER.md. Kept here so UI and docs say the same thing. */
 export const BLENDER_LICENSE_NOTE =

@@ -65,7 +65,7 @@ export function parseWalletUrl(raw: unknown): ParsedWalletUrl {
   if (typeof raw !== 'string' || !raw || raw.length > 200 || /[\u0000-\u001f\u007f\s]/.test(raw)) return { ok: false, reason: 'not a usable URL' };
   let u: URL;
   try { u = new URL(raw); } catch { return { ok: false, reason: 'not a usable URL' }; }
-  if (u.protocol !== 'http:') return { ok: false, reason: 'only http:// to this computer is allowed' };
+  if (u.protocol !== 'http:') return { ok: false, reason: 'only http:// to your computer is allowed' };
   if (u.username || u.password) return { ok: false, reason: 'credentials in the URL are not allowed' };
   if ((u.pathname !== '/' && u.pathname !== '') || u.search || u.hash) return { ok: false, reason: 'the URL must be just a host and a port' };
   const hostname = u.hostname.toLowerCase();
