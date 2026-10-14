@@ -82,7 +82,7 @@ export function SoundsSection() {
           <details className="sounds-events">
             <summary>Choose sounds for each event{changedCount > 0 && <span className="snd-count"> ({changedCount} changed)</span>}</summary>
             <fieldset className="sounds-rows" disabled={!sounds.enabled}>
-              <legend className="sr">Sound for each event</legend>
+              <legend className="sr-only">Sound for each event</legend>
               <p className="set-hint">Each event plays its sound from the pack above unless you change it here. Changing the pack moves every event you have not changed.</p>
               <ul>
                 {EVENT_ROWS.map((r) => {
@@ -95,7 +95,7 @@ export function SoundsSection() {
                     <li key={r.key} className={`snd-row${c ? ' changed' : ''}`}>
                       <label className="snd-switch">
                         <input type="checkbox" data-no-sound="" checked={on} onChange={(e) => change(r.key, { enabled: e.target.checked })} />
-                        <span className="snd-name"><b>{r.label}</b>{c && <><i className="snd-dot" aria-hidden="true" /><span className="sr">, changed from the default</span></>}<em>{r.hint}</em></span>
+                        <span className="snd-name"><b>{r.label}</b>{c && <><i className="snd-dot" aria-hidden="true" /><span className="sr-only">, changed from the default</span></>}<em>{r.hint}</em></span>
                       </label>
                       <select id={id} className="snd-pick" aria-label={`Sound for: ${r.label}`} disabled={!on} value={valueOf(c)}
                         onChange={(e) => { const v = e.target.value; if (!v) change(r.key, { sound: null }); else { const i = v.indexOf('/'); change(r.key, { sound: { pack: v.slice(0, i), cue: v.slice(i + 1) } }); } }}>
