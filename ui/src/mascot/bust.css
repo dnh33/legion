@@ -25,4 +25,11 @@
 /* needs you: a static amber ring, painted once and never animated, so it costs the compositor nothing */
 .bust.bust-rest.needs { border-radius: 28%; overflow: visible; }
 .bust.bust-rest.needs::after { content: ''; position: absolute; inset: 0; border-radius: inherit; border: 2px solid var(--warn); opacity: .9; pointer-events: none; }
-.bust-rest > * { grid-area: 1 / 1; } /* the live bust paints in the same cell, over the still, until the still steps aside */
+.bust-rest > * { grid-area: 1 / 1; } /* the live bust paints in the same cell, over the still */
+/* waking and sleeping cross-fade the still and the live bust (opacity only, so the compositor does it). The still never leaves the DOM:
+   it is already decoded when the pointer leaves, and the live bust stays opaque until the engine has painted, so neither way flashes. */
+.bust-rest .bust-still, .bust-rest .bust-host { transition: opacity 140ms ease-out; }
+.bust-rest .bust-host { opacity: 0; }
+.bust-rest[data-rest='live'] .bust-host { opacity: 1; }
+.bust-rest[data-rest='live'] .bust-still { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .bust-rest .bust-still, .bust-rest .bust-host { transition: none; } }

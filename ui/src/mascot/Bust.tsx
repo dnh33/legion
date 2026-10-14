@@ -7,14 +7,17 @@
  *   stage        full behaviour (hover, pokes, quips, all layers live) instead of the agent-rail performance mode
  *
  * At rest (any bust that has a pre-rendered still, unless `stage`) the bust is a picture: no engine, no SVG, no JSON parse.
- * The live engine mounts on pointer hover or keyboard focus of the bust (or of its agent row) and is destroyed on leave.
+ * The live engine mounts on pointer hover or keyboard focus of the bust (or of its agent row). The still stays on screen until the engine
+ * has painted, then the two cross-fade (opacity only); on leave the live bust fades back to the still, which never left the DOM (so there is
+ * nothing to decode), and the engine is destroyed once the still is fully back.
  *   width        box width for stage use (the bust is fitted inside width x size)
  */
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useReducer, useRef, useState, type TransitionEvent } from 'react';
 import { useStore, type RelicState } from '../store';
 import { createMascot, type MascotHandle } from './engine.js';
 import { hasStill, stillUrl, warmStills } from './stills';
 import { stillState } from './stillsLogic';
+import { engineMounted, stillVisible, wakeReduce, type WakePhase } from './bustWake';
 import { hasBust, loadBust, type LoadedBust } from './busts';
 import { useBustState } from './useBustState';
 import './mascot.css';
@@ -28,16 +31,16 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
   const builtIn = hasBust(agentId);
   const rest = !stage && hasStill(agentId);
   const root = useRef<HTMLSpanElement>(null);
-  // awake = the pointer is over the bust (or its agent row) or keyboard focus is inside it; only then does a resting bust go live
-  const [awake, setAwake] = useState(false);
-  const active = !rest || awake;
+  // wake = the pointer is over the bust (or its agent row) or keyboard focus is inside it; only then does a resting bust go live
+  const [phase, fire] = useReducer(wakeReduce, 'still' as WakePhase);
+  const active = !rest || engineMounted(phase);
   useEffect(() => {
-    if (!rest) { setAwake(false); return; }
+    if (!rest) { fire('sleep'); fire('faded'); return; }
     warmStills(theme);
     const el = root.current?.closest<HTMLElement>('.agent') ?? root.current;
     if (!el) return;
     let hovered = false, focused = false;
-    const sync = () => setAwake(hovered || focused);
+    const sync = () => fire(hovered || focused ? 'wake' : 'sleep');
     const enter = () => { hovered = true; sync(); };
     const leave = () => { hovered = false; sync(); };
     const focusIn = (e: FocusEvent) => { if ((e.target as HTMLElement).matches(':focus-visible')) { focused = true; sync(); } };
@@ -54,6 +57,13 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
     };
   }, [rest, theme]);
 
+  // a leave fades the live bust out; if no fade event arrives (it was never opaque) the engine still goes
+  useEffect(() => {
+    if (phase !== 'sleeping') return;
+    const t = setTimeout(() => fire('faded'), 400);
+    return () => clearTimeout(t);
+  }, [phase]);
+
   const [asset, setAsset] = useState<LoadedBust | null>(null);
   useEffect(() => {
     setAsset(null);
@@ -68,7 +78,6 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
   const vm = forcedVm ?? derived.vm;
 
   const host = useRef<HTMLSpanElement>(null);
-  const [live, setLive] = useState(false); // the engine has painted: the still can step aside
   const m = useRef<MascotHandle | null>(null);
   // fit the frame (rail crop) inside width x size; on the stage the frame keeps 80% of the height so the painted body can spill
   // below it and fade out above the mood label, and the stage is always exactly width x size tall (no layout shift between agents)
@@ -87,10 +96,10 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
       rail: !stage, railCrop: stage, cropRail: p.cropRail, persona: p, quips: p.quips, annoyedQuip: p.annoyedQuip,
       hoverEl: (h.closest('.agent') as HTMLElement | null) ?? undefined,
     });
-    // the still stays under the live bust until the engine has had two frames to paint, so waking never flashes an empty tile
+    // the still stays on screen until the engine has had two frames to paint, so waking never flashes an empty tile
     let r2 = 0;
-    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => setLive(true)); });
-    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); m.current?.destroy(); m.current = null; setLive(false); };
+    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => fire('painted')); });
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); m.current?.destroy(); m.current = null; };
   }, [asset, stage]);
   useEffect(() => { m.current?.setState(state); }, [state, asset, stage]);
   useEffect(() => { m.current?.setVm(vm); }, [vm, asset, stage]);
@@ -98,10 +107,13 @@ export const Bust = memo(function Bust({ agentId, size = 40, className, state: f
   const w = width ?? size;
   if (rest) {
     const needs = state === 'awaiting';
+    const showStill = stillVisible(phase);
+    // the host fades out (and the still in) after a leave; when that is over the engine can go
+    const onFade = (e: TransitionEvent) => { if (e.target === e.currentTarget && e.propertyName === 'opacity' && phase === 'sleeping') fire('faded'); };
     return (
-      <span ref={root} className={`bust bust-rest${needs ? ' needs' : ''}${className ? ` ${className}` : ''}`} style={{ width: w, height: size }} data-bust={agentId} data-state={state} data-rest={live ? 'live' : 'still'}>
-        {!live && <img className="bust-still" src={stillUrl(agentId, stillState(state), theme)} width={size} height={size} alt="" decoding="async" draggable={false} />}
-        {asset && box && <span ref={host} className="bust-host" style={{ width: box.w, height: box.h }} />}
+      <span ref={root} className={`bust bust-rest${needs ? ' needs' : ''}${className ? ` ${className}` : ''}`} style={{ width: w, height: size }} data-bust={agentId} data-state={state} data-rest={showStill ? 'still' : 'live'}>
+        <img className="bust-still" src={stillUrl(agentId, stillState(state), theme)} width={size} height={size} alt="" decoding="async" draggable={false} />
+        {asset && box && <span ref={host} className="bust-host" style={{ width: box.w, height: box.h }} onTransitionEnd={onFade} />}
       </span>
     );
   }
