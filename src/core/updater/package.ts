@@ -3,10 +3,10 @@
  * Extraction goes through the strict zip reader (src/core/blender/zip.ts, imported unchanged) into a fresh folder under <install>/.update/staging,
  * then the content is checked. Any failure removes the staging folder and leaves the live install untouched.
  */
-import { closeSync, createReadStream, createWriteStream, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statfsSync, writeFileSync } from 'node:fs';
+import { closeSync, createReadStream, createWriteStream, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { extractZip, ZipError, type ZipSink, type ZipSource } from '../blender/zip.js';
+import { extractZip, listEntries, ZipError, type ZipSink, type ZipSource } from '../blender/zip.js';
 import { CODE_SET, FULL_PACKAGE_SET, removeOwned, UPDATE_DIR } from './apply.js';
 import { assetUrl, fullAssetUrl, LIMITS, type UpdateSource } from './config.js';
 import type { Manifest } from './manifest.js';
@@ -168,6 +168,46 @@ const FULL_REQUIRED_EXES: readonly string[] = Object.freeze([
   'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe',
 ]);
 
+const HEX64 = /^[0-9a-f]{64}$/;
+function sha256Stream(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const h = createHash('sha256');
+    createReadStream(path).on('data', (c) => h.update(c)).on('error', reject).on('end', () => resolve(h.digest('hex')));
+  });
+}
+
+/**
+ * Checks the extracted full tree file by file against its own PACKAGE-FILES.json (size and sha256, no unlisted files), the
+ * same rule scripts/package-install.mjs applies on a fresh install. The signed zip hash proves the download; this proves what
+ * is on disk NOW. An antivirus scanner that removes or rewrites a file after extraction is caught here, before any swap,
+ * instead of by a new build that cannot start.
+ */
+export async function verifyFullTreeFiles(treeDir: string): Promise<void> {
+  const list = JSON.parse(readFileSync(join(treeDir, FULL_LIST), 'utf8')) as { files: Array<{ path: string; size: unknown; sha256: unknown }> };
+  const listed = new Set<string>();
+  for (const f of list.files) {
+    if (typeof f.size !== 'number' || !Number.isSafeInteger(f.size) || f.size < 0 || typeof f.sha256 !== 'string' || !HEX64.test(f.sha256)) throw new StageError('content', `the full package file list has a malformed entry for ${f.path}`);
+    listed.add(f.path);
+    const abs = join(treeDir, ...f.path.split('/'));
+    let st;
+    try { st = lstatSync(abs); } catch { throw new StageError('content', `${f.path} is missing after extraction: Windows or your antivirus may have removed it`); }
+    if (!st.isFile()) throw new StageError('content', `${f.path} is not a plain file`);
+    if (st.size !== f.size) throw new StageError('content', `${f.path} does not match the package file list (size)`);
+    let got: string;
+    try { got = await sha256Stream(abs); } catch { throw new StageError('content', `${f.path} could not be read after extraction: Windows or your antivirus may be blocking it`); }
+    if (got !== f.sha256) throw new StageError('content', `${f.path} does not match the package file list (content)`);
+  }
+  const walk = (d: string, rel: string): void => {
+    for (const n of readdirSync(d)) {
+      const r = rel ? `${rel}/${n}` : n;
+      const st = lstatSync(join(d, n));
+      if (st.isDirectory()) walk(join(d, n), r);
+      else if (r !== FULL_LIST && !listed.has(r)) throw new StageError('content', `${r} is in the package but not on its file list`);
+    }
+  };
+  walk(treeDir, '');
+}
+
 export interface FullStageOptions {
   installDir: string; source: UpdateSource; manifest: Manifest; version: string;
   freeBytes?: (dir: string) => number;
@@ -215,8 +255,9 @@ export async function stageFullPackage(o: FullStageOptions): Promise<Staged> {
   const { installDir, manifest: m } = o;
   const fa = m.fullAsset;
   if (!fa) throw new StageError('full-install', 'this release changes dependencies but carries no signed full package');
-  const free = (o.freeBytes ?? defaultFree)(installDir);
-  if (free < fa.size * 3) throw new StageError('disk', `not enough free space: about ${Math.ceil((fa.size * 3) / 1e6)} MB are needed on the install drive`);
+  const freeOf = o.freeBytes ?? defaultFree;
+  // Before the download only the zip itself is certain; the unpacked size is read from the zip once it is on disk (below).
+  if (freeOf(installDir) < fa.size * 2) throw new StageError('disk', `not enough free space: about ${Math.ceil((fa.size * 2) / 1e6)} MB are needed on the install drive`);
   const root = ensureStagingRoot(installDir);
   const work = join(root, o.version);
   removeOwned(installDir, work);
@@ -236,6 +277,10 @@ export async function stageFullPackage(o: FullStageOptions): Promise<Staged> {
     const src = fileSource(zip);
     const extractTo = join(work, 'x');
     try {
+      // The zip is on disk now: what extraction still needs is exactly its unpacked size, plus 10% for the file system.
+      const unpacked = (await listEntries(src, `legion-${o.version}`, { maxEntries: LIMITS.entries, maxUnpackedBytes: LIMITS.fullUnpackedBytes })).reduce((n, e) => n + e.usize, 0);
+      const need = Math.ceil(unpacked * 1.1);
+      if (freeOf(installDir) < need) throw new StageError('disk', `not enough free space: about ${Math.ceil(need / 1e6)} MB more are needed on the install drive`);
       await extractZip(src, fileSink, extractTo, `legion-${o.version}`, { maxEntries: LIMITS.entries, maxUnpackedBytes: LIMITS.fullUnpackedBytes });
     } catch (e) {
       if (e instanceof ZipError) throw new StageError('zip', e.message);
@@ -245,6 +290,8 @@ export async function stageFullPackage(o: FullStageOptions): Promise<Staged> {
     const treeDir = join(extractTo, `legion-${o.version}`);
     walkCheck(treeDir);
     checkFullTree(treeDir, m);
+    await verifyFullTreeFiles(treeDir);
+    try { rmSync(zip, { force: true }); } catch { /* the staging folder is removed with the install's next swap */ }
     writeFileSync(join(work, 'stage.json'), JSON.stringify({ version: o.version, zipSha256: dl.sha256, kind: 'full', at: Date.now() }));
     return { version: o.version, treeDir, zipSha256: dl.sha256, kind: 'full' };
   } catch (e) {

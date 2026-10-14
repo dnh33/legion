@@ -67,20 +67,21 @@ export function packageFiles(version: string, over: { lock?: string; extra?: Zip
   return [...f.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d)), ...(over.extra ?? [])];
 }
 
-/** The two executables a Legion full package must ship (mirrors scripts/lib/package-lib.mjs ELECTRON_REL / CLAUDE_REL). */
-const FULL_EXES = ['runtime/electron/electron.exe', 'runtime/electron/resources/app/package.json', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe'];
 /** The files of a valid FULL package for `version`: the app files plus node_modules, runtime and PACKAGE-FILES.json. */
-export function fullPackageFiles(version: string, over: { lock?: string; extra?: ZipFile[]; drop?: string[]; pkgVersion?: string } = {}): ZipFile[] {
+export function fullPackageFiles(version: string, over: { lock?: string; extra?: ZipFile[]; drop?: string[]; pkgVersion?: string; /** Applied AFTER the file list is computed: what a bad extraction or an antivirus would do to the tree. */ after?: (files: ZipFile[]) => ZipFile[] } = {}): ZipFile[] {
   const top = `legion-${version}/`;
-  const files: ZipFile[] = [
+  const body: ZipFile[] = [
     ...packageFiles(version, over),
     { name: `${top}node_modules/electron/index.js`, data: '// electron' },
     { name: `${top}node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe`, data: 'MZ claude' },
     { name: `${top}runtime/electron/electron.exe`, data: 'MZ electron' },
     { name: `${top}runtime/electron/resources/app/package.json`, data: '{}' },
-    { name: `${top}PACKAGE-FILES.json`, data: JSON.stringify({ schema: 1, files: FULL_EXES.map((p) => ({ path: p, size: 1, sha256: '0'.repeat(64) })) }) },
   ];
-  return files.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d));
+  // The list names every file with its real size and sha256, as scripts/build-package.mjs writes it.
+  const list = { schema: 1, files: body.map((f) => ({ path: f.name.slice(top.length), size: Buffer.byteLength(f.data ?? ''), sha256: sha256(Buffer.from(f.data ?? '')) })) };
+  const files: ZipFile[] = [...body, { name: `${top}PACKAGE-FILES.json`, data: JSON.stringify(list) }]
+    .filter((x) => !(over.drop ?? []).some((d) => x.name === top + d));
+  return over.after ? over.after(files) : files;
 }
 
 export interface Release { version: string; zip: Buffer; fullZip?: Buffer; manifest: Buffer; sig: string; manifestObj: Record<string, unknown> }
