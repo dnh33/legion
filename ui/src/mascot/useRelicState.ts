@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore, type RelicState } from '../store';
+import { agentAwaitsOwner } from './awaiting';
 
 export const STATE_LABEL: Record<RelicState, string> = {
   idle: 'Standing vigil', listening: 'Listening', thinking: 'Deliberating', hacking: 'Executing',
@@ -12,7 +13,8 @@ const SLEEP_MS = 5 * 60_000;
 export function useRelicState(annoyed = false): { state: RelicState; vm: boolean } {
   const force = useStore((s) => s.mascotForce);
   const forceVm = useStore((s) => s.mascotVm);
-  const pending = useStore((s) => s.approvals.length > 0);
+  // the big mascot is the selected agent: it asks for you only when ITS OWN approval or question waits (not another agent's)
+  const pending = useStore((s) => agentAwaitsOwner(s.selectedAgentId, s.approvals, s.questions));
   const mascot = useStore((s) => s.mascot);
   const running = useStore((s) => s.tasks.some((t) => t.status === 'running' || t.status === 'queued'));
   const vmState = useStore((s) => s.vms[s.selectedAgentId]?.state);
