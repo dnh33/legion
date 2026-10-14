@@ -107,7 +107,7 @@ test('render: the panel shows what runs and why that bot, what is blocked and wh
     assert.match(html, />\s*On\s*</, 'and says it is on');
     assert.match(html, /Write the parser → Scout \(sonnet, gated\)/, 'the run names the bot and its own model');
     assert.match(html, /Why this bot: it ships working code/, 'with why that bot');
-    assert.match(html, /Irreversible: delete — the approval card will gate it/, 'and why the card will gate it');
+    assert.match(html, /Irreversible: delete; the approval card will gate it/, 'and why the card will gate it');
     assert.match(html, /high priority, due tomorrow/, 'and the board’s line for its place');
     assert.match(html, /Write the legal copy/, 'the blocked item is shown');
     assert.match(html, /No eligible bot for this item: herald \(never send\)/, 'with its reason');
