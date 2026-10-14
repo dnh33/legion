@@ -4,6 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- **A tool call written as plain text is no longer shown as the answer.** Some models write `<tool_call>` markup into
+  the reply instead of calling the tool. The markup is hidden, and if nothing else is left the run says the model wrote
+  a tool call as text.
+- **A tool call with bad arguments now says what is wrong.** The model is told if the arguments were not valid JSON, an
+  array, a string, or too large, and is asked to send one JSON object. A JSON object sent inside a string is accepted.
+
 ## [0.2.6] - 2026-10-13
 
 ### Fixed
