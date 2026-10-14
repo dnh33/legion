@@ -161,3 +161,13 @@ test('source: only repo-admin*.ts import repo-admin; the agent tool files do not
   for (const n of ['tools.ts', 'write-tools.ts']) assert.doesNotMatch(readFileSync(join(src, 'core/connectors/github', n), 'utf8'), /repo-admin/);
   assert.doesNotMatch(readFileSync(join(src, 'core/connectors/github/repo-admin.ts'), 'utf8'), /\bfetch\s*\(|node:http|node:net/);
 });
+
+test('a reply without full_name and no owner: created, but nothing bogus is ticked and no "/name" path is made up', async () => {
+  const r = await rig();
+  r.fake.override = (_h, m, p) => (m === 'POST' && p === '/user/repos' ? [201, { html_url: 'https://github.com/octo/bare' }, rate] : undefined);
+  const out = await r.call('POST', '/api/github/repos', { name: 'bare', tick: true });
+  assert.equal(out.phase, 'done');
+  assert.equal(out.ticked, false);
+  assert.ok(!String(out.fullName).startsWith('/'), out.fullName);
+  assert.deepEqual(readAllowlist(r.dataDir).ticked, []);
+});

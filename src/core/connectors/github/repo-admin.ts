@@ -71,10 +71,12 @@ export function createRepoAdmin(deps: RepoAdminDeps) {
         res = await c.request(input.owner ? `/orgs/${encodeURIComponent(input.owner)}/repos` : '/user/repos', { method: 'POST', body: JSON.stringify(payload) });
       } catch (e) { throw failure(e, !!input.owner); }
       const j = asRec(res.json);
-      const fullName = typeof j.full_name === 'string' ? j.full_name : `${input.owner ?? ''}/${input.name}`;
-      const htmlUrl = typeof j.html_url === 'string' && j.html_url.startsWith('https://github.com/') ? j.html_url : `https://github.com/${fullName}`;
+      // without full_name and owner the login is unknown: never make up "/name" or tick it
+      const known = typeof j.full_name === 'string' ? j.full_name : input.owner ? `${input.owner}/${input.name}` : undefined;
+      const fullName = known ?? input.name;
+      const htmlUrl = typeof j.html_url === 'string' && j.html_url.startsWith('https://github.com/') ? j.html_url : known ? `https://github.com/${known}` : 'https://github.com/';
       let ticked = false;
-      if (input.tick) { try { setTicked(deps.dataDir, fullName, true); ticked = true; } catch { /* created; the owner can turn it on in the list */ } }
+      if (input.tick && known) { try { setTicked(deps.dataDir, fullName, true); ticked = true; } catch { /* created; the owner can turn it on in the list */ } }
       return { phase: 'done', fullName, htmlUrl, ticked };
     } finally { running = false; }
   }
