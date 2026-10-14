@@ -256,3 +256,4 @@ a.lt-src-ref:hover { text-decoration: underline; }
 
 .lt-lint-head button { white-space: nowrap; flex: none; }
 .lt-lint-head > span { min-width: 0; }
+.lt-stale-note { font-size: 11.5px; }

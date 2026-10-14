@@ -1,6 +1,6 @@
 /** HTTP API under /api/kg. Bearer auth is already enforced by the dispatcher; every caller here is the human. */
 import { KG_LIMITS } from '../../shared/kg.js';
-import type { KgLintReport } from '../../shared/kg.js';
+import type { KgLintReport, KgNode } from '../../shared/kg.js';
 import type { Task } from '../../shared/types.js';
 import { EngineError } from '../engine.js';
 import { HttpError } from '../server.js';
@@ -8,9 +8,10 @@ import type { Ctx, Handler } from '../server.js';
 import type { RouteAdder } from '../modules.js';
 import type { Graph } from './graph.js';
 import { applySeedPack, BSV_SEED_PATH, loadBsvSeed, summarizeBsvPack } from './seed.js';
-import { HUMAN, KgError } from './types.js';
+import { isInactive } from './text.js';
+import { agentActor, HUMAN, KgError } from './types.js';
 import type { NodeInput } from './types.js';
-import { buildRefreshPrompt, refreshCheck } from './refresh.js';
+import { buildRefreshPrompt, MAX_LIVE_REFRESHES, refreshBlockOf, refreshCheck } from './refresh.js';
 import { exportLibrary, exportVault, importVault } from './vault.js';
 
 export interface RouteDeps {
@@ -69,6 +70,12 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     refreshing.delete(nodeId);
     return undefined;
   };
+  const liveRefreshCount = (): number => { let n = 0; for (const id of [...refreshing.keys()]) if (liveRefresh(id)) n++; return n; };
+  /** What the core knows about a note for the refresh rules: can the Archivist read it, and does a proposal for it already wait. */
+  const refreshEnv = (n: KgNode) => ({
+    archivistCanSee: d.refresh ? g().canSeeNode(agentActor(d.refresh.agentId, n.projectId ? { projectId: n.projectId } : {}), n) : true,
+    hasProposal: g().hasPendingProposalFor(n.id),
+  });
 
   add('GET', '/api/kg/stats', wrap(() => ({ ...g().stats(HUMAN), bsvAvailable: d.bsvEnabled() })));
 
@@ -159,6 +166,7 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
           ...row, title: n.title, type: n.type, sourceCount: n.sources?.length ?? 0, createdBy: n.createdBy,
           ...(n.confidence !== undefined ? { confidence: n.confidence } : {}), ...(n.projectId ? { projectId: n.projectId } : {}),
           ...(taskId ? { refreshTaskId: taskId } : {}),
+          ...(d.refresh && n.createdBy !== 'system' ? (() => { const b = refreshBlockOf(n, refreshEnv(n)); return b ? { refreshBlock: b.block } : {}; })() : {}),
         };
       }),
     };
@@ -171,9 +179,10 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     if (!r) throw new HttpError(503, 'Refreshing notes is not available in this build.');
     const n = g().getNode(HUMAN, params[0]!);
     if (!n) throw new HttpError(404, `Unknown node "${params[0]}"`);
-    const check = refreshCheck(n, r.now());
+    const check = refreshCheck(n, r.now(), refreshEnv(n));
     if (!check.ok) throw new HttpError(check.status, check.message);
     if (liveRefresh(n.id)) throw new HttpError(409, 'This note is already being refreshed. Open the run to follow it.');
+    if (liveRefreshCount() >= MAX_LIVE_REFRESHES) throw new HttpError(409, 'Three refreshes are running. Wait for one to finish.');
     let task: Task;
     try {
       task = r.start({ prompt: buildRefreshPrompt(n, check.daysOld), ...(n.projectId ? { projectId: n.projectId } : {}) });
@@ -186,6 +195,19 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
   }));
 
   // ---- the human's inbox and Activity list. Graph methods refuse any bot actor; none of this is a kg_* tool.
+  // "Still current": the owner checked the note and it holds. Stamps props.checkedAt (the lint and Refresh count it as the last touch),
+  // keeps every other field and the note's trust. Admin-only by default-deny.
+  add('POST', '/api/kg/nodes/:id/checked', wrap(({ params }) => {
+    const n = g().getNode(HUMAN, params[0]!);
+    if (!n) throw new HttpError(404, `Unknown node "${params[0]}"`);
+    if (n.createdBy === 'system') throw new HttpError(409, 'Built-in notes ship with Legion and update with it. There is nothing to mark.');
+    if (isInactive(n)) throw new HttpError(409, 'This note is already retired.');
+    if (n.status === 'pending') throw new HttpError(409, 'This note is waiting in your Inbox. Accept or reject it first.');
+    const checkedAt = new Date(d.refresh?.now() ?? Date.now()).toISOString();
+    g().upsertNode(HUMAN, { id: n.id, props: { ...(n.props ?? {}), checkedAt } });
+    return { ok: true, checkedAt };
+  }));
+
   add('GET', '/api/kg/inbox', wrap(({ url }) => g().inbox(HUMAN, { agentId: strParam(url, 'agent') })));
 
   add('POST', '/api/kg/inbox/accept', wrap(({ body }) => {

@@ -5,6 +5,7 @@ import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
 import type { KgEdge, KgLintReport, KgNode, KgNodeType, KgSearchHit, KgSource, KgSubgraph } from '../../../src/shared/kg';
 import { ApiError, request, subscribe } from '../api';
+import { shouldReloadOnTaskEnd } from '../../../src/shared/kg-audit';
 import { mapPool, orderOverview, reconcileView, sameHits, sameView, seedGroups, touchesDetail, touchesView } from './viewsync';
 
 export const MAX_VIEW_NODES = 400;
@@ -425,7 +426,25 @@ export async function refreshNote(id: string) {
   } finally {
     // the list is re-read either way: on success the row shows the live run, on "already being refreshed" it picks up the run that exists
     await loadLint();
+    // the run may have ended while that answer was on its way (an error at once, a cancel): its end event came too early to matter, so look once
+    const taskId = s.lint?.stale.find((r) => r.id === id)?.refreshTaskId;
+    if (taskId) {
+      try {
+        const t = await request<{ task: { status: string } }>('GET', `/api/tasks/${enc(taskId)}`);
+        if (t.task.status !== 'running' && t.task.status !== 'queued') await loadLint();
+      } catch { /* the next task event or Re-check settles it */ }
+    }
     set({ refreshBusy: s.refreshBusy.filter((x) => x !== id) });
+  }
+}
+/** "Still current": the owner checked the note and it holds, so it leaves the stale list. */
+export async function markCurrent(id: string) {
+  try {
+    await request<{ ok: true }>('POST', `/api/kg/nodes/${enc(id)}/checked`, {});
+  } catch (e) {
+    notify(errMsg(e), 'error');
+  } finally {
+    await loadLint();
   }
 }
 export async function resolveTitles(ids: string[]) {
@@ -559,8 +578,9 @@ export function refreshFromServer(changed?: string[]) {
   if (s.tab === 'lint') void loadLint();
 }
 function onEvent(e: LegionEvent) {
-  // a refresh run ended: its row stops saying "Refreshing" (a run that found nothing to change writes nothing, so no kg.updated follows)
-  if (e.type === 'task.updated' && e.task.status !== 'running' && e.task.status !== 'queued' && s.lint?.stale.some((r) => r.refreshTaskId === e.task.id)) { void loadLint(); return; }
+  // a run ended while a Refresh waits for its answer or a row shows a live run: read the list again. A run that found nothing to change
+  // writes nothing, so no kg.updated follows it.
+  if (e.type === 'task.updated' && shouldReloadOnTaskEnd(e.task.status, s.lint?.stale ?? [], s.refreshBusy)) { void loadLint(); return; }
   if (e.type !== 'kg.updated') return;
   window.clearTimeout(liveTimer);
   liveTimer = window.setTimeout(() => refreshFromServer(e.changed), 350);

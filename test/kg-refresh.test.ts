@@ -1,7 +1,7 @@
 /** The Archivist refresh: the prompt builder and the "may this note be refreshed" rule, both pure (src/core/kg/refresh.ts). */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRefreshPrompt, refreshCheck, REFRESH_MIN_DAYS } from '../src/core/kg/refresh.js';
+import { buildRefreshPrompt, MAX_LIVE_REFRESHES, refreshCheck, REFRESH_MIN_DAYS } from '../src/core/kg/refresh.js';
 import type { KgNode } from '../src/shared/kg.js';
 
 const DAY = 86_400_000;
@@ -70,4 +70,40 @@ describe('refreshCheck', () => {
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.status, 409);
   });
+});
+
+describe('refreshCheck: who must not be sent to the Archivist', () => {
+  it('refuses an untrusted note that was not reviewed, in plain words', () => {
+    const r = refreshCheck(node({ trust: 'untrusted' }), NOW);
+    assert.equal(r.ok, false);
+    if (!r.ok) { assert.equal(r.status, 409); assert.equal(r.block, 'untrusted'); assert.equal(r.message, 'Review this note before refreshing it.'); }
+  });
+  it('also refuses a note with one untrusted source', () => {
+    const r = refreshCheck(node({ sources: [{ ref: 'https://x.test', untrusted: true }] }), NOW);
+    assert.equal(r.ok, false);
+  });
+  it('allows an untrusted note once the owner reviewed it', () => {
+    assert.equal(refreshCheck(node({ trust: 'untrusted', props: { reviewed: true } }), NOW).ok, true);
+  });
+  it('refuses a note that waits in the Inbox', () => {
+    const r = refreshCheck(node({ status: 'pending' }), NOW);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.block, 'pending');
+  });
+  it('refuses a note the Archivist cannot read', () => {
+    const r = refreshCheck(node(), NOW, { archivistCanSee: false });
+    assert.equal(r.ok, false);
+    if (!r.ok) { assert.equal(r.block, 'unreadable'); assert.match(r.message, /cannot read/); }
+  });
+  it('refuses a note that already has a proposal in the Inbox', () => {
+    const r = refreshCheck(node(), NOW, { hasProposal: true });
+    assert.equal(r.ok, false);
+    if (!r.ok) { assert.equal(r.block, 'proposal'); assert.match(r.message, /already in your Inbox/); }
+  });
+  it('counts a recent checkedAt as the last time the note was touched', () => {
+    const r = refreshCheck(node({ props: { checkedAt: new Date(NOW - 2 * DAY).toISOString() } }), NOW);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.message, /2 days ago/);
+  });
+  it('caps live refreshes at three', () => assert.equal(MAX_LIVE_REFRESHES, 3));
 });

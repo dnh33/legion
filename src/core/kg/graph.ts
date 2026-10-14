@@ -22,7 +22,7 @@ import type { ActivityEntry, LogOp } from './activity.js';
 import { bulkHold } from '../../shared/kg-library.js';
 import {
   clipCp, effectiveTrust, guarded, isInactive, makeSnippet, oneLine, rankFactor, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode,
-  DATA_LINE, isUntrusted,
+  DATA_LINE, isUntrusted, lastTouchedMs,
 } from './text.js';
 import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isAskCapped, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
 import type {
@@ -624,7 +624,7 @@ export class Graph {
       const list = titles.get(normTitle(n.title)) ?? [];
       list.push(n);
       titles.set(normTitle(n.title), list);
-      const t = Date.parse(n.updatedAt);
+      const t = lastTouchedMs(n);
       const days = Number.isFinite(t) ? Math.floor((nowMs - t) / 86_400_000) : 0;
       if (days > staleDaysFor(n.type)) stale.push({ id: n.id, daysOld: days });
       if (isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
@@ -635,6 +635,19 @@ export class Graph {
       contradictions, untrustedWithoutReview, counts: { nodes: visible.length, edges: edgeCount },
       ...(this.lite && actor.kind !== 'agent' ? { lite: this.lite } : {}),
     };
+  }
+
+  /** True when a pending note in the Inbox proposes an edit to, or the supersession of, this note. */
+  hasPendingProposalFor(id: string): boolean {
+    for (const eid of this.inn.get(id) ?? []) {
+      const e = this.edges.get(eid);
+      const from = e?.rel === 'supersedes' ? this.nodes.get(e.from) : undefined;
+      if (from && statusOf(from) === 'pending') return true;
+    }
+    for (const x of this.nodes.values()) {
+      if (statusOf(x) === 'pending' && (x.props?.oldId === id || x.props?.newId === id)) return true;
+    }
+    return false;
   }
 
   // ------------------------------------------------------------------ writes
@@ -1894,7 +1907,7 @@ export class Graph {
     for (const n of this.nodes.values()) {
       if (statusOf(n) === 'pending') pending++;
       if (isInactive(n) || statusOf(n) === 'pending') continue;
-      const t = Date.parse(n.updatedAt);
+      const t = lastTouchedMs(n);
       if (Number.isFinite(t) && (nowMs - t) / DAY_MS > staleDaysFor(n.type)) { stale++; if (staleIds.length < 50) staleIds.push(n.id); }
     }
     const report: KgLintLite = {

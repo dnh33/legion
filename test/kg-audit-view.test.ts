@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ageLabel, buildAuditView, confidenceLabel, sourcesLabel } from '../src/shared/kg-audit.js';
+import { ageLabel, buildAuditView, confidenceLabel, shouldReloadOnTaskEnd, sourcesLabel } from '../src/shared/kg-audit.js';
 import type { KgStaleRow } from '../src/shared/kg.js';
 
 const row = (o: Partial<KgStaleRow> & { id: string }): KgStaleRow => ({ daysOld: 100, title: o.id, type: 'concept', sourceCount: 1, createdBy: 'human', ...o });
@@ -16,7 +16,8 @@ describe('ageLabel: plain words', () => {
     assert.equal(ageLabel(59), '59 days old');
     assert.equal(ageLabel(60), '2 months old');
     assert.equal(ageLabel(122), '4 months old');
-    assert.equal(ageLabel(364), '12 months old');
+    assert.equal(ageLabel(335), '11 months old');
+    assert.equal(ageLabel(364), '11 months old');
     assert.equal(ageLabel(365), '1 year old');
     assert.equal(ageLabel(800), '2 years old');
   });
@@ -91,4 +92,36 @@ describe('buildAuditView', () => {
     assert.equal(none.emptyText, 'Nothing is stale.');
     assert.equal(buildAuditView([row({ id: 'seed', createdBy: 'system' })]).empty, false);
   });
+  it('a blocked row has no Refresh and says why in a few words', () => {
+    const v = buildAuditView([
+      row({ id: 'p', refreshBlock: 'proposal' }), row({ id: 'u', refreshBlock: 'untrusted' }),
+      row({ id: 'x', refreshBlock: 'unreadable' }), row({ id: 'w', refreshBlock: 'pending' }),
+    ]);
+    const by = Object.fromEntries(v.mine.map((r) => [r.id, r]));
+    assert.ok(v.mine.every((r) => !r.canRefresh));
+    assert.equal(by.p!.note, 'Proposal in your Inbox');
+    assert.equal(by.u!.note, 'Review it before refreshing');
+    assert.equal(by.x!.note, 'Private to another agent');
+    assert.equal(by.w!.note, 'Waiting in your Inbox');
+  });
+  it('Still current is offered on every owner row, blocked or not, and never on built-in rows', () => {
+    const v = buildAuditView([row({ id: 'a' }), row({ id: 'b', refreshBlock: 'untrusted' }), row({ id: 'seed', createdBy: 'system' })]);
+    assert.ok(v.mine.every((r) => r.canMarkCurrent));
+    assert.equal(v.builtIn[0]!.canMarkCurrent, false);
+  });
+});
+
+describe('shouldReloadOnTaskEnd: a row must not stay on "Refreshing"', () => {
+  const rows = [{ id: 'a', daysOld: 100, refreshTaskId: 'task_1' }];
+  it('reloads when any run has ended while a click is waiting for its answer, whatever the task', () => {
+    assert.equal(shouldReloadOnTaskEnd('done', [], ['n_1']), true);
+    assert.equal(shouldReloadOnTaskEnd('error', [], ['n_1']), true);
+    assert.equal(shouldReloadOnTaskEnd('cancelled', [], ['n_1']), true);
+  });
+  it('reloads when any run has ended while a row shows a live run', () => assert.equal(shouldReloadOnTaskEnd('done', rows, []), true));
+  it('does not reload for a run that is still going', () => {
+    assert.equal(shouldReloadOnTaskEnd('running', rows, ['n_1']), false);
+    assert.equal(shouldReloadOnTaskEnd('queued', rows, ['n_1']), false);
+  });
+  it('does not reload when no refresh is pending at all', () => assert.equal(shouldReloadOnTaskEnd('done', [{ id: 'a', daysOld: 100 }], []), false));
 });

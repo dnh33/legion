@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { api } from '../api';
-import { adoptTask, selectTask, setView, useStore } from '../store';
+import { useStore } from '../store';
+import { openRun } from './openRun';
 import { buildAuditView } from '../../../src/shared/kg-audit';
 import type { AuditRow } from '../../../src/shared/kg-audit';
 import { useMatch } from './CanvasPane';
 import {
   clearPath, findPath, focusNode, openDialog, resolveTitles, runSearch, seedBsv, setHover, setPathEnd, setPathOpen, setSearch, setTab,
-  refreshNote, showHitsOnGraph, startPick, swapPath, titleOf, loadLint, useG,
+  markCurrent, refreshNote, showHitsOnGraph, startPick, swapPath, titleOf, loadLint, useG,
 } from './graphStore';
 import { GIcon } from './icons';
 import { NODE_TYPES } from './palette';
@@ -213,13 +213,6 @@ function Capped<T>({ items, render, max = 40 }: { items: T[]; render: (t: T, i: 
   return <>{shown.map(render)}{items.length > max && !all && <button className="lt-link" onClick={() => { setAll(true); void resolveTitles((items as unknown as Array<string | { id: string }>).map((x) => (typeof x === 'string' ? x : x.id))); }}>Show all {items.length}</button>}</>;
 }
 
-/** Opens the chat of a refresh run (the Archivist's thread, where its report and any approval card are). */
-async function openRun(taskId: string) {
-  try { adoptTask((await api.getTask(taskId)).task); } catch { /* the chat still opens if the window already has the task */ }
-  setView('chat');
-  selectTask(taskId);
-}
-
 const STALE_SHOWN = 40;
 
 function StaleRow({ r }: { r: AuditRow }) {
@@ -232,16 +225,17 @@ function StaleRow({ r }: { r: AuditRow }) {
           <TypeDot type={r.type ?? 'note'} />
           <span className="lt-row-title">{r.title}</span>
         </button>
-        {!r.builtIn && (running
-          // aria-disabled, not disabled: the button keeps keyboard focus when the click turns Refresh into Refreshing
-          ? <button className="btn-ghost sm lt-refreshing" aria-disabled="true" aria-label={`Refreshing ${r.title}`}>Refreshing</button>
-          : <button className="btn-ghost sm" onClick={() => void refreshNote(r.id)} aria-label={`Refresh ${r.title}`} title="Ask the Archivist to re-check this note's sources">Refresh</button>)}
+        {/* aria-disabled, not disabled: the button keeps keyboard focus when the click turns Refresh into Refreshing */}
+        {running && <button className="btn-ghost sm lt-refreshing" aria-disabled="true" aria-label={`Refreshing ${r.title}`}>Refreshing</button>}
+        {!running && r.canRefresh && <button className="btn-ghost sm" onClick={() => void refreshNote(r.id)} aria-label={`Refresh ${r.title}`} title="Ask the Archivist to re-check this note's sources">Refresh</button>}
+        {!running && r.note && <span className="lt-faint lt-nowrap lt-stale-note">{r.note}</span>}
       </div>
       <div className="lt-stale-meta">
         <span>{r.age}</span>
         {r.noSource ? <b className="lt-tag warn">No source</b> : <span>{r.sources}</span>}
         <span>{r.confidence}</span>
         {r.refreshTaskId && <button className="lt-link" onClick={() => void openRun(r.refreshTaskId!)}>Open the run</button>}
+        {r.canMarkCurrent && !running && <button className="lt-link" onClick={() => void markCurrent(r.id)} aria-label={`Mark ${r.title} as still current`} title="You checked it and it holds">Still current</button>}
       </div>
     </div>
   );

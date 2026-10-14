@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { isClientRoute } from '../src/core/admin.js';
 import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { addKgRoutes } from '../src/core/kg/routes.js';
-import { SYSTEM } from '../src/core/kg/types.js';
+import { agentActor, SYSTEM } from '../src/core/kg/types.js';
 import { makeFakes, mkAgent, start, TOKEN, TEST_ADMIN } from './helpers-c.js';
 import { HUMAN, tmpDir } from './kg-helpers.js';
 
@@ -168,7 +168,7 @@ test('a note that belongs to a project starts the run in that project', async ()
   const handlers = new Map<string, (c: any) => unknown>();
   const started: any[] = [];
   const node = { id: 'n_p', type: 'concept', title: 'Project note', body: '', tags: [], scope: 'shared', createdBy: 'scout', projectId: 'proj_1', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
-  const graph = { getNode: () => node } as any;
+  const graph = { getNode: () => node, canSeeNode: () => true, hasPendingProposalFor: () => false } as any;
   addKgRoutes((m, p, h) => { handlers.set(`${m} ${p}`, h); }, {
     graph: () => graph, bsvEnabled: () => false,
     refresh: { agentId: 'archivist', now: () => Date.parse('2026-10-01T00:00:00Z'), start: (a) => { started.push(a); return { id: 'task_x' } as any; }, isLive: () => false },
@@ -176,4 +176,84 @@ test('a note that belongs to a project starts the run in that project', async ()
   const out = await handlers.get('POST /api/kg/nodes/:id/refresh')!({ params: ['n_p'], url: new URL('http://x/'), body: {} }) as { taskId: string };
   assert.equal(out.taskId, 'task_x');
   assert.equal(started[0].projectId, 'proj_1');
+});
+
+test('an untrusted, unreviewed note is refused with plain words and starts nothing', async () => {
+  const s = await setup();
+  const id = s.mod.graph().upsertNode(HUMAN, { title: 'From the web', sources: [{ ref: 'https://evil.test/x', untrusted: true }] }).node.id;
+  s.advanceDays(200);
+  const r = await s.call('POST', `/api/kg/nodes/${id}/refresh`, {});
+  assert.equal(r.status, 409);
+  assert.match(JSON.stringify(r.body), /Review this note before refreshing it\./);
+  assert.equal(s.started.length, 0);
+  const row = (await s.call('GET', '/api/kg/lint')).body.stale.find((x: any) => x.id === id);
+  assert.equal(row.refreshBlock, 'untrusted');
+  await s.close();
+});
+
+test('a note with a proposal already in the Inbox is refused, and the pending copy itself cannot be refreshed', async () => {
+  const s = await setup();
+  const g = s.mod.graph();
+  const id = g.upsertNode(HUMAN, { title: 'Theme tips', body: 'old' }).node.id;
+  const prop = g.upsertNode(agentActor('archivist'), { id, body: 'new text' });
+  assert.equal(prop.pending, true);
+  s.advanceDays(200);
+  const r = await s.call('POST', `/api/kg/nodes/${id}/refresh`, {});
+  assert.equal(r.status, 409);
+  assert.match(JSON.stringify(r.body), /already in your Inbox/);
+  const pend = await s.call('POST', `/api/kg/nodes/${prop.node.id}/refresh`, {});
+  assert.equal(pend.status, 409);
+  assert.match(JSON.stringify(pend.body), /waiting in your Inbox/);
+  assert.equal(s.started.length, 0);
+  const lint = (await s.call('GET', '/api/kg/lint')).body;
+  assert.equal(lint.stale.find((x: any) => x.id === id).refreshBlock, 'proposal');
+  await s.close();
+});
+
+test('a private note of another agent is refused: the Archivist cannot read it', async () => {
+  const s = await setup();
+  const id = s.mod.graph().upsertNode(agentActor('scout'), { title: 'Scout private', scope: 'agent:scout' }).node.id;
+  s.advanceDays(200);
+  const r = await s.call('POST', `/api/kg/nodes/${id}/refresh`, {});
+  assert.equal(r.status, 409);
+  assert.match(JSON.stringify(r.body), /cannot read/);
+  assert.equal(s.started.length, 0);
+  await s.close();
+});
+
+test('at most three refreshes run at once; a fourth waits', async () => {
+  const s = await setup();
+  const ids = [1, 2, 3, 4].map((i) => s.mod.graph().upsertNode(HUMAN, { title: `Note ${i}` }).node.id);
+  s.advanceDays(200);
+  const runs: string[] = [];
+  for (const id of ids.slice(0, 3)) { const r = await s.call('POST', `/api/kg/nodes/${id}/refresh`, {}); assert.equal(r.status, 200); runs.push(r.body.taskId); }
+  const fourth = await s.call('POST', `/api/kg/nodes/${ids[3]}/refresh`, {});
+  assert.equal(fourth.status, 409);
+  assert.match(JSON.stringify(fourth.body), /Three refreshes are running\. Wait for one to finish\./);
+  assert.equal(s.started.length, 3);
+  s.tasks.get(runs[0]!)!.status = 'done';
+  assert.equal((await s.call('POST', `/api/kg/nodes/${ids[3]}/refresh`, {})).status, 200);
+  await s.close();
+});
+
+test('Still current: admin-only, takes the note out of the stale list and out of Refresh', async () => {
+  const s = await setup();
+  const g = s.mod.graph();
+  const id = g.upsertNode(HUMAN, { title: 'Checked by me', props: { keep: 'this' } }).node.id;
+  const seed = g.upsertNode(SYSTEM, { title: 'Built-in note' }).node.id;
+  s.advanceDays(200);
+  assert.equal(isClientRoute('POST', `/api/kg/nodes/${id}/checked`), false);
+  assert.equal((await s.call('POST', `/api/kg/nodes/${id}/checked`, {}, 'none')).status, 401);
+  assert.equal((await s.call('POST', `/api/kg/nodes/${id}/checked`, {}, 'bearer')).status, 403);
+  assert.equal((await s.call('POST', '/api/kg/nodes/n_missing/checked', {})).status, 404);
+  assert.equal((await s.call('POST', `/api/kg/nodes/${seed}/checked`, {})).status, 409);
+  assert.ok((await s.call('GET', '/api/kg/lint')).body.stale.some((x: any) => x.id === id));
+  const ok = await s.call('POST', `/api/kg/nodes/${id}/checked`, {});
+  assert.equal(ok.status, 200);
+  assert.equal(typeof ok.body.checkedAt, 'string');
+  assert.ok(!(await s.call('GET', '/api/kg/lint')).body.stale.some((x: any) => x.id === id), 'no longer stale');
+  assert.equal(g.getNode(HUMAN, id)!.props?.keep, 'this', 'other props are kept');
+  assert.equal(g.getNode(HUMAN, id)!.trust ?? 'human', 'human', 'trust is untouched');
+  assert.equal((await s.call('POST', `/api/kg/nodes/${id}/refresh`, {})).status, 409, 'just checked, so too fresh to refresh');
+  await s.close();
 });

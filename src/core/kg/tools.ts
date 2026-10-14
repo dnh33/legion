@@ -391,7 +391,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
 
   const lint = tool(
     'kg_lint',
-    'Hygiene report over the part of the graph you can see: orphans (no links), dangling links, duplicate titles, stale nodes (> 90 days), contradiction links, and untrusted nodes not yet reviewed by the human. Fix what you can by linking, merging or updating.',
+    'Hygiene report over the part of the graph you can see: orphans (no links), dangling links, duplicate titles, stale nodes (not touched for longer than their type allows: 30 days for episodes, 45 for projects, 60 for ideas, 90 for the rest; decisions, patterns and mistakes never go stale), contradiction links, and untrusted nodes not yet reviewed by the human. Fix what you can by linking, merging or updating.',
     {},
     safe(async () => {
       const r = graph.lint(me);

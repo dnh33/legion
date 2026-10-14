@@ -3,6 +3,7 @@
  * (plain-word labels, grouping, order). No React, no fetch; the UI and the tests import this same file.
  */
 import type { KgNodeType, KgStaleRow } from './kg.js';
+import type { TaskStatus } from './types.js';
 
 export const AUDIT_EMPTY_TEXT = 'Nothing is stale.';
 
@@ -11,7 +12,7 @@ export function ageLabel(days: number): string {
   if (!Number.isFinite(days)) return 'Age unknown';
   if (days < 1) return 'Updated today';
   if (days < 60) return `${days} ${days === 1 ? 'day' : 'days'} old`;
-  if (days < 365) return `${Math.round(days / 30.44)} months old`;
+  if (days < 365) return `${Math.min(11, Math.round(days / 30.44))} months old`;
   const years = Math.floor(days / 365);
   return `${years} ${years === 1 ? 'year' : 'years'} old`;
 }
@@ -43,6 +44,10 @@ export interface AuditRow {
   builtIn: boolean;
   /** A Refresh button is shown and enabled. */
   canRefresh: boolean;
+  /** "Still current" is offered: the owner checked the note and it holds. Never for built-in notes. */
+  canMarkCurrent: boolean;
+  /** Why there is no Refresh, in a few words (a proposal waits, the note needs a review, ...). */
+  note: string | undefined;
   /** The Archivist run refreshing this note right now; the row then shows "Refreshing" and "Open the run". */
   refreshTaskId: string | undefined;
 }
@@ -57,12 +62,20 @@ export interface AuditView {
   emptyText: string;
 }
 
+export const BLOCK_NOTES: Record<NonNullable<KgStaleRow['refreshBlock']>, string> = {
+  proposal: 'Proposal in your Inbox',
+  untrusted: 'Review it before refreshing',
+  unreadable: 'Private to another agent',
+  pending: 'Waiting in your Inbox',
+};
+
 function toRow(s: KgStaleRow): AuditRow {
   const builtIn = s.createdBy === 'system';
   return {
     id: s.id, title: s.title || s.id, type: s.type, daysOld: s.daysOld,
     age: ageLabel(s.daysOld), sources: sourcesLabel(s.sourceCount), noSource: !s.sourceCount, confidence: confidenceLabel(s.confidence),
-    builtIn, canRefresh: !builtIn && !s.refreshTaskId, refreshTaskId: s.refreshTaskId,
+    builtIn, canRefresh: !builtIn && !s.refreshTaskId && !s.refreshBlock, canMarkCurrent: !builtIn,
+    note: s.refreshBlock ? BLOCK_NOTES[s.refreshBlock] : undefined, refreshTaskId: s.refreshTaskId,
   };
 }
 
@@ -73,4 +86,13 @@ export function buildAuditView(stale: readonly KgStaleRow[]): AuditView {
   const mine = rows.filter((r) => !r.builtIn).sort(oldestFirst);
   const builtIn = rows.filter((r) => r.builtIn).sort(oldestFirst);
   return { mine, builtIn, empty: !mine.length && !builtIn.length, emptyText: AUDIT_EMPTY_TEXT };
+}
+
+/**
+ * A task ended: should the Lint list be read again? Yes when any run ended while a Refresh click waits for its answer or a row shows a
+ * live run. The ended task need not be one the list knows: the click or the list read can be a moment behind the run.
+ */
+export function shouldReloadOnTaskEnd(status: TaskStatus, stale: readonly KgStaleRow[], busyIds: readonly string[]): boolean {
+  if (status === 'running' || status === 'queued') return false;
+  return busyIds.length > 0 || stale.some((r) => !!r.refreshTaskId);
 }

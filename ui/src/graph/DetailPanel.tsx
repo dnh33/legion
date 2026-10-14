@@ -3,9 +3,11 @@ import { openExternal } from '../api';
 import { Markdown } from '../components/Markdown';
 import { ago } from '../util';
 import {
-  deleteEdge, expand, focusNode, loadDetail, openDialog, patchNode, select, setPathEnd, setPathOpen, setSearch, refreshNote, startPick, titleOf, updateEdge, useG, type Detail,
+  deleteEdge, expand, focusNode, loadDetail, openDialog, patchNode, select, setPathEnd, setPathOpen, setSearch, markCurrent, refreshNote, startPick, titleOf, updateEdge, useG, type Detail,
 } from './graphStore';
 import { GIcon } from './icons';
+import { openRun } from './openRun';
+import { BLOCK_NOTES } from '../../../src/shared/kg-audit';
 import { fmtDate, isUntrusted, NODE_TYPES, statusOf } from './palette';
 import { Creator, ScopeTag, TypeDot } from './shared';
 import { parseTags } from '../../../src/shared/kg-library';
@@ -24,13 +26,21 @@ function prep(src: string): string {
   }).join('\n');
 }
 
-/** Refresh for a note the Lint tab lists as stale (the same route as the button there). Nothing shows for other notes or before the list was read. */
+/** Refresh, Still current and Open the run for a note the Lint tab lists as stale (the same routes as the buttons there). Nothing shows for other notes or before the list was read. */
 function RefreshAction({ id }: { id: string }) {
   const row = useG((s) => s.lint?.stale.find((r) => r.id === id));
   const busy = useG((s) => s.refreshBusy.includes(id));
   if (!row || row.createdBy === 'system') return null;
-  if (busy || row.refreshTaskId) return <span className="lt-faint">Refreshing</span>;
-  return <button className="lt-link" type="button" onClick={() => void refreshNote(id)} title="Ask the Archivist to re-check this note's sources">Refresh</button>;
+  if (busy || row.refreshTaskId) {
+    return <><span className="lt-faint">Refreshing</span>{row.refreshTaskId && <> <button className="lt-link" type="button" onClick={() => void openRun(row.refreshTaskId!)}>Open the run</button></>}</>;
+  }
+  const why = row.refreshBlock ? BLOCK_NOTES[row.refreshBlock] : undefined;
+  return (
+    <>
+      {why ? <span className="lt-faint">{why}</span> : <button className="lt-link" type="button" onClick={() => void refreshNote(id)} title="Ask the Archivist to re-check this note's sources">Refresh</button>}
+      {' '}<button className="lt-link" type="button" onClick={() => void markCurrent(id)} title="You checked it and it holds">Still current</button>
+    </>
+  );
 }
 
 export function DetailPanel({ width }: { width: number }) {
