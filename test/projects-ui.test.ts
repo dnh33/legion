@@ -58,14 +58,14 @@ test('C19 every control on the project UI has a visible label or aria-label, sel
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const src = (f: string) => readFileSync(join(root, 'ui', 'src', 'projects', f), 'utf8');
   const sw = src('ProjectSwitcher.tsx');
-  assert.match(sw, /<label htmlFor="proj-select"/);
-  assert.match(sw, /<select id="proj-select"/);
-  const view = src('ProjectView.tsx');
-  assert.match(view, /aria-label=\{`Remove \$\{a\.name\} from this project`\}/);
-  assert.match(view, /aria-labelledby="proj-title"/);
-  assert.equal((view.match(/<section [^>]*aria-labelledby=/g) ?? []).length, 6, 'every section is named by its heading');
+  assert.match(sw, /aria-labelledby="proj-label proj-select-name"/, 'the project control is a menu button named by its label and its value');
+  assert.match(sw, /aria-haspopup="menu"/);
+  const settings = src('page/SettingsTab.tsx');
+  assert.match(settings, /aria-label=\{'Remove ' \+ a\.name \+ ' from this project'\}/);
+  assert.match(src('page/ProjectPage.tsx'), /aria-labelledby="pg-title"/);
+  assert.equal((settings.match(/<section [^>]*aria-labelledby=/g) ?? []).length, 3, 'every settings card is named by its heading');
   assert.match(src('NewProjectDialog.tsx'), /<Modal title="New project"/);
-  for (const f of ['ProjectSwitcher.tsx', 'ProjectView.tsx', 'NewProjectDialog.tsx']) assert.doesNotMatch(src(f), /cannot be bypassed|guarantee|100 ?%|fully safe|impossible/i, f);
+  for (const f of ['ProjectSwitcher.tsx', 'ProjectView.tsx', 'NewProjectDialog.tsx', 'page/SettingsTab.tsx', 'page/Digest.tsx', 'page/Overview.tsx']) assert.doesNotMatch(src(f), /cannot be bypassed|guarantee|100 ?%|fully safe|impossible/i, f);
 });
 
 test('council A8: the composer says where a new task goes, and why it is no project when the owner might expect one', () => {
@@ -128,7 +128,7 @@ test('B4 the room header names the room\'s project, and marks it "out of project
   const head = readFileSync(join(root, 'ui', 'src', 'rooms', 'RoomHeader.tsx'), 'utf8');
   assert.match(head, /roomOutOfProject\(room, projects, names\)/);
   assert.match(head, /data-testid="room-out-of-project"/);
-  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'page', 'TabsContent.tsx'), 'utf8');
   assert.match(view, /roomOutOfProject\(r, \[project\], names\)/);
 });
 
@@ -195,7 +195,7 @@ test('B2 liveElsewhere and alsoWorkingLabel: the agent\'s live runs outside the 
 test('B2 the rail row and the composer show the "Also working" line; it never blocks sending', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
-  assert.match(rail, /railAlsoWorking\(a\.id, tasks, filter, projects\)/);
+  assert.match(rail, /railLine\(lineFacts, a\.id, filter,/, 'the rail row says where else the agent works, in its one sub-line');
   const comp = readFileSync(join(root, 'ui', 'src', 'components', 'Composer.tsx'), 'utf8');
   assert.match(comp, /className="also-pill" role="status"/);
   assert.match(comp, /busyIn\(/, 'the composer asks the shared busy rule');
@@ -226,20 +226,20 @@ test('C1 followRemote: an untouched editor follows a change made elsewhere; an e
   assert.equal(followRemote('mine', 'old', 'new'), 'mine', 'edited: kept');
   assert.equal(followRemote('old', 'old', 'old'), 'old');
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'page', 'SettingsTab.tsx'), 'utf8');
   assert.doesNotMatch(view, /setText\(\(t\) => \(t === project\.instructions \? t : t\)\)/, 'the no-op is gone');
   assert.match(view, /followRemote\(t, prev\.current\.instructions, project\.instructions\)/);
 });
 
-test('C2 defaultStarter: the selected agent when it is a member, else the first member; the page offers a labelled choice', async () => {
+test('C2 defaultStarter: the selected agent when it is a member, else the first member; the page starts the task with that agent', async () => {
   const { defaultStarter } = await import('../ui/src/projects/projectsLogic.js');
   assert.equal(defaultStarter(['scout', 'builder'], 'builder'), 'builder');
   assert.equal(defaultStarter(['scout', 'builder'], 'herald'), 'scout');
   assert.equal(defaultStarter(['scout'], null), 'scout');
   assert.equal(defaultStarter([], 'scout'), undefined);
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
-  assert.match(view, /<select aria-label="Agent for the new task"/);
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'page', 'ProjectPage.tsx'), 'utf8');
+  assert.match(view, /defaultStarter\(project\.members, selected\)/, 'New task starts with the agent in view when it is a member');
   assert.doesNotMatch(view, /const first = project\.members\[0\];/, 'no longer always the first member');
 });
 
@@ -250,17 +250,17 @@ test('C3 the project page shows 30 tasks, and all of them on request', async () 
   assert.equal(visibleTasks(list, false).length, 30);
   assert.equal(visibleTasks(list, true).length, 45);
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
-  assert.match(view, /Show all \$\{inTasks\.length\}/);
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'page', 'TabsContent.tsx'), 'utf8');
+  assert.match(view, /'Show all ' \+ tasks\.length/);
   assert.match(view, /loadProjectTasks\(project\.id, 100\)/);
-  assert.doesNotMatch(view, /inTasks\.slice\(0, 30\)/);
+  assert.doesNotMatch(view, /tasks\.slice\(0, 30\)/);
 });
 
 test('C4 unarchive asks first and says what comes back', async () => {
   const { unarchiveQuestion } = await import('../ui/src/projects/projectsLogic.js');
   assert.equal(unarchiveQuestion('Site'), 'Unarchive "Site"?\n\nIts tasks can be continued again and new tasks can start in it. Its rooms and members get its instructions, board and notes again.');
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'page', 'ProjectPage.tsx'), 'utf8');
   assert.match(view, /unarchiveProject\(project\)/);
   assert.doesNotMatch(view, /saveProject\(project\.id, \{ status: 'active' \}\)/, 'no unarchive without the question');
 });
