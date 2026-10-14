@@ -24,6 +24,7 @@ const run = (script, argv) => {
 
 // 1. throwaway key + a trust module that holds only it (what release-sign and release-verify are told to trust)
 const keys = join(out, 'keys');
+rmSync(keys, { recursive: true, force: true }); // a rerun makes a new throwaway key
 run('release-keygen.mjs', ['--out', keys]);
 const pubFile = join(keys, 'legion-update-k1.pub.pem');
 const pub = readFileSync(pubFile, 'utf8');
