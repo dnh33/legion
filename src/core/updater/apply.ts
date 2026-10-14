@@ -40,6 +40,8 @@ export const CODE_SET: readonly string[] = Object.freeze([
  */
 export const FULL_PACKAGE_SET: readonly string[] = Object.freeze([...CODE_SET, 'node_modules', 'runtime']);
 export const UPDATE_DIR = '.update';
+/** Written in apply.log by every swap, so a log shows which generation of the helper did it (0.2.7 and older write no stamp). */
+export const APPLY_HELPER_STAMP = 'helper:full-install-hardening-1';
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
 export interface Journal { state: JournalState; from: string; to: string; entries: string[]; /** The entries whose live copy was moved to .update/prev. A rollback restores exactly these. Absent in journals from older helpers. */ hadPrev?: string[]; stagedDir: string; at: number; heartbeat: number }
@@ -362,7 +364,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
       return finish('failed', reason);
     }
   }
-  d.log(`apply ${job.from} -> ${job.to}`);
+  d.log(`apply ${job.from} -> ${job.to} [${APPLY_HELPER_STAMP}]`);
   // Data backup before any file is touched (state-preflight.ts). Fail closed.
   if (d.runPreflight) {
     progress({ stage: 'preflight', message: 'Backing up data', percent: null });

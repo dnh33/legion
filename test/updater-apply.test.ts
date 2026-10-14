@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { cleanPrev, cleanStaleApplyCopies, settleAfterStart, confirmWhenHealthy, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
+import { cleanPrev, cleanStaleApplyCopies, settleAfterStart, confirmWhenHealthy, APPLY_HELPER_STAMP, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
 
 function put(root: string, files: Record<string, string>): void {
   for (const [p, c] of Object.entries(files)) { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), c); }
@@ -397,4 +397,11 @@ test('R2: runApply on a vanished staged folder fails with a clear outcome and st
   assert.equal(await runApply({ ...job(f), names: FULL_PACKAGE_SET }, d), 'failed');
   assert.deepEqual(snap(f.install), before);
   assert.match(readOutcome(f.install)?.reason ?? '', /incomplete|missing/i);
+});
+
+test('R3: the helper stamps its generation in the log, so a rehearsal can tell which helper did a swap', async () => {
+  const f = fixture();
+  const lines: string[] = [];
+  assert.equal(await runApply(job(f), deps({ f, newHealthy: true, log: (l: string) => lines.push(l) })), 'ok');
+  assert.ok(lines.some((l) => l.includes(APPLY_HELPER_STAMP) && l.includes('1.0.0 -> 1.1.0')), lines.join(' | '));
 });

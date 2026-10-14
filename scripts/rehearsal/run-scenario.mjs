@@ -4,6 +4,8 @@
 //   locked    a file under node_modules is held open during the swap: the update is refused cleanly, the old version keeps running
 //   slow-short / slow-long   the new build's core starts 25 s / 75 s late (past the app's 15 s wait, and for slow-long past the old
 //             helper's 60 s window): whichever way it settles, the install is whole and runs (the new version, or the old one restored)
+//   chain     the live release is updated by a CODE-ONLY candidate built from this checkout (0.98.0), then by the full-package
+//             candidate (0.99.0): the second swap must be done by the NEW helper (its log line carries the helper stamp)
 //   vanished  the staged runtime folder disappears after staging (an antivirus): the swap is refused before anything moves.
 //             Run from a baseline built from this checkout (--baseline 0.98.0), because the swap is done by the helper of the
 //             version being updated FROM, and a published release does not have this check yet.
@@ -21,7 +23,7 @@ import { args, die } from '../lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { scenario: 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v' });
 for (const k of ['scenario', 'install', 'prepared', 'work', 'baseline']) if (!a[k]) die(`--${k} is required`);
-if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long or vanished');
+if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished', 'chain'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long, vanished or chain');
 const here = dirname(fileURLToPath(import.meta.url));
 const install = resolve(a.install), work = resolve(a.work), preparedDir = resolve(a.prepared);
 const prepared = { ...JSON.parse(readFileSync(join(preparedDir, 'prepared.json'), 'utf8')), pubKeyFile: join(preparedDir, 'legion-update-k1.pub.pem') };
@@ -76,7 +78,31 @@ const env = {
 };
 delete env.ELECTRON_RUN_AS_NODE;
 
+/** Lines worth a look in the installed copy's own logs. Printed in the run output; each one must be fixed, explained or listed by the reviewer. */
+function scanLogs() {
+  const found = [];
+  const dirs = [join(home, 'logs'), home];
+  for (const d of dirs) {
+    let names = [];
+    try { names = readdirSync(d); } catch { continue; }
+    for (const n of names) {
+      if (!/\.(log|txt)$/i.test(n) && !/^core\.log/.test(n)) continue;
+      let text = '';
+      try { if (!statSync(join(d, n)).isFile()) continue; text = readFileSync(join(d, n), 'utf8'); } catch { continue; }
+      for (const line of text.split('\n')) if (/\b(error|warn(ing)?|fatal|unhandled|EBUSY|EPERM|ENOENT)\b/i.test(line)) found.push(`${n}: ${line.trim().slice(0, 240)}`);
+    }
+  }
+  const seen = [...new Set(found)];
+  log(`LOGS: ${seen.length} error/warning line(s) in the installed copy's logs`);
+  for (const l of seen.slice(0, 60)) log(`LOG   ${l}`);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n#### Installed copy's logs (${a.scenario}): ${seen.length} error/warning line(s)\n\`\`\`\n${seen.slice(0, 60).join('\n')}\n\`\`\`\n`);
+}
+
 function collect() {
+  try { cpSync(join(home, 'logs'), join(art, 'logs'), { recursive: true }); } catch { /* no logs folder */ }
+  try { for (const n of readdirSync(home)) if (/^core\.log/.test(n)) cpSync(join(home, n), join(art, n)); } catch { /* none */ }
+  try { cpSync(join(up, 'run', 'job.json'), join(art, 'job.json')); } catch { /* none */ }
+  try { scanLogs(); } catch { /* best effort */ }
   for (const [from, to] of [[join(up, 'apply.log'), 'apply.log'], [join(up, 'journal.json'), 'journal.json'], [join(up, 'outcome.json'), 'outcome.json'], [join(home, 'updater', 'state.json'), 'updater-state.json'], [join(work, 'app.log'), 'app.log']]) {
     try { if (existsSync(from)) cpSync(from, join(art, to)); } catch { /* best effort */ }
   }
@@ -162,6 +188,33 @@ try {
       check(d.length === 0, `the install is byte-identical to the baseline${d.length ? `; differs: ${d.slice(0, 8).join(', ')}` : ''}`);
     }
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n- ${a.scenario}: settled as ${o?.result}, running ${h1?.version}\n`);
+  } else if (a.scenario === 'chain') {
+    // Hop 1: the code-only candidate. It is applied by the helper of the LIVE release, which knows nothing of the stamp.
+    const co = prepared.versions.base;
+    writeFileSync(control, 'codeonly');
+    const h1 = await waitFor(`/health to report ${co}`, async () => { const h = await health(); return h?.ok && h.version === co ? h : null; }, 600000);
+    check(!!h1, `hop 1: the code-only candidate ${co} starts and reports health`);
+    const j1 = await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === co ? true : null), 120000);
+    check(!!j1, 'hop 1 is committed');
+    const log1 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
+    check(log1.includes(`apply ${a.baseline} -> ${co}`) && !log1.includes('helper:'), 'hop 1 was done by the old helper (no helper stamp in its line)');
+    check(!log1.includes('re-running the swap helper'), 'hop 1 was a code-only swap (no runtime re-exec)');
+    const stampNow = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
+    check(!!stampNow, `the code-only update replaced the helper source in dist (${stampNow})`);
+    // Hop 2: the full-package candidate, applied by the helper the code-only update installed.
+    writeFileSync(control, 'good');
+    const h2 = await waitFor(`/health to report ${good}`, async () => { const h = await health(); return h?.ok && h.version === good ? h : null; }, 900000);
+    check(!!h2, `hop 2: the full-package candidate ${good} starts and reports health`);
+    const log2 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
+    const line2 = log2.split('\n').find((l) => l.includes(`apply ${co} -> ${good}`)) ?? '';
+    check(!!stampNow && line2.includes(`[${stampNow}]`), `hop 2 was done by the NEW helper: ${line2.trim()}`);
+    check(log2.includes('re-running the swap helper'), 'hop 2 used the full-package swap (runtime re-exec)');
+    check(readJson(join(up, 'journal.json'))?.state === 'committed', 'hop 2 is committed');
+    const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));
+    const wrong = [];
+    for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
+    check(wrong.length === 0, `the install is the complete full package (${list?.files.length ?? 0} files${wrong.length ? `; wrong: ${wrong.slice(0, 5).join(', ')}` : ''})`);
+    check(await waitFor('the old copy to be cleaned', async () => !existsSync(join(up, 'prev')), 120000) !== null, '.update/prev was deleted after the healthy start');
   } else if (a.scenario === 'vanished') {
     const staged = join(up, 'staging', good, 'stage.json');
     const seen = await waitFor('the package to be staged', async () => (existsSync(staged) ? true : null), 600000);

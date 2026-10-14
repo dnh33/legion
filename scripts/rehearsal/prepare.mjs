@@ -3,6 +3,8 @@
 //   good: version 0.99.0, a normal full package (a dependency-change release: requiresFullInstall + fullAsset)
 //   base: version 0.98.0, only its full zip: a baseline built from THIS checkout, for scenarios that must run the new swap helper
 //         (an install of a published release always swaps with the helper of that older release)
+//   codeonly: the base version as a CODE-ONLY release (app.zip, no full package), signed like the others: the first hop of the chain
+//         scenario (live release -> code-only candidate -> full-package candidate)
 //   bad:  version 0.99.1, the same but its Electron main exits at once, so the first start fails and must be rolled back
 // usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo> [--good 0.99.0] [--bad 0.99.1] [--base 0.98.0]
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -54,6 +56,11 @@ for (const name of ['base', 'good', 'bad']) {
   if (name === 'base') {
     mkdirSync(join(served, 'base'), { recursive: true });
     cpSync(join(pkg, `legion-${version}-win-x64.zip`), join(served, 'base', `legion-${version}-win-x64.zip`));
+    const co = join(served, 'codeonly'); mkdirSync(co, { recursive: true });
+    const cnotes = join(pkg, 'notes.txt'); writeFileSync(cnotes, `Rehearsal code-only build ${version}. Not a release.\n`);
+    run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--notes', cnotes, '--out', pkg]);
+    run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(pkg, 'legion-update-manifest.json'), '--trust-module', trustFile]);
+    for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${version}-app.zip`]) cpSync(join(pkg, f), join(co, f));
     rmSync(tree, { recursive: true, force: true });
     console.log(`prepared base ${version}`);
     continue;
