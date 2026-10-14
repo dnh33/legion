@@ -12,8 +12,7 @@ import { nativeTaskListOn } from '../../../src/shared/task-list-setting';
 import { agentGithubLevel } from '../../../src/shared/github-area';
 import type { GithubLevel } from '../../../src/shared/github-area';
 import { accessPatch } from '../github/agentAccess';
-import { loadAreaRepos } from '../github/areaApi';
-import type { AreaRepos } from '../github/areaApi';
+import { useArea } from '../github/useArea';
 import { GithubAccess } from '../github/GithubAccess';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
@@ -29,8 +28,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
   const [ghLevel, setGhLevel] = useState<GithubLevel>(() => agentGithubLevel(existing ?? {}));
   const [ghRepos, setGhRepos] = useState<string[]>(() => existing?.githubWrite ?? []);
-  const [area, setArea] = useState<AreaRepos | null>(null);
-  useEffect(() => { let live = true; void loadAreaRepos().then((a) => { if (live) setArea(a); }); return () => { live = false; }; }, []);
+  const [area, retryArea] = useArea();
   const github = ghLevel !== 'none';
   const [hostOn, setHostOn] = useState(existing?.host?.enabled ?? false);
   const [hostRoot, setHostRoot] = useState(existing?.host?.rootDir ?? '');
@@ -148,7 +146,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
         ) : null}
         <fieldset>
           <legend>Connectors</legend>
-          <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} />
+          <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} onRetry={retryArea} />
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
         </fieldset>
         <fieldset>

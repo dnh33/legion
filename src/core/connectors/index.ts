@@ -226,6 +226,7 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
         return { ok: true, revokeUrl: GITHUB_APPS_SETTINGS_URL };
       });
       add('GET', '/api/github/projects-using/:owner/:name', ({ params }) => area.projectsUsing(params[0] ?? '', params[1] ?? ''));
+      add('GET', '/api/github/projects/:id/repo', ({ params }) => area.projectRepo(params[0] ?? ''));
       add('PUT', '/api/github/projects/:id/access', ({ params, body }) => area.projectAccess(params[0] ?? '', (body as { level?: unknown } | null)?.level));
       addRepoAdminRoutes(add, { area, client: clientOf });
     },

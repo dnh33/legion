@@ -11,6 +11,9 @@ export function accessPatch(level: GithubLevel, writeRepos: string[]): { connect
   return { connectors: ['github'], githubWrite: level === 'write' ? writeRepos : [] };
 }
 
+/** The most repos one agent may write to; the core refuses a longer list. */
+export const GITHUB_WRITE_MAX = 100;
+
 /** The repos the Write checklist offers: ticked in the GitHub area only. */
 export const tickedRepoNames = (area: { repos: Array<{ fullName: string; ticked: boolean }> }): string[] => area.repos.filter((r) => r.ticked).map((r) => r.fullName);
 
@@ -46,4 +49,20 @@ export function grantCopy(kind: 'read' | 'write', repo: string, count: number): 
   const nothing = kind === 'read' ? 'Every member can already read it.' : 'Every member can already write to it.';
   if (count === 0) return { confirm: null, nothing };
   return { confirm: kind === 'read' ? `Let ${who} read ${repo}?` : `Let ${who} write to ${repo}? Every write still asks you first.`, nothing };
+}
+
+/** Saved write repos that are not ticked. Only a list that really loaded can say so: loading, a failed read or a failed refresh proves nothing. */
+export function unticked(a: { status: 'loading' | 'error' | 'ok'; view: { repos: Array<{ fullName: string; ticked: boolean }>; problem?: unknown } | null }, repos: string[]): string[] {
+  if (a.status !== 'ok' || !a.view || a.view.problem) return [];
+  const keys = new Set(tickedRepoNames(a.view).map(normRepo));
+  return repos.filter((r) => !keys.has(normRepo(r)));
+}
+
+/** The core's refusals of the project access call, in words for the owner. */
+export function accessRefusal(status: number, message: string): string {
+  if (status === 0) return 'Legion could not be reached. Try again.';
+  if (status === 409 && /too-many-ticked/.test(message)) return 'Too many repositories are turned on. Turn some off in the GitHub area first.';
+  if (status === 409 && /turn this repo on/i.test(message)) return 'Turn this repo on in the GitHub area first.';
+  if (status === 409 && /no github repository/i.test(message)) return 'This project’s folder has no GitHub repository.';
+  return 'Legion could not save that. Try again.';
 }

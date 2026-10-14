@@ -261,6 +261,18 @@ test('projects-using lists the projects whose git remote is the repo, with their
   assert.equal(out.projects[0].level, 'read');
 });
 
+test("a project's own repo: the route reads the project's folder, not the CI panel's", async () => {
+  const r = await rig({ folders: { legion: 'Dnh33/Legion' }, agents: [agent('a1', { connectors: ['github'] })] });
+  const path = '/api/github/projects/:id/repo';
+  assert.equal(isClientRoute('GET', '/api/github/projects/proj_aaaaaaaaaaaa/repo'), false);
+  assert.deepEqual(await r.call('GET', path, undefined, ['proj_aaaaaaaaaaaa']), { repo: 'dnh33/legion', ticked: false });
+  setTicked(r.dataDir, 'dnh33/legion', true);
+  assert.deepEqual(await r.call('GET', path, undefined, ['proj_aaaaaaaaaaaa']), { repo: 'dnh33/legion', ticked: true });
+  assert.equal((await r.refused('GET', path, undefined, ['proj_zzzzzzzzzzzz']))?.status, 404);
+  const none = await rig({ folders: { legion: null } });
+  assert.deepEqual(await none.call('GET', path, undefined, ['proj_aaaaaaaaaaaa']), { repo: null, ticked: false });
+});
+
 test('project access: read gives the members the connector, write also lists the repo for writing (needs the repo turned on), admin-only', async () => {
   const r = await rig({ folders: { legion: 'dnh33/legion' }, agents: [agent('a1'), agent('a2', { connectors: ['github'], githubWrite: ['x/y'] }), agent('a3')] });
   const path = '/api/github/projects/:id/access';

@@ -232,6 +232,16 @@ export class GithubArea {
     return { projects: out };
   }
 
+  /** The GitHub repo of one project's own folder (its git remote), and whether it is turned on. Null repo: the folder has none. */
+  projectRepo(projectId: string): { repo: string | null; ticked: boolean } {
+    const p = this.d.projects?.get(projectId);
+    if (!p) throw new HttpError(404, 'Unknown project');
+    const r = p.folder ? this.d.repoOf(p.folder) : null;
+    if (!r) return { repo: null, ticked: false };
+    const repo = normRepo(`${r.owner}/${r.name}`);
+    return { repo, ticked: readAllowlist(this.d.dataDir).ticked.includes(repo) };
+  }
+
   /** Give a project's agents GitHub: read (the connector) or write (the connector plus this project's repo in their write list). */
   projectAccess(projectId: string, level: unknown): { ok: true; level: 'read' | 'write'; repo: string; agents: number } {
     if (level !== 'read' && level !== 'write') throw new HttpError(400, "level must be 'read' or 'write'");

@@ -1,26 +1,22 @@
-/**
- * The ticked repos, from GET /api/github/area. That route lands with the GitHub area core; until it answers, a clearly marked sample list keeps the
- * checklist usable. Delete MOCK_AREA and the fallback once the route is merged: the shape already matches GithubAreaView.
- */
+/** What the GitHub area routes say, as the editor and the project page need it: a loading and an error state apart from an empty list, and the project's own repo. */
 import type { GithubAreaView } from '../../../src/shared/github-area';
+import { areaStateOf } from './areaState';
+import type { AreaState, ProjectRepo } from './areaState';
 
 /** api.ts reads window at load, so it is imported only when a call is made in the browser (keeps server-side renders and tests free of it). */
-const req = async <T>(m: string, p: string): Promise<T> => (await import('../api')).request<T>(m as 'GET', p);
+const req = async <T>(m: string, p: string, body?: unknown): Promise<T> => (await import('../api')).request<T>(m, p, body);
 
-export type AreaRepos = Pick<GithubAreaView, 'repos'> & { sample: boolean };
-const MOCK_AREA: AreaRepos = { sample: true, repos: [] };
-
-export async function loadAreaRepos(): Promise<AreaRepos> {
-  try {
-    const v = await req<GithubAreaView>('GET', '/api/github/area');
-    return { repos: Array.isArray(v.repos) ? v.repos : [], sample: false };
-  } catch { return MOCK_AREA; }
+export async function loadArea(): Promise<AreaState> {
+  try { return areaStateOf(await req<GithubAreaView>('GET', '/api/github/area')); } catch { return { status: 'error', view: null }; }
 }
 
-/** The GitHub repo of the folder the CI panel is watching, as "owner/name". Null when there is none. */
-export async function loadWatchedRepo(): Promise<string | null> {
+export async function loadProjectRepo(id: string): Promise<ProjectRepo | null> {
+  try { return await req<ProjectRepo>('GET', `/api/github/projects/${encodeURIComponent(id)}/repo`); } catch { return null; }
+}
+/** One call raises access for the project's members; the server answers 409 in plain words. */
+export async function putProjectAccess(id: string, level: 'read' | 'write'): Promise<{ ok: true; agents: number } | { ok: false; status: number; message: string }> {
   try {
-    const s = await req<{ repo: { owner: string; name: string } | null }>('GET', '/api/ci/state');
-    return s.repo ? `${s.repo.owner}/${s.repo.name}` : null;
-  } catch { return null; }
+    const r = await req<{ agents: number }>('PUT', `/api/github/projects/${encodeURIComponent(id)}/access`, { level });
+    return { ok: true, agents: r.agents };
+  } catch (e) { const x = e as { status?: number; message?: string }; return { ok: false, status: x.status ?? 0, message: x.message ?? '' }; }
 }
