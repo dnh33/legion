@@ -38,7 +38,7 @@ export class AttentionTracker {
     this.off = d.bus.on((e) => { if (WATCHED.has(e.type)) this.refresh(); });
   }
 
-  get(): AttentionView { return { total: this.view.total, working: this.view.working, byProject: { ...this.view.byProject } }; }
+  get(): AttentionView { return { ...this.view, byProject: { ...this.view.byProject } }; }
 
   /** Recomputes; sends `attention.updated` only when something changed. */
   refresh(): void {
@@ -64,6 +64,7 @@ export class AttentionTracker {
     }
     const asks = deriveAsks({ approvals, questions, tasks, parked: this.d.parked?.() ?? [], proposals: this.d.inbox?.() ?? [] });
     const c = countAsks(asks);
-    return { total: c.total, working: this.d.working(), byProject: c.byProject };
+    const next = asks.filter((a) => a.kind === 'proposal' && a.projectId).sort((a, b) => a.at.localeCompare(b.at))[0];
+    return { total: c.total, working: this.d.working(), byProject: c.byProject, ...(next?.projectId ? { nextProposal: { projectId: next.projectId, itemId: next.id } } : {}) };
   }
 }

@@ -8,8 +8,9 @@ import { focusNode } from '../../graph/graphStore';
 import { api } from '../../api';
 import { ensureRoomList, openRoom, useRooms } from '../../rooms/roomsStore';
 import { roomsOf } from '../projectsLogic';
+import { actionNotice, actionState, proposalNote } from '../proposalCard';
 import { clearInboxRequest, getInboxRequest, inboxFocusPlan, subscribeFocus } from '../railRoute';
-import { setView, useStore } from '../../store';
+import { setView, toast, useStore } from '../../store';
 import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, saveChecks, saveMarshal, sayItem, setLeader, useBoard } from './boardStore';
 import { DoneWhen, MarshalPanel } from './MarshalPanel';
 import { checksPending, checksText, parseChecks } from './marshalLogic';
@@ -79,6 +80,7 @@ function Board({ project }: { project: Project }) {
       el?.scrollIntoView?.({ block: 'nearest' });
       el?.focus({ preventScroll: true });
     }
+    if (plan === 'gone') toast('That proposal was already handled.', 'info');
     clearInboxRequest();
   }, [inboxReq, inbox, view, tab, project.id]);
   const mv = (i: WorkItem, status: BoardStatus, index: number) => {
@@ -232,6 +234,7 @@ function Board({ project }: { project: Project }) {
 
 function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox: WorkItem[]; members: Array<{ id: string; name: string }>; name: (id: string) => string; archived: boolean; projectId: string; busy: boolean }) {
   const [pick, setPick] = useState<Record<string, string>>({});
+  const st = actionState({ archived, busy });
   if (inbox.length === 0) return <p className="muted-s">The Inbox is empty. When a member agent proposes an item it waits here: nothing starts until you accept it.</p>;
   return (
     <ul className="bd-inbox">
@@ -242,7 +245,7 @@ function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox:
         return (
           <li key={i.id} className="bd-card untrusted" data-inbox-id={i.id} tabIndex={-1}>
             <p className="bd-title static">{i.title}</p>
-            <p className="muted-s">Suggested by {by}. Not reviewed.{tainted ? ' Its run had read outside content (web, shell or other tools), so treat the text with extra care.' : ''}</p>
+            <p className="muted-s">{proposalNote(by, !!tainted)}</p>
             {i.description && <p className="bd-desc">{i.description}</p>}
             <div className="bd-meta"><span className={`bd-pri p-${i.priority}`}>{priorityMark(i.priority)}</span>{i.labels.map((l) => <span key={l} className="bd-label">{l}</span>)}</div>
             <div className="proj-row">
@@ -251,8 +254,8 @@ function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox:
                   <option value="">Unassigned</option><option value="owner">You</option>{members.map((m) => <option key={m.id} value={`agent:${m.id}`}>{m.name}</option>)}
                 </select>
               </label>
-              <button type="button" className="btn" disabled={archived || busy} aria-label={`Accept ${i.title}`} onClick={() => void acceptItem(projectId, i.id, { assignee: parseAssignee(sel) }).then(() => sayItem(`${i.title} accepted to Backlog.`))}>Accept</button>
-              <button type="button" className="btn-ghost danger" disabled={archived || busy} aria-label={`Reject ${i.title}`} onClick={() => void rejectItem(projectId, i.id).then(() => sayItem(`${i.title} rejected.`))}>Reject</button>
+              <button type="button" className="btn" disabled={st.disabled} title={st.reason} aria-label={`Accept ${i.title}`} onClick={() => void acceptItem(projectId, i.id, { assignee: parseAssignee(sel) }).then((r) => { const t = actionNotice(r, `${i.title} accepted to Backlog.`); if (t) sayItem(t); })}>Accept</button>
+              <button type="button" className="btn-ghost danger" disabled={st.disabled} title={st.reason} aria-label={`Reject ${i.title}`} onClick={() => void rejectItem(projectId, i.id).then((r) => { const t = actionNotice(r, `${i.title} rejected.`); if (t) sayItem(t); })}>Reject</button>
             </div>
           </li>
         );

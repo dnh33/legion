@@ -11,6 +11,7 @@ import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { projectToShow } from './chat/taskTabs';
+import { noteTaskSelected, noteViewSet } from './projects/railRoute';
 import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
@@ -433,6 +434,7 @@ function projectFollowing(t: Pick<Task, 'projectId'> | undefined): { projectFilt
 }
 export function selectTask(id: string | null) {
   selectionTouched = true;
+  noteTaskSelected(id);
   if (id) {
     const t = getState().tasks.find((x) => x.id === id);
     setState({ selectedTaskId: id, ...(t ? { selectedAgentId: t.agentId } : {}), ...projectFollowing(t) });
@@ -741,7 +743,7 @@ export async function resetCompaction(): Promise<SettingsView> {
 }
 export { errText };
 
-export const setView = (view: AppState['view']) => setState({ view });
+export const setView = (view: AppState['view']) => { noteViewSet(view); setState({ view }); };
 
 /** Re-probe what the boat.dev key may do (cheap reads; never creates a VM). The result also arrives as a boat.health event. */
 /** Settings, boat.dev opened: the first look at what the key may do (once; later opens answer from the core's cache). */

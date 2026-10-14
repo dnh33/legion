@@ -1,30 +1,45 @@
 /**
- * Where a "Needs you in other projects" rail row goes. Pure: the store applies the answer.
- * A proposal opens its Inbox entry on the project's Board; an approval or a question opens the agent's thread with that card focused.
+ * Where a waiting item goes when the owner clicks it (agent rail row, "Needs you in other projects" row, notification, tray). Pure: the
+ * store applies the answer. An approval or question opens the thread that holds it; a proposal opens the proposing agent's newest chat in
+ * that proposal's project (a new chat there when it has none), where a card for it waits. Only the card's "Open on board" leaves the chat.
  */
-interface RailRow { kind: 'approval' | 'question' | 'proposal' | 'parked'; id: string; taskId?: string; projectId: string | null }
+export interface RouteRow { kind: 'approval' | 'question' | 'proposal' | 'parked'; id: string; taskId?: string; agentId: string; projectId: string | null }
+export interface RouteTask { id: string; agentId: string; projectId?: string | null; updatedAt: string; archived?: boolean }
 
 export type RailTarget =
   | { kind: 'inbox'; projectId: string; itemId: string }
   | { kind: 'thread'; taskId: string; askId: string }
+  | { kind: 'newChat'; agentId: string; projectId: string; askId: string }
   | { kind: 'project'; projectId: string }
   | { kind: 'none' };
 
-/** The one map from a waiting item to its open action: the agent rail row, the elsewhere rows and the digest all use it. */
-export function askTarget(row: RailRow): RailTarget {
+/** The agent's newest unarchived chat in one project. */
+export function latestChat<T extends RouteTask>(agentId: string, projectId: string, tasks: readonly T[]): T | undefined {
+  return tasks.filter((t) => t.agentId === agentId && t.projectId === projectId && !t.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+}
+
+/** The one map from a waiting item to its open action. */
+export function askTarget(row: RouteRow, tasks: readonly RouteTask[]): RailTarget {
   if (row.kind === 'proposal') {
-    if (row.projectId && row.id) return { kind: 'inbox', projectId: row.projectId, itemId: row.id };
-    return row.projectId ? { kind: 'project', projectId: row.projectId } : { kind: 'none' };
+    if (!row.projectId) return { kind: 'none' };
+    if (!row.agentId) return { kind: 'inbox', projectId: row.projectId, itemId: row.id };
+    const chat = latestChat(row.agentId, row.projectId, tasks);
+    return chat ? { kind: 'thread', taskId: chat.id, askId: row.id } : { kind: 'newChat', agentId: row.agentId, projectId: row.projectId, askId: row.id };
   }
   if (row.taskId) return { kind: 'thread', taskId: row.taskId, askId: row.id };
   return row.projectId ? { kind: 'project', projectId: row.projectId } : { kind: 'none' };
 }
 
-export const railRowTarget = askTarget;
-
-/** The pending proposals one agent made, oldest first (the chat shows a card for each). */
-export function proposalsFor<T extends { createdAt: string; createdBy: { kind: string; id?: string } }>(agentId: string, proposals: readonly T[]): T[] {
-  return proposals.filter((p) => p.createdBy.kind === 'agent' && p.createdBy.id === agentId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+interface ProposalLike { projectId: string; createdAt: string; createdBy: { kind: string; id?: string } }
+/**
+ * The proposals to show as cards in the chat in view: the agent's own, one project at a time, only in the chat a click opens (its newest in
+ * that project), or in the new-chat view for projects where it has no chat. Archived projects are left out. Oldest first.
+ */
+export function proposalsForThread<P extends ProposalLike>(agentId: string, taskId: string | null, tasks: readonly RouteTask[], proposals: readonly P[], archivedProjects: ReadonlySet<string>): P[] {
+  return proposals
+    .filter((p) => p.createdBy.kind === 'agent' && p.createdBy.id === agentId && !archivedProjects.has(p.projectId))
+    .filter((p) => { const home = latestChat(agentId, p.projectId, tasks); return taskId === null ? !home : home?.id === taskId; })
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /** The waiting card to bring into view in a thread: the one the row named, else the first approval, else the first question. */
@@ -40,7 +55,7 @@ export function pickAskCard(
   return a[0] ? { kind: 'approval', id: a[0].id } : q[0] ? { kind: 'question', id: q[0].id } : null;
 }
 
-/** What the Board does with a request to show one Inbox entry: wait for the board to load, show the entry, or give up quietly (the item is gone). */
+/** What the Board does with a request to show one Inbox entry: wait for the board to load, show the entry, or tell the owner it is gone. */
 export type InboxFocusPlan = 'ignore' | 'wait' | 'show' | 'gone';
 export function inboxFocusPlan(req: { projectId: string; itemId: string } | null, projectId: string, inbox: ReadonlyArray<{ id: string }>, loaded: boolean): InboxFocusPlan {
   if (!req || req.projectId !== projectId) return 'ignore';
@@ -48,15 +63,29 @@ export function inboxFocusPlan(req: { projectId: string; itemId: string } | null
   return loaded ? 'gone' : 'wait';
 }
 
-/** One pending request each, in memory: set by the rail, taken by the view that shows it. */
-let inboxReq: { projectId: string; itemId: string } | null = null;
-let askReq: { taskId: string; askId: string } | null = null;
+/**
+ * One pending request each, in memory: set by the click, taken by the view that shows it. A request older than the TTL is ignored (the view
+ * it was for never came), and navigating elsewhere drops it.
+ */
+export const REQUEST_TTL_MS = 3000;
+export interface InboxRequest { projectId: string; itemId: string; at: number }
+export interface AskRequest { taskId: string | null; askId: string; at: number }
+let inboxReq: InboxRequest | null = null;
+let askReq: AskRequest | null = null;
 const subs = new Set<() => void>();
 const emit = (): void => subs.forEach((f) => f());
+const fresh = <T extends { at: number }>(r: T | null, now: number): T | null => (r && now - r.at <= REQUEST_TTL_MS ? r : null);
 export const subscribeFocus = (cb: () => void): (() => void) => { subs.add(cb); return () => { subs.delete(cb); }; };
-export const getInboxRequest = (): typeof inboxReq => inboxReq;
-export const getAskRequest = (): typeof askReq => askReq;
-export function requestInbox(projectId: string, itemId: string): void { inboxReq = { projectId, itemId }; emit(); }
+export const getInboxRequest = (now = Date.now()): InboxRequest | null => fresh(inboxReq, now);
+export const getAskRequest = (now = Date.now()): AskRequest | null => fresh(askReq, now);
+export function requestInbox(projectId: string, itemId: string, now = Date.now()): void { inboxReq = { projectId, itemId, at: now }; emit(); }
 export function clearInboxRequest(): void { if (inboxReq) { inboxReq = null; emit(); } }
-export function requestAsk(taskId: string, askId: string): void { askReq = { taskId, askId }; emit(); }
+export function requestAsk(taskId: string | null, askId: string, now = Date.now()): void { askReq = { taskId, askId, at: now }; emit(); }
 export function clearAskRequest(): void { if (askReq) { askReq = null; emit(); } }
+/** A task (or the new-chat view, null) was selected: a card request for another one is dropped. */
+export function noteTaskSelected(taskId: string | null): void { if (askReq && askReq.taskId !== taskId) clearAskRequest(); }
+/** The window switched view: a card request is for the chat, an Inbox request for the project page. */
+export function noteViewSet(view: string): void {
+  if (view !== 'chat') clearAskRequest();
+  if (view !== 'project') clearInboxRequest();
+}

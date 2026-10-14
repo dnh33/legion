@@ -170,9 +170,7 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /Needs you in other projects/);
   // the project switch lives in selectTask (one function for every way to open a task), not in the row
   assert.doesNotMatch(rail, /setProjectFilter/);
-  // and every way to open an ask (this row, a notification, the tray) is the one openAsk
-  assert.match(rail, /openRailRow\(row\)/);
-  assert.match(readFileSync(join(root, 'ui', 'src', 'projects', 'projectsStore.ts'), 'utf8'), /openAsk\(\{ taskId: t\.taskId \}\)/);
+  // where a row goes is behavior now, tested in rail-route.test.ts and open-ask.test.ts (not by reading this source)
   assert.match(rail, /aria-live="polite"/);
 });
 

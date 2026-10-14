@@ -149,8 +149,11 @@ export function Thread() {
   // opened from a rail row: bring the waiting card into view and focus it (once; the request is dropped when it is used or its card is gone)
   const askReq = useSyncExternalStore(subscribeFocus, getAskRequest);
   useEffect(() => {
-    if (!askReq || askReq.taskId !== taskId) return;
+    if (!askReq || !taskId || askReq.taskId !== taskId) return;
     const pick = pickAskCard(taskId, askReq.askId, taskApprovals, taskQuestions);
+    // a request that names a proposal is the proposal card's to focus (ProposalCards); an unnamed one takes the first card
+    const named = askReq.askId === '' || taskApprovals.some((a) => a.id === askReq.askId) || taskQuestions.some((q) => q.id === askReq.askId);
+    if (!named) return;
     if (pick) {
       const el = scroller.current?.querySelector<HTMLElement>(pick.kind === 'approval' ? `[data-approval-id="${CSS.escape(pick.id)}"]` : `[data-question-id="${CSS.escape(pick.id)}"]`);
       if (!el) return; // not drawn yet: this effect runs again after the next render
@@ -257,7 +260,7 @@ export function Thread() {
       {loaded && conn === 'offline' && agents.length > 0 && (
         <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
       )}
-      <ProposalCards agentId={agentId} />
+      <ProposalCards agentId={agentId} taskId={taskId ?? null} />
       {otherApprovals.length > 0 && (
         <button className="banner" onClick={() => selectTask(otherApprovals[0].taskId)}>
           <Icon name="shield" size={13} /> {otherApprovals.length} approval{otherApprovals.length > 1 ? 's' : ''} waiting in another task <span>Open {'→'}</span>

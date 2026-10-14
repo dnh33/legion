@@ -16,6 +16,8 @@ export interface BoardState {
 let state: BoardState = { enabled: 'unknown', views: {}, statuses: {}, busy: false, announce: '' };
 const subs = new Set<() => void>();
 const set = (p: Partial<BoardState> | ((s: BoardState) => Partial<BoardState>)): void => { state = { ...state, ...(typeof p === 'function' ? p(state) : p) }; subs.forEach((f) => f()); };
+/** Every proposal waiting in a loaded Inbox, read once (not a hook). */
+export const currentProposals = (): WorkItem[] => Object.values(state.views).flatMap((v) => v?.inbox ?? []);
 export function useBoard<T>(sel: (s: BoardState) => T): T {
   return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => sel(state));
 }

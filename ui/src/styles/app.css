@@ -143,6 +143,9 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 40vh; overflow-y: auto; }
 .proposal-cards .approval { margin: 0; }
 .proposal-cards .approval-actions { flex-wrap: wrap; }
+.proposal-title { margin: 8px 0 4px; overflow-wrap: anywhere; }
+.proposal-desc { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
+.proposal-desc.open { display: block; -webkit-line-clamp: unset; max-height: 160px; overflow: auto; }
 
 .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: auto; scroll-behavior: auto; }
 .thread-inner { max-width: 780px; margin: 0 auto; padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 14px; }

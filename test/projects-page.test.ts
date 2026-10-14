@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import type { WorkItem } from '../src/shared/board.js';
 import { deriveAsks } from '../src/shared/attention.js';
 import { waitingElsewhere } from '../ui/src/projects/projectsLogic.js';
+import { askTarget } from '../ui/src/projects/railRoute.js';
 import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
 import {
-  ageText, asksOf, budgetBanner, digestHeader, foldedLine, hereRuns, liveRuns, metaParts, money, nextTab, pageStatus, projectMenu, railLine,
+  ageText, agentAsks, asksOf, budgetBanner, digestHeader, foldedLine, hereRuns, liveRuns, metaParts, money, nextTab, pageStatus, projectMenu, railLine,
   runsMenu, shortProjectName, sinceFor, spendBlock, stateGroups, stopDetail, tabDefs, unitModel, workingAgents, type PageFacts,
 } from '../ui/src/projects/page/pageLogic.js';
 
@@ -277,4 +278,15 @@ test('one pending proposal counts the same on the page, the project menu, the ra
   assert.equal(rows[0]!.projectId, P2);
   assert.equal(rows[0]!.label, 'Scout proposes a board item in Atlas: Move the deploy');
   assert.equal(waitingElsewhere([], [], [], [{ id: P2, name: 'Atlas', status: 'active', members: ['scout'] }] as never, { scout: 'Scout' }, P2, [prop]).length, 0, 'in its own project it is on the page, not "elsewhere"');
+});
+
+test('rail parity: the agent rail count equals the list its click opens from, and every entry has a target', () => {
+  const prop2 = { id: 'wi9', projectId: P1, title: 'Move the deploy', description: '', status: 'backlog', assignee: null, priority: 'normal', labels: [], order: 0, createdBy: { kind: 'agent', id: 'builder' }, updatedBy: { kind: 'agent', id: 'builder' }, createdAt: iso('11:00'), updatedAt: iso('11:00'), trust: 'untrusted', proposal: {}, taskIds: [], roomIds: [], noteIds: [], activity: [] } as never;
+  const f = base({ tasks: [task('t1', 'builder')], approvals: [approval('a1', 't1', 'builder')], board: { items: [], inbox: [prop2] } });
+  const asks = agentAsks(f, 'builder', P1);
+  assert.equal(asks.length, 2);
+  assert.equal(railLine(f, 'builder', P1, 'role').text, '2 things need you');
+  for (const a of asks) assert.notEqual(askTarget(a, f.tasks).kind, 'none', `${a.kind} has somewhere to go`);
+  assert.deepEqual(asks.map((a) => askTarget(a, f.tasks).kind).sort(), ['thread', 'thread'], 'both open a chat: the approval its thread, the proposal the agent\'s newest chat in the project');
+  assert.equal(agentAsks(f, 'scout', P1).length, 0);
 });

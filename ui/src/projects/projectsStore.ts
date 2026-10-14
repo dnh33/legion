@@ -6,11 +6,12 @@ import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
 import { resolveAsk } from './openAsk';
-import { railRowTarget, requestAsk, requestInbox } from './railRoute';
-import type { RailTarget } from './railRoute';
+import { askTarget, requestAsk, requestInbox } from './railRoute';
+import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
-import type { WaitingRow } from './projectsLogic';
+import { closeSheet } from './page/sheetState';
+import { currentProposals } from './board/boardStore';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -39,28 +40,43 @@ export function openProject(id: string): void {
   setProjectFilter(id);
   setView('project');
 }
-/** Opens a project's page on its Board tab (where its proposals wait). */
+/** Opens a project's page on its Board tab (where its proposals wait). An open side sheet closes first, so focus is not left on an inert panel. */
 export function openProjectBoard(id: string): void {
+  closeSheet();
   enterProject(id);
   setTab('board');
   openProject(id);
 }
-/** The one way to open an ask: the rail row, a notification click and the tray item all end here (the choice is `resolveAsk`). */
+/** The one way to open an ask: a notification click and the tray item end here (the choice is `resolveAsk`, the destination `askTarget`). */
 export function openAsk(ref: AskRef): void {
   const s = getState();
   const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
-  const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id));
-  if (act.kind === 'thread') { setView('chat'); selectTask(act.taskId); } else if (act.kind === 'project') openProject(act.projectId);
+  const proposals = currentProposals().map((i) => ({ id: i.id, projectId: i.projectId, agentId: i.createdBy.kind === 'agent' ? i.createdBy.id : '', createdAt: i.createdAt }));
+  const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id), proposals);
+  if (act.kind === 'thread') openAskTarget({ kind: 'thread', taskId: act.taskId, askId: '' });
+  else if (act.kind === 'proposal') openAskTarget(askTarget({ kind: 'proposal', id: act.itemId, agentId: act.agentId, projectId: act.projectId }, s.tasks));
+  else if (act.kind === 'project') openProject(act.projectId);
 }
-/** A rail row: a proposal opens its Inbox entry on the project's Board; an approval or question opens the thread with that card in view. */
-export function openRailRow(row: WaitingRow): void { openAskTarget(railRowTarget(row)); }
+/** A rail row (agent or "other projects") opens what waits on you. */
+export function openRailRow(row: RouteRow): boolean {
+  const t = askTarget(row, getState().tasks);
+  if (t.kind === 'none') return false;
+  openAskTarget(t);
+  return true;
+}
 /** Applies the answer of `askTarget`. */
 export function openAskTarget(t: RailTarget): void {
   if (t.kind === 'inbox') { requestInbox(t.projectId, t.itemId); openProjectBoard(t.projectId); }
-  else if (t.kind === 'thread') { requestAsk(t.taskId, t.askId); openAsk({ taskId: t.taskId }); }
-  else if (t.kind === 'project') openProject(t.projectId);
+  else if (t.kind === 'thread') { requestAsk(t.taskId, t.askId); setView('chat'); selectTask(t.taskId); }
+  else if (t.kind === 'newChat') {
+    requestAsk(null, t.askId);
+    setProjectFilter(t.projectId);
+    selectAgent(t.agentId);
+    selectTask(null);
+    setView('chat');
+  } else if (t.kind === 'project') openProject(t.projectId);
 }
-/** The proposal in its project's Inbox, entry in view. */
+/** The proposal in its project's Inbox, entry in view (the card's "Open on board"). */
 export const openInboxItem = (projectId: string, itemId: string): void => openAskTarget({ kind: 'inbox', projectId, itemId });
 export const closeProjectPage = (): void => setView('chat');
 

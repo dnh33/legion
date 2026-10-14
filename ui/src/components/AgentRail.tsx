@@ -9,8 +9,7 @@ import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
 import { useAllProposals } from '../projects/useProposals';
-import { openAskTarget, openRailRow } from '../projects/projectsStore';
-import { askTarget } from '../projects/railRoute';
+import { openRailRow } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
 import { githubTag } from '../github/agentAccess';
 import '../github/github-access.css';
@@ -66,7 +65,7 @@ export function AgentRail() {
               <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}
-          {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more</button>}
+          {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" title="Opens the project list. It does not open an item." onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more</button>}
         </section>
       )}
       <div className="rail-head"><span title={filterName ? `Members of ${filterName}` : undefined}>{filterName ? 'Members' : 'Agents'}</span></div>
@@ -82,9 +81,9 @@ export function AgentRail() {
           const subText = queuedHeld > 0 ? (held.get(a.id) === 1 ? 'Queued message paused' : `${held.get(a.id)} queues paused`) : line.text;
           const full = queuedHeld > 0 ? subText : line.full;
           return (
-            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => { const first = line.tone === 'attn' && !queuedHeld ? agentAsks(lineFacts, a.id, filter)[0] : undefined; selectAgent(a.id); if (first) openAskTarget(askTarget(first)); }} aria-current={a.id === sel}
-              tabIndex={a.id === tabStop ? 0 : -1} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}`}
-              aria-label={`${a.name}. ${full}${line.runs >= 2 ? `. ${line.runs} live runs` : ''}`}>
+            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => { const first = line.tone === 'attn' && !queuedHeld ? agentAsks(lineFacts, a.id, filter)[0] : undefined; if (!(first && openRailRow(first))) selectAgent(a.id); }} aria-current={a.id === sel}
+              tabIndex={a.id === tabStop ? 0 : -1} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}${line.tone === 'attn' && !queuedHeld ? '. Opens the chat with what needs you' : ''}`}
+              aria-label={`${a.name}. ${full}${line.runs >= 2 ? `. ${line.runs} live runs` : ''}${line.tone === 'attn' && !queuedHeld ? '. Opens the chat with what needs you' : ''}`}>
               {hasBust(a.id)
                 ? <span className={`avatar bust-avatar${running ? ' busy' : ''}`}><AgentBust agentId={a.id} size={34} runs={line.runs} /></span>
                 : <span className={`avatar${running ? ' busy' : ''}`}>{a.emoji || '●'}{line.runs >= 2 && <span className="pg-rc" aria-hidden="true">{line.runs}</span>}</span>}
