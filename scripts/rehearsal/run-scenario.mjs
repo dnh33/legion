@@ -120,7 +120,8 @@ async function report() {
   let intact = 'unknown';
   try {
     if (h?.version === a.baseline) { const d = diff(before, await tree(install)); intact = d.length ? `NO, differs from baseline: ${d.slice(0, 5).join(', ')}` : 'yes, byte-identical to the baseline'; }
-    else if (h?.version === good || h?.version === prepared.versions.stranded) {
+    else if (h?.version === good || (a.scenario === 'stone-stranded' && h?.version === prepared.versions.stranded)) {
+      // the stranded versions share numbers with other scenarios' candidates, so only that scenario reads its own list; a later hop (0.99.3) is a different package and reads as unknown
       const list = readJson(join(preparedDir, 'served', h.version === good ? 'good' : 'stone-stranded', 'PACKAGE-FILES.json')); const wrong = [];
       for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
       intact = wrong.length ? `NO, ${wrong.length} file(s) differ from the new package: ${wrong.slice(0, 5).join(', ')}` : 'yes, equals the new package';
