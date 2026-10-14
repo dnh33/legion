@@ -51,6 +51,40 @@ export function hideLeakedToolCalls(text: string): { text: string; hidden: boole
 }
 
 /**
+ * The live-stream twin of hideLeakedToolCalls: text goes to `emit` as it arrives, except that from a possible opener
+ * (`<tool_call>`, `<function=`) the text is held back until the block closes (then dropped) or the next characters rule
+ * markup out (then released). A plain `<` in prose waits only for the characters that decide it. `flush` ends the turn:
+ * an unclosed block is dropped, a held partial opener is released.
+ */
+export function streamWithoutLeakedCalls(emit: (text: string) => void): { push(chunk: string): void; flush(): void } {
+  const OPENERS: Array<[string, string]> = [['<tool_call>', '</tool_call>'], ['<function=', '</function>']];
+  let buf = '';
+  let closer = '';
+  const say = (t: string) => { if (t) emit(t); };
+  const drain = () => {
+    for (;;) {
+      if (closer) {
+        const at = buf.indexOf(closer);
+        if (at < 0) { buf = buf.slice(Math.max(0, buf.length - (closer.length - 1))); return; }
+        buf = buf.slice(at + closer.length); closer = '';
+        continue;
+      }
+      const lt = buf.indexOf('<');
+      if (lt < 0) { say(buf); buf = ''; return; }
+      say(buf.slice(0, lt)); buf = buf.slice(lt);
+      const open = OPENERS.find(([o]) => buf.startsWith(o));
+      if (open) { buf = buf.slice(open[0].length); closer = open[1]; continue; }
+      if (OPENERS.some(([o]) => o.startsWith(buf))) return; // could still become an opener: wait for more
+      say('<'); buf = buf.slice(1);
+    }
+  };
+  return {
+    push(chunk) { buf += chunk; drain(); },
+    flush() { if (!closer) say(buf); buf = ''; closer = ''; },
+  };
+}
+
+/**
  * The arguments of a native tool call as one object, or the precise problem. The one repair is a JSON string that holds
  * a JSON object (the model encoded twice): that has a single reading, so it is accepted. Nothing else is guessed.
  */
@@ -816,6 +850,12 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     // small model. See turnToolBudget for the shape and the arithmetic at both ends.
     const turnBudget = turnToolBudget(opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW);
     let spent = 0;
+    // one model call whose live text never shows leaked tool-call markup (the stored answer is cleaned the same way below)
+    const streamedTurn = async (): Promise<ChatTurnResult> => {
+      const live = streamWithoutLeakedCalls(host.onDelta);
+      try { return await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: live.push }); }
+      finally { live.flush(); }
+    };
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
       spent = 0;
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
@@ -823,7 +863,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       host.onTurn?.(turn, opts.maxTurns);
       let r: ChatTurnResult;
       try {
-        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: host.onDelta });
+        r = await streamedTurn();
       } catch (e) {
         // The provider refused the request for size. That is the one error worth a second attempt: compact hard and retry
         // ONCE. Retrying without compacting fails identically, and retrying more than once turns one refusal into a loop
@@ -836,7 +876,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         const forced = await compactMessages(turnFn, target, model, opts, host, redact, messages, window, true, true);
         if (!forced) throw e; // nothing smaller to send; the original error is the honest one to report
         messages = forced;
-        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: host.onDelta });
+        r = await streamedTurn();
       }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }

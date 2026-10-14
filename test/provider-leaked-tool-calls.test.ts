@@ -66,3 +66,20 @@ test('a reply that is only leaked call markup is not shown as the answer; the ru
     assert.equal(h.store.msgs.some((m: any) => /<tool_call>/.test(m.text ?? '')), false);
   } finally { await f.close(); }
 });
+
+test('live stream: leaked markup split across deltas never reaches the UI; prose with "<" still comes through', async () => {
+  const { streamWithoutLeakedCalls } = await import('../src/core/providers/tool-loop.js');
+  const run1 = (chunks: string[]) => {
+    const out: string[] = [];
+    const f = streamWithoutLeakedCalls((t) => out.push(t));
+    for (const c of chunks) f.push(c);
+    f.flush();
+    return out.join('');
+  };
+  const a = run1(['<tool', '_call><function=x>', '{"a":1}</tool', '_call>Done']);
+  assert.equal(a, 'Done');
+  assert.equal(run1(['Hi <fun', 'ction=read>x</function> bye']), 'Hi  bye');
+  assert.equal(run1(['a ', '< b', ' and <t', 'able> ok']), 'a < b and <table> ok');
+  assert.equal(run1(['ends with <tool']), 'ends with <tool');
+  assert.equal(run1(['x<tool_call>never closed']), 'x');
+});
