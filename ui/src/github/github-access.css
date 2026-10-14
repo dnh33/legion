@@ -1,0 +1,19 @@
+.gha { display: flex; flex-direction: column; gap: 6px; }
+.gha-label { font-size: 13px; color: var(--text); }
+.gha-seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--control-line); border-radius: var(--r); overflow: hidden; max-width: 100%; }
+.form .gha-opt, .gha-opt { flex-direction: row; gap: 0; position: relative; display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; font-size: 13px; color: var(--muted); background: var(--surface); cursor: pointer; white-space: nowrap; }
+.gha-opt + .gha-opt { border-left: 1px solid var(--control-line); }
+.gha-opt:hover { color: var(--text); }
+.gha-opt.on { background: var(--accent-soft); color: var(--text); font-weight: 500; }
+.gha-opt input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+:root[data-kbd-nav] .gha-opt:has(input:focus-visible) { outline: 2px solid var(--text); outline-offset: -2px; }
+.gha-write { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); }
+.gha-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.gha-link { all: unset; cursor: pointer; color: var(--text); text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+.gha-link:hover { color: var(--accent); }
+:root[data-kbd-nav] .gha-link:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.gha-repo { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.agent-gh { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pgh { display: flex; flex-direction: column; gap: 8px; }
+.pgh-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.pgh-repo { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }

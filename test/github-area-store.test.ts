@@ -12,14 +12,15 @@ import { tempDir } from './tmp-cleanup.js';
 
 const opened: string[] = [];
 const unref = <T>(t: T): T => { (t as unknown as { unref?: () => void }).unref?.(); return t; };
+const listeners: Record<string, ((e: unknown) => void)[]> = {};
 const win = {
   location: { search: '' },
   legion: { openExternal: (u: string) => { opened.push(u); }, connectorConnect: undefined as undefined | (() => Promise<{ ok: boolean; error?: string; cancelled?: boolean }>) },
   setInterval: (f: () => void, ms: number) => unref(setInterval(f, ms)),
   clearInterval: (t: ReturnType<typeof setInterval>) => clearInterval(t),
   setTimeout: (f: () => void, ms: number) => unref(setTimeout(f, ms)),
-  addEventListener: () => undefined,
-  dispatchEvent: () => true,
+  addEventListener: (type: string, fn: (e: unknown) => void) => { (listeners[type] ??= []).push(fn); },
+  dispatchEvent: (e: { type: string }) => { for (const fn of listeners[e.type] ?? []) fn(e); return true; },
 };
 (globalThis as unknown as { window: unknown }).window = win;
 
@@ -49,6 +50,8 @@ type Gate = ReturnType<typeof defer<Reply>>;
 interface Store {
   getGithub(): { view: View | null; why: string | null; signingIn: boolean; flow: unknown; writeFlow: unknown; busy: string | null; ticking: string[]; agentsSending: boolean; writeRevokeUrl: string | null };
   loadArea(force?: boolean): Promise<void>;
+  initGithub(): void;
+  openGithubArea(repo?: string): void;
   setTick(repo: string, on: boolean): Promise<void>;
   setAgentsEnabled(on: boolean): Promise<void>;
   connectRead(): Promise<void>;
@@ -65,7 +68,8 @@ interface Store {
 const dir = tempDir('legion-github-store-');
 const entry = join(dir, 'entry.ts');
 const rel = (p: string): string => join(process.cwd(), p).replace(/\\/g, '/');
-writeFileSync(entry, `export * from '${rel('ui/src/github/githubStore.ts')}';\nexport { getCi } from '${rel('ui/src/ci/ciStore.ts')}';\nexport { getState as getApp } from '${rel('ui/src/store.ts')}';\n`);
+writeFileSync(entry, `export * from '${rel('ui/src/github/githubStore.ts')}';\nexport { openGithubArea } from '${rel('ui/src/github/openArea.ts')}';
+export { getCi } from '${rel('ui/src/ci/ciStore.ts')}';\nexport { getState as getApp } from '${rel('ui/src/store.ts')}';\n`);
 const out = await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', write: false, define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
 writeFileSync(join(dir, 'store.mjs'), out.outputFiles[0]!.text);
 const S = await import(pathToFileURL(join(dir, 'store.mjs')).href) as Store;
@@ -231,4 +235,13 @@ test('disconnectWrite: keeps the revoke link the core sent', async () => {
   core = (_m, p) => (p === '/api/github/apps/write/disconnect' ? ok({ ok: true, revokeUrl: 'https://github.com/settings/applications' }) : ok(view()));
   await S.disconnectWrite();
   assert.equal(gh().writeRevokeUrl, 'https://github.com/settings/applications');
+});
+
+test('openGithubArea: the agent editor and project page open the area on that repo through the started store (mutation: no listener in initGithub)', async () => {
+  await fresh();
+  S.initGithub();
+  S.openGithubArea('dnh33/a');
+  const g = gh() as unknown as { open: boolean; expanded: string | null };
+  assert.equal(g.open, true);
+  assert.equal(g.expanded, 'dnh33/a');
 });
