@@ -11,6 +11,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
+- **Every future update can reach you, even if you skipped one.** Legion now checks a second update list first and uses the old one only when the new one is not there. A release that needs a bigger install can ask Legion to take a small step update first and offers the bigger one on the next check, so an older copy is never left half updated. If a release needs something your Legion cannot do yet and no step exists, Legion says so in plain words and offers nothing.
+- **Every release now keeps the step update in place, and cannot go out half published.** Each release must publish both update lists, and a later small release can no longer replace the step update that older copies depend on. The release is uploaded as a draft and goes live only when every file is there. The daily check now also fails when the new update list is missing from the latest release.
+- **A daily check that the step update is still there.** A scheduled check confirms the update that older copies depend on can still be downloaded exactly as signed, so a deleted file is noticed within a day.
 - Each agent now has its own GitHub choice in its settings: None, Read, or Read and write. Nothing is on until you pick it. Under Write you tick the repositories that agent may change, and every write still asks you first, even with Full access. Agents with access show a small GitHub tag in the list.
 - A project page shows its GitHub repository with two buttons: let this project's agents read it, or let them write. Both only touch that project's members, and ask first with the number of agents that change.
 - **Agents can write to GitHub, and every write asks you first.** An agent you gave write access to a repo can open or change an issue, comment, open a pull request, review one, and re-run or cancel a workflow. Each write shows one card with the repo, the action, the full text and the agent's name, even in Full access, and a warning when the agent had read outside text first. Say no and nothing is sent. Legion never sends a write twice, so if the answer from GitHub is lost it tells the agent to check on GitHub first.
@@ -49,6 +52,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **A refused update says why.** When Legion refuses to install an update because part of it went missing, it now shows that reason, instead of "could not prepare the update helper", and starts the app once instead of twice.
+- **A second update never throws away your way back.** If a new update starts before the last one was confirmed healthy, Legion puts the last confirmed copy back first, so there is always one good copy to return to.
+- **A late health signal cannot undo a finished update.**
 - **The CI badge no longer sticks on "failing".** A failed run now stops counting once a later run of the same workflow passes on that branch, including a re-run that passes, and the badge follows the latest answer even if an update was missed. You can also press Dismiss in the CI panel to hide the failures you have seen. They come back only when a new run fails, and Show again undoes it.
 - **Updates that change Legion's parts now install by themselves.** When a release changes the libraries Legion runs on, it comes as one larger download (about 285 MB). Before, a forgotten step could ship such a release as a notice only. Now the release build decides this from the files, and the release checks refuse a release that is missing the larger download.
 - **A larger update is checked file by file before it replaces anything.** If your antivirus removes or changes a file after the download is unpacked, Legion stops and keeps your current version instead of installing something that cannot start.

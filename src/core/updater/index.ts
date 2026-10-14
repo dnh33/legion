@@ -12,11 +12,11 @@ import { safeEqual, NATIVE_HEADER } from '../admin.js';
 import type { CoreModule, ModuleDeps, RouteAdder } from '../modules.js';
 import { HttpError } from '../server.js';
 import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome } from './apply.js';
-import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sigUrl, type UpdateSource } from './config.js';
+import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifest2Url, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sig2Url, sigUrl, type UpdateSource } from './config.js';
 import { planRelease } from './deps-change.js';
 import { isUpdateInProgress, type MarkerDeps } from './update-marker.js';
 import { BOOT_REASON, computeBusy, QuietClock, type BusyProbe } from './idle.js';
-import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
+import { checkPolicy, ManifestError, manifestForUpdater, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
 import { stagePackage, stageFullPackage, stagedInfo, StageError, dependencyHash, type Staged } from './package.js';
 import { FAILED_BLOCK_DAYS, UpdaterFiles, pruneFailed, type UpdateSettings } from './state.js';
@@ -146,15 +146,28 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     const was = phase;
     phase = 'checking';
     try {
-      const [mBytes, sigBytes] = [
-        await fetchSmall(manifestUrl(source), source.policy, { maxBytes: LIMITS.manifestBytes, version, ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) }),
-        await fetchSmall(sigUrl(source), source.policy, { maxBytes: LIMITS.sigBytes, version, ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) }),
-      ];
+      const get = (url: string, maxBytes: number): Promise<Buffer> => fetchSmall(url, source.policy, { maxBytes, version, ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
+      // The second manifest name first; the old one only when the new one is not there at all (404). Any other failure of the new
+      // name, and every failure of its signature or content below, stops the check: a bad new manifest must not fall back to an older one.
+      let mBytes: Buffer; let sigUrlUsed: string;
+      try { mBytes = await get(manifest2Url(source), LIMITS.manifestBytes); sigUrlUsed = sig2Url(source); }
+      catch (e) {
+        if (!(e instanceof NetError && e.status === 404)) throw e;
+        mBytes = await get(manifestUrl(source), LIMITS.manifestBytes); sigUrlUsed = sigUrl(source);
+      }
+      const sigBytes = await get(sigUrlUsed, LIMITS.sigBytes);
       const v = verifyManifestSignature(mBytes, sigBytes.toString('utf8'), keys);
       if (!v.ok) { available = null; settle(`rejected: ${v.reason}`); return; }
-      const m = parseManifest(mBytes); // parsed only after the signature verified
+      const full = parseManifest(mBytes); // parsed only after the signature verified
+      const pick = manifestForUpdater(full);
+      if (!pick.use) { available = null; settle(`rejected: ${pick.reason}`); return; }
+      const m = pick.use;
       const verdict: PolicyVerdict = checkPolicy(m, { running: { version, ...buildInfo() }, nowMs: now(), failedVersions: files.state().failedVersions });
-      if (!verdict.ok) { if (verdict.code !== 'up-to-date') settle(`rejected: ${verdict.reason}`); else settle('up to date'); available = null; return; }
+      if (!verdict.ok) {
+        // A stone that is not newer than what runs leaves this client unable to reach the real release: say so, rather than "up to date".
+        if (pick.use !== full) { settle(`rejected: ${full.version} needs a newer updater than this one, and no step update is available for it yet`); available = null; return; }
+        if (verdict.code !== 'up-to-date') settle(`rejected: ${verdict.reason}`); else settle('up to date'); available = null; return;
+      }
       if (staged && staged.version !== m.version) { clearStage(); }
       available = { manifest: m };
       settle(`update available: ${m.version}`);

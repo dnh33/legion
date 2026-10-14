@@ -5,6 +5,10 @@
 //         (an install of a published release always swaps with the helper of that older release)
 //   codeonly: the base version as a CODE-ONLY release (app.zip, no full package), signed like the others: the first hop of the chain
 //         scenario (live release -> code-only candidate -> full-package candidate)
+//   stone: the stepping-stone layout of a full-install release (docs/SHIPPING.md): the OLD manifest name carries the code-only candidate's own
+//         signed manifest (what the live 0.2.7 reads), the SECOND name carries the full candidate 0.99.0 and names that stone (what 0.3.0 and later read)
+//   later: version 0.99.2, a CODE-ONLY release published after the full one: its own manifest under the second name, the stone's under the old name (the
+//         layout of every release after the stone), for the stone-later scenario
 //   bad:  version 0.99.1, the same but its Electron main exits at once, so the first start fails and must be rolled back
 // usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo> [--good 0.99.0] [--bad 0.99.1] [--base 0.98.0]
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,11 +17,11 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { args, die, insideGitTree, readZipEntry, REPO } from '../lib/release-lib.mjs';
 
-const a = args(process.argv.slice(2), { out: 'v', good: 'v', bad: 'v', base: 'v' });
+const a = args(process.argv.slice(2), { out: 'v', good: 'v', bad: 'v', base: 'v', later: 'v' });
 if (!a.out) die('usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo>');
 const out = resolve(a.out);
 if (insideGitTree(out)) die('--out must be outside the repository and any git work tree (the throwaway key is written there)');
-const versions = { good: a.good ?? '0.99.0', bad: a.bad ?? '0.99.1', base: a.base ?? '0.98.0' };
+const versions = { good: a.good ?? '0.99.0', bad: a.bad ?? '0.99.1', base: a.base ?? '0.98.0', later: a.later ?? '0.99.2' };
 mkdirSync(out, { recursive: true });
 
 const run = (script, argv) => {
@@ -39,7 +43,7 @@ writeFileSync(trustFile, `import { verifyManifestSignature as v } from ${JSON.st
 const CODE = ['dist', 'dist-ui', 'assets', 'scripts', 'licenses', 'package.json', 'package-lock.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'setup.cmd', 'setup-yes.cmd', 'start-legion.cmd'];
 const publishedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 const served = join(out, 'served');
-for (const name of ['base', 'good', 'bad']) {
+for (const name of ['base', 'good', 'bad', 'later']) {
   const version = versions[name];
   const tree = join(out, 'trees', name);
   rmSync(tree, { recursive: true, force: true }); mkdirSync(tree, { recursive: true });
@@ -58,7 +62,7 @@ for (const name of ['base', 'good', 'bad']) {
     cpSync(join(pkg, `legion-${version}-win-x64.zip`), join(served, 'base', `legion-${version}-win-x64.zip`));
     const co = join(served, 'codeonly'); mkdirSync(co, { recursive: true });
     const cnotes = join(pkg, 'notes.txt'); writeFileSync(cnotes, `Rehearsal code-only build ${version}. Not a release.\n`);
-    run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--notes', cnotes, '--out', pkg]);
+    run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--notes', cnotes, '--out', pkg, '--stones', version]);
     run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(pkg, 'legion-update-manifest.json'), '--trust-module', trustFile]);
     for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${version}-app.zip`]) cpSync(join(pkg, f), join(co, f));
     rmSync(tree, { recursive: true, force: true });
@@ -66,10 +70,35 @@ for (const name of ['base', 'good', 'bad']) {
     continue;
   }
   const notes = join(pkg, 'notes.txt'); writeFileSync(notes, `Rehearsal build ${version}. Not a release.\n`);
+  if (name === 'later') {
+    // Verified with the real release-verify (offline), so the layout served is the one the tooling accepts.
+    run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--notes', notes, '--out', pkg, '--stepping-stone', join(served, 'codeonly'), '--stones', versions.base]);
+    run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(pkg, 'legion-update-manifest-2.json'), '--trust-module', trustFile]);
+    run('release-verify.mjs', ['--dir', pkg, '--trust-module', trustFile, '--no-network', '--stones', versions.base]);
+    const ld = join(served, 'stone-later'); mkdirSync(ld, { recursive: true });
+    for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', 'legion-update-manifest-2.json', 'legion-update-manifest-2.json.sig', `legion-${version}-app.zip`]) cpSync(join(pkg, f), join(ld, f));
+    cpSync(join(served, 'codeonly', `legion-${versions.base}-app.zip`), join(ld, `legion-${versions.base}-app.zip`));
+    rmSync(tree, { recursive: true, force: true });
+    console.log(`prepared later ${version}`);
+    continue;
+  }
   const full = join(pkg, `legion-${version}-win-x64.zip`);
-  run('release-manifest.mjs', ['--zip', join(pkg, `legion-${version}-app.zip`), '--full-zip', full, '--requires-full-install', '--notes', notes, '--out', pkg]);
-  run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(pkg, 'legion-update-manifest.json'), '--trust-module', trustFile]);
-  run('release-verify.mjs', ['--dir', pkg, '--trust-module', trustFile]);
+  const key = join(keys, 'legion-update-k1.key.pem');
+  const manifestArgs = ['--zip', join(pkg, `legion-${version}-app.zip`), '--full-zip', full, '--requires-full-install', '--notes', notes, '--out', pkg];
+  if (name === 'good') {
+    // The stepping-stone layout first: old name = the code-only candidate's own signed manifest, second name = this full candidate. Verified
+    // with the real release-verify (offline, and with the throwaway stone version declared), so the layout the scenarios serve is the one the tooling accepts.
+    run('release-manifest.mjs', [...manifestArgs, '--stepping-stone', join(served, 'codeonly'), '--stones', versions.base]);
+    run('release-sign.mjs', ['--key', key, '--manifest', join(pkg, 'legion-update-manifest-2.json'), '--trust-module', trustFile]);
+    run('release-verify.mjs', ['--dir', pkg, '--trust-module', trustFile, '--no-network', '--stones', versions.base]);
+    const sd = join(served, 'stone'); mkdirSync(sd, { recursive: true });
+    for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', 'legion-update-manifest-2.json', 'legion-update-manifest-2.json.sig', `legion-${version}-win-x64.zip`]) cpSync(join(pkg, f), join(sd, f));
+    cpSync(join(served, 'codeonly', `legion-${versions.base}-app.zip`), join(sd, `legion-${versions.base}-app.zip`));
+  }
+  // The direct layout (a full release whose old name is the release itself, served WITHOUT the second name, so updaters fall back to the old one):
+  // what the scenarios that prove a direct jump use. The tooling refuses to publish this layout, so it is not verified with release-verify.
+  run('release-manifest.mjs', [...manifestArgs, '--stones', version]);
+  run('release-sign.mjs', ['--key', key, '--manifest', join(pkg, 'legion-update-manifest.json'), '--trust-module', trustFile]);
   const dest = join(served, name);
   mkdirSync(dest, { recursive: true });
   for (const f of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${version}-win-x64.zip`]) cpSync(join(pkg, f), join(dest, f));
@@ -77,6 +106,7 @@ for (const name of ['base', 'good', 'bad']) {
   const listed = readZipEntry(readFileSync(full), `legion-${version}/PACKAGE-FILES.json`);
   if (!listed) die('the full package has no PACKAGE-FILES.json');
   writeFileSync(join(dest, 'PACKAGE-FILES.json'), listed);
+  if (name === 'good') writeFileSync(join(served, 'stone', 'PACKAGE-FILES.json'), listed);
   rmSync(tree, { recursive: true, force: true });
   console.log(`prepared ${name} ${version}`);
 }

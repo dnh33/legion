@@ -6,18 +6,25 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { args, die, loadDist, REPO } from './lib/release-lib.mjs';
+import { args, die, loadDist, REPO, requireRehearsalFor } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
+import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 
-const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v' });
+const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag', stones: 'v' });
+requireRehearsalFor(a, ['no-network', 'stones', 'trust-module']);
 if (!a.dir) die('usage: node scripts/release-verify.mjs --dir <folder>');
 const dir = resolve(a.dir);
 const trust = await import(pathToFileURL(a['trust-module'] ? resolve(a['trust-module']) : join(REPO, 'dist/src/core/updater/trust.js')).href);
 const { parseManifest } = await loadDist('src/core/updater/manifest.js');
-const m = readFileSync(join(dir, 'legion-update-manifest.json'));
-const v = trust.verifyManifestSignature(m, readFileSync(join(dir, 'legion-update-manifest.json.sig'), 'utf8'), trust.UPDATE_KEYS);
+// This release's OWN manifest is the second-name file; a release publishes both names (docs/SHIPPING.md, Stepping stones).
+if (!existsSync(join(dir, NEW_NAME)) || !existsSync(join(dir, OLD_NAME))) die(`a release publishes both ${OLD_NAME} and ${NEW_NAME}; one is missing`);
+const m = readFileSync(join(dir, NEW_NAME));
+const v = trust.verifyManifestSignature(m, readFileSync(join(dir, `${NEW_NAME}.sig`), 'utf8'), trust.UPDATE_KEYS);
 if (!v.ok) die(`signature: ${v.reason}`);
 const man = parseManifest(m);
+// The old name must be the signed stepping stone (the stone release itself: its own manifest); its package must still be served as signed.
+const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: a.stones ? a.stones.split(',') : readStones(), publishing: true, ...(!a['no-network'] ? { fetchAsset: hashUrl, getBytes: fetchBytes } : {}) });
+if (stoneErr.length) die(`stepping stone: ${stoneErr.join('; ')}`);
 const zip = readFileSync(join(dir, man.asset.name));
 if (zip.length !== man.asset.size) die('the zip size differs from the manifest');
 if (createHash('sha256').update(zip).digest('hex') !== man.asset.sha256) die('the zip sha256 differs from the manifest');

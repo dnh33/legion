@@ -1,7 +1,7 @@
 // Rehearsal-only stand-in for GitHub Releases, on loopback http. Serves ONE scenario folder at a time, chosen by the text of the
 // control file (re-read on every request), in the paths the updater asks for (via scripts/rehearsal/preload.mjs, which puts the
 // original host first in the path):
-//   /github.com/dnh33/legion/releases/latest/download/<manifest|manifest.sig>   from <served>/<scenario>/
+//   /github.com/dnh33/legion/releases/latest/download/<manifest|manifest.sig|manifest-2|manifest-2.sig>   from <served>/<scenario>/ (404 when the folder has no such file)
 //   /github.com/dnh33/legion/releases/download/v<ver>/<file>                   302 to objects.githubusercontent.com (a redirect hop)
 //   /objects.githubusercontent.com/rehearsal/<file>                            from <served>/<scenario>/
 // Every request is appended to --log as one JSON line. usage: node serve.mjs --served <dir> --control <file> --port <n> --log <file>
@@ -26,7 +26,7 @@ const srv = createServer((req, res) => {
     createReadStream(p).pipe(res);
   };
   let m;
-  if ((m = new RegExp(`^${REPO_PATH}/latest/download/(legion-update-manifest\.json(?:\.sig)?)$`).exec(url.pathname))) return send(m[1]);
+  if ((m = new RegExp(`^${REPO_PATH}/latest/download/(legion-update-manifest(?:-2)?\.json(?:\.sig)?)$`).exec(url.pathname))) return send(m[1]);
   if ((m = new RegExp(`^${REPO_PATH}/download/v[0-9.a-z-]+/(legion-[0-9.a-z-]+-(?:win-x64|app)\.zip)$`).exec(url.pathname))) {
     note({ method: req.method, path: url.pathname, scenario, status: 302 });
     res.writeHead(302, { location: `https://objects.githubusercontent.com/rehearsal/${m[1]}` }); res.end(); return;

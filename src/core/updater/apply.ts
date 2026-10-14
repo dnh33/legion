@@ -41,7 +41,7 @@ export const CODE_SET: readonly string[] = Object.freeze([
 export const FULL_PACKAGE_SET: readonly string[] = Object.freeze([...CODE_SET, 'node_modules', 'runtime']);
 export const UPDATE_DIR = '.update';
 /** Written in apply.log by every swap, so a log shows which generation of the helper did it (0.2.7 and older write no stamp). */
-export const APPLY_HELPER_STAMP = 'helper:full-install-hardening-1';
+export const APPLY_HELPER_STAMP = 'helper:stepping-stone-1';
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
 export interface Journal { state: JournalState; from: string; to: string; entries: string[]; /** The entries whose live copy was moved to .update/prev. A rollback restores exactly these. Absent in journals from older helpers. */ hadPrev?: string[]; stagedDir: string; at: number; heartbeat: number }
@@ -111,7 +111,11 @@ export async function swapIn(o: SwapOptions): Promise<void> {
   }
   for (const n of names) if (isLink(join(stagedDir, n))) throw new Error('a staged entry is a link');
   mkdirSync(upDir(installDir), { recursive: true });
-  removeOwned(installDir, prevDir(installDir)); // exactly one previous version is kept: the older one goes
+  // exactly one previous version is kept: the older one goes. But the folder may be the ONLY way back from a build that was never
+  // confirmed (its swap or health check is still open in the journal). Put that build back first, so what is kept is a copy that was good.
+  const open = readJournal(installDir);
+  if (open && (open.state === 'swapping' || open.state === 'awaiting-health')) await rollback(installDir, 'a newer update started before this build was confirmed', o.retryMs ?? 15_000);
+  removeOwned(installDir, prevDir(installDir));
   removeOwned(installDir, failedDir(installDir));
   mkdirSync(prevDir(installDir), { recursive: true });
   const j: Journal = { state: 'swapping', from: o.from, to: o.to, entries: names, hadPrev: names.filter((n) => existsSync(join(installDir, n))), stagedDir, at: Date.now(), heartbeat: Date.now() };
@@ -163,6 +167,18 @@ export async function rollback(installDir: string, reason: string, retryMs = 15_
   saveJournal(installDir, { ...j, state: 'rolled-back', heartbeat: Date.now() });
   writeOutcome(installDir, { from: j.from, to: j.to, result: 'rolled-back', reason: lost.length ? `${reason}. The previous copy of ${lost.join(', ')} was already gone, so the new files were left in place.` : reason });
   try { removeOwned(installDir, failedDir(installDir)); } catch { /* leftovers are harmless */ }
+}
+
+/**
+ * Heartbeat of an unconfirmed swap. Re-reads right before writing and never touches a journal that was committed or rolled back meanwhile (the new build confirms itself from its own process).
+ * Known, accepted window: the read and the write are two separate steps with no file lock, so a commit from another process in between is still overwritten by this
+ * beat. The window is a few microseconds; closing it needs a cross-process lock or a separate heartbeat file (not done).
+ */
+export function touchHeartbeat(installDir: string): boolean {
+  const j = readJournal(installDir);
+  if (!j || (j.state !== 'swapping' && j.state !== 'awaiting-health')) return false;
+  saveJournal(installDir, { ...j, heartbeat: Date.now() });
+  return true;
 }
 
 export function markCommitted(installDir: string): void {
@@ -295,7 +311,8 @@ export interface ApplyJob {
   /** The names to swap; omitted = CODE_SET (code-only), FULL_PACKAGE_SET = code set + node_modules + runtime. Validated by main-logic commitMatches before it is written here. */
   names?: readonly string[];
 }
-export type ReExecResult = { ok: true } | { ok: false; error: string };
+/** `finished`: the re-exec copy ran and ended by itself with a non-ok result, so it already wrote the outcome and started the app; the parent must do neither. */
+export type ReExecResult = { ok: true } | { ok: false; error: string; finished?: boolean };
 export interface ApplyDeps {
   isAlive(pid: number): boolean;
   health(port: number): Promise<{ ok: boolean; version?: string } | null>;
@@ -358,6 +375,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     if (d.reExec) {
       const r = await d.reExec(process.argv[2] ?? '');
       if (r.ok) return finish('re-exec');
+      if (r.finished) { const o = readOutcome(installDir); return finish('failed', o?.reason ?? r.error); }
       // Without the re-exec the helper would try to rename the folder it runs from, which Windows refuses. Say so and stop:
       // nothing was changed, and the old app is started again (this process is the only one that can still do that).
       const reason = `Legion could not prepare the update helper (${r.error}). Nothing was changed.`;
@@ -428,8 +446,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   progress({ stage: 'health', message: 'Waiting for the new build', percent: 90 });
   const win = healthWindow(job);
   const isHealthy = async (): Promise<boolean> => {
-    const j = readJournal(installDir);
-    if (j) saveJournal(installDir, { ...j, heartbeat: Date.now() });
+    touchHeartbeat(installDir);
     const h = await d.health(job.port);
     return !!h && h.ok && h.version === job.to;
   };
@@ -492,6 +509,7 @@ export function realDeps(installDir: string): ApplyDeps {
       const undo = (): void => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* a later start removes it */ } };
       try { cpSync(srcDir, dir, { recursive: true }); } catch (e) { undo(); return { ok: false, error: `could not copy the runtime to the temp folder: ${e instanceof Error ? e.message : String(e)}` }; }
       try {
+        const startedAt = Date.now();
         const c = spawn(join(dir, basename(process.execPath)), [process.argv[1] ?? '', jobFile], { cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: false, env });
         let spawnError = '';
         c.on('error', (e) => { spawnError = e.message; });
@@ -499,7 +517,13 @@ export function realDeps(installDir: string): ApplyDeps {
         // The fresh process owns everything from here. If it dies at once nothing would restart Legion, so look before giving up.
         await sleepMs(1500);
         if (spawnError) { undo(); return { ok: false, error: `the helper copy did not start: ${spawnError}` }; }
-        if (c.exitCode !== null) { undo(); return { ok: false, error: `the helper copy stopped at once (exit ${c.exitCode})` }; }
+        if (c.exitCode !== null) {
+          // Exit 1 is the copy's own "I finished, not ok" (see the entry point below): it wrote the outcome and started the app itself.
+          // Any other early exit is a copy that never got going, and only the parent can say so.
+          const o = readOutcome(installDir);
+          const own = c.exitCode === 1 && !!o && o.result !== 're-exec' && Date.parse(o.at) >= startedAt;
+          undo(); return { ok: false, error: `the helper copy stopped at once (exit ${c.exitCode})`, ...(own ? { finished: true } : {}) };
+        }
         return { ok: true };
       } catch (e) { undo(); return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
     },

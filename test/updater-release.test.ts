@@ -12,8 +12,14 @@ import { stagePackage, dependencyHash } from '../src/core/updater/package.js';
 import { verifyManifestSignature } from '../src/core/updater/trust.js';
 import { sha256, startFakeServer } from './updater-helpers.js';
 
+process.env.LEGION_REHEARSAL = '1'; // these tests use the rehearsal-only skip flags (see release-rehearsal-gate.test.ts)
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const run = (script: string, argv: string[]) => spawnSync(process.execPath, [join(REPO, 'scripts', script), ...argv], { encoding: 'utf8' });
+// These tests build bare manifests of throwaway versions: each is declared its own stepping stone (one manifest under both names). The stone rules are in release-stepping-stone.test.ts.
+const run = (script: string, argv: string[]) => {
+  const zip = argv[argv.indexOf('--zip') + 1]?.match(/legion-(\d+\.\d+\.\d+(?:-[a-z])?)-app\.zip$/);
+  const withStones = script === 'release-manifest.mjs' && zip && !argv.includes('--stones') ? [...argv, '--stones', zip[1]] : argv;
+  return spawnSync(process.execPath, [join(REPO, 'scripts', script), ...withStones], { encoding: 'utf8' });
+};
 const tmp = (p: string) => cleanupTemp(p);
 const LOCK = '{"name":"legion","lockfileVersion":3}\n';
 
@@ -119,7 +125,7 @@ test('C23: package -> manifest -> sign -> verify, and the app accepts exactly wh
   assert.match(run('release-sign.mjs', ['--key', join(REPO, 'package.json'), '--manifest', join(out, 'legion-update-manifest.json')]).stderr, /inside the repo/);
   const s = run('release-sign.mjs', ['--key', join(keys, 'legion-update-k1.key.pem'), '--manifest', join(out, 'legion-update-manifest.json'), '--trust-module', tm]);
   assert.equal(s.status, 0, s.stderr);
-  const v = run('release-verify.mjs', ['--dir', out, '--trust-module', tm]);
+  const v = run('release-verify.mjs', ['--dir', out, '--trust-module', tm, '--stones', '0.9.0', '--no-network']);
   assert.equal(v.status, 0, v.stdout + v.stderr);
   // the app side
   const mBytes = readFileSync(join(out, 'legion-update-manifest.json')); const sig = readFileSync(join(out, 'legion-update-manifest.json.sig'), 'utf8');
