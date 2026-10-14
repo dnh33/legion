@@ -21,6 +21,19 @@ export const PRODUCTION_SOURCE: UpdateSource = Object.freeze({
 
 export const MANIFEST_NAME = 'legion-update-manifest.json';
 export const SIG_NAME = 'legion-update-manifest.json.sig';
+/**
+ * The updater GENERATION of this build. A signed manifest may carry `minUpdater`: the lowest generation allowed to apply that
+ * release. A client below it never applies it; it may instead apply the release's signed stepping stone (manifest.ts), a
+ * code-only release whose own updater is new enough. 0.2.7 and older are generation 1 (they know nothing of this).
+ */
+export const UPDATER_GENERATION = 2;
+/**
+ * The second manifest name. Generation 2 and later read it FIRST and fall back to MANIFEST_NAME only when it is absent (404),
+ * never on a bad signature or an unparseable file. MANIFEST_NAME stays exactly what 0.2.7 expects, so a full-install release
+ * can park a signed stepping stone there (its own old-name manifest, byte for byte) while the full release is signed here.
+ */
+export const MANIFEST2_NAME = 'legion-update-manifest-2.json';
+export const SIG2_NAME = 'legion-update-manifest-2.json.sig';
 export const assetNameFor = (version: string): string => `legion-${version}-app.zip`;
 /**
  * The full package: the code set PLUS `node_modules` and `runtime`, built by `scripts/build-package.mjs` and installed by
@@ -30,6 +43,8 @@ export const assetNameFor = (version: string): string => `legion-${version}-app.
  */
 export const fullAssetNameFor = (version: string): string => `legion-${version}-win-x64.zip`;
 export const manifestUrl = (s: UpdateSource): string => `${s.base}/releases/latest/download/${MANIFEST_NAME}`;
+export const manifest2Url = (s: UpdateSource): string => `${s.base}/releases/latest/download/${MANIFEST2_NAME}`;
+export const sig2Url = (s: UpdateSource): string => `${s.base}/releases/latest/download/${SIG2_NAME}`;
 export const sigUrl = (s: UpdateSource): string => `${s.base}/releases/latest/download/${SIG_NAME}`;
 /** `version` must already be a validated plain semver (manifest.ts); it is never taken from a redirect. */
 export const assetUrl = (s: UpdateSource, version: string): string => `${s.base}/releases/download/v${version}/${assetNameFor(version)}`;

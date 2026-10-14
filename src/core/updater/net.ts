@@ -11,7 +11,7 @@ import { LIMITS, type NetPolicy } from './config.js';
 
 export type NetErrorKind = 'policy' | 'offline' | 'timeout' | 'rate-limit' | 'http' | 'size';
 export class NetError extends Error {
-  constructor(public readonly kind: NetErrorKind, message: string, public readonly retryAfterMs?: number) { super(message); }
+  constructor(public readonly kind: NetErrorKind, message: string, public readonly retryAfterMs?: number, public readonly status?: number) { super(message); }
 }
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -57,7 +57,7 @@ async function get(url: string, policy: NetPolicy, o: { version: string; timeout
       continue;
     }
     if (res.status === 403 || res.status === 429) throw new NetError('rate-limit', `the server refused the request (HTTP ${res.status})`, retryAfter(res) ?? 3600_000);
-    if (res.status === 404) throw new NetError('http', 'not found (HTTP 404)');
+    if (res.status === 404) throw new NetError('http', 'not found (HTTP 404)', undefined, 404);
     if (res.status >= 500) throw new NetError('offline', `the server had a problem (HTTP ${res.status})`);
     if (!res.ok || !res.body) throw new NetError('http', `unexpected answer (HTTP ${res.status})`);
     return res;
