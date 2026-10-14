@@ -150,28 +150,42 @@ let signInRun = 0;
 let signInTimer: number | undefined;
 const stopSignInPoll = (): void => { if (signInTimer !== undefined) { window.clearInterval(signInTimer); signInTimer = undefined; } };
 
+const endSignIn = (run: number): void => {
+  if (run !== signInRun) return;
+  stopSignInPoll();
+  set({ signingIn: false, flow: null, flowNote: null });
+  void loadArea(true);
+};
+
+/** One look at the read sign-in. The code shows while the core's flow is pending; the wait ends only when the core says signed in, failed or stopped. */
 async function pollFlow(run: number): Promise<void> {
   try {
     const s = await request<GithubStatusView>('GET', '/api/connectors/github');
-    if (run === signInRun) set({ flow: s.flow.phase === 'pending' ? { userCode: s.flow.userCode, verificationUri: s.flow.verificationUri } : null, flowNote: null });
+    if (run !== signInRun) return;
+    if (s.signedIn) { endSignIn(run); return; }
+    if (s.flow.phase === 'pending') { set({ flow: { userCode: s.flow.userCode, verificationUri: s.flow.verificationUri }, flowNote: null }); return; }
+    if (s.flow.phase === 'failed') toast(s.flow.message, 'error');
+    endSignIn(run);
   } catch { if (run === signInRun) set({ flowNote: 'Legion cannot check the sign-in right now. It keeps trying.' }); }
 }
+/** Reads the sign-in state now (the poll also does this every 2 seconds while signing in). */
+export const pollSignIn = (): Promise<void> => pollFlow(signInRun);
 
 export async function connectRead(): Promise<void> {
   if (st.signingIn) return;
   const run = ++signInRun;
   set({ signingIn: true, flowNote: null });
   stopSignInPoll();
-  signInTimer = window.setInterval(() => { void pollFlow(run); }, 2000);
   try {
     const fn = (window as unknown as { legion?: { connectorConnect?: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean }> } }).legion?.connectorConnect;
     if (!fn) throw new Error('Connecting needs the Legion app window. Open Legion from its shortcut.');
+    // the app starts the flow on the core, opens github.com and returns at once: the code comes from the core, so keep reading it
     const r = await fn();
-    if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The connect failed.');
-  } catch (e) { if (run === signInRun) toast(whyText(e), 'error'); } finally {
-    if (run === signInRun) { stopSignInPoll(); set({ signingIn: false, flow: null, flowNote: null }); }
-    void loadArea(true);
-  }
+    if (!r.ok) { if (!r.cancelled) throw new Error(r.error ?? 'The connect failed.'); endSignIn(run); return; }
+    if (run !== signInRun) return;
+    signInTimer = window.setInterval(() => { void pollFlow(run); }, 2000);
+    await pollFlow(run);
+  } catch (e) { if (run === signInRun) { toast(whyText(e), 'error'); endSignIn(run); } }
 }
 export function cancelSignIn(): void {
   signInRun++;

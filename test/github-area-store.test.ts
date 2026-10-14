@@ -56,6 +56,7 @@ interface Store {
   setAgentsEnabled(on: boolean): Promise<void>;
   connectRead(): Promise<void>;
   cancelSignIn(): void;
+  pollSignIn(): Promise<void>;
   connectWrite(): Promise<void>;
   cancelWriteSignIn(): void;
   disconnectWrite(): Promise<void>;
@@ -198,7 +199,36 @@ test('sign-in: a Cancel then Connect is not cleared by the first run ending', as
   assert.equal(gh().signingIn, true, 'the second sign-in is still waiting');
   runs[1]!.ok({ ok: true });
   await second;
+  assert.equal(gh().signingIn, true, 'the app only started the flow; the wait goes on until the core says signed in');
+  S.cancelSignIn();
+  win.legion.connectorConnect = undefined;
+});
+
+test('sign-in: the code stays on screen after the app opens github.com, until the core says signed in (mutation: clear the flow when the app call returns)', async () => {
+  await fresh(view({ signedIn: { read: false, write: false } }));
+  let status: unknown = { signedIn: false, flow: { phase: 'pending', userCode: 'WDJB-MJHT', verificationUri: 'https://github.com/login/device' } };
+  // the real desktop call starts the flow, opens the page and returns at once
+  win.legion.connectorConnect = async () => ({ ok: true });
+  core = (_m, p) => (p === '/api/connectors/github' ? ok(status) : p.startsWith('/api/github/area') ? ok(view({ signedIn: { read: false, write: false } })) : ok({}));
+  await S.connectRead();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(gh().signingIn, true);
+  assert.equal((gh().flow as { userCode?: string } | null)?.userCode, 'WDJB-MJHT', 'the code is shown right away');
+  status = { signedIn: true, flow: { phase: 'idle' } };
+  await S.pollSignIn();
   assert.equal(gh().signingIn, false);
+  assert.equal(gh().flow, null);
+  win.legion.connectorConnect = undefined;
+});
+
+test('sign-in: a failed or expired flow ends the wait and says why', async () => {
+  await fresh(view({ signedIn: { read: false, write: false } }));
+  win.legion.connectorConnect = async () => ({ ok: true });
+  core = (_m, p) => (p === '/api/connectors/github' ? ok({ signedIn: false, flow: { phase: 'failed', reason: 'expired', message: 'The code ran out. Connect again.' } }) : p.startsWith('/api/github/area') ? ok(view({ signedIn: { read: false, write: false } })) : ok({}));
+  await S.connectRead();
+  await S.pollSignIn();
+  assert.equal(gh().signingIn, false);
+  assert.ok(toasts().includes('The code ran out. Connect again.'), `toasts: ${toasts().join(' | ')}`);
   win.legion.connectorConnect = undefined;
 });
 
