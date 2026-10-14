@@ -6,8 +6,10 @@ import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
 import { resolveAsk } from './openAsk';
+import { railRowTarget, requestAsk, requestInbox } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
+import type { WaitingRow } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -48,6 +50,13 @@ export function openAsk(ref: AskRef): void {
   const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
   const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id));
   if (act.kind === 'thread') { setView('chat'); selectTask(act.taskId); } else if (act.kind === 'project') openProject(act.projectId);
+}
+/** A rail row: a proposal opens its Inbox entry on the project's Board; an approval or question opens the thread with that card in view. */
+export function openRailRow(row: WaitingRow): void {
+  const t = railRowTarget(row);
+  if (t.kind === 'inbox') { requestInbox(t.projectId, t.itemId); openProjectBoard(t.projectId); }
+  else if (t.kind === 'thread') { requestAsk(t.taskId, t.askId); openAsk({ taskId: t.taskId }); }
+  else if (t.kind === 'project') openProject(t.projectId);
 }
 export const closeProjectPage = (): void => setView('chat');
 

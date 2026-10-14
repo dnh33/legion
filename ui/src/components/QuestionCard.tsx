@@ -75,7 +75,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));
 
   return (
-    <div className="approval question" tabIndex={0} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onKeyDown={onKeyDown}>
+    <div className="approval question" tabIndex={0} data-question-id={q.id} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onKeyDown={onKeyDown}>
       <div className="approval-head">
         <Icon name="help" size={14} />
         <span>Needs your answer</span>

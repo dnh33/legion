@@ -9,7 +9,7 @@ import { railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
 import { useAllProposals } from '../projects/useProposals';
-import { openAsk, openProjectBoard } from '../projects/projectsStore';
+import { openRailRow } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
 import { githubTag } from '../github/agentAccess';
 import '../github/github-access.css';
@@ -61,7 +61,7 @@ export function AgentRail() {
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.slice(0, WAIT_CAP).map((row) => (
             <button key={row.id} type="button" className="rail-wait-row" title={row.label}
-              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else openAsk({ taskId: row.taskId }); }}>
+              onClick={() => openRailRow(row)}>
               <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}
