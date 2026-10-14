@@ -18,8 +18,12 @@
 .bd-cards, .bd-inbox { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .bd-card { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .bd-card[draggable="true"] { cursor: grab; }
-/* an agent wrote it and you have not marked it reviewed: a plain marker. Agents file most items, so amber here made every card yellow; the work-item dialog carries the amber note. */
-.bd-card.untrusted { border-left: 3px solid var(--muted); }
+/* an agent wrote it and you have not marked it reviewed: its own dashed marker, so it never looks like your own item, but not amber
+   (agents file most items, and amber on all of them turned the board yellow). The run it starts already asks before every action. */
+.bd-card.untrusted { border-left: 3px dashed var(--muted); }
+/* written by a run that had read outside content (web, shell, other tools): the real prompt-injection risk, so it asks to be read first */
+.bd-card.tainted { border-left: 3px solid var(--warn); }
+.bd-taint { color: var(--warn); font-weight: 600; }
 .bd-title { background: transparent; border: 0; padding: 0; text-align: left; color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
 .bd-title.static { cursor: default; margin: 0; }
 .bd-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; color: var(--muted); }

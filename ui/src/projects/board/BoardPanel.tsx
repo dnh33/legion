@@ -166,7 +166,7 @@ function Board({ project }: { project: Project }) {
                   <h4 id={`bd-col-${s}`}>{columnLabel(s)} <span className="bd-count" aria-label={`${cols[s].length} items`}>{cols[s].length}</span></h4>
                   <ul className="bd-cards">
                     {cols[s].map((i) => (
-                      <li key={i.id} data-card={i.id} className={`bd-card${i.trust === 'untrusted' ? ' untrusted' : ''}`} draggable={!archived}
+                      <li key={i.id} data-card={i.id} className={`bd-card${i.trust === 'untrusted' ? ' untrusted' : ''}${i.trust === 'untrusted' && i.createdBy.kind === 'agent' && i.createdBy.tainted ? ' tainted' : ''}`} draggable={!archived}
                         onDragStart={(e) => { e.dataTransfer.setData('text/plain', i.id); e.dataTransfer.effectAllowed = 'move'; }} onDrop={(e) => { e.stopPropagation(); onDrop(s, i)(e); }}>
                         <button type="button" className="bd-title" aria-label={cardLabel(i, name)} aria-describedby="bd-keys" onClick={() => setEditing(i)} onKeyDown={onCardKey(i)}>{i.title}</button>
                         <div className="bd-meta" aria-hidden="true">
@@ -174,7 +174,7 @@ function Board({ project }: { project: Project }) {
                           <span>{assigneeLabel(i.assignee, name)}</span>
                           {i.due && <span className={`bd-due d-${dueState(i.due)}`}>{dueText(i.due)}</span>}
                           {i.labels.map((l) => <span key={l} className="bd-label">{l}</span>)}
-                          {i.trust === 'untrusted' && <span className="bd-warn">Not reviewed</span>}
+                          {i.trust === 'untrusted' && (i.createdBy.kind === 'agent' && i.createdBy.tainted ? <span className="bd-taint">Outside content, not reviewed</span> : <span className="bd-warn">Not reviewed</span>)}
                         </div>
                         <label className="bd-move">Move to
                           <select value={i.status} disabled={archived} aria-label={`Move ${i.title} to`} onChange={(e) => mv(i, e.target.value as BoardStatus, byColumn(all)[e.target.value as BoardStatus].length)}>
