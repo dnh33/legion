@@ -6,11 +6,11 @@ import { createUISFX } from './vendor/uisfx/index.js';
 import type { UISFXPlayer, PackName, CueName } from './vendor/uisfx/index.js';
 import { getState, subscribeStore, tapDecisions } from '../store';
 import { getAway, initAway } from '../projects/awayStore';
-import { CueGate, DEFAULT_SOUND_PREFS, cueFor, diffSnapshots } from './soundLogic';
+import { CueGate, DEFAULT_SOUND_PREFS, cueFor, diffSnapshots, previewAllowed } from './soundLogic';
 import type { SoundEvent, SoundPrefs, SoundSnapshot } from './soundLogic';
 import { CUSTOM_PACKS, PREVIEW_SEQUENCE, packOrDefault } from './soundPacks';
 
-/** Events that arrive within this window are one moment: ten runs finishing together make one cue. */
+/** Events that arrive within this window are one moment: ten runs finishing together make one cue. After a cue, the next one waits at least MIN_GAP_MS (120 ms) in soundLogic; the batch window itself is 250 ms. */
 const BATCH_MS = 250;
 
 let ctx: AudioContext | null = null;
@@ -103,7 +103,12 @@ export function soundEvent(e: SoundEvent): void {
 
 let previewTimers: ReturnType<typeof setTimeout>[] = [];
 /** The Settings preview: a short sequence in the given pack at the given volume. It ignores the master switch and quiet hours, because you asked for it. */
+let lastPreview = -Infinity;
+/** Play buttons start a sound at most once per PREVIEW_MIN_MS. */
+const previewOk = (): boolean => { const now = Date.now(); if (!previewAllowed(lastPreview, now)) return false; lastPreview = now; return true; };
+
 export function previewPack(pack: string, volume: number): void {
+  if (!previewOk()) return;
   for (const t of previewTimers) clearTimeout(t);
   const c = audio();
   if (!c) return;
@@ -115,6 +120,7 @@ export function previewPack(pack: string, volume: number): void {
 
 /** One sound now, for a Settings row's Play button: exactly the pack and cue the row would play. */
 export function previewSound(pack: string, cue: string, volume: number): void {
+  if (!previewOk()) return;
   void audio()?.resume?.();
   previewPlayer ??= makePlayer();
   playNow(cue, packOrDefault(pack), volume, previewPlayer);
@@ -159,11 +165,4 @@ export function startSounds(): void {
     for (const e of events) soundEvent(e);
   });
   tapDecisions((allow) => soundEvent({ type: allow ? 'allow' : 'deny' }));
-  // Your own flip of a Settings switch. A switch marked data-no-sound plays its own cue.
-  document.addEventListener('change', (ev) => {
-    const el = ev.target;
-    if (!ev.isTrusted || !(el instanceof HTMLInputElement) || el.type !== 'checkbox' || el.dataset.noSound !== undefined) return;
-    if (!el.closest('.settings')) return;
-    soundEvent({ type: 'switch', on: el.checked });
-  }, true);
 }

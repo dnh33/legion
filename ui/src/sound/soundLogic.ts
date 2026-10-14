@@ -157,3 +157,13 @@ export function diffSnapshots(prev: SoundSnapshot | null, next: SoundSnapshot, s
   }
   return out;
 }
+
+/** The click of a switch, or none: only a real flip by you, and not for a switch that opens a question first or plays its own cue. */
+export function switchEvent(next: boolean, o: { trusted: boolean; expanded?: boolean; silent?: boolean }): SoundEvent | null {
+  if (!o.trusted || o.expanded !== undefined || o.silent) return null;
+  return { type: 'switch', on: next };
+}
+
+/** A Play button starts a sound at most this often; faster clicks are ignored. */
+export const PREVIEW_MIN_MS = 100;
+export const previewAllowed = (last: number, now: number): boolean => now - last >= PREVIEW_MIN_MS;

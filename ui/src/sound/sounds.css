@@ -40,7 +40,7 @@
 .snd-title { display: flex; align-items: center; gap: 7px; }
 .snd-title b { font-weight: 500; }
 .snd-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text-2); flex: none; }
-.snd-reset { border: 0; background: none; padding: 0; font: inherit; color: var(--text-2); text-decoration: underline; cursor: pointer; }
+.snd-reset { display: inline-block; min-height: 24px; line-height: 24px; margin: -3px 0; border: 0; background: none; padding: 0 4px; font: inherit; color: var(--text-2); text-decoration: underline; cursor: pointer; }
 .snd-reset:hover { color: var(--text); }
 .snd-pick { grid-area: pick; min-height: 30px; min-width: 0; width: 100%; padding: 3px 8px; background: var(--surface); color: var(--text); border: 1px solid var(--control-line); border-radius: 6px; font: inherit; font-size: 12px; text-overflow: ellipsis; }
 .snd-pick:disabled { opacity: .5; }
