@@ -1,6 +1,9 @@
 /** Task 8: the per-agent GitHub choice (None / Read / Read and write), its tag, and the project buttons that act only on that project's members. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { accessPatch, githubTag, grantCopy, planProjectGrant, tickedRepoNames, WRITE_NOTE } from '../ui/src/github/agentAccess.js';
 import { agentGithubLevel } from '../src/shared/github-area.js';
 
@@ -108,4 +111,13 @@ test('access refusals are plain words, no raw codes', () => {
 
 test('the write list stops at the server limit', () => {
   assert.equal(GITHUB_WRITE_MAX, 100);
+});
+
+test('access links open the GitHub area, where repos are turned on, not Settings (mutation: point them back at Settings)', () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'ui', 'src', 'github');
+  for (const f of ['GithubAccess.tsx', 'ProjectRepoLine.tsx', 'AreaNotice.tsx']) {
+    const src = readFileSync(join(dir, f), 'utf8');
+    assert.doesNotMatch(src, /openSettings\('github'\)|Settings, GitHub/, f);
+  }
+  assert.match(readFileSync(join(dir, 'ProjectRepoLine.tsx'), 'utf8'), /openGithub\(repo\)/);
 });

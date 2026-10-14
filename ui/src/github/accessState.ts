@@ -6,7 +6,7 @@ export interface AreaState { status: 'loading' | 'error' | 'ok'; view: GithubAre
 export const AREA_LOADING: AreaState = { status: 'loading', view: null };
 export const areaStateOf = (view: GithubAreaView): AreaState => ({ status: 'ok', view: { ...view, repos: Array.isArray(view.repos) ? view.repos : [] } });
 
-export interface AreaNotice { kind: 'loading' | 'error' | 'not-connected' | 'auth-expired' | 'write-signin'; text: string; /** a button that opens Settings, GitHub */ settings?: boolean; /** a Try again button */ retry?: boolean }
+export interface AreaNotice { kind: 'loading' | 'error' | 'not-connected' | 'auth-expired' | 'write-signin'; text: string; /** a button that opens the GitHub area */ settings?: boolean; /** a Try again button */ retry?: boolean }
 
 /** The one line to show instead of the repo list, or null when the list can be trusted. `needWrite` is true for the write choice, which also needs the write sign-in. */
 export function areaNotice(a: AreaState, needWrite: boolean): AreaNotice | null {
