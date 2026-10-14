@@ -136,7 +136,7 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
     level: 1, tags: ['reads'], chip: C.readOnly,
     subs: {
       status: R1, log: R1, diff: R1, show: R1, 'ls-files': R1, 'rev-parse': R1, blame: R1, describe: R1, shortlog: R1, grep: R1,
-      add: R2, commit: R2, fetch: R2, pull: R2, merge: R2,
+      add: R2, commit: R2, pull: R2, merge: R2,
       push: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Pushing' },
       clean: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
       reset: { ...R2, flagRules: [{ flags: ['--hard'], to: DELETES() }] },
