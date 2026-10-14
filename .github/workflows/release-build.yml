@@ -141,12 +141,15 @@ jobs:
           if ($alive) {
             Write-Host "Process still alive after $env:SMOKE_TIMEOUT s"
             # Check health endpoint
-            try {
-              $health = Invoke-RestMethod -Uri "http://127.0.0.1:4747/health" -TimeoutSec 5
-              if ($health.ok) { Write-Host "Health OK: $health" }
-            } catch {
-              Write-Host "Health endpoint not ready: $_"
+            # The package must answer /health with ok and ITS OWN version. An unreachable endpoint or another version fails the build.
+            $health = $null
+            try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:4747/health" -TimeoutSec 5 } catch { Write-Host "Health endpoint not ready: $_" }
+            if (-not $health -or -not $health.ok -or $health.version -ne $env:V) {
+              Write-Host "::error::Smoke test FAILED: /health did not report ok with version $env:V (got: $health)"
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              exit 1
             }
+            Write-Host "Health OK: version $($health.version)"
             # Check stdout/stderr for any renderer crash evidence
             $stdout = Get-Content "d:\smoke-out.txt" -ErrorAction SilentlyContinue -Raw
             $stderr = Get-Content "d:\smoke-err.txt" -ErrorAction SilentlyContinue -Raw

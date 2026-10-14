@@ -6,6 +6,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **Updates that change Legion's parts now install by themselves.** When a release changes the libraries Legion runs on, it comes as one larger download (about 285 MB). Before, a forgotten step could ship such a release as a notice only. Now the release build decides this from the files, and the release checks refuse a release that is missing the larger download.
+- **A larger update is checked file by file before it replaces anything.** If your antivirus removes or changes a file after the download is unpacked, Legion stops and keeps your current version instead of installing something that cannot start.
+- **A slow first start no longer rolls back a good update.** A larger update gets 3 minutes to start (and a little longer if it is still starting), instead of 1 minute.
+- **If Legion cannot prepare an update, it says so and keeps working.** Nothing is changed and your current version starts again.
+- **Updates use less disk.** The downloaded file is deleted once it is unpacked, the old copy is removed after the new version starts well, and the free space check now counts the real size.
+
 - **The message box keeps its controls while a run is going.** With "Stop all" showing, the model name no longer shrinks to "A..." and the key hint no longer gets cut off. The hint hides first when the box is narrow; the model name, Add or Queue, Stop all and Stop always stay.
 - **Settings, Providers no longer shows an old version number.** The Codex note now says "Codex: later" instead of a version from the past.
 
