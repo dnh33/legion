@@ -31,7 +31,7 @@ test('chip view-model: one row per real status', () => {
     ['cloud VM', input(status('sandbox')), { tone: 'on', label: 'Ready: cloud VM' }],
     ['live connected', input(status('connected')), { tone: 'on', label: 'Live Blender connected' }],
     ['needs setup', input(status('needs-setup')), { tone: 'warn', label: 'Blender needs setup', settingsText: 'Set up in Settings', action: 'setup' }],
-    ['running a script', input(status('busy')), { tone: 'warn', label: 'Blender is running a script', announce: false }],
+    ['running a script', input(status('busy')), { tone: 'on', label: 'Blender is running a script', announce: false }],
     ['not listening', input(status('disconnected')), { tone: 'warn', label: 'Blender is not listening' }],
     ['problem', input(status('error')), { tone: 'bad', label: 'Blender has a problem' }],
   ];
