@@ -565,7 +565,10 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-link { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 7px 10px; border: 1px solid transparent; border-radius: var(--r); background: transparent; text-align: left; color: var(--text-2); }
 .set-link b { font-weight: 500; font-size: 13px; color: var(--text); } .set-link span { font-size: 11.5px; color: var(--muted); }
 .set-link:hover { background: var(--surface); }
-.set-link.sel { background: var(--surface-2); border-color: var(--line-strong); box-shadow: inset 2px 0 0 var(--accent); }
+.set-link.sel { background: var(--surface-2); border-color: var(--line-strong); } .set-link.sel b { font-weight: 650; }
+.set-group { display: flex; flex-direction: column; gap: 2px; } .set-group + .set-group { margin-top: 10px; }
+.set-group.bare { margin-top: 14px; } .set-group.bare .set-link b { font-size: 12.5px; } .set-group.bare .set-link span { font-size: 11px; }
+.set-group-h { margin: 6px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .set-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; scroll-padding-block: 16px 96px; }
 .set-body { max-width: 640px; margin: 0 auto; padding: 22px 28px 40px; }
 .set-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 40px 0; }
@@ -634,7 +637,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @media (max-width: 1100px) {
   .settings { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .set-nav { flex-direction: row; align-items: center; gap: 4px; padding: 8px 10px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; }
-  .set-nav h2 { display: none; } .set-link { flex: none; padding: 5px 10px; } .set-link span { display: none; }
+  .set-nav h2, .set-group-h { display: none; } .set-group, .set-group.bare { flex-direction: row; gap: 4px; margin: 0; } .set-group + .set-group { margin: 0; } .set-link { flex: none; padding: 5px 10px; } .set-link span { display: none; }
   .set-back { flex: none; margin-right: 6px; padding: 0 6px; } .set-back span { display: none; }
   .set-body { padding: 16px 18px 32px; }
 }

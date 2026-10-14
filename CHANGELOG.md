@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Settings is easier to scan.** The list on the left now has short headings (Get started, Your agents, Staying informed, Connections, Advanced) and the sections you use most come first. Nothing moved out of Settings and every link into a section still works. The selected section now has a full outline and bolder text instead of a coloured edge.
+
 ### Added
 
 - **A few short tips after an update.** When Legion updates, it can point out what is new, one small note beside the thing it explains. It waits until nothing needs you, never dims or blocks the page, and never moves on by itself. Press Next or Skip, or Escape to end it. The first tip also has Skip tour (it comes back next time), End tour, and a link that turns tips off. Settings, About has a "Show tips after updates" switch and a "What's new" button that shows the tips again. A new install shows none. A tip never covers a button, a link or the page heading: when its usual spot would, it opens as a note right under the row it points at and moves the page down.
