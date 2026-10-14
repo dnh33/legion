@@ -304,15 +304,15 @@ test('B3: the status view carries the add-on socket notice (and says so next to 
   const r = await m.http('GET', '/api/blender?refresh=1');
   assert.equal(r.status, 200, r.text);
   assert.ok(Array.isArray(r.json.notices), JSON.stringify(r.json));
-  assert.ok(r.json.notices.some((n: string) => /any program on this computer/.test(n)), r.json.notices.join('|'));
+  assert.ok(r.json.notices.some((n: string) => /any program on your computer/.test(n)), r.json.notices.join('|'));
   // the socket notice is about live Blender only: not shown when scripts are restricted to this computer or to the VM
   for (const mode of ['local', 'vm']) {
     await m.http('POST', '/api/blender/config', { mode });
     const v = await m.http('GET', '/api/blender?refresh=1');
-    assert.equal((v.json.notices ?? []).some((n: string) => /any program on this computer/.test(n)), false, mode);
+    assert.equal((v.json.notices ?? []).some((n: string) => /any program on your computer/.test(n)), false, mode);
   }
   await m.http('POST', '/api/blender/config', { mode: 'live' });
-  assert.ok(((await m.http('GET', '/api/blender?refresh=1')).json.notices ?? []).some((n: string) => /any program on this computer/.test(n)));
+  assert.ok(((await m.http('GET', '/api/blender?refresh=1')).json.notices ?? []).some((n: string) => /any program on your computer/.test(n)));
 });
 
 test('setup is refused while the bridge is off', async () => {
@@ -363,7 +363,7 @@ test('without a sandbox port the view says so and the light never claims the san
 void agent;
 
 test('C19 module: an install that enabled the bridge before the mode key existed gets the upgrade notice in the status view until any mode is saved; the mirror is written with it', async () => {
-  const NOTICE = /Scripts now run in Blender on this computer by default when it is found\. Pick Cloud VM to keep the old behaviour\./;
+  const NOTICE = /Scripts now run in Blender on your computer by default when it is found\. Pick Cloud VM to keep the old behaviour\./;
   const m = await mount({ installs: ['5.1.0'], raw: { sandbox: 'auto' } });
   const a = (await m.http('GET', '/api/blender?refresh=1')).json;
   assert.ok((a.notices as string[]).some((n) => NOTICE.test(n)), JSON.stringify(a.notices));
@@ -382,7 +382,7 @@ test('C19 module: an install that enabled the bridge before the mode key existed
 });
 
 test('C19 module: no upgrade notice for a bridge that is off, for installs whose legacy setting already restricts the place, or for one turned on just now; legacy "off" means live', async () => {
-  const NOTICE = /Scripts now run in Blender on this computer/;
+  const NOTICE = /Scripts now run in Blender on your computer/;
   const has = async (m: Awaited<ReturnType<typeof mount>>) => ((await m.http('GET', '/api/blender?refresh=1')).json.notices ?? []).some((n: string) => NOTICE.test(n));
   assert.equal(await has(await mount({ enabled: false, raw: { sandbox: 'auto' } })), false);
   assert.equal(await has(await mount({ raw: { sandbox: 'vm' } })), false);
@@ -404,11 +404,11 @@ test('status: lights local and busy, localReady, nextRun and busy field follow t
   assert.equal(a.light, 'local');
   assert.equal(a.localReady, true);
   assert.equal(a.busy, null);
-  assert.match(a.nextRun, /^On this computer \(Blender 5\.1\.0\)/);
+  assert.match(a.nextRun, /^On your computer \(Blender 5\.1\.0\)/);
   // local-only with nothing found: not a VM light
   const b = await light({ installs: [], localReady: false, sandboxReady: true, raw: { mode: 'local' } });
   assert.equal(b.light, 'not-found');
-  assert.match(b.nextRun, /Blender was not found on this computer/);
+  assert.match(b.nextRun, /Blender was not found on your computer/);
   // Automatic falls to the VM light and says so in nextRun
   const c = await light({ installs: [], localReady: false, sandboxReady: true, raw: { mode: 'auto' } });
   assert.equal(c.light, 'sandbox');

@@ -131,7 +131,7 @@ const readPid = (r: Rig, name: string): number => Number(readFileSync(join(r.bas
 test('readiness: no Blender, too old, and ready', () => {
   const none = new LocalRunner({ proc: new TestPort('x'), config: () => defaultBlenderConfig(), dataDir: tmp(), workspaceOf: () => tmp(), install: () => undefined });
   assert.equal(none.readiness(agent()).ready, false);
-  assert.match(none.readiness(agent()).note, /not found on this computer/);
+  assert.match(none.readiness(agent()).note, /not found on your computer/);
   assert.equal(rig({ mode: 'ok' }, { version: '2.93.0' }).runner.readiness(agent()).ready, false);
   // B4: the local minimum is 4.2 (3.0 to 4.1 still work for the live community backend, not for local runs)
   for (const v of ['3.6.5', '4.1.1', '4.0.0']) assert.equal(rig({ mode: 'ok' }, { version: v }).runner.readiness(agent()).ready, false, v);

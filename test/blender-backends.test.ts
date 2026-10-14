@@ -48,7 +48,7 @@ test('tcpProbe: open port true, closed port false, non-loopback refused without 
   await f.close();
   assert.equal(await tcpProbe('127.0.0.1', f.port), false);
   assert.equal(await tcpProbe('10.255.255.1', 9876, 100), false);
-  await assert.rejects(jsonRequest('10.0.0.5', 9876, {}, { timeoutMs: 100 }), /only talks to this computer/);
+  await assert.rejects(jsonRequest('10.0.0.5', 9876, {}, { timeoutMs: 100 }), /only talks to your computer/);
 });
 
 test('community: exec sends {"type","params":{"code"}} and returns the captured output', async () => {

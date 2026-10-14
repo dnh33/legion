@@ -392,7 +392,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
       add('GET', '/api/armory/file', (c) => {
         const e = idOf(c.url.searchParams.get('id'));
-        if (!e.path) throw new HttpError(404, `${e.id} is built in to Claude Code, so its text is not on this computer.`);
+        if (!e.path) throw new HttpError(404, `${e.id} is built in to Claude Code, so its text is not on your computer.`);
         let size = 0;
         try { size = statSync(e.path).size; } catch { throw new HttpError(404, 'That skill file is not there any more.'); }
         if (size > MAX_READ) throw new HttpError(400, `That skill file is over ${MAX_READ} bytes, so it is not shown.`);

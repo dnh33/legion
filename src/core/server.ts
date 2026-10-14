@@ -454,6 +454,12 @@ export function createServer(ctx: CoreContext): Server {
     mustTask(params[0]);
     return { ok: ctx.engine.cancel(params[0]) };
   });
+  /** Stop a team: this task and every task it started, transitively. `cancelled` is the ids that were live; `team` is how many tasks it started. */
+  route('POST', '/api/tasks/:id/cancel-team', ({ params }) => {
+    mustTask(params[0]);
+    const r = ctx.engine.cancelTeam(params[0]);
+    return { ok: r.cancelled.length > 0, cancelled: r.cancelled };
+  });
 
   /**
    * Compact this conversation now. `focus` is optional and tells the summary what to weight - the user gets to say

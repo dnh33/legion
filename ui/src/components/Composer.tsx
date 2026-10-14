@@ -9,9 +9,10 @@ import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, typ
 import { api } from '../api';
 import { modelLabel } from '../models';
 import { useProviders } from '../providers/providersStore';
-import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, toast, useStore } from '../store';
+import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, stopTeam, toast, useStore } from '../store';
 import { alsoWorkingLabel, liveElsewhere, newTaskTarget } from '../projects/projectsLogic';
 import { clip } from '../util';
+import { startedLive, stopTeamLabel } from '../chat/team';
 import { Icon } from './icons';
 import { ModelPicker } from './ModelPicker';
 import { QueueStrip } from './QueueStrip';
@@ -42,6 +43,7 @@ export function Composer() {
   // the same agent live in another project: said, never a block (decision B1)
   const also = useMemo(() => alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter: projectFilter, taskId, ...(task?.projectId ? { taskProjectId: task.projectId } : {}) }), projects), [agentId, tasks, projectFilter, taskId, task?.projectId, projects]);
   const running = task?.status === 'running' || task?.status === 'queued';
+  const started = useMemo(() => (taskId ? startedLive(tasks, taskId).length : 0), [tasks, taskId]);
   // busy: own run, an approval waiting, or the agent working for a room / agent call. Enter queues while busy.
   const busy = useMemo(() => busyReason(agentId, taskId, tasks, approvals), [agentId, taskId, tasks, approvals]);
   const qkey = threadKey(agentId, taskId);
@@ -192,6 +194,8 @@ export function Composer() {
                 title="Add this message to the run (Enter): Claude reads it after its current step. Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Add</button>
             : <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Queue message"
                 title="Queue this message (Enter). Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Queue</button>)}
+          {running && started > 0 && <button type="button" className="send stop team" onClick={() => { if (!confirmStop(taskId)) return; pauseQueue(qkey); void stopTeam(taskId!); }} aria-label={stopTeamLabel(started)}
+            title={stopTeamLabel(started)}><Icon name="stop" size={14} /> Stop all ({started + 1})</button>}
           {running
             ? <button className="send stop" onClick={() => { if (!confirmStop(taskId)) return; pauseQueue(qkey); void cancelSelected(true); }} aria-label="Stop"><Icon name="stop" size={14} /> Stop</button>
             : !busy && <button className="send" disabled={!text.trim()} onClick={() => void submit()} aria-label="Send"><Icon name="send" size={14} /></button>}

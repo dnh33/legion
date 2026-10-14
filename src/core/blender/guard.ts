@@ -47,7 +47,7 @@ export interface RouteFacts { local: boolean; vm: boolean; vmNote?: string; loca
 export type RequestedMode = RunMode | 'vm';
 export type Route = { mode: RunMode; note?: string } | { error: string };
 
-const NO_LOCAL = 'Blender was not found on this computer';
+const NO_LOCAL = 'Blender was not found on your computer';
 const noVm = (f: RouteFacts): string => `The cloud VM is not ready: ${(f.vmNote ?? 'it is not set up').replace(/[.\s]+$/, '')}`;
 
 /**
@@ -65,10 +65,10 @@ export function resolveMode(setting: BlenderMode | BlenderSandboxMode, requested
     if (want === 'sandbox') return facts.vm ? { mode: 'sandbox' } : { error: `${noVm(facts)}.` };
     if (facts.local) return { mode: 'local' };
     if (facts.vm) return { mode: 'sandbox', note: `${(facts.localNote ?? NO_LOCAL).split(/\.\s/)[0]!.replace(/\.$/, '')}, so the cloud VM was used.` };
-    return { error: 'No Blender on this computer and the cloud VM is not set up. Tell the user to install Blender or set boat.dev up in Settings.' };
+    return { error: 'No Blender on your computer and the cloud VM is not set up. Tell the user to install Blender or set boat.dev up in Settings.' };
   }
   if (mode === 'local') {
-    if (want === 'sandbox' || want === 'live') return { error: 'Settings restrict scripts to Blender on this computer.' };
+    if (want === 'sandbox' || want === 'live') return { error: 'Settings restrict scripts to Blender on your computer.' };
     return facts.local ? { mode: 'local' } : { error: `${NO_LOCAL}. Install it or set its location in Settings.` };
   }
   if (mode === 'vm') {
@@ -152,7 +152,7 @@ async function defaultBackup(ctx: { backend: BlenderBackend; taskId: string; fil
 }
 
 /** How a status or tool says where it ran. */
-const where = (m: RunMode): string => (m === 'live' ? 'LIVE Blender on your computer' : m === 'local' ? 'Blender in the background on this computer' : 'sandbox VM');
+const where = (m: RunMode): string => (m === 'live' ? 'LIVE Blender on your computer' : m === 'local' ? 'Blender in the background on your computer' : 'sandbox VM');
 
 /** The purpose line is the bot's own text: no control, bidi or invisible characters, one line, cut. */
 export function cleanPurpose(p: string): string {

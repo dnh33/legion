@@ -215,7 +215,7 @@ function subst(s: string, v: { serverDir: string; host: string; port: number }):
 export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: string, install: BlenderInstall | undefined, kind: BlenderBackendKind, opts: SetupOptions = {}): Promise<LiveSetupOutcome> {
   const steps: BlenderSetupStep[] = [];
   const out = (ok: boolean, extra: Partial<LiveSetupOutcome> = {}): LiveSetupOutcome => ({ steps, ok, backend: kind, addonInstalled: false, ...extra });
-  if (!install) { steps.push(step('blender', false, 'Blender was not found on this computer. Install it from blender.org, or set the install path in Settings.')); return out(false); }
+  if (!install) { steps.push(step('blender', false, 'Blender was not found on your computer. Install it from blender.org, or set the install path in Settings.')); return out(false); }
   if (kind === 'official' && !versionAtLeast(install.version, OFFICIAL_MIN_VERSION)) {
     steps.push(step('blender', false, `The official backend needs Blender ${OFFICIAL_MIN_VERSION}+; found ${install.version}.`));
     return out(false);

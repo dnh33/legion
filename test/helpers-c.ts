@@ -42,7 +42,7 @@ export function makeFakes(opts: { holdRuns?: boolean } = {}) {
   const pending: ApprovalRequest[] = [];
   const bus = new EventBus();
   let n = 0;
-  const calls = { cancel: [] as string[], resolved: [] as [string, boolean][], vm: [] as string[], compact: [] as string[] };
+  const calls = { cancel: [] as string[], cancelTeam: [] as string[], resolved: [] as [string, boolean][], vm: [] as string[], compact: [] as string[] };
 
   const engine: any = {
     startTask(p: any) {
@@ -58,6 +58,7 @@ export function makeFakes(opts: { holdRuns?: boolean } = {}) {
       return t;
     },
     cancel(id: string) { calls.cancel.push(id); return true; },
+    cancelTeam(id: string) { calls.cancelTeam.push(id); return { cancelled: [id, 'child-1'] }; },
     // Stubbed, not absent. When the compact route called a method this fake did not have, the handler threw
     // "not a function" and the route test saw a 500 instead of the decline it was written to assert - the stub was
     // the bug, and it looked like a server bug. A fake that silently omits a method turns every gap into a mystery.

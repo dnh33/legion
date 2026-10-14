@@ -310,7 +310,7 @@ test('sandbox routing: not ready or denied means nothing runs; auto + explicit l
   const t = await connectTools(r);
   const a = await t.call('blender_exec', { script: GOOD_SCRIPT });
   assert.equal(a.isError, true);
-  assert.match(a.text, /No Blender on this computer and the cloud VM is not set up/);
+  assert.match(a.text, /No Blender on your computer and the cloud VM is not set up/);
   assert.equal(r.cards.length, 0);
   // an explicit vm request names the readiness note
   const vmReq = await t.call('blender_exec', { script: GOOD_SCRIPT, mode: 'vm' });
@@ -753,7 +753,7 @@ test('local: the card says local and shows the full script; the local runner (no
   assert.equal(c.mode, 'local');
   assert.equal(c.script, GOOD_SCRIPT);
   assert.equal(c.hash, scriptHash(GOOD_SCRIPT));
-  assert.match(String(c.where), /this computer/);
+  assert.match(String(c.where), /your computer/);
   assert.match(String(c.exportDir), /blender[\\/]local[\\/]task_1-[0-9a-f]{8}[\\/]exports$/);
   assert.equal(local.runs.length, 1);
   assert.equal(local.runs[0]!.script, GOOD_SCRIPT);
@@ -886,16 +886,16 @@ test('C18 through the guard: Automatic goes local, then VM with a note when Blen
   const a = await t.call('blender_exec', { script: GOOD_SCRIPT });
   assert.equal(r.cards.at(-1)!.input.mode, 'local');
   assert.equal(a.isError, false);
-  local.ready = { ready: false, note: 'Blender was not found on this computer. Install it or set its location in Settings.' };
+  local.ready = { ready: false, note: 'Blender was not found on your computer. Install it or set its location in Settings.' };
   const b = await t.call('blender_exec', { script: GOOD_SCRIPT });
   assert.equal(r.cards.at(-1)!.input.mode, 'sandbox');
-  assert.match(b.text, /not found on this computer, so the cloud VM was used/);
+  assert.match(b.text, /not found on your computer, so the cloud VM was used/);
   const c = await t.call('blender_exec', { script: GOOD_SCRIPT, mode: 'local' });
   assert.equal(c.isError, true);
-  assert.match(c.text, /Blender was not found on this computer/);
+  assert.match(c.text, /Blender was not found on your computer/);
   assert.equal(r.cards.length, 2, 'a refused route asks nobody');
   r.sandbox.ready = { ready: false, note: 'no key' };
-  assert.match((await t.call('blender_exec', { script: GOOD_SCRIPT })).text, /No Blender on this computer and the cloud VM is not set up/);
+  assert.match((await t.call('blender_exec', { script: GOOD_SCRIPT })).text, /No Blender on your computer and the cloud VM is not set up/);
   assert.equal(r.backend.execs.length, 0, 'the open Blender is never used without being asked');
   await t.close();
   const l = lrig('local');

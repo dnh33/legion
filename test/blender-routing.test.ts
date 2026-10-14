@@ -6,14 +6,14 @@ import type { RequestedMode, RouteFacts } from '../src/core/blender/guard.js';
 import type { BlenderMode } from '../src/shared/blender.js';
 
 const F = (local: boolean, vm: boolean, vmNote = 'VM not configured: the boat.dev key is missing'): RouteFacts => ({ local, vm, vmNote });
-const NO_LOCAL = 'Blender was not found on this computer.';
-const NO_BOTH = 'No Blender on this computer and the cloud VM is not set up. Tell the user to install Blender or set boat.dev up in Settings.';
+const NO_LOCAL = 'Blender was not found on your computer.';
+const NO_BOTH = 'No Blender on your computer and the cloud VM is not set up. Tell the user to install Blender or set boat.dev up in Settings.';
 const VM_NOT_READY = 'The cloud VM is not ready: VM not configured: the boat.dev key is missing.';
 
 test('table rows, auto', () => {
   assert.deepEqual(resolveMode('auto', undefined, F(true, true)), { mode: 'local' });
   assert.deepEqual(resolveMode('auto', undefined, F(true, false)), { mode: 'local' });
-  assert.deepEqual(resolveMode('auto', undefined, F(false, true)), { mode: 'sandbox', note: 'Blender was not found on this computer, so the cloud VM was used.' });
+  assert.deepEqual(resolveMode('auto', undefined, F(false, true)), { mode: 'sandbox', note: 'Blender was not found on your computer, so the cloud VM was used.' });
   assert.deepEqual(resolveMode('auto', undefined, F(false, false)), { error: NO_BOTH });
   assert.deepEqual(resolveMode('auto', 'local', F(true, false)), { mode: 'local' });
   assert.deepEqual(resolveMode('auto', 'local', F(false, true)), { error: NO_LOCAL }, 'asked for local: never a silent VM');
@@ -26,10 +26,10 @@ test('table rows, auto', () => {
 test('table rows, local / vm / live settings', () => {
   for (const req of [undefined, 'local'] as const) {
     assert.deepEqual(resolveMode('local', req, F(true, true)), { mode: 'local' });
-    assert.deepEqual(resolveMode('local', req, F(false, true)), { error: 'Blender was not found on this computer. Install it or set its location in Settings.' });
+    assert.deepEqual(resolveMode('local', req, F(false, true)), { error: 'Blender was not found on your computer. Install it or set its location in Settings.' });
   }
   for (const req of ['vm', 'sandbox', 'live'] as const) for (const l of [true, false]) for (const v of [true, false]) {
-    assert.deepEqual(resolveMode('local', req, F(l, v)), { error: 'Settings restrict scripts to Blender on this computer.' });
+    assert.deepEqual(resolveMode('local', req, F(l, v)), { error: 'Settings restrict scripts to Blender on your computer.' });
   }
   for (const req of [undefined, 'vm', 'sandbox'] as const) {
     assert.deepEqual(resolveMode('vm', req, F(true, true)), { mode: 'sandbox' });
@@ -91,6 +91,6 @@ test('L3: a setting this function does not know is a default-deny error, never "
 test('L4: the fallback to the VM says why local is impossible (not found vs older than 4.2)', () => {
   const old = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender 2.93.0 is too old for local runs (need 4.2.0 or newer).' });
   assert.deepEqual(old, { mode: 'sandbox', note: 'Blender 2.93.0 is too old for local runs (need 4.2.0 or newer), so the cloud VM was used.' });
-  const none = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender was not found on this computer. Install it or set its location in Settings.' });
-  assert.deepEqual(none, { mode: 'sandbox', note: 'Blender was not found on this computer, so the cloud VM was used.' });
+  const none = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender was not found on your computer. Install it or set its location in Settings.' });
+  assert.deepEqual(none, { mode: 'sandbox', note: 'Blender was not found on your computer, so the cloud VM was used.' });
 });

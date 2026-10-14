@@ -50,7 +50,7 @@ export async function connectGithub(deps: ConnectorIpcDeps): Promise<ConnectResu
       const hex = await deps.ensureKey().then((h) => h, () => undefined);
       if (hex === undefined) {
         const mem = await deps.confirm({
-          title: 'Sign in without remembering?', message: 'This computer cannot keep the GitHub sign-in safely.',
+          title: 'Sign in without remembering?', message: 'Your computer cannot keep the GitHub sign-in safely.',
           detail: 'Legion has no usable system keystore here (on Linux: no keyring). You can still sign in, but you will have to do it again each time Legion starts. Nothing is restarted.',
           confirmLabel: 'Sign in each launch',
         });

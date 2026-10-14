@@ -38,12 +38,12 @@ export function checkEndpoint(raw: unknown, opts: { allowPrivate?: boolean } = {
   if (typeof raw !== 'string' || !raw.trim() || raw.length > 300) return { ok: false, reason: 'The address must be a URL of at most 300 characters.' };
   let u: URL;
   try { u = new URL(raw.trim()); } catch { return { ok: false, reason: 'The address is not a valid URL.' }; }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { ok: false, reason: 'Only https addresses are allowed (http only for this computer: localhost or 127.0.0.1).' };
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { ok: false, reason: 'Only https addresses are allowed (http only for your computer: localhost or 127.0.0.1).' };
   if (u.username || u.password) return { ok: false, reason: 'The address must not contain a user name or password.' };
   if (u.hash) return { ok: false, reason: 'The address must not contain a # fragment.' };
   if (u.search) return { ok: false, reason: 'The address must not contain a query string.' };
   const loopback = LOOPBACK_HOSTS.has(u.hostname);
-  if (u.protocol === 'http:' && !loopback) return { ok: false, reason: 'http is only allowed for this computer (localhost or 127.0.0.1). Use https for any other host.' };
+  if (u.protocol === 'http:' && !loopback) return { ok: false, reason: 'http is only allowed for your computer (localhost or 127.0.0.1). Use https for any other host.' };
   const privateLiteral = isPrivateLiteral(u.hostname);
   if (privateLiteral && !loopback && !opts.allowPrivate) return { ok: false, reason: 'A private-network address needs your confirmation in the Legion app.' };
   const url = `${u.origin}${u.pathname.replace(/\/+$/, '')}`;

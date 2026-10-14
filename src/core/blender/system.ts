@@ -266,7 +266,7 @@ export function createProcessPort(blenderExe: () => string | undefined): Process
   return {
     spawn(req) {
       const exe = req.file ?? blenderExe();
-      if (!exe) return { pid: undefined, exited: Promise.resolve({ code: null, signal: null, error: 'Blender was not found on this computer' }), stdout: () => '', stderr: () => '' };
+      if (!exe) return { pid: undefined, exited: Promise.resolve({ code: null, signal: null, error: 'Blender was not found on your computer' }), stdout: () => '', stderr: () => '' };
       return spawnManaged(exe, { args: [...(req.prefixArgs ?? []), ...req.args], cwd: req.cwd, env: req.env, maxOutputBytes: req.maxOutputBytes });
     },
     kill: killTree,

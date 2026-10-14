@@ -297,9 +297,9 @@ export class LocalRunner implements LocalPort {
 
   readiness(_agent: AgentProfile): { ready: boolean; note: string } {
     const inst = this.d.install();
-    if (!inst) return { ready: false, note: 'Blender was not found on this computer. Install it or set its location in Settings.' };
+    if (!inst) return { ready: false, note: 'Blender was not found on your computer. Install it or set its location in Settings.' };
     if (!versionAtLeast(inst.version, LOCAL_MIN_VERSION)) return { ready: false, note: `Blender ${inst.version} is too old for local runs (need ${LOCAL_MIN_VERSION} or newer).` };
-    return { ready: true, note: `Scripts run in Blender ${inst.version} in the background on this computer (not yet tried with a real Blender on Windows).` };
+    return { ready: true, note: `Scripts run in Blender ${inst.version} in the background on your computer (not yet tried with a real Blender on Windows).` };
   }
 
   /** Core exit: refuse new runs, kill the running child's tree by PID and wait (bounded) for it to exit. */

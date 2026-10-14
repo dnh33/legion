@@ -640,6 +640,11 @@ export async function stopTask(id: string) {
   if (!confirmStop(id)) return;
   try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
 }
+/** Stop a task and every task it started. Asks first when the task is waiting on background agents, like Stop does. */
+export async function stopTeam(id: string) {
+  if (!confirmStop(id)) return;
+  try { await api.cancelTeam(id); } catch (e) { toast(errText(e), 'error'); }
+}
 export async function setShowClosed(on: boolean) {
   setState({ showClosed: on });
   if (on) {

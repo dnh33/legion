@@ -220,7 +220,7 @@ export const COMMUNITY_MIN_VERSION = '3.0.0';
 export interface BackendChoice { kind: BlenderBackendKind | null; reason: string }
 
 export function chooseBackend(choice: BlenderBackendChoice, install: BlenderInstall | undefined): BackendChoice {
-  if (!install) return { kind: null, reason: 'Blender was not found on this computer.' };
+  if (!install) return { kind: null, reason: 'Blender was not found on your computer.' };
   const v = install.version;
   const guess = install.versionGuessed ? ' (from the folder name)' : '';
   if (choice === 'official') {
