@@ -20,6 +20,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **An agent working in one project no longer stops you starting a task in another.** A room or agent call in another
+  project only shows a line above the message box ("Also working in Shop: ..."). In the same project, it still queues
+  your message first.
 - **A tool call written as plain text is no longer shown as the answer.** Some models write `<tool_call>` markup into
   the reply instead of calling the tool. The markup is hidden, and if nothing else is left the run says the model wrote
   a tool call as text.

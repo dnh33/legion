@@ -11,7 +11,7 @@ import type { ModelChoice, Task } from '../../../src/shared/types';
 import { api } from '../api';
 import { confirmStop, getState, sendPromptTo, subscribeStore, tapEvents, toast } from '../store';
 import { newTaskProjectId } from '../projects/projectsLogic';
-import { busyReason } from './busy';
+import { busyIn } from './busy';
 import * as Q from './queue';
 
 /* ---------- storage ---------- */
@@ -152,7 +152,7 @@ function evaluate() {
   for (const key of Object.keys(qs.threads)) {
     if (!Q.canDrain(qs.threads[key], false)) continue;
     const at = targetOf(key);
-    if (!at || busyReason(at.agentId, at.taskId, s.tasks, s.approvals)) continue;
+    if (!at || busyIn(s, at.agentId, at.taskId)) continue;
     void drain(key, at);
   }
 }
@@ -166,14 +166,14 @@ function kick() { if (kicked) return; kicked = true; queueMicrotask(() => { kick
 export async function interruptAndSend(agentId: string, taskId: string | null, text: string, model: ModelChoice): Promise<boolean> {
   const key = Q.threadKey(agentId, taskId);
   // a run with background agents ends them when it is cancelled: the owner is asked first, and a "no" sends nothing
-  if (taskId && busyReason(agentId, taskId, getState().tasks, getState().approvals) && !confirmStop(taskId)) return false;
+  if (taskId && busyIn(getState(), agentId, taskId) && !confirmStop(taskId)) return false;
   await inflight.get(key);
   set(Q.lock(qs, key));
   let failure: string | undefined;
   let sentTask: Task | undefined;
   try {
     const st = getState();
-    const live = taskId ? busyReason(agentId, taskId, st.tasks, st.approvals) : null;
+    const live = taskId ? busyIn(st, agentId, taskId) : null;
     if (live === 'run' || live === 'approval') {
       markOverride(taskId!);
       try { const c = await api.cancelTask(taskId!); if (!c.ok) overrides.delete(taskId!); }
@@ -193,7 +193,7 @@ export async function interruptAndSend(agentId: string, taskId: string | null, t
 export async function sendQueuedNow(key: string, itemId: string): Promise<void> {
   const at = targetOf(key);
   if (!at) return;
-  if (at.taskId && busyReason(at.agentId, at.taskId, getState().tasks, getState().approvals) && !confirmStop(at.taskId)) return;
+  if (at.taskId && busyIn(getState(), at.agentId, at.taskId) && !confirmStop(at.taskId)) return;
   await inflight.get(key);
   const item = qs.threads[key]?.items.find((i) => i.id === itemId);
   const began = Q.beginSend(qs, key, itemId);
@@ -203,7 +203,7 @@ export async function sendQueuedNow(key: string, itemId: string): Promise<void> 
     let failure: string | undefined;
     try {
       const st = getState();
-      const live = at.taskId ? busyReason(at.agentId, at.taskId, st.tasks, st.approvals) : null;
+      const live = at.taskId ? busyIn(st, at.agentId, at.taskId) : null;
       if (live === 'run' || live === 'approval') {
         markOverride(at.taskId!);
         try { const c = await api.cancelTask(at.taskId!); if (!c.ok) overrides.delete(at.taskId!); } catch (e) { overrides.delete(at.taskId!); throw e; }

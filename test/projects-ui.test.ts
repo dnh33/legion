@@ -188,8 +188,26 @@ test('B2 the rail row and the composer show the "Also working" line; it never bl
   assert.match(rail, /railAlsoWorking\(a\.id, tasks, filter, projects\)/);
   const comp = readFileSync(join(root, 'ui', 'src', 'components', 'Composer.tsx'), 'utf8');
   assert.match(comp, /className="also-pill" role="status"/);
+  assert.match(comp, /busyIn\(/, 'the composer asks the shared busy rule');
   const busy = readFileSync(join(root, 'ui', 'src', 'chat', 'busy.ts'), 'utf8');
-  assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules unchanged (decision B1: no block)');
+  assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules never read the "Also working" list (decision B1: no block)');
+});
+
+test('council A1 the block and the "Also working" line split the same runs: what blocks is never listed, what is listed never blocks', async () => {
+  const { liveElsewhere } = await import('../ui/src/projects/projectsLogic.js');
+  const { busyReason } = await import('../ui/src/chat/busy.js');
+  const mk = (id: string, projectId?: string) => ({ id, agentId: 'z', status: 'running', title: id, updatedAt: '', createdAt: '', requestedModel: 'auto', source: 'bot', ...(projectId ? { projectId } : {}) }) as any;
+  const tasks = [mk('a', 'pA'), mk('b', 'pB'), mk('n')];
+  for (const scope of ['pA', 'pB', undefined] as const) {
+    const listed = liveElsewhere('z', tasks, { filter: null, taskId: null, ...(scope ? { taskProjectId: scope } : {}) }).map((t: any) => t.id);
+    const blocking = tasks.filter((t: any) => busyReason('z', null, [t], [], scope) === 'other').map((t: any) => t.id);
+    assert.deepEqual(blocking, tasks.filter((t: any) => t.projectId === scope).map((t: any) => t.id), String(scope));
+    // (with no project to compare, the list is every other run: a no-project run blocks AND is mentioned, by design)
+    if (scope) {
+      assert.deepEqual([...listed, ...blocking].sort(), ['a', 'b', 'n'], 'every run is either listed or blocking: ' + scope);
+      assert.equal(listed.filter((id: string) => blocking.includes(id)).length, 0);
+    }
+  }
 });
 
 test('C1 followRemote: an untouched editor follows a change made elsewhere; an edited one keeps the owner\'s text', async () => {
