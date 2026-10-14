@@ -68,7 +68,8 @@ test('proposalsForThread: cards only in the chat the click opens (the agent\'s n
   const inP9 = [prop('n', 'forge', 'p9', '2026-10-14T06:00:00Z')];
   assert.deepEqual(proposalsForThread('forge', null, tasks, inP9, none, 'p9').map((p) => p.id), ['n'], 'the new chat in p9 shows the p9 proposal the agent has no p9 chat for');
   assert.deepEqual(proposalsForThread('forge', null, tasks, inP9, none, 'p2').map((p) => p.id), [], 'a p9 card does not show in the new chat in p2 (the other project stays in the rail)');
-  assert.deepEqual(proposalsForThread('forge', null, tasks, inP9, none, null).map((p) => p.id), [], 'under All the new chat shows no card');
+  assert.deepEqual(proposalsForThread('forge', null, tasks, inP9, none, null).map((p) => p.id), ['n'], 'under All projects the new chat shows every project\'s card the agent has no chat for');
+  assert.deepEqual(proposalsForThread('forge', null, tasks, list, none, null).map((p) => p.id), [], 'under All: every project here has a chat for the agent, so its cards live in those chats');
   assert.deepEqual(proposalsForThread('forge', null, tasks, list, none, 'p2').map((p) => p.id), [], 'no new-chat card while a chat exists in that project');
   assert.deepEqual(proposalsForThread('forge', 't-new', tasks, list, new Set(['p2'])).map((p) => p.id), [], 'proposals of an archived project are left out');
 });
