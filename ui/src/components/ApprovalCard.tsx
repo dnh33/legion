@@ -57,7 +57,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
       {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
       {bl ? <BlenderBody a={a} /> : <pre className="approval-sum">{a.summary}</pre>}
       <div className="approval-actions">
-        <button className="btn primary" onClick={() => void decide(a.id, true)}>Allow{!noKey && <> <kbd>A</kbd></>}</button>
+        <button className="btn primary" data-tip="allow-button" onClick={() => void decide(a.id, true)}>Allow{!noKey && <> <kbd>A</kbd></>}</button>
         <button className="btn" onClick={() => void decide(a.id, false)}>Deny <kbd>D</kbd></button>
         {canRemember(a) && <button type="button" className="btn-ghost sm" aria-expanded={remember} onClick={() => setRemember((v) => !v)}>Remember…</button>}
         <span className="approval-note">Auto-denies after 10 min</span>
