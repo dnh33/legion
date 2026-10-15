@@ -334,7 +334,7 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
     <Modal title={item ? 'Work item' : 'New work item'} onClose={onClose} width={640} footer={<div className="bd-actions">
       <button type="submit" form="bd-item-form" className="btn primary" disabled={archived || busy || !title.trim() || counter.over || labelList.length > BOARD_LIMITS.labels}>{item ? 'Save' : 'Create'}</button>
       {item && !item.proposal && (
-        <button type="button" className="btn" disabled={!canRun || busy} aria-describedby="bd-runnote" onClick={() => void runItem(project.id, item.id).then((ok) => { if (ok) onClose(); })}>Run this item</button>
+        <button type="button" className="btn" disabled={!canRun || busy} title={item && !canRun ? runHint(item, canRun) : undefined} aria-describedby="bd-runnote" onClick={() => void runItem(project.id, item.id).then((ok) => { if (ok) onClose(); })}>Run this item</button>
       )}
       {item && (sure
         ? <button type="button" className="btn-ghost danger" disabled={archived || busy} onClick={() => void deleteItem(project.id, item.id).then(() => { sayItem('Item deleted.'); onClose(); })}>Really delete</button>

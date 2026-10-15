@@ -94,7 +94,7 @@ export function reviewBadge(i: Pick<WorkItem, 'trust' | 'createdBy' | 'acceptedA
   if (i.trust === 'human') return null;
   const tainted = i.createdBy.kind === 'agent' && i.createdBy.tainted === true;
   if (tainted) return i.acceptedAt ? { tone: 'taint', text: 'Accepted, outside content' } : { tone: 'taint', text: 'Outside content, not reviewed' };
-  return i.acceptedAt ? { tone: 'accepted', text: 'Accepted' } : { tone: 'warn', text: 'Not reviewed' };
+  return i.acceptedAt ? { tone: 'accepted', text: 'Accepted, runs ask first' } : { tone: 'warn', text: 'Not reviewed' };
 }
 
 /** Card name for screen readers: everything the eye sees, in one sentence. */

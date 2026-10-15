@@ -99,7 +99,7 @@ test('polish 0.3.1: an accepted proposal does not read "Not reviewed"; the other
   const plain = I('wi_000000000001', 'backlog', 0, { trust: 'untrusted', createdBy: { kind: 'agent', id: 'scout' } });
   assert.deepEqual(reviewBadge(plain), { tone: 'warn', text: 'Not reviewed' });
   const acc = { ...plain, acceptedAt: '2026-10-15T08:00:00.000Z' };
-  assert.deepEqual(reviewBadge(acc), { tone: 'accepted', text: 'Accepted' });
+  assert.deepEqual(reviewBadge(acc), { tone: 'accepted', text: 'Accepted, runs ask first' });
   assert.ok(!/not reviewed/i.test(cardLabel(acc, (x) => x)), 'the card name agrees with the badge');
   assert.ok(/not reviewed/i.test(cardLabel(plain, (x) => x)), 'an unaccepted agent item still says so');
   assert.deepEqual(reviewBadge({ ...plain, createdBy: { kind: 'agent', id: 'scout', tainted: true } }), { tone: 'taint', text: 'Outside content, not reviewed' });
