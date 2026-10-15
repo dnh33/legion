@@ -28,19 +28,19 @@ const finiteAndNear = (sim: Sim, limit: number): void => {
 test('a hub with 58 spokes settles to a finite, bounded layout', () => {
   const sim = star(58, 1);
   sim.settle();
-  finiteAndNear(sim, 5000);
+  finiteAndNear(sim, 800);
 });
 
 test('the animated loop stays bounded too: many frames at full heat do not diverge', () => {
   const sim = star(58, 1);
   for (let i = 0; i < 2000; i++) { if (i % 300 === 0) sim.alpha = 1; sim.tick(); }
-  finiteAndNear(sim, 5000);
+  finiteAndNear(sim, 800);
 });
 
 test('very large hubs (300 spokes) stay bounded', () => {
   const sim = star(300);
   for (let i = 0; i < 800; i++) sim.tick();
-  finiteAndNear(sim, 20000);
+  finiteAndNear(sim, 1500);
 });
 
 test('spokes keep a readable distance from the hub (the layout still spreads, it is not collapsed)', () => {
