@@ -2,24 +2,30 @@
 // GitHub releases (0.2.7 -> the 0.3.0 stepping stone -> the newest release), asserting health, version, data and the install folder at each hop.
 // Nothing is faked: no loopback server, no throwaway key, no preload, no LEGION_INSTALL_BASE. The app is started the way a shortcut starts it,
 // with one extra variable, LEGION_HOME (an isolated data folder). The rehearsal's test-only switches are refused here (see refuseTestSwitches).
-// usage: node run-live-walk.mjs --install <dir> --work <dir> --from <version> [--to latest|<version>] [--stone <version>]
+// With --tag vX.Y.Z (a release that is not Latest yet, e.g. a prerelease) the walk ends on that tag's REAL assets. The updater can only read
+// /releases/latest/download/, so its GitHub traffic is sent to scripts/live-walk/relay.mjs, which answers from the tag's real published files.
+// The baked production key stays in force (the preload gets the key found in the install itself): real signatures, real packages, real swap.
+// Only the transport is redirected, and that is stated in the summary. A DRAFT release is not public, so it cannot be fetched at all.
+// usage: node run-live-walk.mjs --install <dir> --work <dir> --from <version> [--to latest|<version>] [--stone <version>] [--tag vX.Y.Z]
 import { createHash } from 'node:crypto';
 import { appendFileSync, cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { args, die, readZipEntry } from '../lib/release-lib.mjs';
 import { planHops } from './plan.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const a = args(process.argv.slice(2), { install: 'v', work: 'v', from: 'v', to: 'v', stone: 'v' });
+const a = args(process.argv.slice(2), { install: 'v', work: 'v', from: 'v', to: 'v', stone: 'v', tag: 'v' });
 for (const k of ['install', 'work', 'from']) if (!a[k]) die(`--${k} is required`);
 const install = resolve(a.install), work = resolve(a.work);
 const APP_PORT = 4747;
 const RELEASES = 'https://github.com/dnh33/legion/releases';
+if (a.tag && !/^v\d{1,9}\.\d{1,9}\.\d{1,9}$/.test(a.tag)) die(`--tag must look like v0.3.2, got ${a.tag}`);
+const tagOf = (version) => (a.tag && version === a.tag.slice(1) ? a.tag : `v${version}`);
 
 /** The live walk must exercise the production update path. Any rehearsal or test switch in the environment would bend it, so it is a hard stop. */
 const FORBIDDEN_ENV = ['LEGION_REHEARSAL', 'LEGION_INSTALL_BASE', 'NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE'];
@@ -58,7 +64,7 @@ async function latestVersion() {
   return m[1];
 }
 const manifestOf = async (v, second) => {
-  const r = await get(`${RELEASES}/download/v${v}/legion-update-manifest${second ? '-2' : ''}.json`);
+  const r = await get(`${RELEASES}/download/${tagOf(v)}/legion-update-manifest${second ? '-2' : ''}.json`);
   if (!r.ok) throw new Error(`manifest of v${v} answered ${r.status}`);
   return r.json();
 };
@@ -68,7 +74,7 @@ const home = join(work, 'home'), art = join(work, 'artifacts'), dl = join(work, 
 for (const d of [home, art, dl, join(home, 'updater')]) mkdirSync(d, { recursive: true });
 const up = join(install, '.update');
 const results = [];
-let appPid = 0;
+let appPid = 0, relayPid = 0, relayLog = '';
 
 /** Every file of the hop's package must be in the install with the same bytes. A code package lists its files by unpacking; a full package carries PACKAGE-FILES.json. */
 async function checkInstallAgainstRelease(version, manifest) {
@@ -77,7 +83,7 @@ async function checkInstallAgainstRelease(version, manifest) {
   const full = !!m.requiresFullInstall && !!m.fullAsset;
   const asset = full ? m.fullAsset : m.asset;
   const zip = join(dl, asset.name);
-  await download(`${RELEASES}/download/v${version}/${asset.name}`, zip);
+  await download(`${RELEASES}/download/${tagOf(version)}/${asset.name}`, zip);
   const got = await sha(zip);
   const sizeOk = statSync(zip).size === asset.size;
   const files = [];
@@ -131,7 +137,7 @@ function summary(hops, logLines) {
 let hops = [];
 let logLines = [];
 try {
-  const to = !a.to || a.to === 'latest' ? await latestVersion() : a.to;
+  const to = a.tag ? a.tag.slice(1) : !a.to || a.to === 'latest' ? await latestVersion() : a.to;
   const stone = a.stone ?? readJson(join(here, '..', 'stepping-stones.json'))?.stones?.at(-1);
   hops = planHops({ from: a.from, to, stone });
   log(`live walk: ${a.from} -> ${hops.map((h) => `${h.version} (${h.manifest} manifest name)`).join(' -> ')}, installed at ${install}`);
@@ -145,6 +151,21 @@ try {
   const dataOk = () => { try { return readFileSync(join(home, 'livewalk-marker.txt'), 'utf8') === marker; } catch { return false; } };
 
   const env = { ...process.env, CI: '', LEGION_HOME: home, ELECTRON_ENABLE_LOGGING: '1', ELECTRON_DISABLE_GPU: '1' };
+  if (a.tag) {
+    // The baked key of THIS install goes back in as the preload's key: the same key, so verification stays production's. LEGION_REHEARSAL is never set.
+    const trust = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'trust.js'), 'utf8');
+    const keys = trust.match(/-----BEGIN PUBLIC KEY-----[A-Za-z0-9+/=\s]+-----END PUBLIC KEY-----/g) ?? [];
+    if (keys.length !== 1) throw new Error(`expected exactly one baked key in the install, found ${keys.length}`);
+    const keyFile = join(work, 'baked-key.pem'); writeFileSync(keyFile, keys[0]);
+    const PORT = 18443;
+    relayLog = join(art, 'relay.log');
+    const rel = spawn(process.execPath, [join(here, 'relay.mjs'), '--tag', a.tag, '--port', String(PORT), '--log', relayLog], { stdio: 'ignore', windowsHide: true });
+    relayPid = rel.pid ?? 0;
+    await waitFor('the relay', async () => existsSync(relayLog), 15000);
+    env.NODE_OPTIONS = `--import ${pathToFileURL(join(here, '..', 'rehearsal', 'preload.mjs')).href}`;
+    env.REHEARSAL_PORT = String(PORT); env.REHEARSAL_PUBKEY_FILE = keyFile;
+    log(`pre-Latest mode: the app's GitHub traffic goes to the relay (pid ${relayPid}), which serves ${a.tag}'s real assets; the baked key stays`);
+  }
   const appLog = openSync(join(work, 'app.log'), 'a');
   const child = spawn(join(install, 'runtime', 'electron', 'electron.exe'), [install, '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage'], { env, detached: true, stdio: ['ignore', appLog, appLog], windowsHide: true });
   appPid = child.pid ?? 0; child.unref();
@@ -162,6 +183,11 @@ try {
     const h = await waitFor(`/health to report ${hop.version}`, async () => { const x = await health(); return x?.ok && x.version === hop.version ? x : null; }, 1500000);
     row.running = (await health())?.version ?? 'nothing answering';
     row.health = h ? 'yes' : 'NO';
+    if (!h && !a.tag) {
+      // Say what GitHub serves right now: a release that stops being Latest mid-walk looks exactly like an updater that finds nothing.
+      const [lv, m1, m2] = await Promise.all([latestVersion().catch((e) => `unknown (${e.message})`), get(`${RELEASES}/latest/download/legion-update-manifest-2.json`).then((r) => r.json()).then((j) => j.version).catch(() => 'none'), get(`${RELEASES}/latest/download/legion-update-manifest.json`).then((r) => r.json()).then((j) => j.version).catch(() => 'none')]);
+      log(`at the timeout GitHub serves: latest release ${lv}; second manifest name ${m2}; old manifest name ${m1}; updater state ${JSON.stringify(readJson(join(home, 'updater', 'state.json')))}`);
+    }
     if (!check(!!h, `hop ${n}: ${hop.version} starts and reports health`)) { row.state = readJson(join(up, 'journal.json'))?.state ?? '-'; throw new Error(`hop ${n} never reached ${hop.version}`); }
     const committed = await waitFor('the journal to read committed', async () => { const j = readJson(join(up, 'journal.json')); return j?.state === 'committed' && j.to === hop.version ? j : null; }, 180000);
     check(!!committed, `hop ${n}: the journal says committed to ${hop.version}`);
@@ -192,6 +218,7 @@ try {
   try { logLines = collect(); } catch (e) { log(`collect failed: ${e.message}`); }
   try { summary(hops, logLines); } catch { /* best effort */ }
   killInstalled();
+  if (relayPid) { try { process.kill(relayPid); } catch { /* gone */ } }
 }
 function copyState(n) { try { cpSync(join(home, 'updater', 'state.json'), join(art, `updater-state-after-hop-${n}.json`)); } catch { /* none */ } try { cpSync(join(up, 'journal.json'), join(art, `journal-after-hop-${n}.json`)); } catch { /* none */ } }
 if (problems.length) { console.error(`\n${problems.length} problem(s):\n- ${problems.join('\n- ')}`); process.exit(1); }

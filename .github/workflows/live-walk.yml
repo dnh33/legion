@@ -8,6 +8,7 @@ name: Live walk
 # if any of those test switches (or LEGION_REHEARSAL) is in its environment. It only READS public releases: no secrets, a read-only token, nothing published.
 #   walk    from `from` (default 0.2.7) through the stone to `to`
 #   direct  from the stone (0.3.0) straight to `to`
+# With `tag` (a release that is not Latest yet) the app's GitHub traffic is relayed to that tag's real assets; see scripts/live-walk/relay.mjs.
 on:
   workflow_dispatch:
     inputs:
@@ -17,6 +18,10 @@ on:
         default: "0.2.7"
       to:
         description: Version to end on (empty = the latest release).
+        required: false
+        default: ""
+      tag:
+        description: Walk to this tag's real assets BEFORE it is Latest (e.g. v0.3.2, a prerelease). Overrides `to`. A draft is not public and cannot be fetched.
         required: false
         default: ""
 
@@ -54,6 +59,8 @@ jobs:
     env:
       FROM_INPUT: ${{ inputs.from }}
       TO_INPUT: ${{ inputs.to }}
+      # TEMPORARY (until the first merge): v0.3.1 is a prerelease now, so the PR run walks to its tag through the relay.
+      TAG_INPUT: ${{ inputs.tag || (github.event_name == 'pull_request' && 'v0.3.1' || '') }}
       SLOT: ${{ matrix.slot }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,6 +76,9 @@ jobs:
           $to = $env:TO_INPUT
           if ([string]::IsNullOrWhiteSpace($to)) { $to = 'latest' }
           elseif ($to -ne 'latest' -and $to -notmatch '^\d{1,9}\.\d{1,9}\.\d{1,9}$') { throw "to must be a plain version or empty, got: $to" }
+          $tag = $env:TAG_INPUT
+          if (-not [string]::IsNullOrWhiteSpace($tag) -and $tag -notmatch '^v\d{1,9}\.\d{1,9}\.\d{1,9}$') { throw "tag must look like v0.3.2, got: $tag" }
+          "LW_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LW_FROM=$from" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LW_TO=$to" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "from $from to $to"
@@ -82,7 +92,10 @@ jobs:
           & pwsh -NoProfile -ExecutionPolicy Bypass -File $ps1 -NoLaunch -Version $env:LW_FROM -InstallDir "$env:RUNNER_TEMP\legion-install"
           if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
       - name: Walk the real releases
-        run: node scripts/live-walk/run-live-walk.mjs --install "$env:RUNNER_TEMP\legion-install" --work "$env:RUNNER_TEMP\work" --from $env:LW_FROM --to $env:LW_TO
+        run: |
+          $extra = @()
+          if (-not [string]::IsNullOrWhiteSpace($env:LW_TAG)) { $extra = @('--tag', $env:LW_TAG) }
+          node scripts/live-walk/run-live-walk.mjs --install "$env:RUNNER_TEMP\legion-install" --work "$env:RUNNER_TEMP\work" --from $env:LW_FROM --to $env:LW_TO @extra
       - name: Keep the logs and updater state
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
