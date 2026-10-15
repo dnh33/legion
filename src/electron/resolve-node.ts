@@ -44,7 +44,7 @@ export function coreStartHint(mode: CoreLaunch['mode'], code?: string): string {
   if (mode === 'package') {
     return `Legion's own runtime (${PACKAGE_ELECTRON.join('\\')}) could not start${code ? ` (${code})` : ''}. Your antivirus may have blocked or removed it: in Windows Security > Protection history, allow or restore the file, then run setup again. Legion does not retry by itself.`;
   }
-  return 'Node.js 20.10+ not found. Run setup.cmd again (it can install Node for Legion), or: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).';
+  return 'Node.js 22.12 or newer not found. Run setup.cmd again (it can install Node for Legion), or: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).';
 }
 
 /**

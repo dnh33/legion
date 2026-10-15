@@ -283,6 +283,9 @@ describe('the handshake: no prompt, no model turn', () => {
     assert.deepEqual(f.log.calls, ['init', 'skills', 'plugins']);
     assert.equal(got.plugins[0]!.path, 'C:\\x');
     assert.equal(got.skills[0]!.name, 'c:one');
+    // an omitted mode would start auto mode on third-party providers (SDK 0.3.286); probes pin it and leave no session file
+    assert.equal((f.log.options as any).permissionMode, 'default');
+    assert.equal((f.log.options as any).persistSession, false);
     assert.equal(got.modelMessages, 0);
     assert.equal(got.costUsd, 0);
     // the stream the SDK reads user messages from ended without ever producing one

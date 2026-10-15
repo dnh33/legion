@@ -1,0 +1,13 @@
+This update is a larger download than usual, about 285 MB, because it changes the parts Legion is built on. It installs by itself.
+
+Keep your knowledge fresh
+The Lattice's Lint tab lists notes that may be out of date, with their age and sources. Refresh asks the Archivist to re-check a note and propose an update you accept in the Inbox. Still current marks a note you checked yourself.
+
+Also new:
+- The model picker shows every model. Older ones sit under Older models, and OpenRouter models are grouped by their maker.
+- No focus rings. The keyboard shows a soft tint instead. Settings, Accessibility brings rings back.
+Fixed:
+- "Needs you" opens the agent's chat with the item on top.
+- Work items on the Board open fully in view, and the Lattice no longer goes blank around a note with many links.
+
+Legion now needs Node 22.12 or newer if you run it from source. Full detail in CHANGELOG.md.

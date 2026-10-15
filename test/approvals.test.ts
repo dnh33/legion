@@ -117,3 +117,26 @@ test('house tools are Legion tools: reading your own context layer must not stop
   assert.equal(needsApproval('ask', 'mcp__legion_houseish__read'), true, 'and it still needs a card');
   assert.equal(taintsRun(`mcp__${HOUSE_SERVER_NAME}__house_read`), false);
 });
+
+test('new SDK 0.3.296 tools (OfferChromeSetup, Cron with nextFireAt) are unknown tools: carded in ask and auto-edits, quiet in full, approve and deny both work', async () => {
+  const cron = { cron: '*/5 * * * *', prompt: 'ping', nextFireAt: '2026-10-15T12:00:00Z' };
+  for (const [tool, input] of [['OfferChromeSetup', {}], ['OfferChromeSetup', { reason: 'browse' }], ['Cron', cron]] as const) {
+    assert.equal(needsApproval('ask', tool), true, `ask ${tool}`);
+    assert.equal(needsApproval('auto-edits', tool), true, `auto-edits ${tool}`);
+    assert.equal(needsApproval('full', tool), false, `full ${tool}`);
+    const s = summarizeToolInput(tool, input);
+    assert.equal(typeof s, 'string');
+    assert.ok(s.length <= 400);
+    const { decideGate } = await import('../src/core/gates.js');
+    assert.equal(decideGate({ toolName: tool, input, agentId: 'a' }, [], 'ask', false).verdict, 'baseline');
+  }
+  assert.equal(summarizeToolInput('Cron', { nextFireAt: '2026-10-15T12:00:00Z' }), '{"nextFireAt":"2026-10-15T12:00:00Z"}');
+  const b = new ApprovalBroker(new EventBus());
+  const yes = b.request('t', 'a', 'OfferChromeSetup', {});
+  const no = b.request('t', 'a', 'OfferChromeSetup', {});
+  const [r1, r2] = b.pending();
+  assert.equal(r1!.toolName, 'OfferChromeSetup');
+  b.resolve(r1!.id, true); b.resolve(r2!.id, false);
+  assert.equal(await yes, true);
+  assert.equal(await no, false);
+});

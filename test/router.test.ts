@@ -87,3 +87,34 @@ test('a run that stopped at the spend limit never escalates to Opus (a fresh cap
   // a real failure on sonnet still escalates
   assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_during_execution', isError: true }), true);
 });
+
+test('shouldEscalate: SDK usage-limit texts never escalate (exact strings from sdk.d.ts USAGE_LIMIT_ERROR_PREFIXES)', () => {
+  const texts = [
+    "You've hit your session limit · resets 3pm",
+    "You've reached your weekly limit",
+    "You're out of usage credits",
+    'Your org is out of usage · add funds to continue',
+    'Your org is out of usage · contact your admin',
+    "Your seat type doesn't include usage credits",
+    "Your seat type doesn't include usage",
+    'Your usage allocation has been disabled by your admin',
+    "Your group's usage limit is set to $0",
+    'Fable 5 requires usage credits',
+    "You're out of extra usage",
+    "Your seat type doesn't include extra usage",
+    'This service is disabled for your org',
+  ];
+  for (const errorText of texts) {
+    assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'success', isError: true, errorText }), false, errorText);
+  }
+});
+
+test('isUsageLimitText: matches every SDK prefix, ignores warnings and plain failures, keeps the regex fallback', async () => {
+  const { isUsageLimitText } = await import('../src/core/router.js');
+  const sdk = await import('@anthropic-ai/claude-agent-sdk');
+  for (const p of [...sdk.USAGE_LIMIT_ERROR_PREFIXES, ...sdk.ORG_POLICY_LIMIT_PREFIXES]) assert.equal(isUsageLimitText(`${p} extra`), true, p);
+  assert.equal(isUsageLimitText("  You've hit your limit"), true); // leading whitespace
+  assert.equal(isUsageLimitText("You've used 90% of your weekly limit"), false); // warning prefix: not a stop
+  assert.equal(isUsageLimitText('TypeError: x is not a function'), false);
+  assert.equal(isUsageLimitText('API Error: 429 rate limited'), true); // regex fallback
+});

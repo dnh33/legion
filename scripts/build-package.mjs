@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { args, die, isReleaseVersion, listZipNames, loadDist, readZipEntry, REPO } from './lib/release-lib.mjs';
-import { APP_SHIM_REL, appShim, CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, sha256File } from './lib/package-lib.mjs';
+import { APP_SHIM_REL, appShim, CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, pruneTokenizer, sha256File } from './lib/package-lib.mjs';
 import { writeZipFile } from './lib/zip-stream.mjs';
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -41,6 +41,9 @@ export async function buildPackage(o) {
 
   const gone = pruneSdkPlatforms(o.nodeModules);
   log(`removed other SDK platforms: ${gone.join(', ') || 'none'}`);
+  const tok = pruneTokenizer(o.nodeModules);
+  if (pkg.dependencies?.['gpt-tokenizer'] && !tok) throw new Error('gpt-tokenizer is a dependency but is not installed in node_modules');
+  if (tok) log(`gpt-tokenizer: kept the o200k vocabulary, removed ${Math.round(tok.removedBytes / 1e6)} MB`);
   const sdk = await checkSdkBinary(o.nodeModules);
   const sdkVersion = JSON.parse(readFileSync(join(o.nodeModules, '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')).version;
 
@@ -125,7 +128,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!a.foreign && !(process.platform === 'win32' && process.arch === 'x64')) die('this builds the Windows x64 package: run it on Windows x64 (the Windows Electron and claude.exe come from the dependency install).');
   if (resolve(a.out) === REPO || resolve(a.out).startsWith(REPO + (process.platform === 'win32' ? '\\' : '/'))) die('--out must be outside the repository (the output would dirty the tree and could end up in the package)');
   const nodeVer = process.versions.node.split('.').map(Number);
-  if (nodeVer[0] < 20 || (nodeVer[0] === 20 && nodeVer[1] < 10)) die('Node 20.10 or newer is needed to build');
+  if (nodeVer[0] < 22 || (nodeVer[0] === 22 && nodeVer[1] < 12)) die('Node 22.12 or newer is needed to build');
   const dirty = a.foreign ? false : git(['status', '--porcelain']) !== '';
   if (dirty && !a['allow-dirty']) die('the git tree has uncommitted changes (use --allow-dirty to build anyway; it is recorded in build-info.json)');
   const commit = a.commit ?? (git(['rev-parse', 'HEAD']) || 'unknown');

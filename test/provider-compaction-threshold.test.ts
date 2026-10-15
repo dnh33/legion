@@ -63,39 +63,38 @@ test('EVIDENCE: with the floor, a conversation that used to compact now rides to
   const usable = usableWindow(WINDOW);
   const oldTrigger = Math.round(usable * 0.5);
   const floorTrigger = Math.round(usable * 0.75);
+  const turn = 'work on the migration '.repeat(200);
   const convo = (count: number): ChatMessage[] =>
-    Array.from({ length: count }, (_, i) => msg(i % 2 ? 'assistant' : 'user', 'w'.repeat(4_000)));
+    Array.from({ length: count }, (_, i) => msg(i % 2 ? 'assistant' : 'user', turn));
+  const per = messagesTokens(convo(1));
 
   // Sized to land between the old 0.5 trigger and the new 0.75 floor.
-  const atOldThreshold = convo(58);
+  const atOldThreshold = convo(Math.ceil((oldTrigger * 1.1) / per));
   const n = messagesTokens(atOldThreshold);
   assert.ok(n > oldTrigger, `sanity: this conversation is over the OLD trigger (${n} > ${oldTrigger})`);
   assert.ok(n < floorTrigger, `sanity: and under the new floor (${n} < ${floorTrigger})`);
   assert.equal(needsCompaction(atOldThreshold, WINDOW), false, 'it no longer compacts where it used to compact');
 
   // The floor is higher, not infinite: past 75% it still compacts.
-  assert.equal(needsCompaction(convo(89), WINDOW), true, 'and it still compacts once it passes the floor');
+  assert.equal(needsCompaction(convo(Math.ceil((floorTrigger * 1.1) / per)), WINDOW), true, 'and it still compacts once it passes the floor');
 });
 
-// ---------------------------------------------------------------- 4. estimator: bytes, not code units
-test('estimateTokens counts UTF-8 bytes (÷4), not UTF-16 code units (÷3)', () => {
+// ---------------------------------------------------------------- 4. estimator: real tokens
+test('estimateTokens counts vocabulary tokens, not characters or code units', () => {
   assert.equal(estimateTokens(''), 0);
-  // ASCII: (len + 3) / 4 — 400 chars -> 100, NOT the old ~134.
-  assert.equal(estimateTokens('a'.repeat(400)), 100, 'ASCII divides by 4, matching the reference');
-  assert.notEqual(estimateTokens('a'.repeat(400)), Math.ceil(400 / 3), 'and is no longer the old /3 figure');
+  // 400 letters in a row pack into about 50 tokens; bytes / 4 said 100, the old code-unit rule ~134.
+  assert.ok(estimateTokens('a'.repeat(400)) < 100);
 
-  // CJK: ~1 token per ideograph. 100 ideographs -> 100 (the old /3 said ~34, a ~3x under-count).
+  // CJK: an ideograph is about one token, never a third of one (the old /3 rule).
   const cjk = '中'.repeat(100);
-  assert.equal(estimateTokens(cjk), 100, 'each CJK ideograph counts as one token');
+  assert.ok(estimateTokens(cjk) >= 50, `100 ideographs estimated at ${estimateTokens(cjk)}`);
   assert.ok(estimateTokens(cjk) > Math.ceil(cjk.length / 3), 'and it is demonstrably not the old character/3 count');
 
-  // Cyrillic is 2 UTF-8 bytes/char -> ~chars/2, which byte-counting gets right and char/3 does not.
-  assert.equal(estimateTokens('ы'.repeat(100)), 50);
+  // Cyrillic is two bytes a character and costs more than ASCII per character.
+  assert.ok(estimateTokens('привет мир '.repeat(20)) > estimateTokens('hello world '.repeat(20)) / 2);
 
-  // A surrogate pair (emoji) is ONE codepoint / 4 UTF-8 bytes but TWO JS code units: bytes win.
-  const emoji = '😀'.repeat(10);
-  assert.equal(emoji.length, 20, 'the JS string is 20 UTF-16 code units');
-  assert.equal(estimateTokens(emoji), 10, 'but 40 UTF-8 bytes / 4 = 10, not 20/4=5 or 20/3=7');
+  // A surrogate pair (emoji) is one codepoint and two JS code units; a lone emoji costs at least a token.
+  assert.ok(estimateTokens('😀'.repeat(10)) >= 5);
 });
 
 // ---------------------------------------------------------------- 5. CJK under-count guard
@@ -108,6 +107,6 @@ test('regression guard: the estimate never under-counts CJK by more than 2x', ()
       `CJK of ${n} chars estimated at ${estimateTokens(cjk)} — must stay within 2x of ${n} real tokens`,
     );
   }
-  // Mixed text: dense CJK chars count whole, the ASCII around them at bytes/4.
-  assert.equal(estimateTokens('abc中'.repeat(10)), 10 + ((30 + 3) >> 2));
+  // Mixed text: the ideograph and the ASCII around it are both counted.
+  assert.ok(estimateTokens('abc中'.repeat(10)) >= 20);
 });

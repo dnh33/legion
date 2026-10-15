@@ -5,7 +5,7 @@
 # The download route needs no admin and changes no system setting; the only network host is nodejs.org.
 
 $script:LegionNodeVersion = '24.21.0'        # the Node.js LTS line Legion installs for a user who has none (the one place to bump it)
-$script:LegionNodeMin = '20.10.0'            # package.json "engines.node": ">=20.10". Keep in step with it (a test checks).
+$script:LegionNodeMin = '22.12.0'            # package.json "engines.node": ">=22.12". Keep in step with it (a test checks).
 $script:LegionNodeSizeMB = 36                # shown in the question; x64 is about 36 MB (arm64 a little less)
 $script:LegionNodeHost = 'nodejs.org'
 $script:LegionNodeZipMax = 120MB

@@ -35,8 +35,8 @@ test('only an explicit false disables; a missing or wrong-typed value reads as O
   assert.equal(normalizeCompaction({ ...base, enabled: false }).enabled, false, 'explicit false is off');
 });
 
-test('the estimator the switch shares is the byte-based one, not the old /3', () => {
-  assert.equal(estimateTokens('a'.repeat(400)), 100, '4 chars per token');
+test('the estimator the switch shares counts real tokens, not characters', () => {
+  assert.equal(estimateTokens('hello world'), 2, 'two words, two tokens');
   assert.notEqual(estimateTokens('a'.repeat(400)), Math.ceil(400 / 3), 'and not the old character-count approximation');
 });
 
@@ -49,7 +49,7 @@ test('EVIDENCE: with the switch off, the engine stops reporting a conversation a
   // ProviderHost.stored rows are { role, text } - the store shape, not the wire shape.
   const stored = Array.from({ length: 200 }, (_, i) => ({
     role: i % 2 === 0 ? 'user' : 'assistant',
-    text: `turn ${i}: ${'work on the migration '.repeat(120)}`,
+    text: `turn ${i}: ${'work on the migration '.repeat(400)}`,
   }));
   const host = { stored, prompt: 'the newest ask', systemPrompt: 'sys' };
 

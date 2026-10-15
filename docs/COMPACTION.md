@@ -111,11 +111,11 @@ home because that is where the next turn of the same conversation will look for 
 
 ## Token counting
 
-There is no tokenizer dependency and adding one is not worth the weight. Provider-reported usage is
-post-hoc: it arrives *after* the request that would have overflowed, so it cannot drive the pre-flight
-check. The estimator is character-based and **deliberately errs toward over-counting**, because
-over-counting compacts early — the safe direction — while under-counting is the failure that ends a run.
-`estimateTokens` documents its own error bars; a caller that needs exact numbers has provider usage.
+`estimateTokens` counts with the o200k_base vocabulary (the `gpt-tokenizer` package, loaded at the first count). It is
+exact for OpenAI-family models and a close estimate for the rest. Provider-reported usage is post-hoc: it arrives *after*
+the request that would have overflowed, so it cannot drive the pre-flight check. Long unbroken runs are counted in pieces
+and blocks over 32,768 characters are scaled from their head and tail, so one huge tool result cannot stall a turn.
+The package build keeps only this vocabulary (`pruneTokenizer`). A caller that needs exact numbers has provider usage.
 
 ## Verification
 
