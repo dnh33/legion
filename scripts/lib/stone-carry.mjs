@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readZipEntry, REPO } from './release-lib.mjs';
+import { fullAssetProblems } from './full-asset-check.mjs';
 
 /** True when the release lock's dependency content differs from the stone's. A missing or unparseable stone lock counts as "differs" (fail closed). */
 export function lockDiffersFromStone({ releaseLock, stoneLock, dependencyHash }) {
@@ -66,4 +67,18 @@ export function carryForFolder({ version, stones, appZip, oldManifestBytes, pars
   try { stoneDepsSha256 = parseManifest(oldManifestBytes).depsSha256; } catch { /* stoneProblems reports an unparseable old-name manifest */ }
   const stone = stones[stones.length - 1];
   return carryDecision({ version, stones, releaseLock: lockBuf.toString('utf8'), stoneLock: stoneLockText({ path: stoneLockPath, stone }), stoneDepsSha256, dependencyHash });
+}
+
+/**
+ * The whole folder-level rule for the full package, shared by release-verify and release-publish: does the stone lock decide that this release must
+ * carry a fullAsset, and does the manifest's fullAsset (or its absence) match? -> { lockProblems, fullProblems }.
+ * A full-install release carries its package because it says so; the stone comparison only decides for a code-only one.
+ */
+export async function folderFullPackageProblems({ manifest, dir, sums, stones, appZip, oldManifestBytes, parseManifest, dependencyHash, stoneLockPath, published = false }) {
+  const carry = manifest.requiresFullInstall
+    ? { carryRequired: false, problems: [] }
+    : carryForFolder({ version: manifest.version, stones, appZip, oldManifestBytes, parseManifest, dependencyHash, stoneLockPath });
+  if (carry.problems.length) return { lockProblems: carry.problems, fullProblems: [] };
+  const fullProblems = await fullAssetProblems({ manifest, version: manifest.version, dir, sums, carryRequired: carry.carryRequired, stoneVersion: stones[stones.length - 1], published });
+  return { lockProblems: [], fullProblems };
 }

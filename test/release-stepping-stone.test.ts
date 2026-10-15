@@ -240,9 +240,11 @@ test('stone rules: fetchBytes gives up on a server that never answers', async ()
   } finally { srv.closeAllConnections(); srv.close(); }
 });
 
+// the fixture stone's package-lock.json (pkg() default); release-publish compares the release lock with it (the carry rule)
+const fixtureStoneLock = (): string => { const f = join(tmp(), 'package-lock.json'); writeFileSync(f, '{"lockfileVersion":3}\n'); return f; };
 test('publish: assets go up to a DRAFT, both manifest names with their signatures included, and only then does it become latest', () => {
   const t = trustFixture(); const sd = stone(t); const l = later('0.3.2', sd);
-  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--dry-run');
+  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--stone-lock', fixtureStoneLock(), '--dry-run');
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(l.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
   for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
   const r = run(l.dir); assert.equal(r.code, 0, r.out);
@@ -261,7 +263,7 @@ test('publish: refuses to create the draft when the old name is not the signed s
   for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
   copyFileSync(join(l.dir, 'legion-update-manifest-2.json'), join(l.dir, 'legion-update-manifest.json'));
   copyFileSync(join(l.dir, 'legion-update-manifest-2.json.sig'), join(l.dir, 'legion-update-manifest.json.sig'));
-  const r = sh('release-publish.mjs', '--dir', l.dir, '--version', '0.3.2', '--notes-file', join(l.dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--dry-run');
+  const r = sh('release-publish.mjs', '--dir', l.dir, '--version', '0.3.2', '--notes-file', join(l.dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--stone-lock', fixtureStoneLock(), '--dry-run');
   assert.notEqual(r.code, 0); assert.match(r.out, /stepping stone/i); assert.ok(!/gh release create/.test(r.out), 'no draft is created');
 });
 test('stone: SHIPPING.md lists every stepping stone and says they are never deleted', () => {

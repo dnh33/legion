@@ -7,8 +7,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync, execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -208,4 +209,64 @@ test('full-install-rehearsal.yml runs the stone-stranded scenarios from 0.2.7 an
   assert.match(y, /stone-stranded, stone-stranded-nofull\]/);
   assert.match(y, /'stone-stranded', 'stone-stranded-nofull'\) \{ \$base = '0\.2\.7' \}/);
   assert.match(y, /scripts\/lib\/stone-carry\.mjs/); assert.match(y, /scripts\/lib\/frozen-parser\.mjs/);
+});
+
+// ------------------------------------------------------------ release-verify --published (post-publish flow)
+// The documented flow fetches only the small files (manifest, sig, app.zip, SHA256SUMS) into a fresh folder: the 285 MB zip is compared live, not in the folder.
+async function verifyPublished(r: Rel, served: Buffer | null): Promise<{ status: number | null; stdout: string; stderr: string; hits: string[] }> {
+  const hits: string[] = [];
+  const srv = createServer((req, res) => { hits.push(req.url ?? ''); if (served && (req.url ?? '').endsWith(`/legion-${V}-win-x64.zip`)) { res.writeHead(200); res.end(served); } else { res.writeHead(404); res.end('no'); } });
+  await new Promise<void>((ok) => srv.listen(0, '127.0.0.1', ok));
+  const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  try {
+    return await new Promise((ok) => {
+      const c = spawn(process.execPath, [join(REPO, 'scripts', 'release-verify.mjs'), '--dir', r.dir, '--trust-module', r.tm, '--no-network', '--stones', '0.3.0', '--stone-lock', r.stoneLock, '--published', '--base', base], { env: process.env });
+      let stdout = '', stderr = '';
+      c.stdout.on('data', (d: Buffer) => { stdout += d; }); c.stderr.on('data', (d: Buffer) => { stderr += d; });
+      c.on('close', (status: number | null) => ok({ status, stdout, stderr, hits }));
+    });
+  } finally { srv.close(); }
+}
+
+test('verify --published: works with only the small files; the live fullAsset size and sha256 are compared with the signed manifest', async () => {
+  const r = release(NEW_LOCK, 'carry'); unlinkSync(r.full);
+  const ok = await verifyPublished(r, Buffer.from('the full package bytes'));
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.deepEqual(ok.hits, [`/releases/download/v${V}/legion-${V}-win-x64.zip`], 'the live zip was fetched exactly once');
+  const wrong = await verifyPublished(release(NEW_LOCK, 'carry'), Buffer.from('some other bytes here!'));
+  assert.notEqual(wrong.status, 0); assert.match(wrong.stderr, /live full package/i);
+  const gone = await verifyPublished(release(NEW_LOCK, 'carry'), null);
+  assert.notEqual(gone.status, 0); assert.match(gone.stderr, /live full package/i); assert.match(gone.stderr, /404/);
+});
+
+test('verify --published: SHA256SUMS.txt must still list the signed fullAsset hash, and a missing fullAsset on a carry release still fails', async () => {
+  const r = release(NEW_LOCK, 'carry'); unlinkSync(r.full);
+  const p = join(r.dir, 'SHA256SUMS.txt');
+  writeFileSync(p, readFileSync(p, 'utf8').split('\n').filter((l) => !l.endsWith('-win-x64.zip')).join('\n'));
+  const v = await verifyPublished(r, Buffer.from('the full package bytes'));
+  assert.notEqual(v.status, 0); assert.match(v.stderr, /SHA256SUMS/);
+  const none = await verifyPublished(release(NEW_LOCK, 'code'), null);
+  assert.notEqual(none.status, 0); assert.match(none.stderr, /strand/i);
+});
+
+test('verify without --published still needs the full zip in the folder', () => {
+  const r = release(NEW_LOCK, 'carry'); unlinkSync(r.full);
+  const v = verify(r); assert.notEqual(v.status, 0); assert.match(v.stderr, /not in the folder/);
+});
+
+// ------------------------------------------------------------ release-publish runs the same carry rule
+function publishDry(r: Rel) {
+  for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh']) writeFileSync(join(r.dir, f), 'x');
+  writeFileSync(join(r.dir, 'notes.txt'), 'notes');
+  return run('release-publish.mjs', ['--dir', r.dir, '--version', V, '--notes-file', join(r.dir, 'notes.txt'), '--trust-module', r.tm, '--no-network', '--stones', '0.3.0', '--stone-lock', r.stoneLock, '--dry-run']);
+}
+test('publish: refuses a code-only release whose lock differs from the stone lock and that has no fullAsset (no draft is created)', () => {
+  const p = publishDry(release(NEW_LOCK, 'code'));
+  assert.notEqual(p.status, 0); assert.match(p.stderr, /strand/i); assert.match(p.stderr, /fullAsset/);
+  assert.doesNotMatch(p.stdout, /gh release create/);
+});
+test('publish: a carry release, and a code-only release on the stone lock, are accepted; a stray fullAsset is refused', () => {
+  const a1 = publishDry(release(NEW_LOCK, 'carry')); assert.equal(a1.status, 0, a1.stdout + a1.stderr);
+  const a2 = publishDry(release(STONE_LOCK, 'code')); assert.equal(a2.status, 0, a2.stdout + a2.stderr);
+  const a3 = publishDry(release(STONE_LOCK, 'carry')); assert.notEqual(a3.status, 0); assert.match(a3.stderr, /fullAsset/);
 });
