@@ -3,7 +3,8 @@
  * (pageLogic, askLogic); the holds live in answerStore. Spec 3.2.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ARM_MS } from '../../../../src/shared/approval-keys';
+import { isArmed } from '../../../../src/shared/approval-keys';
+import { appearedAt, pruneAppearances, quietBefore } from '../../a11y/keyClock';
 import { digestEvents, digestState } from '../../../../src/shared/attention';
 import type { Ask } from '../../../../src/shared/attention';
 import { digestKey } from '../hold';
@@ -76,13 +77,12 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   useEffect(() => () => setVisibleRows([]), []);
 
   // keyboard: J/K move between rows; A and D answer under the thread's arming rule (a quiet keyboard, the row on screen long enough)
-  const shownAt = useRef(new Map<string, number>());
-  const lastKeyAt = useRef(0);
   const keyState = useRef<KeyState>({});
-  for (const k of shown) if (!shownAt.current.has(k)) shownAt.current.set(k, performance.now());
+  // a row's appearance and the page's key clock are the shared ones (keyClock), read the way a card reads them
+  for (const k of shown) appearedAt('digest:' + k, performance.now());
+  useEffect(() => { pruneAppearances('digest:', new Set(shown.map((k) => 'digest:' + k))); });
   const onKeyDown = (e: React.KeyboardEvent): void => {
-    const now = performance.now(), quietSince = lastKeyAt.current;
-    lastKeyAt.current = now;
+    const now = performance.now(), quiet = quietBefore(e.nativeEvent, now, e.key);
     if (e.repeat) return; // a held key is never an answer, and never the second press
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target as HTMLElement;
@@ -100,7 +100,7 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
     if (!row || answers.has(row.key)) { keyState.current = {}; return; }
     const allow = row.buttons.find((b) => b.act === 'allow');
     const toolName = f.approvals.find((a) => a.id === row.ids[0])?.toolName ?? '';
-    const armedNow = now - Math.max(shownAt.current.get(row.key) ?? now, quietSince) >= ARM_MS;
+    const armedNow = isArmed(appearedAt('digest:' + row.key, now), quiet, now);
     const r = digestKey(row.kind === 'command' ? { id: row.key, toolName, level: row.level, certain: row.certain && !!allow } : undefined, e.key, armedNow, Date.now(), keyState.current, e.repeat);
     keyState.current = r.state;
     if (!r.action) { if (armed) setArmed(null); return; }

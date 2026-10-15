@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
-import { ARM_MS, threadKey } from '../../../src/shared/approval-keys';
+import { isArmed, threadKey } from '../../../src/shared/approval-keys';
+import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
+import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
@@ -170,11 +172,13 @@ export function Thread() {
   // ARM_MS (every key restarts that clock); otherwise it scrolls to the card without focusing it. Stray typing on the page, a word or
   // a sentence, never allows anything: only a lone, deliberate A does.
   const cardEl = (id: string) => scroller.current?.querySelector<HTMLElement>(`[data-approval-id="${CSS.escape(id)}"]`) ?? null;
-  const shownAt = useRef(new Map<string, number>());
-  const lastKeyAt = useRef(0);
-  useEffect(() => { for (const a of taskApprovals) if (!shownAt.current.has(a.id)) shownAt.current.set(a.id, performance.now()); });
+  // a card's appearance is one shared source (the card reads the same one); an approval that is gone is forgotten
+  useEffect(() => {
+    for (const a of taskApprovals) appearedAt('approval:' + a.id, performance.now());
+    pruneAppearances('approval:', new Set(approvals.map((x) => 'approval:' + x.id)));
+  });
   const armedFor = (a: { id: string } | undefined, now: number, quietSince: number): boolean =>
-    !!a && now - Math.max(shownAt.current.get(a.id) ?? now, quietSince) >= ARM_MS;
+    !!a && isArmed(appearedAt('approval:' + a.id, now), quietSince, now);
   const cardInView = (a: { id: string } | undefined): boolean => {
     const el = a && cardEl(a.id); const sc = scroller.current;
     if (!el || !sc) return false;
@@ -183,17 +187,17 @@ export function Thread() {
   };
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const now = performance.now(), quietSince = lastKeyAt.current;
-      lastKeyAt.current = now;
+      const now = performance.now(), quietSince = quietBefore(e, now, e.key);
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;
       // the same rule as the card's own keys: a Blender script or a download is allowed by clicking only
       const first = taskApprovals[0];
-      const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince)); if (!k) return;
+      const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince));
+      if (!k) { if (shortcutRefused(first, e.key, e.repeat, armedFor(first, now, quietSince), cardInView(first))) notices.notify('approval:' + first.id); return; }
       e.preventDefault();
       if ('reveal' in k) {
-        shownAt.current.set(k.id, performance.now());
+        restartAppearance('approval:' + k.id, performance.now());
         const el = cardEl(k.id);
         if (el) el.scrollIntoView({ block: 'nearest' }); else toBottom();
         return;

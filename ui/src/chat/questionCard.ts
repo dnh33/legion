@@ -92,3 +92,22 @@ export function reviewRows(questions: QuestionSpec[], answers: QuestionPick[]): 
 
 /** Convenience for the card: everything the review step needs, ready to render. */
 export const reviewOf = (q: Pick<PendingQuestion, 'questions'>, answers: QuestionPick[]) => reviewRows(q.questions, answers);
+
+/**
+ * Where focus goes after a question step changes. Focus that was inside the card goes back into it: the new step's first option, or the Review
+ * step's primary control when there are no options (or it is Review). Focus that was outside stays where it is.
+ */
+export function refocusAfterStep(input: { inside: boolean; review: boolean; optionCount: number }): 'none' | 'option' | 'primary' {
+  if (!input.inside) return 'none';
+  if (input.review || input.optionCount === 0) return 'primary';
+  return 'option';
+}
+
+/**
+ * Whether focus is still inside the card after a blur. It is, when it moved to another element of the card, or when it went to nothing while
+ * the window keeps focus (an option that unmounted under it: the browser may fire a blur with nothing to move to). A window that lost focus
+ * clears it; its focus event brings it back.
+ */
+export function focusStaysInside(input: { relatedInside: boolean; relatedNull: boolean; windowFocused: boolean }): boolean {
+  return input.relatedInside || (input.relatedNull && input.windowFocused);
+}
