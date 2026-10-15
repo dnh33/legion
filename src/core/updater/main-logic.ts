@@ -3,7 +3,7 @@ import { join, resolve, sep } from 'node:path';
 import { CODE_SET, FULL_PACKAGE_SET, UPDATE_DIR, type ApplyJob } from './apply.js';
 import { BOOT_REASON } from './idle.js';
 
-export interface CommitFacts { installDir: string; stagedDir: string; from: string; to: string; /** FULL_PACKAGE_SET for a dependency-change release, omitted for a code-only update. */ names?: readonly string[] }
+export interface CommitFacts { installDir: string; stagedDir: string; from: string; to: string; /** The update id the core made when it found this update (journey.ts). */ updateId?: string; /** FULL_PACKAGE_SET for a dependency-change release, omitted for a code-only update. */ names?: readonly string[] }
 
 /** The name sets the core may return, in order. Anything else (or a reordered/edited set) is refused, so a tampered commit answer cannot make the helper swap an arbitrary top-level name. */
 const NAME_SETS: readonly (readonly string[])[] = [CODE_SET, FULL_PACKAGE_SET];
@@ -16,6 +16,7 @@ export function commitMatches(c: unknown, installDir: string): c is CommitFacts 
   const o = c as Record<string, unknown>;
   if (![o.installDir, o.stagedDir, o.from, o.to].every((v) => typeof v === 'string' && v.length > 0)) return false;
   if (o.names !== undefined && !isKnownNameSet(o.names)) return false;
+  if (o.updateId !== undefined && !(typeof o.updateId === 'string' && /^[0-9a-f]{8}$/.test(o.updateId))) return false;
   const base = resolve(installDir);
   const staged = resolve(o.stagedDir as string);
   const win = process.platform === 'win32';
@@ -23,10 +24,13 @@ export function commitMatches(c: unknown, installDir: string): c is CommitFacts 
   return norm(resolve(o.installDir as string)) === norm(base) && norm(staged).startsWith(norm(join(base, UPDATE_DIR, 'staging')) + sep);
 }
 
-export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string }): ApplyJob {
+export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string; dataDir?: string; window?: { enabled: boolean; userData: string } }): ApplyJob {
   return {
     installDir: c.installDir, stagedDir: c.stagedDir, parentPid: o.parentPid, port: o.port, from: c.from, to: c.to,
     ...(c.names ? { names: c.names } : {}),
+    ...(c.updateId ? { updateId: c.updateId } : {}),
+    ...(o.dataDir ? { dataDir: o.dataDir } : {}),
+    ...(o.window ? { window: o.window } : {}),
     // the same command the Start-menu shortcut runs: electron.exe "<install dir>"
     // LEGION_UPDATE_HANDOFF tells the new build it is the helper's own relaunch, so the update marker (which the helper still holds while it
     // waits for this build to report healthy) does not hold the build back from starting. It does not skip the single-instance lock.

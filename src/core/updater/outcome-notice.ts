@@ -3,20 +3,9 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { formatLine } from '../log/logger.js';
 import type { Outcome } from './apply.js';
+import { plainReason } from './journey.js';
 
-/** The helper writes short technical reasons; the owner gets plain words. Anything unknown is cleaned and cut, never shown raw and long. */
-export function plainReason(reason?: string): string {
-  const r = (reason ?? '').trim();
-  if (!r) return 'Something went wrong';
-  if (/core is still running|still answers on the port/i.test(r)) return 'Legion was opened while it was updating';
-  if (/did not exit in time|still running: nothing/i.test(r)) return 'Legion did not close in time';
-  if (/files in use|EBUSY|EPERM|EACCES/i.test(r)) return 'Some files were in use';
-  if (/did not report healthy|did not become healthy/i.test(r)) return 'The new version did not start correctly, so Legion went back to the previous one';
-  if (/^preflight/i.test(r)) return 'Legion could not back up your data first';
-  if (/could not prepare the update helper|helper copy/i.test(r)) return 'Legion could not prepare the update helper';
-  const clean = r.replace(/[–—]/g, '-').replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
-  return clean.length > 160 ? `${clean.slice(0, 157)}...` : clean;
-}
+export { plainReason };
 
 export interface OutcomeNotice { title: string; message: string; buttons: ['Retry', 'Dismiss']; rolledBack: boolean; to: string }
 export function outcomeNotice(o: Outcome | null): OutcomeNotice | null {

@@ -73,7 +73,7 @@ test('installing (committing) outranks a download still finishing and is shown a
   const b = pureBadgeState({ phase: 'committing', available: { version: '0.9.9' }, staged: { version: '0.9.9' }, progress: { bytes: 50, total: 100 } });
   assert.equal(b.visible, true);
   assert.equal(b.kind, 'installing');
-  assert.equal(b.label, 'Installing update…');
+  assert.equal(b.label, 'Closing Legion');
   assert.equal(b.tone, 'busy');
   assert.equal(b.action, 'settings');
 });

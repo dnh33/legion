@@ -67,7 +67,7 @@ export const LIMITS = Object.freeze({
   downloadTimeoutMs: 15 * 60_000,
 });
 
-export const DEFAULTS = Object.freeze({ checkEnabled: true, autoInstallWhenIdle: false, intervalHours: 12 });
+export const DEFAULTS = Object.freeze({ checkEnabled: true, autoInstallWhenIdle: false, intervalHours: 12, updateWindow: true });
 /** How often the automatic poll runs, and the floor between two automatic attempts when no check has ever succeeded. */
 export const POLL_MS = 60_000;
 export const RETRY_MS = 15 * 60_000;
