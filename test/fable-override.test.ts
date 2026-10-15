@@ -50,6 +50,6 @@ test('the per-task model parameter accepts fable and a catalog id, and refuses t
   assert.equal(modelParam.safeParse('not a model!').success, false);
 });
 
-test('the bot-side vm_claude tool offers the same aliases as ask and tell (Fable included), never more', () => {
-  assert.deepEqual([...VM_MODELS], ['sonnet', 'opus', 'haiku', 'fable']);
+test('the bot-side vm_claude tool offers sonnet and opus only, until boat.dev is shown to accept the others', () => {
+  assert.deepEqual([...VM_MODELS], ['sonnet', 'opus']);
 });

@@ -9,9 +9,8 @@ import { z } from 'zod';
 import { CommsError } from './hub.js';
 import type { CommsHub, SenderRun } from './hub.js';
 import type { TaskOrigin } from '../../shared/comms.js';
-import type { ApprovalMode, ModelChoice } from '../../shared/types.js';
-import { modelParam } from '../agent-tools.js';
-import { OVERRIDE_MODELS } from '../bridge.js';
+import type { ApprovalMode } from '../../shared/types.js';
+import { roomModelParam } from '../agent-tools.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -28,18 +27,8 @@ async function guard(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRe
 /** `run` is the engine's view of the task using this server: its taint and its approval ceiling travel with every message the bot sends. */
 export function buildCommsToolsServer(
   agentId: string, hub: CommsHub, run?: { taint(): boolean; markTainted?(): void; ceiling?: ApprovalMode; taskId?: string; origin?: TaskOrigin },
-  /** Checks a per-turn model against the account's catalog (Bridge.resolveModel). Without it only the alias list applies. */
-  resolveModel?: (v: unknown) => Promise<ModelChoice | undefined>,
 ): McpSdkServerConfigWithInstance {
   const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}), ...(run?.origin?.viaMcpClient ? { viaMcpClient: true } : {}) });
-  /** The per-turn model, checked against the catalog when resolveModel is given, else against the alias list alone (the comment on the parameter). */
-  const checkedModel = async (v: string | undefined): Promise<ModelChoice | undefined> => {
-    if (v === undefined) return undefined;
-    if (resolveModel) return resolveModel(v);
-    const m = v.trim().toLowerCase();
-    if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new CommsError(400, `model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
-    return m;
-  };
   const botList = tool(
     'bot_list',
     'List the other bots you can talk to: id, name, description, state (idle / working / waiting) and the rooms you share with each.',
@@ -54,11 +43,10 @@ export function buildCommsToolsServer(
       to: z.string().describe('Bot id or name (see bot_list)'),
       text: z.string().describe('The message. Be self-contained: the other bot has no access to your context.'),
       replyTo: z.string().optional().describe('Id of the message you are answering'),
-      model: modelParam,
+      model: roomModelParam,
     },
     (a) => guard(async () => {
-      const model = await checkedModel(a.model);
-      const m = hub.botSend(agentId, a.to, a.text, a.replyTo, sender(), { model });
+      const m = hub.botSend(agentId, a.to, a.text, a.replyTo, sender(), { model: a.model });
       if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, note: 'You already sent this message a moment ago; it was not sent again.' });
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, note: 'Delivered asynchronously; the answer will arrive as a message from that bot.' });
     }),
@@ -71,11 +59,10 @@ export function buildCommsToolsServer(
       room: z.string().describe('Room id or name (see room_list)'),
       text: z.string().describe('The message'),
       mention: z.union([z.string(), z.array(z.string())]).optional().describe('Bot id(s) or name(s) to wake in addition to @mentions in the text'),
-      model: modelParam,
+      model: roomModelParam,
     },
     (a) => guard(async () => {
-      const model = await checkedModel(a.model);
-      const m = hub.roomPost(agentId, a.room, a.text, a.mention, sender(), { model });
+      const m = hub.roomPost(agentId, a.room, a.text, a.mention, sender(), { model: a.model });
       if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, note: 'You already posted this a moment ago; it was not posted again.' });
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, to: m.to });
     }),

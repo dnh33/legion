@@ -1,5 +1,5 @@
 /** The provider runtime: which model values mean a provider, running one provider turn for the engine, and the views Settings shows. */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { scrubSecrets } from '../comms/scrub.js';
 import { contextWindowFor } from './model-window.js';
 import { compactNow, type ManualCompaction } from './tool-loop.js';
@@ -57,6 +57,8 @@ export class ProviderRuntime {
   private readonly fetchedAt = new Map<string, string>();
   private readonly fetchError = new Map<string, string>();
   private staleRun?: Promise<void>;
+  /** Bumped when a provider's address or key changes or its list is forgotten: a fetch that started before the bump is not kept. */
+  private readonly epoch = new Map<string, number>();
   constructor(private readonly deps: RuntimeDeps) { this.loadCache(); }
 
   /** The saved model lists (ids and when each was fetched). A missing or broken file is an empty cache. */
@@ -78,7 +80,21 @@ export class ProviderRuntime {
     if (!file) return;
     const providers: Record<string, { at: string; ids: string[] }> = {};
     for (const [id, at] of this.fetchedAt) providers[id] = { at, ids: this.fetched.get(id) ?? [] };
-    try { writeFileSync(file, JSON.stringify({ providers }, null, 2)); } catch { /* the lists still work for this session */ }
+    // Written to a temp file and renamed over the saved one: a crash mid-write leaves the last good file, never half of one.
+    const tmp = `${file}.tmp`;
+    try { writeFileSync(tmp, JSON.stringify({ providers }, null, 2)); renameSync(tmp, file); } catch {
+      try { unlinkSync(tmp); } catch { /* no temp file to clean up */ }
+      /* the lists still work for this session */
+    }
+  }
+
+  /** Drops a provider's list (its address or key changed, or the provider was removed or lost its key). The picker shows nothing for it until a fresh fetch. */
+  forgetModels(id: string): void {
+    this.epoch.set(id, (this.epoch.get(id) ?? 0) + 1);
+    this.fetched.delete(id);
+    this.fetchedAt.delete(id);
+    this.fetchError.delete(id);
+    this.saveCache();
   }
 
   private get cfg(): ProvidersConfig { return this.deps.config.providers; }
@@ -223,8 +239,11 @@ export class ProviderRuntime {
   /** Owner pressed "Refresh models" (or the picker's daily refresh): one GET /models. The ids are kept for the picker and saved to the cache file. */
   async refreshModels(id: string): Promise<string[]> {
     const e = this.entryFor(id);
+    const epoch = this.epoch.get(id) ?? 0;
+    const current = () => (this.epoch.get(id) ?? 0) === epoch;
     try {
       const ids = await listModelIds(this.target(id, { ...e, enabled: true }), this.deps.limits);
+      if (!current()) return ids; // the address or key changed while this was fetched: the answer is not kept
       this.fetched.set(id, ids);
       this.fetchedAt.set(id, new Date().toISOString());
       this.fetchError.delete(id);
@@ -232,7 +251,7 @@ export class ProviderRuntime {
       return ids;
     } catch (err) {
       const pe = new ProviderHttpError('network', this.redact(err instanceof Error ? err.message : String(err)));
-      this.fetchError.set(id, pe.message.slice(0, 200));
+      if (current()) this.fetchError.set(id, pe.message.slice(0, 200));
       throw pe;
     }
   }

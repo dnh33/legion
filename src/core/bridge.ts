@@ -27,10 +27,10 @@ export const RATE_LIMIT = 30;
 export const MAX_BRIDGE_RUNS_PER_ROOT = 40;
 export const ROOT_RUN_WINDOW_MS = 60 * 60 * 1000;
 export const RATE_WINDOW_MS = 10 * 60 * 1000;
-/** The per-task model a lead may ask for through `ask`, `tell`, `bot_send` and `room_post`. */
+/** The per-task aliases. ask and tell also take a catalog model id; bot_send and room_post take these aliases only. */
 export const OVERRIDE_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'auto'] as const;
 /** A model id as Claude Code and the provider catalogs write it (no spaces): checked for shape, then against the account's catalog. */
-const MODEL_ID_RE = /^[a-z0-9._:/[\]-]{1,80}$/;
+const MODEL_ID_RE = /^[a-z0-9._:/[\]-]{3,80}$/;
 const clampTimeout = (v: unknown, def = 600) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(3600, Math.max(1, v)) : def);
 
 export interface BridgeStartParams {
@@ -209,9 +209,10 @@ export class Bridge {
   }
 
   /**
-   * Validates a lead's per-task model. The account's catalog decides when it can be read: a model it offers (by id, name or
-   * resolved id) passes, and one it does not is refused. Without a readable catalog the aliases in OVERRIDE_MODELS are the
-   * fallback, and any other id is refused. `auto` always passes. Returns the normalised value, or undefined for none.
+   * Validates a lead's per-task model. The account's catalog decides when it can be read. An id passes only when it equals a catalog
+   * value or resolved id (case-insensitive): no prefix or substring match. An alias in OVERRIDE_MODELS passes when the catalog
+   * offers that family (a value or resolved id `claude-<family>-...`). Without a readable catalog only the aliases pass, and any
+   * other id is refused. `auto` always passes. Returns the normalised value, or undefined for none.
    */
   async resolveModel(v: unknown): Promise<ModelChoice | undefined> {
     const m = this.normaliseModel(v);
@@ -223,7 +224,12 @@ export class Bridge {
       if (alias) return m;
       throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}, or a model id this account offers`);
     }
-    if (!c.models.some((x) => [x.value, x.displayName, x.resolvedModel ?? ''].some((s) => s.toLowerCase().includes(m)))) {
+    const family = (s: string) => /^claude-([a-z]+)-/.exec(s.toLowerCase())?.[1];
+    const offered = c.models.some((x) => {
+      const ids = [x.value, x.resolvedModel ?? ''].map((s) => s.toLowerCase());
+      return alias ? ids.some((s) => s === m || family(s) === m) : ids.includes(m);
+    });
+    if (!offered) {
       throw new BridgeError(`Model "${m}" is not offered on this account (available: ${c.models.map((x) => x.value).join(', ')}).`);
     }
     return m;

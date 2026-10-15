@@ -20,7 +20,7 @@ export function createCommsModule(deps: ModuleDeps, opts: { projects?: HubOption
   });
   return {
     id: 'comms',
-    mcpServers: (agent, job) => ({ legion_comms: buildCommsToolsServer(agent.id, hub, job, (v) => deps.engine.bridge.resolveModel(v)) }),
+    mcpServers: (agent, job) => ({ legion_comms: buildCommsToolsServer(agent.id, hub, job) }),
     // no preamble of its own: the rules for rooms and bot messages are in the one teamwork block (teamwork.ts), built from this server's presence
     routes: (add) => addCommsRoutes(add, hub),
     dispose: () => hub.dispose(),

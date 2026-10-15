@@ -88,6 +88,8 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
           const ep = checkEndpoint(next.baseUrl, { allowPrivate: next.allowPrivateNetwork === true });
           if (ep.ok) runtime.keys.dropIfOriginDiffers(id, ep.origin); // a key saved for the old address is deleted, not carried over
         }
+        // A list fetched from the old address is not the new one's: it goes, and the next picker open fetches again.
+        if (addressChanged) runtime.forgetModels(id);
         cfg().entries[id] = next;
         persist();
         return runtime.view();
@@ -97,6 +99,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
         const id = mustId(params[0]!);
         delete cfg().entries[id];
         runtime.keys.remove(id);
+        runtime.forgetModels(id);
         persist();
         return runtime.view();
       });
@@ -110,11 +113,14 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
         const ep = checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
         if (!ep.ok) throw new HttpError(400, ep.reason);
         try { runtime.keys.set(id, body.key, ep.origin); } catch (err) { throw new HttpError(400, err instanceof Error ? err.message : 'Invalid key'); }
+        runtime.forgetModels(id); // a list fetched with the old key (or none) is dropped
         return runtime.view();
       });
 
       add('DELETE', '/api/providers/:id/key', ({ params }) => {
-        runtime.keys.remove(mustId(params[0]!));
+        const id = mustId(params[0]!);
+        runtime.keys.remove(id);
+        runtime.forgetModels(id);
         return runtime.view();
       });
 

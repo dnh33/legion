@@ -76,10 +76,13 @@ export interface AgentToolsCtx {
  * the owner's fixed model for that agent — which read to an agent as "this is safe, it only affects the model" (the Marshal's report,
  * 2026-10-03). An applied override is also reported into the caller's thread as an event, so it cannot be silent (bridge.checkCeiling).
  */
-/** The aliases vm_claude accepts (the VM path takes no catalog ids). Same ceiling as ask/tell, checked in the tool below. */
-export const VM_MODELS = ['sonnet', 'opus', 'haiku', 'fable'] as const;
-/** A per-task model: an alias (OVERRIDE_MODELS) or a model id the account offers. The bridge checks it against the catalog. */
-const MODEL_TEXT = z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9._:/[\]-]+$/);
+/** The aliases vm_claude accepts. boat.dev is not shown to take haiku or fable, so the VM path gets only sonnet and opus until a live call proves more. */
+export const VM_MODELS = ['sonnet', 'opus'] as const;
+/** A per-task model for ask and tell: an alias (OVERRIDE_MODELS) or a model id the account offers. The bridge checks it against the catalog. */
+const MODEL_TEXT = z.string().trim().min(3).max(80).regex(/^[A-Za-z0-9._:/[\]-]+$/);
+/** Rooms (bot_send, room_post): aliases only. The hub refuses a catalog id there, so the schema says so. */
+export const roomModelParam = z.enum(OVERRIDE_MODELS).optional()
+  .describe('Optional model for the turn this message wakes: sonnet, opus, haiku, fable or auto. Omit to use the agent\'s own setting. Aliases only: a model id is refused here. It is refused if dearer than that bot\'s own setting. It applies to this one turn and does not change what the bot may do.');
 export const modelParam = MODEL_TEXT.optional()
   .describe('Optional model for this one task: sonnet, opus, haiku, fable or auto, or a model id this account offers. Omit to use the agent\'s own setting. If it is dearer than the model configured for that agent, the call is refused. If it is allowed but different, the override is recorded and shown to the owner. Applies to this task only; it does not change what the agent is allowed to do.');
 
@@ -212,7 +215,7 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
       // Same ceiling as ask/tell (bridge.checkCeiling -> model-cap.ts): a bot may not ask for a model dearer than the one its
       // owner chose for it. vm_claude spends the owner's boat.dev subscription, so an ungated override here was the more
       // expensive half of the silent-override bug (owner decision 2026-10-03).
-      model: z.enum(VM_MODELS).optional().describe('Optional model for this one task: sonnet, opus, haiku or fable. Omit to use the agent\'s own setting. If this is dearer than the model configured for this agent, the call is refused. Applies to this one task only; it does not change what the agent is allowed to do.'),
+      model: z.enum(VM_MODELS).optional().describe('Optional model for this one task: sonnet or opus. Omit to use the agent\'s own setting. If this is dearer than the model configured for this agent, the call is refused. Applies to this one task only; it does not change what the agent is allowed to do.'),
     },
     (args) => run(async () => {
       // Gate again at call time: the tool list was fixed when this run started, but Claude may have been found unconfigured since.

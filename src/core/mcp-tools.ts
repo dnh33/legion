@@ -105,7 +105,7 @@ async function runAndMaybeWait(ctx: CoreContext, t: Task, wait: boolean, timeout
 }
 
 const modelParam = z.string().max(80).regex(/^[A-Za-z0-9._:\[\]-]+$/)
-  .describe('"auto", an alias ("sonnet", "opus", ...) or a model value from legion_models.').optional();
+  .describe('"auto", "sonnet", "opus", "haiku" or a model value from legion_models. Provider models are refused here.').optional();
 
 export function buildLegionMcpServer(ctx: CoreContext): McpServer {
   const server = new McpServer({ name: 'legion', version: VERSION });
@@ -114,7 +114,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     title: 'List Legion agents',
     description:
       'List the agents available in Legion, the user\'s personal local multi-agent bot. Each agent is a Claude-powered worker with its own ' +
-      'persona (system prompt), model policy (auto = Legion picks Sonnet or Opus per task; or fixed sonnet/opus), approval mode, working ' +
+      'persona (system prompt), model policy (auto = Legion picks Sonnet or Opus per task; or a fixed model, such as sonnet or opus), approval mode, working ' +
       'directory and optionally its own on-demand cloud VM (boat.dev) for risky, long-running, GUI or browser work. ' +
       'Returns id, name, description, model, approval mode and current VM state for each. Call this first to learn which agent to hand work to with legion_run.',
     annotations: { readOnlyHint: true },
@@ -142,7 +142,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     title: 'Create a Legion agent',
     description:
       'Create a new specialised agent in Legion. Give it a clear name, a one-line description, and a systemPrompt describing its role and rules. ' +
-      'model: "auto" (default; Legion routes between Sonnet and Opus and escalates on failure), "sonnet" (fast/cheap), "opus" (strongest), or any model value from legion_models. ' +
+      'model: "auto" (default; Legion routes between Sonnet and Opus and escalates on failure), "sonnet" (fast/cheap), "opus" (strongest), "haiku" (fastest), or any model value from legion_models; a provider model is refused here. ' +
       'vmEnabled: true lets the agent start its own cloud VM on demand (requires boat.dev configured in Legion). The new agent asks for approval before risky actions by default. Returns the created agent profile.',
     inputSchema: {
       name: z.string().min(1).describe('Display name, e.g. "Researcher". The id is derived from it.'),
@@ -175,7 +175,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       'workspace, run commands, use MCP tools, and (if enabled) spin up its own cloud VM. By default this call BLOCKS until the task finishes (up to timeoutSeconds, default 600) ' +
       'and returns the final answer plus taskId, model used and cost. If it times out the task keeps running; use the returned taskId with legion_status / legion_continue / legion_cancel. ' +
       'Set wait=false to fire-and-forget several tasks in parallel (max 4 run concurrently, the rest queue) and collect them later with legion_status. ' +
-      'model overrides the agent default: "auto", "sonnet", "opus" or any value listed by legion_models (prefix the prompt with /opus, /sonnet or /model <value> also works). ' +
+      'model overrides the agent default: "auto", "sonnet", "opus", "haiku" or any value listed by legion_models; a provider model is refused here (prefix the prompt with /opus, /sonnet or /model <value> also works). ' +
       'Note: agents with approval "ask"/"auto-edits" may pause waiting for the user to click Allow in the Legion app.',
     inputSchema: {
       agent: z.string().describe('Agent id or name (see legion_list_agents).'),
