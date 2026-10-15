@@ -88,6 +88,8 @@ export const sdkHandshake: SdkProbe = async (o) => {
       settingSources: o.inheritClaudeCode ? ['user'] : [],
       strictMcpConfig: true,
       settings: { ...(o.settings ?? {}), disableAllHooks: true },
+      // Pinned: an omitted mode starts auto mode on third-party providers (SDK 0.3.286). A probe leaves no session file.
+      permissionMode: 'default', persistSession: false,
       ...(o.env ? { env: o.env } : {}),
       ...(o.executablePath ? { pathToClaudeCodeExecutable: o.executablePath } : {}),
       abortController: ac,
