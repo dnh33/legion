@@ -42,7 +42,7 @@ const updateWindowHtml = 'data:text/html;charset=utf-8,' + encodeURIComponent(
  * new build can take it; afterwards this process asks for it again and quits if the new build already owns it.
  * Returns 'exit' when this process must end now, 'go' to carry on starting.
  */
-export async function holdStartIfUpdating(installDir: string, dataDirPath: string): Promise<'go' | 'exit'> {
+export async function holdStartIfUpdating(installDir: string, dataDirPath: string, handoff = false): Promise<'go' | 'exit'> {
   const markerPath = join(installDir, UPDATE_DIR, MARKER_FILE_NAME);
   let win: BrowserWindow | null = null;
   const log = (line: string): void => { writeAppLog(dataDirPath, 'info', 'start-gate', { note: line }); };
@@ -59,7 +59,7 @@ export async function holdStartIfUpdating(installDir: string, dataDirPath: strin
       check: () => isUpdateInProgress(markerDeps),
       sleep: (ms) => new Promise((res) => setTimeout(res, ms)), now: () => Date.now(),
       clearStale: () => { try { rmSync(markerPath, { force: true }); } catch { /* a later start tries again */ } },
-      log, handoff: process.env.LEGION_UPDATE_HANDOFF === '1',
+      log, handoff,
       onWait: () => {
         try { app.releaseSingleInstanceLock(); } catch { /* none held */ }
         try {
@@ -109,7 +109,19 @@ export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'own
 
 /** Before the core starts: finish or undo an update that was cut off (waiting out a swap whose helper is still beating). */
 export async function recoverAtStart(installDir: string): Promise<void> {
+  // A swap still in progress (for example by an older helper that keeps no marker) can hold this wait for minutes: show the same
+  // "finishing an update" window after a moment, so a start never looks like a dead app.
+  let win: BrowserWindow | null = null;
+  const t = setTimeout(() => {
+    try {
+      win = new BrowserWindow({ width: 460, height: 200, frame: false, resizable: false, maximizable: false, minimizable: true, fullscreenable: false, center: true, backgroundColor: '#0b0d10', title: 'Legion', show: true, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      void win.loadURL(updateWindowHtml);
+    } catch { /* no window: the wait still runs */ }
+  }, 1500);
   try { await recoverAfterLiveSwap(installDir, { runningVersion: VERSION }); } catch { /* never blocks the start */ }
+  clearTimeout(t);
+  const w = win as BrowserWindow | null;
+  if (w && !w.isDestroyed()) w.destroy();
   // A full update leaves a copy of the Electron folder in the temp folder (the helper cannot delete the folder it ran from).
   try { cleanStaleApplyCopies(tmpdir(), { maxAgeMs: 24 * 3600_000, nowMs: Date.now() }); } catch { /* best effort */ }
 }

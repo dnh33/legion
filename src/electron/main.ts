@@ -585,8 +585,11 @@ const isUpdateRelaunch = process.env.LEGION_UPDATE_RELAUNCH === '1';
 // Lock hand-over race: a third launch can hold the lock for a few milliseconds while the start gate lets it go, and the updater's relaunch
 // (LEGION_UPDATE_HANDOFF) that asks in that window would quit and the update would roll back. A handoff therefore retries for up to 5 s.
 // H2 (the updating window) replaces this hand-over; until then this retry is the guard.
+// Read once and clear: the new build's own later relaunches (app.relaunch) must not inherit it and skip the start gate.
+const updateHandoff = process.env.LEGION_UPDATE_HANDOFF === '1';
+delete process.env.LEGION_UPDATE_HANDOFF;
 const instance = decideSingleInstance(isUpdateRelaunch ? true : await acquireStartLock({
-  request: () => app.requestSingleInstanceLock(), handoff: process.env.LEGION_UPDATE_HANDOFF === '1',
+  request: () => app.requestSingleInstanceLock(), handoff: updateHandoff,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(),
 }));
 if (instance.quit) {
@@ -670,7 +673,7 @@ if (instance.quit) {
 
   void app.whenReady().then(async () => {
     // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
-    if ((await holdStartIfUpdating(root, dataDir())) === 'exit') { quitting = true; app.exit(0); return; }
+    if ((await holdStartIfUpdating(root, dataDir(), updateHandoff)) === 'exit') { quitting = true; app.exit(0); return; }
     await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
     logStartOutcome(root, dataDir()); // after recovery, so a rollback it just wrote is logged too
     await boot();
