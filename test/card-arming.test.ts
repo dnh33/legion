@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ARM_MS, isArmed } from '../src/shared/approval-keys.js';
-import { VERDICT_MS, createAppearances, createCardArm, createKeyClock, isNavKey, liveReady } from '../ui/src/a11y/keyClockCore.js';
+import { VERDICT_MS, createAppearances, createCardArm, createKeyClock, createNoticeBus, isNavKey, liveReady, shortcutRefused } from '../ui/src/a11y/keyClockCore.js';
 import { focusStaysInside, refocusAfterStep } from '../ui/src/chat/questionCard.js';
 
 const src = (p: string): string => readFileSync(join(process.cwd(), p), 'utf8');
@@ -236,4 +236,51 @@ test("QuestionCard: a step change refocuses the card after the stepped window op
   const refocus = q.indexOf("refocusAfterStep({");
   assert.ok(stepped > 0 && refocus > stepped, "the stepped window opens before the refocus");
   assert.ok(q.indexOf("const opts = ") < refocus, "the refocus effect runs after the options exist");
+});
+
+test("the thread shortcut refuses an early A or D on a card it would act on, and says so; it refuses nothing it would not act on", () => {
+  const bash = { toolName: "Bash" };
+  const script = { toolName: "mcp__legion_blender__blender_exec" };
+  assert.equal(shortcutRefused(undefined, "a", false, false, true), false, "no card: nothing to refuse");
+  assert.equal(shortcutRefused(bash, "a", false, false, true), true, "an unarmed A on an in-view card is refused");
+  assert.equal(shortcutRefused(bash, "A", false, false, true), true);
+  assert.equal(shortcutRefused(bash, "a", false, true, true), false, "an armed A is not refused (it answers)");
+  assert.equal(shortcutRefused(bash, "a", false, false, false), false, "an A on a card out of view reveals it instead");
+  assert.equal(shortcutRefused(bash, "d", false, false, false), true, "an early D is refused, in view or not");
+  assert.equal(shortcutRefused(bash, "d", false, true, false), false);
+  assert.equal(shortcutRefused(bash, "a", true, false, true), false, "a held key is not a second press to refuse");
+  assert.equal(shortcutRefused(script, "a", false, false, true), false, "A never answers a Blender script, so there is nothing to refuse");
+  assert.equal(shortcutRefused(bash, "x", false, false, true), false, "other keys are nothing");
+});
+
+test("a notice bus: a notice reaches the card's own subscriber, and only while it is subscribed", () => {
+  const bus = createNoticeBus();
+  let seen = 0;
+  const off = bus.on("approval-1", () => { seen++; });
+  bus.notify("approval-1");
+  bus.notify("approval-2");
+  assert.equal(seen, 1, "one notice for this card, none for another");
+  off();
+  bus.notify("approval-1");
+  assert.equal(seen, 1, "no notice after it unsubscribed");
+});
+
+test("focus entering a card un-arms it at once, so its hints dim at once (the card refreshes on focus)", () => {
+  const clock = createKeyClock();
+  const arm = createCardArm(clock, () => 0);
+  assert.equal(arm.armedNow(5000), true, "armed: it has been there for seconds");
+  const card = {};
+  arm.enterFrom({ contains: () => false }, null, 5000);
+  assert.equal(arm.armedNow(5000), false, "focus from outside restarts the arm, at the moment of focus");
+  assert.ok(arm.untilArmed(5000) > 0, "and the card knows when the wait is due");
+});
+
+test("the wiring: the thread shortcut refuses and notifies the card; the card listens and refreshes its hints on focus", () => {
+  const thread = src("ui/src/components/Thread.tsx");
+  assert.match(thread, /if \(!k\) \{ if \(shortcutRefused\(first, e\.key, e\.repeat, armedFor\(first, now, quietSince\), cardInView\(first\)\)\) notices\.notify\('approval:' \+ first\.id\); return; \}/);
+  const card = src("ui/src/components/ApprovalCard.tsx");
+  assert.match(card, /notices\.on\('approval:' \+ a\.id/);
+  assert.match(card, /onFocus=\{\(e\) => \{ arm\.enterFrom\(e\.currentTarget, e\.relatedTarget, performance\.now\(\)\); refresh\(\); \}\}/);
+  const q = src("ui/src/components/QuestionCard.tsx");
+  assert.match(q, /arm\.enterFrom\(e\.currentTarget, e\.relatedTarget, performance\.now\(\)\); refresh\(\);/);
 });

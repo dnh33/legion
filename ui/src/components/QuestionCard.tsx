@@ -100,7 +100,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));
 
   return (
-    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => { focusInside.current = true; arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); }} onBlur={(e) => { focusInside.current = focusStaysInside({ relatedInside: e.currentTarget.contains(e.relatedTarget as Node | null), relatedNull: e.relatedTarget === null, windowFocused: document.hasFocus() }); }} onKeyUp={() => arm.released(performance.now())} onKeyDown={onKeyDown}>
+    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => { focusInside.current = true; arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); refresh(); }} onBlur={(e) => { focusInside.current = focusStaysInside({ relatedInside: e.currentTarget.contains(e.relatedTarget as Node | null), relatedNull: e.relatedTarget === null, windowFocused: document.hasFocus() }); }} onKeyUp={() => arm.released(performance.now())} onKeyDown={onKeyDown}>
       <div className="approval-head">
         <Icon name="help" size={14} />
         <span>Needs your answer</span>

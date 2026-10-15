@@ -2,7 +2,7 @@
  * The arm of a card, as pure functions (no DOM, no React). keyClock.ts holds the page's one clock and one appearance store, and wires them to
  * the window; the components call createCardArm through useCardArm.
  */
-import { ARM_MS, isArmed } from '../../../src/shared/approval-keys.js';
+import { ARM_MS, clickOnly, isArmed } from '../../../src/shared/approval-keys.js';
 
 const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Shift', 'Control', 'Alt', 'Meta']);
 /** Keys that move the focus or the highlight. They restart nothing: arrows between a question's options do not make it wait again. */
@@ -122,5 +122,35 @@ export function createCardArm(clock: KeyClock, appearedAt: () => number): CardAr
       if (v && now - v.at <= VERDICT_MS) return v.ok;
       return armedAt(now, clock.last());
     },
+  };
+}
+
+/**
+ * Whether the thread-wide shortcut refused a key for this card: the card would have acted on it (A on an in-view card that is not a click-only
+ * Blender card, or D on any card), and it is not armed or the key is a repeat. The shortcut then says so on the card, as the card's own key does.
+ * An A on a card out of view reveals it instead (nothing is refused).
+ */
+export function shortcutRefused(card: { toolName: string } | undefined, key: string, repeat: boolean, armed: boolean, inView: boolean): boolean {
+  if (!card || repeat) return false;
+  if (key === 'd' || key === 'D') return !armed;
+  if ((key === 'a' || key === 'A') && !clickOnly(card)) return inView && !armed;
+  return false;
+}
+
+/** Tells one card that something happened for it elsewhere on the page (the shortcut refused its key). A subscriber gets each notice for its id. */
+export interface NoticeBus {
+  on(id: string, cb: () => void): () => void;
+  notify(id: string): void;
+}
+export function createNoticeBus(): NoticeBus {
+  const subs = new Map<string, Set<() => void>>();
+  return {
+    on(id, cb) {
+      const set = subs.get(id) ?? new Set<() => void>();
+      set.add(cb);
+      subs.set(id, set);
+      return () => { set.delete(cb); };
+    },
+    notify(id) { for (const cb of [...(subs.get(id) ?? [])]) cb(); },
   };
 }

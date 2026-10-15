@@ -68,7 +68,8 @@ test('A on a card that only just appeared or was just revealed does nothing: "ba
 
 test('both key paths read the shared rule: the thread shortcut goes through threadKey, the card through clickOnly', () => {
   const thread = readFileSync(join(process.cwd(), 'ui/src/components/Thread.tsx'), 'utf8');
-  assert.match(thread, /const k = threadKey\(first, e\.key, cardInView\(first\), armedFor\(first, now, quietSince\)\); if \(!k\) return;/);
+  // a refused key also tells the card (the same note as its own key): test/card-arming.test.ts checks that wiring
+  assert.match(thread, /const k = threadKey\(first, e\.key, cardInView\(first\), armedFor\(first, now, quietSince\)\);\s*if \(!k\) \{ if \(shortcutRefused\(/);
   assert.match(thread, /void decide\(k\.id, k\.allow\)/);
   assert.doesNotMatch(thread, /\.focus\(/, 'a reveal scrolls to the card but never focuses it');
   // no other decide(…, true) by key in the thread

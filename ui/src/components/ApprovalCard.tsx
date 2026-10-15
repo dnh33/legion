@@ -1,7 +1,7 @@
 import type { ApprovalRequest } from '../../../src/shared/types';
 import '../rooms/rooms.css';
 import { openRoom, useRoomName } from '../rooms/roomsStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { decide, errText, rememberGate, toast, useStore } from '../store';
 import { canRemember, canRememberAllow, rememberRule } from '../gates/gatesLogic';
 import { shortTool } from '../util';
@@ -9,7 +9,7 @@ import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blende
 import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blender';
 import { Icon } from './icons';
 import { clickOnly } from '../../../src/shared/approval-keys';
-import { useArmUi, useCardArm } from '../a11y/keyClock';
+import { notices, useArmUi, useCardArm } from '../a11y/keyClock';
 import { liveReady } from '../a11y/keyClockCore';
 
 /** "Asked by Marshal in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
@@ -49,9 +49,13 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const [blocks, setBlocks] = useState(0);
   useEffect(() => { if (armed) setIgnored(false); }, [armed]);
   const notReady = (): void => { setIgnored(true); setBlocks((n) => n + 1); refresh(); };
+  // the thread-wide shortcut refused a key for this card (it was on the page, not the card): the same note and words as a key on the card
+  const notReadyRef = useRef(notReady);
+  notReadyRef.current = notReady;
+  useEffect(() => notices.on('approval:' + a.id, () => notReadyRef.current()), [a.id]);
   return (
     <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} data-approval-id={a.id} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
-      onFocus={(e) => arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now())}
+      onFocus={(e) => { arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); refresh(); }}
       onKeyUp={() => arm.released(performance.now())}
       onKeyDown={(e) => {
         // the card answers no key until it is armed (ARM_MS after it appeared or took focus from outside, and after the last key); a held key never answers

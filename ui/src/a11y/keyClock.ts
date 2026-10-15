@@ -3,16 +3,19 @@
  * read the same ones. The pure rules are in keyClockCore.ts (tested); this file only holds the state and the listeners.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type CardArm, type Appearances, createAppearances, createCardArm, createKeyClock, type KeyClock } from './keyClockCore.js';
+import { type CardArm, type Appearances, type NoticeBus, createAppearances, createCardArm, createKeyClock, createNoticeBus, type KeyClock } from './keyClockCore.js';
 
 /** Kept on globalThis: a hot reload evaluates this module again, and the listeners below must be installed once. */
-const shared = ((globalThis as { __legionKeyClock?: { clock: KeyClock; appear: Appearances; installed: boolean } }).__legionKeyClock ??= {
+const shared = ((globalThis as { __legionKeyClock?: { clock: KeyClock; appear: Appearances; notices: NoticeBus; installed: boolean } }).__legionKeyClock ??= {
   clock: createKeyClock(),
   appear: createAppearances(),
+  notices: createNoticeBus(),
   installed: false,
 });
 const page = shared.clock;
 export const appearances = shared.appear;
+/** Notices for a card from elsewhere on the page (the thread shortcut refused its key): the card says so, as it does for its own key. */
+export const notices = shared.notices;
 
 /** The time of the key before this one. Every keydown on the page is recorded, in capture phase, so a key a list stops from bubbling still counts. */
 export const quietBefore = (event: object, now: number, keyName: string): number => page.note(event, now, keyName);

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
-import { appearedAt, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
+import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
+import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
@@ -174,7 +175,8 @@ export function Thread() {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;
       // the same rule as the card's own keys: a Blender script or a download is allowed by clicking only
       const first = taskApprovals[0];
-      const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince)); if (!k) return;
+      const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince));
+      if (!k) { if (shortcutRefused(first, e.key, e.repeat, armedFor(first, now, quietSince), cardInView(first))) notices.notify('approval:' + first.id); return; }
       e.preventDefault();
       if ('reveal' in k) {
         restartAppearance('approval:' + k.id, performance.now());
