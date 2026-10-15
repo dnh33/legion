@@ -136,6 +136,8 @@ button.lib-act-title:hover { text-decoration: underline; text-decoration-color: 
 /* ---------- empty / loading ---------- */
 .lib-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 56px; padding: 28px 28px 24px; max-width: 460px; text-align: center; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; color: var(--muted); line-height: 1.55; }
 .lib-empty b { color: var(--text); font-size: 15px; }
+.lib-empty b:focus, .lib-list:focus { outline: none; }
+:root[data-kbd-nav] .lib-empty b:focus-visible, :root[data-kbd-nav] .lib-list:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 3px; }
 .lib-empty-ic { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-3); color: var(--text-2); }
 .lib-empty-ic.bad { background: var(--danger-soft); color: var(--danger); }
 .lib-skels { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; }

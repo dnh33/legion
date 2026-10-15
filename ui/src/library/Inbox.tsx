@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KgInboxRow } from '../../../src/shared/kg';
 import { KG_LIMITS } from '../../../src/shared/kg';
-import { agentCounts, inboxKindLabel, parseTags, planBulk, previewText, skipNote } from '../../../src/shared/kg-library';
+import { agentCounts, inboxFocusTarget, inboxKindLabel, parseTags, planBulk, previewText, skipNote } from '../../../src/shared/kg-library';
 import { GIcon } from '../graph/icons';
 import { resolveTitles, titleOf, useG } from '../graph/graphStore';
 import { fmtDate, scopeLabel } from '../graph/palette';
@@ -31,6 +31,21 @@ export function Inbox() {
   const someSelected = !allSelected && visible.some((r) => sel.has(r.id));
   const allBox = useRef<HTMLInputElement>(null);
   useEffect(() => { if (allBox.current) allBox.current.indeterminate = someSelected; }, [someSelected, rows === null]);
+
+  // Accept or Reject removes the button that had focus: put focus on the empty-state heading or the list instead of letting it fall to the page
+  const emptyHead = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const prevCount = useRef<number | null>(null);
+  const count = rows?.length ?? null;
+  useEffect(() => {
+    const prev = prevCount.current;
+    prevCount.current = count;
+    if (prev === null || count === null) return;
+    const a = document.activeElement;
+    const target = inboxFocusTarget(prev, count, !a || a === document.body || !a.isConnected);
+    if (target === 'empty') emptyHead.current?.focus();
+    else if (target === 'list') listRef.current?.focus();
+  }, [count]);
 
   if (rows === null && state !== 'error') return <div className="lib-pane" role="status" aria-busy="true"><div className="lib-skels"><i /><i /><i /></div></div>;
   if (rows === null) {
@@ -91,13 +106,13 @@ export function Inbox() {
       {rows.length === 0 ? (
         <div className="lib-empty">
           <span className="lib-empty-ic"><GIcon name="check" size={22} /></span>
-          <b>Nothing waiting</b>
+          <b ref={emptyHead} tabIndex={-1}>Nothing waiting</b>
           <span>Bots save straight to the Library. Only what a bot picked up from the web, a shell or an outside tool, or an edit to one of your own notes, stops here for you.</span>
         </div>
       ) : visible.length === 0 ? (
         <div className="lib-empty"><b>Nothing from this bot</b><button className="btn sm" onClick={() => setAgent('')}>Show all bots</button></div>
       ) : (
-        <ul className="lib-list" aria-label="Notes waiting for review">
+        <ul className="lib-list" aria-label="Notes waiting for review" tabIndex={-1} ref={listRef}>
           {visible.map((r) => <li key={r.id}><Row row={r} /></li>)}
         </ul>
       )}
