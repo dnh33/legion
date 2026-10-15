@@ -134,7 +134,7 @@ export function buildAskRows(f: PageFacts, policy: WaitPolicy): AskRow[] {
  * the digest (`frozen`) nothing is promoted and a row the owner answered keeps its slot, so nothing moves under the pointer. A row whose
  * ask is gone and was not answered here leaves at once. Never hides an ask: `more` is the exact number of live asks not shown.
  */
-export function reconcileShown(o: { prev: readonly string[]; live: readonly string[]; answered: ReadonlySet<string>; cap: number; expanded: boolean; frozen: boolean }): { shown: string[]; more: number } {
+export function reconcileShown(o: { prev: readonly string[]; live: readonly string[]; answered: ReadonlySet<string>; cap: number; expanded: boolean; frozen: boolean; pin?: string }): { shown: string[]; more: number } {
   const live = new Set(o.live);
   let shown: string[];
   if (o.frozen && !o.expanded && o.prev.length) shown = o.prev.filter((k) => live.has(k) || o.answered.has(k));
@@ -142,5 +142,7 @@ export function reconcileShown(o: { prev: readonly string[]; live: readonly stri
     shown = o.expanded ? [...o.live] : o.live.slice(0, o.cap);
     for (const k of o.prev) if (o.answered.has(k) && !shown.includes(k)) shown.splice(Math.min(o.prev.indexOf(k), shown.length), 0, k);
   }
+  // the row an open-ask landed for is shown even when it is past the cap
+  if (o.pin && live.has(o.pin) && !shown.includes(o.pin)) shown = [...shown, o.pin];
   return { shown, more: o.live.filter((k) => !shown.includes(k)).length };
 }

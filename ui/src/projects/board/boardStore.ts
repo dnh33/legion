@@ -4,6 +4,9 @@ import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkIte
 import { api, ApiError } from '../../api';
 import { selectTask, setView, toast } from '../../store';
 import { moveLocal } from './boardLogic';
+import { createFlights } from './loadFlight';
+import type { FlightResult } from './loadFlight';
+import { unloadedBoards } from '../openAsk';
 
 export interface BoardState {
   enabled: 'unknown' | 'yes' | 'no';
@@ -12,10 +15,14 @@ export interface BoardState {
   statuses: Record<string, BoardMarshalStatus | undefined>;
   busy: boolean;
   announce: string;
+  /** Each project whose board has been tried once (loaded or failed). The first pass the proposals source is settled by. */
+  attempted: Record<string, true | undefined>;
 }
-let state: BoardState = { enabled: 'unknown', views: {}, statuses: {}, busy: false, announce: '' };
+let state: BoardState = { enabled: 'unknown', views: {}, statuses: {}, busy: false, announce: '', attempted: {} };
 const subs = new Set<() => void>();
 const set = (p: Partial<BoardState> | ((s: BoardState) => Partial<BoardState>)): void => { state = { ...state, ...(typeof p === 'function' ? p(state) : p) }; subs.forEach((f) => f()); };
+/** Every proposal waiting in a loaded Inbox, read once (not a hook). */
+export const currentProposals = (): WorkItem[] => Object.values(state.views).flatMap((v) => v?.inbox ?? []);
 export function useBoard<T>(sel: (s: BoardState) => T): T {
   return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => sel(state));
 }
@@ -29,9 +36,35 @@ export function probeBoard(): Promise<void> {
   return probing;
 }
 
-export async function loadBoard(projectId: string): Promise<void> {
-  try { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); } catch (e) { toast(errText(e), 'error'); }
+/** One load at a time per project; a request made mid-load gets a second load that starts after it (see loadFlight). */
+const flights = createFlights(async (projectId) => { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); }, (e) => toast(errText(e), 'error'));
+/** Loads a project's board. The data comes from a load that started after this call. True when the board arrived. */
+export async function loadBoard(projectId: string, opts: { quiet?: boolean } = {}): Promise<boolean> {
+  try {
+    return (await flights.load(projectId, opts)).ok;
+  } finally {
+    set((s) => (s.attempted[projectId] ? {} : { attempted: { ...s.attempted, [projectId]: true } }));
+  }
 }
+
+/**
+ * A fresh load of the board for a proposal click, so a just-created proposal is never reported as handled. `ok` false when it failed or the
+ * board is off; `told` when the failure was already shown (the caller then adds no second message).
+ */
+export async function refreshBoard(projectId: string): Promise<FlightResult> {
+  await probeBoard();
+  if (state.enabled !== 'yes') return { ok: false, told: false };
+  return flights.load(projectId, { quiet: true });
+}
+
+/** Loads the boards of these projects that have none yet (for the oldest proposal anywhere). Quiet; never throws. */
+export async function ensureBoards(projectIds: readonly string[]): Promise<void> {
+  await probeBoard();
+  if (state.enabled !== 'yes') return;
+  await Promise.all(projectIds.map((id) => flights.load(id, { quiet: true, join: true })));
+}
+/** Active projects with no board loaded yet. */
+export const missingBoards = (projects: ReadonlyArray<{ id: string; status: string }>): string[] => unloadedBoards(projects, state.views);
 
 /** What the Marshal is doing on this project. Reloaded with the board: both are advisory copies of what the core holds. */
 export async function loadMarshal(projectId: string): Promise<void> {

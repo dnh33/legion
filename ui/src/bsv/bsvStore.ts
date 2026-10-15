@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import { getState, refresh, selectAgent, toast } from '../store';
+import { withoutNavigation } from '../projects/railRoute';
 import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
 import { BSV_POLL_MS, shouldPoll } from '../../../src/shared/bsv-view';
@@ -77,7 +78,7 @@ export async function syncAgents(): Promise<void> {
   const before = getState().selectedAgentId;
   await refresh();
   const after = getState().selectedAgentId;
-  if (after !== before) selectAgent(after);
+  if (after !== before) withoutNavigation(() => selectAgent(after)); // the agent list changed under the selection: not a move by the owner
 }
 
 const pick = (s: BsvStatus): BsvStatus => ({

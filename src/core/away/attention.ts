@@ -21,6 +21,8 @@ export interface AttentionDeps {
   /** Proposals waiting in project Inboxes. */
   inbox?: () => NonNullable<AskSources['proposals']>;
   parked?: () => ParkedAsk[];
+  /** False for a project that is archived: its proposals are not named as the next one to open. */
+  projectActive?: (projectId: string) => boolean;
   /** Hides asks of agents the caller may not see (BSV mode). */
   agentOk?: (agentId: string) => boolean;
 }
@@ -38,7 +40,7 @@ export class AttentionTracker {
     this.off = d.bus.on((e) => { if (WATCHED.has(e.type)) this.refresh(); });
   }
 
-  get(): AttentionView { return { total: this.view.total, working: this.view.working, byProject: { ...this.view.byProject } }; }
+  get(): AttentionView { return { ...this.view, byProject: { ...this.view.byProject } }; }
 
   /** Recomputes; sends `attention.updated` only when something changed. */
   refresh(): void {
@@ -64,6 +66,9 @@ export class AttentionTracker {
     }
     const asks = deriveAsks({ approvals, questions, tasks, parked: this.d.parked?.() ?? [], proposals: this.d.inbox?.() ?? [] });
     const c = countAsks(asks);
-    return { total: c.total, working: this.d.working(), byProject: c.byProject };
+    // the oldest proposal the caller may see, in a project that is not archived (ids only; the same agent filter as the approvals)
+    const active = this.d.projectActive ?? (() => true);
+    const next = asks.filter((a) => a.kind === 'proposal' && a.projectId && a.agentId && ok(a.agentId) && active(a.projectId)).sort((a, b) => a.at.localeCompare(b.at))[0];
+    return { total: c.total, working: this.d.working(), byProject: c.byProject, ...(next?.projectId ? { nextProposal: { projectId: next.projectId, itemId: next.id, agentId: next.agentId } } : {}) };
   }
 }

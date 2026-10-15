@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { BOARD_LIMITS } from '../../../../src/shared/board';
 import type { BoardStatus, WorkItem } from '../../../../src/shared/board';
@@ -8,7 +8,10 @@ import { focusNode } from '../../graph/graphStore';
 import { api } from '../../api';
 import { ensureRoomList, openRoom, useRooms } from '../../rooms/roomsStore';
 import { roomsOf } from '../projectsLogic';
-import { setView, useStore } from '../../store';
+import { actionNotice, actionState, proposalNote } from '../proposalCard';
+import { clearInboxRequest, getInboxRequest, inboxFocusPlan, subscribeFocus } from '../railRoute';
+import { settleFocus } from '../focusSettle';
+import { setView, toast, useStore } from '../../store';
 import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, saveChecks, saveMarshal, sayItem, setLeader, useBoard } from './boardStore';
 import { DoneWhen, MarshalPanel } from './MarshalPanel';
 import { checksPending, checksText, parseChecks } from './marshalLogic';
@@ -67,6 +70,20 @@ function Board({ project }: { project: Project }) {
   const labels = useMemo(() => labelsOf(all), [all]);
   const inbox = view?.inbox ?? [];
   const members = project.members.map((id) => ({ id, name: name(id) }));
+  // a rail row asked for one proposal: show the Inbox, then bring that entry into view with Accept and Reject at hand
+  const inboxReq = useSyncExternalStore(subscribeFocus, getInboxRequest);
+  useEffect(() => {
+    const plan = inboxFocusPlan(inboxReq, project.id, inbox, inboxReq?.boardAt !== undefined);
+    if (plan === 'ignore' || plan === 'wait') return;
+    if (tab !== 'inbox') { setTab('inbox'); return; }
+    if (plan === 'show' && inboxReq) {
+      // the entry is placed and focused once the layout settles: the tour's callout and the closing sheet both move things after this render
+      const el = document.querySelector<HTMLElement>(`[data-inbox-id="${CSS.escape(inboxReq.itemId)}"]`);
+      if (el) settleFocus(el);
+    }
+    if (plan === 'gone') toast('That proposal was already handled.', 'info');
+    clearInboxRequest();
+  }, [inboxReq, inbox, view, tab, project.id]);
   const mv = (i: WorkItem, status: BoardStatus, index: number) => {
     const count = byColumn(all)[status].filter((x) => x.id !== i.id).length + 1;
     if (shouldOfferNote(i.status, status, i.noteIds.length)) setOffer({ id: i.id, title: i.title });
@@ -218,6 +235,7 @@ function Board({ project }: { project: Project }) {
 
 function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox: WorkItem[]; members: Array<{ id: string; name: string }>; name: (id: string) => string; archived: boolean; projectId: string; busy: boolean }) {
   const [pick, setPick] = useState<Record<string, string>>({});
+  const st = actionState({ archived, busy });
   if (inbox.length === 0) return <p className="muted-s">The Inbox is empty. When a member agent proposes an item it waits here: nothing starts until you accept it.</p>;
   return (
     <ul className="bd-inbox">
@@ -226,9 +244,9 @@ function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox:
         const tainted = i.createdBy.kind === 'agent' && i.createdBy.tainted;
         const sel = pick[i.id] ?? (i.proposal?.suggestedAssignee ? `agent:${i.proposal.suggestedAssignee}` : '');
         return (
-          <li key={i.id} className="bd-card untrusted">
+          <li key={i.id} className="bd-card untrusted" data-inbox-id={i.id} tabIndex={-1}>
             <p className="bd-title static">{i.title}</p>
-            <p className="muted-s">Suggested by {by}. Not reviewed.{tainted ? ' Its run had read outside content (web, shell or other tools), so treat the text with extra care.' : ''}</p>
+            <p className="muted-s">{proposalNote(by, !!tainted)}</p>
             {i.description && <p className="bd-desc">{i.description}</p>}
             <div className="bd-meta"><span className={`bd-pri p-${i.priority}`}>{priorityMark(i.priority)}</span>{i.labels.map((l) => <span key={l} className="bd-label">{l}</span>)}</div>
             <div className="proj-row">
@@ -237,8 +255,8 @@ function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox:
                   <option value="">Unassigned</option><option value="owner">You</option>{members.map((m) => <option key={m.id} value={`agent:${m.id}`}>{m.name}</option>)}
                 </select>
               </label>
-              <button type="button" className="btn" disabled={archived || busy} aria-label={`Accept ${i.title}`} onClick={() => void acceptItem(projectId, i.id, { assignee: parseAssignee(sel) }).then(() => sayItem(`${i.title} accepted to Backlog.`))}>Accept</button>
-              <button type="button" className="btn-ghost danger" disabled={archived || busy} aria-label={`Reject ${i.title}`} onClick={() => void rejectItem(projectId, i.id).then(() => sayItem(`${i.title} rejected.`))}>Reject</button>
+              <button type="button" className="btn" disabled={st.disabled} title={st.reason} aria-label={`Accept ${i.title}`} onClick={() => void acceptItem(projectId, i.id, { assignee: parseAssignee(sel) }).then((r) => { const t = actionNotice(r, `${i.title} accepted to Backlog.`); if (t) sayItem(t); })}>Accept</button>
+              <button type="button" className="btn-ghost danger" disabled={st.disabled} title={st.reason} aria-label={`Reject ${i.title}`} onClick={() => void rejectItem(projectId, i.id).then((r) => { const t = actionNotice(r, `${i.title} rejected.`); if (t) sayItem(t); })}>Reject</button>
             </div>
           </li>
         );

@@ -2,7 +2,7 @@
  * "Since you last looked": what needs you, riskiest first, answerable in place. Every number and line comes from the pure models
  * (pageLogic, askLogic); the holds live in answerStore. Spec 3.2.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ARM_MS } from '../../../../src/shared/approval-keys';
 import { digestEvents, digestState } from '../../../../src/shared/attention';
 import type { Ask } from '../../../../src/shared/attention';
@@ -20,6 +20,7 @@ import { loadSettings, useStore } from '../../store';
 import type { Answer } from './answerStore';
 import { digestHeader, foldedLine, hhmm, money, projectTasks, reviewItems, sinceFor, stopDetail } from './pageLogic';
 import type { PageFacts } from './pageLogic';
+import { getAskRequest, getInboxRequest, requestInbox, subscribeFocus } from '../railRoute';
 import { PIcon } from './PIcon';
 import { continueTask, openTask, retryTask } from './taskActions';
 import { useFocusKeeper } from './useFocusKeeper';
@@ -53,7 +54,12 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
 
   const prevShown = useRef<string[]>([]);
   const answeredKeys = useMemo(() => new Set(answers.keys()), [answers]);
-  const { shown, more } = reconcileShown({ prev: prevShown.current, live: rows.map((r) => r.key), answered: answeredKeys, cap: 3, expanded, frozen });
+  // a click that named a row of this digest (an ask, a proposal) keeps that row on screen even past the cap
+  const askReq = useSyncExternalStore(subscribeFocus, getAskRequest);
+  const inboxReq = useSyncExternalStore(subscribeFocus, getInboxRequest);
+  const wantedKey = askReq?.askId || inboxReq?.itemId || '';
+  const pin = wantedKey && byKey.has(wantedKey) ? wantedKey : '';
+  const { shown, more } = reconcileShown({ prev: prevShown.current, live: rows.map((r) => r.key), answered: answeredKeys, cap: 3, expanded, frozen, ...(pin ? { pin } : {}) });
   prevShown.current = shown;
 
   // an answered row leaves after a while, but never from under the pointer or the focus
@@ -111,8 +117,8 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   };
 
   const act = (row: AskRow, actName: string, b: AskRow['buttons'][number], li: HTMLElement | null): void => {
-    if (actName === 'open' || actName === 'review') { if (row.taskId) openTask(row.taskId); else openBoard(); return; }
-    if (actName === 'read') { openBoard(); return; }
+    if (actName === 'open' || actName === 'review') { if (row.taskId) openTask(row.taskId); else { if (row.kind === 'proposal') requestInbox(pid, row.key); openBoard(); } return; }
+    if (actName === 'read') { if (row.kind === 'proposal') requestInbox(pid, row.key); openBoard(); return; }
     const suggested = row.kind === 'proposal' ? f.board?.inbox.find((i) => i.id === row.key)?.proposal?.suggestedAssignee : undefined;
     startAnswer({ row, b, projectId: pid, ...(suggested ? { suggestedAssignee: suggested } : {}), height: li?.offsetHeight ?? 0 });
   };

@@ -139,6 +139,25 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .banner.offline .icon { color: var(--danger); }
 .banner.offline span { margin-left: 0; color: var(--text-2); opacity: 1; }
 .banner.offline .icon { flex: none; }
+/* board proposals waiting on you, above the thread (components/ProposalCards.tsx): several stack and scroll. A card is at most half the window high.
+   Its body scrolls when the text is long; its action row is a sibling below the body, never under it, so Accept, Reject, Open on board and More are
+   all reachable at rest and at any scroll. */
+.proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 50vh; overflow-y: auto; }
+.proposal-cards { --card-tint: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.proposal-cards .approval { margin: 0; background: var(--card-tint); display: flex; flex-direction: column; max-height: 50vh; }
+.proposal-cards .approval-actions { flex-wrap: wrap; }
+.proposal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+/* the fade over the body's last line: transparent into the card tint. It overlaps only the body's bottom padding, so More is not dimmed at rest. */
+.proposal-fade { flex: none; height: 10px; margin-top: -10px; position: relative; pointer-events: none; background: linear-gradient(transparent, var(--card-tint)); }
+.proposal-actions { flex: none; margin: 0 -14px; padding: 0 14px; background: var(--card-tint); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); }
+@media (max-height: 500px) { .proposal-desc:not(.open) { -webkit-line-clamp: 2; } }
+/* The entry or card a rail click brought into view holds focus. Its ring is keyboard-only like every other ring (the owner, 2026-10-15:
+   no focus rings for mouse users). Inset, so the ring is not clipped by the region that scrolls the card. */
+:root[data-kbd-nav] [data-inbox-id]:focus, :root[data-kbd-nav] [data-proposal-id]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-kbd-nav] .approval[data-proposal-id]:focus-visible { outline-offset: -2px; }
+.proposal-title { margin: 8px 0 4px; overflow-wrap: anywhere; }
+.proposal-desc { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
+.proposal-desc.open { display: block; -webkit-line-clamp: unset; max-height: 160px; overflow: auto; }
 
 .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: auto; scroll-behavior: auto; }
 .thread-inner { max-width: 780px; margin: 0 auto; padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 14px; }
@@ -258,7 +277,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .question-opts { display: flex; flex-direction: column; gap: 6px; }
 .qopt { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--text); transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
 .qopt:hover { border-color: var(--line-strong); background: var(--surface-2); }
-.qopt:focus { outline: 2px solid var(--accent); outline-offset: -2px; border-color: var(--accent-line); }
+:root[data-kbd-nav] .qopt:focus { outline: 2px solid var(--accent); outline-offset: -2px; border-color: var(--accent-line); }
 .qopt.on { border-color: var(--accent-line); background: var(--accent-soft); }
 .qopt-label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .qopt-desc { color: var(--muted); font-size: 12px; }

@@ -11,6 +11,7 @@ import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { projectToShow } from './chat/taskTabs';
+import { noteNavigation, noteTaskSelected, noteViewSet, withoutNavigation } from './projects/railRoute';
 import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
@@ -80,6 +81,8 @@ export interface AppState {
   projects: Project[];
   /** The rail's project switcher: null = All (today's behaviour), else a project id. Shows only that project's agents and tasks. */
   projectFilter: string | null;
+  /** The first load of the projects list has finished (it succeeded or was refused). The rail waits for it before it announces anything. */
+  projectsLoaded: boolean;
 }
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -104,7 +107,7 @@ let state: AppState = {
   mascotLab: false, mascotForce: null, mascotVm: null,
   settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
   view: 'chat',
-  projects: [], projectFilter: ls(FILTER_KEY) || null,
+  projects: [], projectsLoaded: false, projectFilter: ls(FILTER_KEY) || null,
 };
 
 const listeners = new Set<() => void>();
@@ -216,14 +219,14 @@ export function handleEvent(e: LegionEvent) {
         if (terminal && progress[e.task.id]) { const { [e.task.id]: _p, ...rest } = progress; progress = rest; }
         return { tasks: upsertTask(s.tasks, e.task), streaming, progress };
       });
-      if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) leaveTask(e.task.id);
+      if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) withoutNavigation(() => leaveTask(e.task.id)); // a server event, not a move by the owner
       break;
     }
     case 'task.deleted': {
       const id = e.taskId;
       delete pendingDelta[id];
       const wasSel = getState().selectedTaskId === id;
-      if (wasSel) leaveTask(id);
+      if (wasSel) withoutNavigation(() => leaveTask(id));
       setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _t, ...threadMeta } = s.threadMeta; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, threadMeta, progress }; });
       break;
     }
@@ -335,7 +338,7 @@ export async function refresh() {
     });
     if (snap.tasks.length && getState().selectedTaskId === null && !selectionTouched) {
       const id = pickTaskFor(getState().selectedAgentId);
-      if (id) selectTask(id);
+      if (id) withoutNavigation(() => selectTask(id)); // the app's own first pick, not a move by the owner
     }
   } catch (e) {
     setState({ loaded: true, conn: 'offline' });
@@ -416,6 +419,7 @@ export function jumpToLatest(id: string) { void loadTask(id, true); }
 /* ---------- actions ---------- */
 export function selectAgent(id: string) {
   selectionTouched = true;
+  noteNavigation();
   const taskId = pickTaskFor(id);
   setState({ selectedAgentId: id, selectedTaskId: taskId, modelOverride: null });
   if (taskId) void loadTask(taskId);
@@ -433,6 +437,8 @@ function projectFollowing(t: Pick<Task, 'projectId'> | undefined): { projectFilt
 }
 export function selectTask(id: string | null) {
   selectionTouched = true;
+  noteNavigation();
+  noteTaskSelected(id);
   if (id) {
     const t = getState().tasks.find((x) => x.id === id);
     setState({ selectedTaskId: id, ...(t ? { selectedAgentId: t.agentId } : {}), ...projectFollowing(t) });
@@ -741,7 +747,7 @@ export async function resetCompaction(): Promise<SettingsView> {
 }
 export { errText };
 
-export const setView = (view: AppState['view']) => setState({ view });
+export const setView = (view: AppState['view']) => { noteNavigation(); noteViewSet(view); setState({ view }); };
 
 /** Re-probe what the boat.dev key may do (cheap reads; never creates a VM). The result also arrives as a boat.health event. */
 /** Settings, boat.dev opened: the first look at what the key may do (once; later opens answer from the core's cache). */

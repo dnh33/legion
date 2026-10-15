@@ -20,10 +20,14 @@ export function openSheet(content: SheetContent, opener: HTMLElement | null = do
   state = { content, opener: keep && keep.isConnected ? keep : state.opener };
   emit();
 }
-export function closeSheet(): void {
+export function closeSheet(): void { endSheet(true); }
+/** For a caller that is about to focus something else (an ask's target): the frame that hands focus back to the opener would take it. */
+export function closeSheetKeepFocus(): void { endSheet(false); }
+function endSheet(returnFocus: boolean): void {
   const { opener } = state;
   state = { content: null, opener: null };
   emit();
+  if (!returnFocus) return;
   requestAnimationFrame(() => { if (opener?.isConnected) opener.focus(); else document.querySelector<HTMLElement>('[data-fk="new"]')?.focus(); });
 }
 
