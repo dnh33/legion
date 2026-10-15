@@ -25,13 +25,6 @@ on:
         required: false
         default: ""
 
-  # A new workflow cannot be dispatched until it is on the default branch. Until this one is merged, edits to the walk itself run it on the PR
-  # (plain pull_request, never the privileged trigger; inputs are empty there, so the defaults apply). Drop this block after the first merge.
-  pull_request:
-    paths:
-      - scripts/live-walk/**
-      - .github/workflows/live-walk.yml
-
 permissions:
   contents: read
 
@@ -59,8 +52,7 @@ jobs:
     env:
       FROM_INPUT: ${{ inputs.from }}
       TO_INPUT: ${{ inputs.to }}
-      # TEMPORARY (until the first merge): v0.3.1 is a prerelease now, so the PR run walks to its tag through the relay.
-      TAG_INPUT: ${{ inputs.tag || (github.event_name == 'pull_request' && 'v0.3.1' || '') }}
+      TAG_INPUT: ${{ inputs.tag }}
       SLOT: ${{ matrix.slot }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
