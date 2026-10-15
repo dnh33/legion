@@ -366,6 +366,31 @@ test('C10c: a lock that changed WITHOUT the flag is caught at staging and escala
   } finally { await r.srv.close(); }
 });
 
+test('the full-install refusal that triggers the full-package fallback is written to the app log', async () => {
+  const lines: string[] = [];
+  const r = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}', full: {} }), { log: (...a) => { lines.push(a.map(String).join(' ')); } });
+  try {
+    await r.mod.check(true);
+    assert.deepEqual(await r.mod.install(), { ok: true });
+    assert.ok(lines.some((l) => /updater stage refused/.test(l) && /full-install/.test(l) && /full package/i.test(l)), `log lines: ${JSON.stringify(lines)}`);
+    assert.ok(!lines.some((l) => /updater stage (failed|refused)/.test(l) && /download failed/.test(l)), 'the fallback worked, so no failure line');
+  } finally { await r.srv.close(); }
+});
+
+test('a network failure during the full-package fallback is written to the app log next to the refusal that started it', async () => {
+  const lines: string[] = [];
+  const r = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}', full: {} }), { log: (...a) => { lines.push(a.map(String).join(' ')); } });
+  try {
+    await r.mod.check(true);
+    // a dropped connection is a NetError
+    r.srv.handler.custom = (req, res) => { if ((req.url ?? '').endsWith('-win-x64.zip')) { req.socket.destroy(); return true; } return false; };
+    assert.deepEqual(await r.mod.install(), { ok: false });
+    assert.ok(lines.some((l) => /updater stage refused/.test(l) && /net/.test(l) && /could not reach/.test(l)), `log lines: ${JSON.stringify(lines)}`);
+    assert.ok(lines.some((l) => /full-install/.test(l)), 'the refusal that started the fallback is logged too');
+    assert.match((await r.mod.status()).error ?? '', /could not reach the update server/);
+  } finally { await r.srv.close(); }
+});
+
 test('a rolled-back version recorded by the helper is never offered again', async () => {
   const r = await rig(makeRelease(k, '0.2.1'));
   try {
