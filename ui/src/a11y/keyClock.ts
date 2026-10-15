@@ -52,6 +52,7 @@ export function useArmUi(arm: CardArm): { armed: boolean; refresh: () => void } 
     window.clearTimeout(timer.current);
     if (!ok) timer.current = window.setTimeout(() => refresh(), arm.untilArmed(now) + 5);
   }, [arm]);
-  useEffect(() => { refresh(); return () => window.clearTimeout(timer.current); }, [refresh]);
+  // every key on the page re-checks the hints (a key restarts the quiet period), and so does the wait falling due (the timer)
+  useEffect(() => { const off = page.subscribe(refresh); refresh(); return () => { off(); window.clearTimeout(timer.current); }; }, [refresh]);
   return { armed, refresh };
 }

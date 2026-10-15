@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ARM_MS, isArmed } from '../src/shared/approval-keys.js';
-import { createAppearances, createCardArm, createKeyClock, isNavKey } from '../ui/src/a11y/keyClockCore.js';
+import { VERDICT_MS, createAppearances, createCardArm, createKeyClock, isNavKey, liveReady } from '../ui/src/a11y/keyClockCore.js';
 
 const src = (p: string): string => readFileSync(join(process.cwd(), p), 'utf8');
 const container = (inner: object) => ({ contains: (n: unknown) => n === inner });
@@ -144,4 +144,70 @@ test('Digest: its A and D use the shared clock and rule, not a private clock', (
   assert.doesNotMatch(digest, /lastKeyAt|now - Math\.max/);
   assert.match(digest, /quietBefore\(e\.nativeEvent, now, e\.key\)/);
   assert.match(digest, /isArmed\(appearedAt\('digest:' \+ row\.key, now\), quiet, now\)/);
+});
+
+test('a kept verdict is short-lived: an armed key whose click never came does not allow a click seconds later, after the window came back', () => {
+  const clock = createKeyClock();
+  const arm = createCardArm(clock, () => 0);
+  assert.equal(arm.key({}, 'x', false, 1500), true, 'the key is armed');
+  clock.stamp(6400);
+  assert.equal(arm.click(0, 6500), false, 'the verdict expired; the card is not armed now');
+});
+
+test('a keyboard click follows its key at once; a Space that is released later keeps its verdict until the release, then expires', () => {
+  const clock = createKeyClock();
+  const arm = createCardArm(clock, () => 0);
+  assert.equal(arm.key({}, 'Enter', false, 1500), true);
+  assert.equal(arm.click(0, 1500 + VERDICT_MS - 1), true, 'the click that follows the Enter');
+  assert.equal(arm.key({}, ' ', false, 3000), true, 'a Space is armed');
+  arm.released(3300);
+  assert.equal(arm.click(0, 3330), true, 'its click comes on the release, after a hold');
+  assert.equal(arm.key({}, ' ', false, 4000), true, 'a second Space, armed again');
+  arm.released(4300);
+  assert.equal(arm.click(0, 4300 + VERDICT_MS + 1), false, 'after the release window the verdict is gone');
+});
+
+test('the live region text changes on each blocked activation, so a screen reader speaks again; none before the first', () => {
+  assert.equal(liveReady(0), '');
+  assert.equal(liveReady(1), 'Ready in a moment');
+  assert.notEqual(liveReady(1), liveReady(2), 'a second block changes the text');
+  assert.equal(liveReady(3), liveReady(1), 'and the text alternates');
+});
+
+test('the clock tells its listeners when a key or a stamp changes it, once per key (the hints re-check then, not only on a blocked key)', () => {
+  const clock = createKeyClock();
+  let seen = 0;
+  const stop = clock.subscribe(() => { seen++; });
+  const k = {};
+  clock.note(k, 100, 'x'); clock.note(k, 100, 'x');
+  assert.equal(seen, 1, 'one key, one notice');
+  clock.note({}, 200, 'ArrowDown');
+  assert.equal(seen, 1, 'a navigation key changes nothing');
+  clock.stamp(300);
+  assert.equal(seen, 2, 'a stamp is a change');
+  stop();
+  clock.note({}, 400, 'x');
+  assert.equal(seen, 2, 'no notice after unsubscribing');
+});
+
+test('a step change inside the same question card is internal: a focus that comes back to the card after it does not re-arm it', () => {
+  const clock = createKeyClock();
+  const arm = createCardArm(clock, () => 0);
+  arm.stepped(5000);
+  arm.enterFrom(container({}), null, 5010);
+  assert.equal(arm.armedNow(5020), true, 'the focus re-set inside the step window restarts nothing');
+  arm.enterFrom(container({}), null, 5400);
+  assert.equal(arm.armedNow(5500), false, 'a focus from outside after the step window does restart');
+});
+
+test('QuestionCard: a step change is marked to the arm, once per change, not on mount', () => {
+  const q = src('ui/src/components/QuestionCard.tsx');
+  assert.match(q, /arm\.stepped\(performance\.now\(\)\)/);
+  assert.match(q, /prevStep\.current !== step/);
+});
+
+test('the hints re-check on every page key, and when the wait is due (the timer), so they undim without a blocked key', () => {
+  const clock = src('ui/src/a11y/keyClock.ts');
+  assert.match(clock, /page\.subscribe\(/);
+  assert.match(clock, /window\.setTimeout\(\(\) => refresh\(\), arm\.untilArmed\(now\) \+ 5\)/);
 });

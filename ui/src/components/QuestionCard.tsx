@@ -6,6 +6,7 @@ import {
 } from '../chat/questionCard';
 import { Icon } from './icons';
 import { useArmUi, useCardArm } from '../a11y/keyClock';
+import { liveReady } from '../a11y/keyClockCore';
 
 /** "Asked by Marshal through the agent bridge, hop 2": shown when a bot woken elsewhere needs an answer. */
 function Origin({ o }: { o: NonNullable<PendingQuestion['origin']> }) {
@@ -41,9 +42,12 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const { armed, refresh } = useArmUi(arm);
   // an ignored pick or submit says so: the note while not armed, and the same words once for a screen reader
   const [ignored, setIgnored] = useState(false);
-  const [said, setSaid] = useState('');
+  const [blocks, setBlocks] = useState(0);
   useEffect(() => { if (armed) setIgnored(false); }, [armed]);
-  const notReady = (): void => { setIgnored(true); setSaid('Ready in a moment'); refresh(); };
+  const notReady = (): void => { setIgnored(true); setBlocks((n) => n + 1); refresh(); };
+  // a step change is internal to the card: focus that returns to it right after does not restart the arm
+  const prevStep = useRef(step);
+  useEffect(() => { if (prevStep.current !== step) { prevStep.current = step; arm.stepped(performance.now()); } }, [step, arm]);
   const optRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const otherRef = useRef<HTMLInputElement>(null);
 
@@ -86,7 +90,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));
 
   return (
-    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now())} onKeyDown={onKeyDown}>
+    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now())} onKeyUp={() => arm.released(performance.now())} onKeyDown={onKeyDown}>
       <div className="approval-head">
         <Icon name="help" size={14} />
         <span>Needs your answer</span>
@@ -157,7 +161,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
           ? <button type="button" className="btn primary" disabled={!isAnswered(answers, step)} onClick={() => setStep((s) => Math.min(s + 1, n))}>Next</button>
           : <button type="button" className="btn primary" disabled={busy || !allAnswered} onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } submit(); }}>Submit</button>}
         {ignored && !armed && <span className="approval-note">Ready in a moment</span>}
-        <span className="sr-only" role="status" aria-live="polite">{said}</span>
+        <span className="sr-only" role="status" aria-live="polite">{liveReady(blocks)}</span>
         <span className="approval-note">arrows move · Enter picks · 1-4 pick · Esc closes Other</span>
       </div>
     </div>
