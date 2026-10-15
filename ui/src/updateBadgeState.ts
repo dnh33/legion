@@ -19,7 +19,7 @@ export interface UpdateBadgeStatus {
 }
 
 export type UpdateBadgeKind = 'none' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'approval' | 'updated';
-export type UpdateBadgeTone = 'accent' | 'progress' | 'ready' | 'busy';
+export type UpdateBadgeTone = 'accent' | 'progress' | 'ready' | 'busy' | 'done';
 
 /** Everything the badge renders from. `visible: false` means render nothing at all. */
 export interface UpdateBadgeState {
@@ -110,7 +110,7 @@ export function pureBadgeState(s: UpdateBadgeStatus): UpdateBadgeState {
   // step 10, seen from the new build: the update landed. Quiet, once, and below anything that is still under way.
   if (s.updated) {
     return {
-      visible: true, kind: 'updated', label: `Updated to ${s.updated.version}`, detail: 'What\'s new', pct: null, tone: 'ready',
+      visible: true, kind: 'updated', label: `Updated to ${s.updated.version}`, detail: 'What\'s new', pct: null, tone: 'done',
       title: `Legion updated to ${s.updated.version}.`, action: 'none', updated: s.updated,
     };
   }

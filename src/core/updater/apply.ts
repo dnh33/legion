@@ -39,8 +39,8 @@ export interface WindowDep {
   start(): void;
   /** Asks the window to give up the single-instance lock, and waits (briefly) until it has. Safe to call twice. Never throws. */
   releaseLock(): Promise<void>;
-  /** Tells the window the result. Ok: it shows Done and closes. Failed or rolled back: it shows the reason and waits for the person. */
-  finish(result: 'ok' | 'failed' | 'rolled-back', message?: string): Promise<void>;
+  /** Tells the window the result. Ok: it shows Done and closes. Failed or rolled back: it shows the reason and waits for the person. `started`: whether the helper has started Legion again; when it has not, the window starts it when the person leaves. */
+  finish(result: 'ok' | 'failed' | 'rolled-back', message?: string, started?: boolean): Promise<void>;
 }
 
 /** The only names an update may replace (directories and files at the top of the install folder). */
@@ -433,7 +433,7 @@ export interface ApplyJob {
   /** The data folder, so every step is also written to <data>/logs/app.log. */
   dataDir?: string;
   /** The "Updating Legion" window. `userData` is Legion's own user-data folder: the window takes the single-instance lock under that identity. */
-  window?: { enabled: boolean; userData: string };
+  window?: { enabled: boolean; userData: string; /** Chromium switches the app itself was started with (none in a normal start). */ args?: string[] };
 }
 /** `finished`: the re-exec copy ran and ended by itself with a non-ok result, so it already wrote the outcome and started the app; the parent must do neither. */
 export type ReExecResult = { ok: true } | { ok: false; error: string; finished?: boolean };
@@ -497,7 +497,12 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   const releaseWindowLock = async (): Promise<void> => { if (released || !d.window) return; released = true; await winSafe(() => d.window!.releaseLock()); };
   const respawn = async (): Promise<{ pid?: number } | null> => { await releaseWindowLock(); return d.spawnApp(job.relaunch); };
   /** An update that did not finish: say so in the log (which step, why) and on the window, which stays up with the reason. */
-  const failed = async (reason: string): Promise<void> => { jr('failed', 'done', { during: cur, note: reason }); await winSafe(() => d.window?.finish('failed', reason)); };
+  const failed = async (reason: string, startOldApp = false): Promise<void> => {
+    jr('failed', 'done', { during: cur, note: reason });
+    // the old app goes back up first (when it is gone and this failure left it so); the window learns whether that worked, and starts Legion itself on Retry or Close when it did not
+    const started = startOldApp ? !!(await respawn()) : false;
+    await winSafe(() => d.window?.finish('failed', reason, started));
+  };
   let beatAt = 0;
   const beatMarker = (): void => { const t = Date.now(); if (d.marker?.touch && t - beatAt >= 2000) { beatAt = t; try { d.marker.touch(); } catch { /* the lease just ages */ } } };
   const waitUntil = async (cond: () => boolean | Promise<boolean>, ms: number): Promise<boolean> => {
@@ -532,8 +537,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
       const reason = `Legion could not prepare the update helper (${r.error}). Nothing was changed.`;
       d.log(reason);
       writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason });
-      await failed(reason);
-      await respawn();
+      await failed(reason, true);
       if (d.marker) d.marker.end();
       return finish('failed', reason);
     }
@@ -561,15 +565,14 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   progress({ stage: 'teardown', message: 'Waiting for the app to close', percent: null });
   if (!(await waitUntil(() => !d.isAlive(job.parentPid), job.parentWaitMs ?? 30_000))) { d.log('the app is still running: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'the app did not exit in time; nothing was changed' }); if (d.marker) d.marker.end(); await failed('the app did not exit in time; nothing was changed'); return finish('failed', 'the app did not exit in time'); }
   // A core that still answers means files are in use: never swap under it (health-based guard).
-  if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); await failed('a Legion core is still running; nothing was changed'); await respawn(); if (d.marker) d.marker.end(); return finish('failed', 'a Legion core is still running'); }
+  if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); await failed('a Legion core is still running; nothing was changed', true); if (d.marker) d.marker.end(); return finish('failed', 'a Legion core is still running'); }
   // Graceful core shutdown before swap (teardown.ts). Never swap files under a running core.
   progress({ stage: 'teardown', message: 'Stopping the core', percent: null });
   const td = d.gracefulTeardown ? await d.gracefulTeardown(job.portFreeMs ?? 5000) : { ok: true };
   if (!td.ok) {
     d.log(`teardown failed: ${td.error}`);
     writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: td.error });
-    await failed(td.error ?? 'the Legion core did not stop');
-    await respawn();
+    await failed(td.error ?? 'the Legion core did not stop', true);
     if (d.marker) d.marker.end();
     return finish('failed', td.error);
   }
@@ -588,8 +591,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     const code = (e as NodeJS.ErrnoException).code;
     const msg = ['EBUSY', 'EPERM', 'EACCES'].includes(code ?? '') ? 'files in use: close other Legion windows or tools started in the Legion folder, then try again' : reason;
     writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: msg });
-    await failed(msg);
-    await respawn();
+    await failed(msg, true);
     if (d.marker) d.marker.end();
     return finish('failed', msg);
   }
@@ -647,8 +649,8 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   const why = `the new build did not report healthy on 127.0.0.1:${job.port} within ${Math.round(win.baseMs / 1000)} s`;
   await rollback(installDir, why, job.swapRetryMs ?? 15_000);
   jr('rolled-back', 'done', { during: 'health', note: why });
-  await winSafe(() => d.window?.finish('rolled-back', why));
-  await respawn();
+  const started = !!(await respawn());
+  await winSafe(() => d.window?.finish('rolled-back', why, started));
   if (d.marker) d.marker.end();
   return finish('rolled-back');
 }
@@ -702,7 +704,7 @@ export const WINDOW_DIR_PARTS: readonly string[] = Object.freeze(['run', 'window
  * They talk through files: this side writes window-job.json once and appends numbered lines to commands.jsonl; the window answers in state.json.
  * Never throws and never waits long: the window is a courtesy, the update is the job.
  */
-export function realWindow(installDir: string, job: { updateId: string; appPid?: number; from: string; to: string; names?: readonly string[]; window: { enabled: boolean; userData: string } }, log: (line: string) => void): WindowDep {
+export function realWindow(installDir: string, job: { updateId: string; appPid?: number; from: string; to: string; names?: readonly string[]; relaunch?: Relaunch; window: { enabled: boolean; userData: string; args?: string[] } }, log: (line: string) => void): WindowDep {
   const dir = join(upDir(installDir), ...WINDOW_DIR_PARTS);
   const cmdFile = join(dir, 'commands.jsonl');
   const stateFile = join(dir, 'state.json');
@@ -717,11 +719,11 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
       try {
         if (!existsSync(join(dir, 'package.json'))) { log('window: not started (its files are not in .update/run/window)'); return; }
         for (const f of [cmdFile, stateFile]) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
-        writeFileSync(join(dir, 'window-job.json'), JSON.stringify({ installDir, updateId: job.updateId, helperPid: process.pid, appPid: job.appPid, userData: job.window.userData, from: job.from, to: job.to, kind: job.names?.includes('node_modules') ? 'full' : 'code', startedAt: Date.now() }));
+        writeFileSync(join(dir, 'window-job.json'), JSON.stringify({ installDir, updateId: job.updateId, helperPid: process.pid, appPid: job.appPid, userData: job.window.userData, from: job.from, to: job.to, kind: job.names?.includes('node_modules') ? 'full' : 'code', startedAt: Date.now(), ...(job.relaunch ? { relaunch: job.relaunch } : {}) }));
         // the helper runs with ELECTRON_RUN_AS_NODE=1; the window must run as a real app
         const env: Record<string, string | undefined> = { ...process.env, LEGION_UPDATE_WINDOW: '1' };
         delete env.ELECTRON_RUN_AS_NODE;
-        const c = spawn(process.execPath, [dir], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false, env });
+        const c = spawn(process.execPath, [dir, ...(job.window.args ?? [])], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false, env });
         c.on('error', (e) => log(`window: could not start: ${e.message}`));
         c.unref();
         pid = c.pid;
@@ -734,9 +736,9 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
       const ok = await waitFor(() => lock() === 'released' || !alive(pid!), 3000);
       log(ok ? 'window: the single-instance lock was handed over' : 'window: the lock hand-over was not confirmed in 3 s: going on');
     },
-    async finish(result, message) {
+    async finish(result, message, started) {
       if (!pid) return;
-      send({ cmd: 'finish', result, ...(message ? { message } : {}) });
+      send({ cmd: 'finish', result, ...(message ? { message } : {}), ...(started !== undefined ? { started } : {}) });
       if (result !== 'ok') return; // a failure stays on screen until the person chooses; it closes itself
       if (!(await waitFor(() => !alive(pid!), 5000)) && alive(pid)) {
         await new Promise<void>((done) => {
@@ -749,7 +751,7 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
   };
 }
 
-export function realDeps(installDir: string, job?: { port: number; parentPid?: number; updateId?: string; dataDir?: string; from?: string; to?: string; names?: readonly string[]; window?: ApplyJob['window'] }): ApplyDeps {
+export function realDeps(installDir: string, job?: { port: number; parentPid?: number; updateId?: string; dataDir?: string; from?: string; to?: string; names?: readonly string[]; window?: ApplyJob['window']; relaunch?: Relaunch }): ApplyDeps {
   const port = job?.port ?? 4747;
   const logLine = (line: string): void => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } };
   // One id for every step this process writes: the job's, or one made here for a job from an older app.
@@ -760,7 +762,7 @@ export function realDeps(installDir: string, job?: { port: number; parentPid?: n
   return {
     marker: fileMarker(installDir),
     journey: helperJourney(installDir, { ...(job ?? {}), updateId }),
-    ...(windowOk ? { window: realWindow(installDir, { updateId, ...(job?.parentPid ? { appPid: job.parentPid } : {}), from: job?.from ?? '', to: job?.to ?? '', ...(job?.names ? { names: job.names } : {}), window: job!.window! }, logLine) } : {}),
+    ...(windowOk ? { window: realWindow(installDir, { updateId, ...(job?.parentPid ? { appPid: job.parentPid } : {}), from: job?.from ?? '', to: job?.to ?? '', ...(job?.names ? { names: job.names } : {}), ...(job?.relaunch ? { relaunch: job.relaunch } : {}), window: job!.window! }, logLine) } : {}),
     isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } },
     health: async (port) => {
       try {

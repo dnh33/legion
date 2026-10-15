@@ -25,7 +25,8 @@ const job = (f: { install: string; staged: string; data: string }, over: Partial
 });
 
 /** Fakes that record one timeline of everything the helper does, so the ORDER is what is asserted. */
-function rig(f: { install: string }, o: { newHealthy?: boolean; parentAlive?: boolean } = {}): { d: ApplyDeps; t: string[] } {
+function rig(f: { install: string }, o: { newHealthy?: boolean; parentAlive?: boolean } = {}): { d: ApplyDeps; t: string[]; fin: Array<{ result: string; started?: boolean }> } {
+  const fin: Array<{ result: string; started?: boolean }> = [];
   const t: string[] = [];
   const st = { newUp: false, oldUp: false };
   const d: ApplyDeps = {
@@ -37,10 +38,10 @@ function rig(f: { install: string }, o: { newHealthy?: boolean; parentAlive?: bo
     window: {
       start: () => { t.push('window:start'); },
       releaseLock: async () => { t.push('window:release-lock'); },
-      finish: async (result) => { t.push(`window:finish:${result}`); },
+      finish: async (result, _m, started) => { t.push(`window:finish:${result}`); fin.push({ result, started }); },
     },
   };
-  return { d, t };
+  return { d, t, fin };
 }
 
 test('H2 helper: a code-only update writes closing, installing, starting, health in order; the window starts first, lets go of the lock before the new build starts, and is told it worked', async () => {
@@ -82,7 +83,7 @@ test('H2 helper: a build that never reports healthy is rolled back; the journey 
   assert.equal(await runApply(job(f), d), 'rolled-back');
   assert.ok(t.includes('health:start'));
   assert.ok(t.includes('rolled-back:done(health)'), t.join(' | '));
-  assert.ok(t.indexOf('window:finish:rolled-back') > t.indexOf('rolled-back:done(health)') && t.lastIndexOf('spawn') > t.indexOf('window:finish:rolled-back'), 'the window is told, then the previous version starts');
+  assert.ok(t.indexOf('window:finish:rolled-back') > t.indexOf('rolled-back:done(health)') && t.lastIndexOf('spawn') < t.indexOf('window:finish:rolled-back'), 'the previous version starts, then the window is told whether it did');
   assert.equal(t.filter((x) => x === 'window:release-lock').length >= 1, true);
 });
 
@@ -135,4 +136,32 @@ test('H2 helper: the helper\'s own step list is the shared table (the helper can
   assert.deepEqual([...HELPER_JOURNEY_STEPS].sort(), shared);
   const e = { at: '2026-10-15T10:00:00.000Z', id: 'ab12cd34', step: 'installing' as const, state: 'start' as const, proc: 'helper' as const, from: '1.0.0', to: '1.1.0', note: 'x "y"' };
   assert.deepEqual(parseJourneyLine(`[${e.at}] ${journeyLine(e)}`), e);
+});
+
+test('H2 r2: the window is told whether Legion was started again; a failure that starts nothing says so, so the window can start it', async () => {
+  // before the old app is gone nothing is started: the backup fails
+  const a = fixture(); const ra = rig(a);
+  ra.d.runPreflight = () => ({ ok: false, error: 'disk full' } as never);
+  assert.equal(await runApply(job(a), ra.d), 'failed');
+  assert.deepEqual(ra.fin, [{ result: 'failed', started: false }], 'the backup failed: no Legion was started');
+  // the app does not exit in time: nothing is started either
+  const b = fixture(); const rb = rig(b, { parentAlive: true });
+  assert.equal(await runApply(job(b), rb.d), 'failed');
+  assert.deepEqual(rb.fin, [{ result: 'failed', started: false }]);
+  // a core that still answers, a teardown that failed: the helper starts the old app again
+  const c = fixture(); const rc = rig(c);
+  rc.d.gracefulTeardown = async () => ({ ok: false, error: 'the Legion core did not exit in time; nothing was changed' });
+  assert.equal(await runApply(job(c), rc.d), 'failed');
+  assert.deepEqual(rc.fin, [{ result: 'failed', started: true }], 'the old app was started again before the window was told');
+  assert.ok(rc.t.indexOf('spawn') < rc.t.indexOf('window:finish:failed'));
+  // a spawn that fails is not a started Legion
+  const d = fixture(); const rd = rig(d);
+  rd.d.gracefulTeardown = async () => ({ ok: false, error: 'the Legion core did not exit in time; nothing was changed' });
+  rd.d.spawnApp = () => null;
+  assert.equal(await runApply(job(d), rd.d), 'failed');
+  assert.deepEqual(rd.fin, [{ result: 'failed', started: false }]);
+  // a rollback starts the old version, then tells the window
+  const e = fixture(); const re = rig(e, { newHealthy: false });
+  assert.equal(await runApply(job(e), re.d), 'rolled-back');
+  assert.deepEqual(re.fin, [{ result: 'rolled-back', started: true }]);
 });

@@ -7,16 +7,17 @@
  * It imports only electron, node: and the two pure files copied beside it. It never touches the install, the data folder or the core.
  * Its own files (cache, logs) go to a temp folder, so it cannot hold a lock on anything the new build's window needs.
  */
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
+import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { foldJourney, parseJourneyJsonl } from '../core/updater/journey.js';
-import { lockAction, pendingCommands, windowDecision, windowModel, type WindowFinish } from '../core/updater/update-window-logic.js';
+import { lockAction, pendingCommands, settleFit, shouldStartLegion, windowDecision, windowModel, type WindowFinish } from '../core/updater/update-window-logic.js';
 
 const winDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-interface WindowJob { installDir: string; updateId: string; helperPid: number; appPid?: number; userData: string; from: string; to: string; kind: 'code' | 'full'; startedAt: number }
+interface WindowJob { installDir: string; updateId: string; helperPid: number; appPid?: number; userData: string; from: string; to: string; kind: 'code' | 'full'; startedAt: number; relaunch?: { cmd: string; args: string[]; cwd: string; env?: Record<string, string> } }
 const job = JSON.parse(readFileSync(join(winDir, 'window-job.json'), 'utf8')) as WindowJob;
 const up = join(job.installDir, '.update');
 const stamp = (): string => new Date().toISOString();
@@ -48,26 +49,52 @@ let handled = 0; let helperGoneAt = 0; let lastModel = '';
 const openedAt = Date.now();
 const setLock = (v: string): void => { try { writeFileSync(join(winDir, 'state.json'), JSON.stringify({ lock: v, pid: process.pid, at: stamp() })); } catch { /* ignore */ } };
 
-function leave(reason: string): void {
+/**
+ * A failed update the helper could not follow with Legion (the backup failed, the old app would not close): Retry, Close and the time limit all start
+ * Legion here, after the lock is let go, so a person is never left with no Legion and a window that does nothing. Retry then does its work in the app.
+ */
+async function startLegion(): Promise<void> {
+  const r = job.relaunch;
+  if (!r) { log('could not start Legion: the job has no start command'); return; }
+  for (let i = 0; i < 40 && alive(job.appPid); i++) await new Promise((res) => setTimeout(res, 250)); // the old app is still closing
+  if (alive(job.appPid)) { log('Legion is still running: not starting a second one'); return; }
+  if (held) { try { app.releaseSingleInstanceLock(); } catch { /* none held */ } held = false; released = true; setLock('released'); }
+  try {
+    const env: Record<string, string | undefined> = { ...process.env, ...(r.env ?? {}) };
+    for (const k of ['ELECTRON_RUN_AS_NODE', 'LEGION_UPDATE_WINDOW', 'LEGION_UPDATE_HANDOFF']) delete env[k];
+    const c = spawn(r.cmd, r.args, { cwd: r.cwd, detached: true, stdio: 'ignore', windowsHide: false, env });
+    c.on('error', (e) => log(`could not start Legion: ${e.message}`));
+    c.unref();
+    log(`started Legion pid=${c.pid ?? 'none'}: the update did not finish and nothing had started it again`);
+  } catch (e) { log(`could not start Legion: ${e instanceof Error ? e.message : String(e)}`); }
+}
+
+let leaving = false;
+async function leave(reason: Parameters<typeof shouldStartLegion>[1]): Promise<void> {
+  if (leaving) return;
+  leaving = true;
   log(`closing reason=${reason}`);
   try { writeFileSync(join(up, 'window-result.json'), JSON.stringify({ id: job.updateId, choice: choice ?? (reason === 'done' ? 'done' : 'timeout'), reason, at: stamp() })); } catch { /* ignore */ }
+  if (shouldStartLegion(finish, reason)) await startLegion();
   try { rmSync(own, { recursive: true, force: true }); } catch { /* ignore */ }
   app.exit(0);
 }
 
-/** Paints the model, then sizes the window to what it needs (a long reason, a larger text size): never cut off, never taller than the screen can use. */
-async function fit(w: BrowserWindow, json: string): Promise<void> {
+/** Paints the model, then sizes the window to what it needs at the page's zoom, never taller than the screen can use (the body scrolls, the buttons stay). */
+async function fit(w: BrowserWindow, json?: string): Promise<void> {
   try {
-    const h = await w.webContents.executeJavaScript(`(window.updateWindow.render(${json}), window.updateWindow.height())`) as number;
-    if (!w.isDestroyed() && Number.isFinite(h)) w.setContentSize(480, Math.max(420, Math.min(780, Math.ceil(h) + 2)));
+    if (json) await w.webContents.executeJavaScript(`window.updateWindow.render(${json})`);
+    await settleFit(w, () => w.webContents.executeJavaScript('window.updateWindow.height()') as Promise<number>, () => screen.getDisplayMatching(w.getBounds()).workArea);
+    lastZoom = w.webContents.getZoomFactor();
   } catch { /* the next change paints again */ }
 }
+let lastZoom = 1;
 
 function tick(): void {
   const now = Date.now();
   for (const c of pendingCommands(readText(join(winDir, 'commands.jsonl')), handled)) {
     handled = c.seq;
-    if (c.cmd === 'finish' && c.result) { finish = { result: c.result, at: now, ...(c.message ? { message: c.message } : {}) }; log(`told the result: ${c.result}`); }
+    if (c.cmd === 'finish' && c.result) { finish = { result: c.result, at: now, ...(c.message ? { message: c.message } : {}), ...(c.started !== undefined ? { started: c.started } : {}) }; log(`told the result: ${c.result}`); }
     if (c.cmd === 'release-lock') releaseRequested = true;
   }
   const act = lockAction({ held, released }, { releaseRequested, finished: !!finish, appGone: !alive(job.appPid) });
@@ -81,9 +108,12 @@ function tick(): void {
   if (!alive(job.helperPid)) { if (!helperGoneAt) helperGoneAt = now; } else helperGoneAt = 0;
   const m = windowModel(view, finish);
   const j = JSON.stringify(m);
-  if (j !== lastModel && win && !win.isDestroyed()) { lastModel = j; void fit(win, j); }
+  if (win && !win.isDestroyed()) {
+    if (j !== lastModel) { lastModel = j; void fit(win, j); }
+    else if (win.webContents.getZoomFactor() !== lastZoom) { lastZoom = win.webContents.getZoomFactor(); void fit(win); } // a zoom change does not fire a resize
+  }
   const d = windowDecision({ openedAt, helperDeadForMs: helperGoneAt ? now - helperGoneAt : 0, ...(finish ? { finish } : {}), ...(choice ? { choice } : {}) }, now);
-  if (d.close) leave(d.reason);
+  if (d.close) void leave(d.reason);
 }
 let releaseRequested = false;
 

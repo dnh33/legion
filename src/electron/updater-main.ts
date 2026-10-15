@@ -3,7 +3,7 @@
  * ready and idle, takes the commit answer, copies the apply helper out of the folders it will swap, starts it detached, and quits.
  * The only child process it starts is that helper, run by the installed Electron binary in node mode. Plan: claude/plan-updater.md.
  */
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
 import { spawn } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -11,13 +11,13 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
 import { cleanStaleApplyCopies, cleanupRuntimeCopy, confirmWhenHealthy, readOutcome, recoverAfterLiveSwap, UPDATE_DIR } from '../core/updater/apply.js';
-import { buildJob, commitMatches, restartNowText } from '../core/updater/main-logic.js';
+import { buildJob, commitMatches, restartNowText, windowSwitches } from '../core/updater/main-logic.js';
 import { planApplySpawn, prepareRuntimeCopy, shouldPrepare } from '../core/updater/runtime-copy.js';
 import { holdStartForUpdate } from '../core/updater/start-gate.js';
 import { isUpdateInProgress, MARKER_FILE_NAME } from '../core/updater/update-marker.js';
 import { logOutcome, outcomeNotice, runNoticeChoice, writeAppLog } from '../core/updater/outcome-notice.js';
 import { noteDoneAtStart, readLastJourney, recordStep } from '../core/updater/journey-io.js';
-import { gateModel, noticeAfterWindow } from '../core/updater/update-window-logic.js';
+import { gateModel, noticeAfterWindow, settleFit } from '../core/updater/update-window-logic.js';
 import { normalizeSettings } from '../core/updater/state.js';
 import { copyWindowFiles, windowDir } from '../core/updater/window-files.js';
 import { trustedSender } from './admin-logic.js';
@@ -58,7 +58,16 @@ function showGateWindow(installDir: string, dataDirPath: string, toVersion: stri
     if (shared) {
       const w = win;
       void w.loadFile(sharedPage).then(() => {
-        const paint = (): void => { if (w.isDestroyed()) return; const m = gateModel(readLastJourney(installDir), toVersion); void w.webContents.executeJavaScript(`(window.updateWindow.render(${JSON.stringify(m)}), window.updateWindow.height())`).then((h: number) => { if (!w.isDestroyed() && Number.isFinite(h)) w.setContentSize(480, Math.max(420, Math.min(780, Math.ceil(h) + 2))); }).catch(() => undefined); };
+        let busy = false;
+        // the same fit as the update window: the page's height at its zoom, never taller than the screen's usable area
+        const paint = (): void => {
+          if (w.isDestroyed() || busy) return;
+          busy = true;
+          const m = gateModel(readLastJourney(installDir), toVersion);
+          void w.webContents.executeJavaScript(`window.updateWindow.render(${JSON.stringify(m)})`)
+            .then(() => settleFit(w, () => w.webContents.executeJavaScript('window.updateWindow.height()') as Promise<number>, () => screen.getDisplayMatching(w.getBounds()).workArea))
+            .catch(() => undefined).finally(() => { busy = false; });
+        };
         paint(); timer = setInterval(paint, 500);
       }).catch(() => undefined);
     } else void win.loadURL(updateWindowHtml);
@@ -202,7 +211,7 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
         if (!wc.ok) { try { appendFileSync(join(h.installDir, UPDATE_DIR, 'apply.log'), `[${new Date().toISOString()}] the update window files could not be copied (${wc.missing.join(', ')}): updating without the window\n`); } catch { /* ignore */ } }
       }
       const jobFile = join(run, 'job.json');
-      writeFileSync(jobFile, JSON.stringify(buildJob(c.json, { parentPid: process.pid, port: h.pinnedPort(), execPath: process.execPath, dataDir: h.dataDir, window: { enabled: windowCopied, userData: app.getPath('userData') } })));
+      writeFileSync(jobFile, JSON.stringify(buildJob(c.json, { parentPid: process.pid, port: h.pinnedPort(), execPath: process.execPath, dataDir: h.dataDir, window: { enabled: windowCopied, userData: app.getPath('userData'), args: windowSwitches(process.argv) } })));
       // A full package swap renames the runtime this process runs from. When a verified copy of it was made ahead of time, start the helper from
       // that copy (no 36 s copy while the app is gone); otherwise the helper re-runs itself from a fresh copy, as before.
       const full = process.platform === 'win32' && !!c.json.names?.includes('node_modules');

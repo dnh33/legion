@@ -1,6 +1,6 @@
 /** The slice of GET /api/update/status the journey list reads. Mirrors src/core/updater/journey.ts JourneyView; the list is pure so test/update-journey-ui.test.ts runs it as it is. */
 export interface JourneyStepRow { id: string; n: string; label: string; state: 'pending' | 'active' | 'done' | 'failed' | 'skipped'; at?: string; startedAt?: string }
-export interface JourneyViewLike { id: string; from: string; to: string; kind?: 'code' | 'full'; steps: JourneyStepRow[]; result: 'running' | 'ok' | 'failed' | 'rolled-back'; reason?: string; startedAt: string; endedAt?: string }
+export interface JourneyViewLike { id: string; from: string; to: string; kind?: 'code' | 'full'; steps: JourneyStepRow[]; result: 'running' | 'ok' | 'failed' | 'rolled-back'; reason?: string; /** How it ended in plain words, made by the core (journey.ts outcomeText). */ message?: string; startedAt: string; endedAt?: string }
 
 const two = (n: number): string => String(n).padStart(2, '0');
 /** HH:MM:SS in the person's own time, or '' for a time that is not a time. */
@@ -20,7 +20,6 @@ export function journeyRows(v: JourneyViewLike): Array<{ id: string; label: stri
 export function journeySummary(v: JourneyViewLike): string {
   const route = v.kind === 'full' ? 'full update' : 'update';
   if (v.result === 'ok') return `Updated from ${v.from} to ${v.to} (${route}).`;
-  if (v.result === 'failed') return `The update from ${v.from} to ${v.to} did not finish.`;
-  if (v.result === 'rolled-back') return `The update to ${v.to} did not start correctly, so Legion went back to ${v.from}.`;
+  if (v.result === 'failed' || v.result === 'rolled-back') return `The update from ${v.from} to ${v.to} did not finish.${v.message ? ` ${v.message}` : ''}`;
   return `Updating from ${v.from} to ${v.to}.`;
 }

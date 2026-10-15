@@ -56,7 +56,7 @@ export function UpdateBadge() {
     if (gone === u.id) return null;
     const dismiss = () => { setGone(u.id); void request('POST', '/api/update/ack-updated', { id: u.id }).catch(() => undefined); };
     return (
-      <span className="upd-badge upd-badge-updated tone-ready" role="status" title={b.title}>
+      <span className="upd-badge upd-badge-updated tone-done" role="status" title={b.title}>
         <i className="upd-badge-dot" aria-hidden="true" />
         <span className="upd-badge-label">{b.label}</span>
         <a className="upd-badge-link" href={`https://github.com/dnh33/legion/releases/tag/v${u.version}`} target="_blank" rel="noreferrer noopener" onClick={dismiss}>What&apos;s new</a>

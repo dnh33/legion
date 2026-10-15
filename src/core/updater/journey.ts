@@ -106,6 +106,8 @@ export interface JourneyView {
   /** The step under way (it has started and not finished). */
   current?: JourneyStepId; pct?: number; bytes?: number; total?: number;
   result: 'running' | 'ok' | 'failed' | 'rolled-back'; reason?: string; failedAt?: JourneyStepId;
+  /** How a failed or rolled-back update ended, in plain words for Settings (outcomeText). */
+  message?: string;
   startedAt: string; endedAt?: string;
 }
 
@@ -156,10 +158,14 @@ export function foldJourney(events: readonly JourneyEvent[], id?: string): Journ
   if (result !== 'running') view.endedAt = (terminal ?? [...mine].reverse().find((e) => e.step === 'done'))?.at ?? mine[mine.length - 1]!.at;
   if (terminal?.note) view.reason = terminal.note;
   if (terminal?.during) view.failedAt = terminal.during;
+  if (terminal) view.message = outcomeText({ result: terminal.step === 'rolled-back' ? 'rolled-back' : 'failed', ...(terminal.note ? { reason: terminal.note } : {}), ...(terminal.during ? { failedAt: terminal.during } : {}), from: view.from }, 'settings');
   return view;
 }
 
-/** The helper writes short technical reasons; the owner gets plain words. Anything unknown is cleaned and cut, never shown raw and long. */
+/**
+ * The helper writes short technical reasons; the owner gets plain words, never a raw code, an address, a port or a path, and never a cut-off sentence.
+ * The result has no full stop: the caller adds the one it needs.
+ */
 export function plainReason(reason?: string): string {
   const r = (reason ?? '').trim();
   if (!r) return 'Something went wrong';
@@ -169,6 +175,29 @@ export function plainReason(reason?: string): string {
   if (/did not report healthy|did not become healthy/i.test(r)) return 'The new version did not start correctly, so Legion went back to the previous one';
   if (/^preflight/i.test(r)) return 'Legion could not back up your data first';
   if (/could not prepare the update helper|helper copy/i.test(r)) return 'Legion could not prepare the update helper';
-  const clean = r.replace(/[–—]/g, '-').replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
-  return clean.length > 160 ? `${clean.slice(0, 157)}...` : clean;
+  const clean = r.replace(/[–—]/g, '-')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\b(?:localhost|\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?/gi, '')
+    .replace(/\b[A-Za-z]:\\[^\s'"]*/g, '')
+    .replace(/^failed:\s*/i, '')
+    .replace(/\s+/g, ' ').replace(/\s+([,.;:])/g, '$1').replace(/[.\s]+$/, '');
+  return clean || 'Something went wrong';
+}
+
+const STEPS_BEFORE_THE_SWAP_ENDS: readonly JourneyStepId[] = ['closing', 'preparing', 'installing'];
+const sentence = (t: string): string => `${t.charAt(0).toUpperCase()}${t.slice(1)}.`;
+/**
+ * The one sentence for how an update ended, the same words in the update window and in Settings, About. Each outcome says only what is true:
+ * "Your files are unchanged." only when it failed before the new files were in place (a swap that fails puts the old ones back), and a rollback
+ * says which version is running. `where` changes only the way forward: the window has a Retry button, Settings does not.
+ */
+export function outcomeText(o: { result: 'failed' | 'rolled-back'; reason?: string; failedAt?: JourneyStepId; from?: string }, where: 'window' | 'settings' = 'window'): string {
+  const raw = o.reason ?? '';
+  let why = plainReason(raw);
+  if (o.result === 'rolled-back') why = why.replace(/,? so Legion went back to the previous one$/i, '');
+  let t = sentence(why);
+  if (/files in use|EBUSY|EPERM|EACCES/i.test(raw)) t += ` Close other Legion windows or programs using the Legion folder, then ${where === 'window' ? 'press Retry' : 'try the update again'}.`;
+  if (o.result === 'rolled-back') t += ` Legion went back to ${o.from || 'the previous version'}.`;
+  else if (o.failedAt && STEPS_BEFORE_THE_SWAP_ENDS.includes(o.failedAt)) t += ' Your files are unchanged.';
+  return t;
 }

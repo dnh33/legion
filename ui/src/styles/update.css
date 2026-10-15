@@ -24,6 +24,7 @@
 
 /* The last update's journey (Settings, About): one row per step, a mark for its state, its time on the right. */
 .upd-journey { display: flex; flex-direction: column; gap: 6px; }
+.upd-journey > p { margin: 0; overflow-wrap: anywhere; } /* a long reason wraps in full, never cut */
 .upd-journey ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .upd-step { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px; min-height: 24px; font-size: 12.5px; color: var(--text-2); }
 .upd-step-pending { color: var(--muted); }

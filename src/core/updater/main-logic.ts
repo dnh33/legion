@@ -24,7 +24,11 @@ export function commitMatches(c: unknown, installDir: string): c is CommitFacts 
   return norm(resolve(o.installDir as string)) === norm(base) && norm(staged).startsWith(norm(join(base, UPDATE_DIR, 'staging')) + sep);
 }
 
-export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string; dataDir?: string; window?: { enabled: boolean; userData: string } }): ApplyJob {
+/** The Chromium switches Legion was started with that the update window must start with too (a machine with no usable GPU or sandbox, such as a CI runner). A normal start has none. */
+const WINDOW_SWITCHES = new Set(['--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage']);
+export const windowSwitches = (argv: readonly string[]): string[] => argv.filter((a) => WINDOW_SWITCHES.has(a));
+
+export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string; dataDir?: string; window?: { enabled: boolean; userData: string; args?: string[] } }): ApplyJob {
   return {
     installDir: c.installDir, stagedDir: c.stagedDir, parentPid: o.parentPid, port: o.port, from: c.from, to: c.to,
     ...(c.names ? { names: c.names } : {}),

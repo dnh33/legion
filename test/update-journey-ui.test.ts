@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { pureBadgeState } from '../ui/src/updateBadgeState.js';
-import { journeyRows } from '../ui/src/updateJourneyView.js';
+import { journeyRows, journeySummary } from '../ui/src/updateJourneyView.js';
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const read = (rel: string): string => readFileSync(join(REPO, rel), 'utf8');
@@ -57,4 +57,15 @@ test('H2 text: nothing the person reads uses a long dash or says "this computer"
     const text = read(f).split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*') && !l.includes('/*')).join('\n');
     assert.equal(/this (computer|machine)/i.test(text), false, f);
   }
+});
+
+test('H2 r2: the About summary says the update did not finish and the core text follows it once; "Updated to X" is a done tone, not the warning amber', () => {
+  const base = { id: 'ab12cd34', from: '0.3.1', to: '0.3.2', steps: [], startedAt: '2026-10-15T10:00:00.000Z' };
+  assert.equal(journeySummary({ ...base, result: 'rolled-back', message: 'The new version did not start correctly. Legion went back to 0.3.1.' }), 'The update from 0.3.1 to 0.3.2 did not finish. The new version did not start correctly. Legion went back to 0.3.1.');
+  assert.equal(journeySummary({ ...base, result: 'failed', message: 'Legion did not close in time. Your files are unchanged.' }), 'The update from 0.3.1 to 0.3.2 did not finish. Legion did not close in time. Your files are unchanged.');
+  assert.equal(journeySummary({ ...base, result: 'failed' }), 'The update from 0.3.1 to 0.3.2 did not finish.');
+  const b = pureBadgeState({ updated: { version: '0.3.2', id: 'ab12cd34' } } as never);
+  assert.equal(b.kind, 'updated'); assert.equal(b.tone, 'done');
+  assert.match(read('ui/src/components/UpdateBadge.tsx'), /upd-badge-updated tone-done/);
+  assert.match(read('ui/src/styles/update-badge.css'), /\.upd-badge\.tone-done \.upd-badge-dot \{ background: var\(--accent\)/);
 });

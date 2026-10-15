@@ -61,7 +61,7 @@ function JourneyList({ v }: { v: JourneyViewLike }) {
   const rows = journeyRows(v);
   return (
     <div className="upd-journey">
-      <p className={v.result === 'failed' || v.result === 'rolled-back' ? 'upd-warn' : 'upd-muted'}>{journeySummary(v)}{v.reason ? ` ${v.reason}.` : ''}</p>
+      <p className={v.result === 'failed' || v.result === 'rolled-back' ? 'upd-warn' : 'upd-muted'}>{journeySummary(v)}</p>
       <ol aria-label="Steps of the last update">
         {rows.map((r) => (
           <li key={r.id} className={`upd-step upd-step-${r.state}`}>
