@@ -20,12 +20,19 @@ on:
         required: false
         default: ""
 
+  # A new workflow cannot be dispatched until it is on the default branch. Until this one is merged, edits to the walk itself run it on the PR
+  # (plain pull_request, never the privileged trigger; inputs are empty there, so the defaults apply). Drop this block after the first merge.
+  pull_request:
+    paths:
+      - scripts/live-walk/**
+      - .github/workflows/live-walk.yml
+
 permissions:
   contents: read
 
 concurrency:
   group: live-walk-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   walk:
@@ -57,7 +64,7 @@ jobs:
           node-version: 24.13.1
       - name: Work out the versions (inputs checked before use)
         run: |
-          $from = if ($env:SLOT -eq 'direct') { '0.3.0' } else { $env:FROM_INPUT }
+          $from = if ($env:SLOT -eq 'direct') { '0.3.0' } elseif ([string]::IsNullOrWhiteSpace($env:FROM_INPUT)) { '0.2.7' } else { $env:FROM_INPUT }
           if ($from -notmatch '^\d{1,9}\.\d{1,9}\.\d{1,9}$') { throw "from must be a plain version like 0.2.7, got: $from" }
           $to = $env:TO_INPUT
           if ([string]::IsNullOrWhiteSpace($to)) { $to = 'latest' }
