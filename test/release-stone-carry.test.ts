@@ -277,6 +277,8 @@ test('rehearsal: the stone-stranded-nofull scenario asserts the refusal reason, 
   assert.doesNotMatch(src, /sleep\(60000\)/, 'the fixed one-minute wait is gone');
   assert.match(src, /refusal reason: the dependency hash of the staged package lock differs/);
   assert.match(src, /refusal reason: the served manifest names no fullAsset/);
+  assert.match(src, /the staging folder for \$\{s2\} to appear/, 'it waits for staging to exist before waiting for it to vanish');
+  assert.ok(src.indexOf('to appear`') < src.indexOf('to be removed again`'), 'the appear wait comes first');
   const m = /\/\/ The frozen v0\.3\.0 dependencyHash[^\n]*\n(const dependencyHash = [\s\S]*?\n\};)\n/.exec(src);
   assert.ok(m, 'the dependencyHash copy is in the harness');
   const copy = new Function('createHash', `${m[1]}\nreturn dependencyHash;`)(createHash) as (s: string) => string;

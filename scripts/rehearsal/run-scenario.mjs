@@ -343,19 +343,27 @@ try {
     if (nofull) {
       // The stone install is offered a code-only release whose lock differs and that carries NO full package: it downloads the code package, refuses it
       // (dependencies changed) and has nothing to fall back to. It must end on a notice, still running the stone, with a full package never requested.
+      // A fast watcher starts first, so a short-lived staging folder is seen: the stone creates <staging>/<version> when the download starts and removes it on refusal.
+      const stagingDir = join(up, 'staging', s2);
+      let stagingSeenAt;
+      const watcher = setInterval(() => { if (stagingSeenAt === undefined && existsSync(stagingDir)) { stagingSeenAt = Date.now(); log(`staging folder for ${s2} appeared`); } }, 100);
       const got = await waitFor(`the stone to ask for the code package of ${s2}`, async () => (first(hitsNow(), `legion-${s2}-app.zip`) >= 0 ? true : null), 600000);
       check(!!got, `the stone install downloaded the code package of ${s2} and looked at it`);
-      // The refusal itself. The frozen stone keeps its reason in memory only (it logs nothing for a StageError, and /api/update/status needs the per-launch
-      // admin secret), so the reason is shown from what the stone decides on: checkTree refuses with 'full-install' exactly when the dependency hash of the
-      // installed lock differs from the one in the staged package (v0.3.0 package.ts). Both are read from the real files here. The stone is done with the
-      // package when its staging folder is gone again (the stage is removed on every refusal) with no swap started.
-      const stagingGone = await waitFor('the stone to finish with the code package (staging folder removed)', async () => {
-        const st = join(up, 'staging');
-        if (existsSync(st) && readdirSync(st).length > 0) return null;
-        await sleep(3000);
-        return existsSync(st) && readdirSync(st).length > 0 ? null : true;
-      }, 180000);
-      check(!!stagingGone, 'the stone removed its staging folder: it staged the code package and dropped it');
+      // The refusal itself is INFERRED, not observed. The frozen stone keeps its reason in memory only (v0.3.0 index.ts install(): a StageError sets
+      // `error` and `available.manifest`, nothing is logged or written to state.json, and /api/update/status needs the per-launch admin secret).
+      // So the reason is shown from what the stone decides on: checkTree refuses with 'full-install' exactly when the dependency hash of the installed lock
+      // differs from the one in the staged package (v0.3.0 package.ts), and with no fullAsset there is no fallback. Both inputs are read from the real files below.
+      // The observable part is the staging folder: it must first EXIST (so the stone really staged the package), and only then vanish (removed on every refusal),
+      // with no swap started. Waiting for "gone" alone passes vacuously when staging was never created.
+      const stagingAppeared = await waitFor(`the staging folder for ${s2} to appear`, async () => (stagingSeenAt !== undefined || existsSync(stagingDir) ? true : null), 120000);
+      check(!!stagingAppeared, `the stone staged the code package of ${s2} (staging/${s2} existed)`);
+      const stagingGone = stagingAppeared ? await waitFor(`the staging folder for ${s2} to be removed again`, async () => {
+        if (existsSync(stagingDir)) return null;
+        await sleep(3000); // a refusal removes it once; a still-running stage must not slip past one poll
+        return existsSync(stagingDir) ? null : true;
+      }, 180000) : null;
+      clearInterval(watcher);
+      check(!!stagingGone, `the stone removed staging/${s2} again after looking at it (a refused stage is removed)`);
       const stagedLock = readZipEntry(readFileSync(join(preparedDir, 'served', 'stone-stranded-nofull', `legion-${s2}-app.zip`)), `legion-${s2}/package-lock.json`);
       const installedLock = existsSync(join(install, 'package-lock.json')) ? readFileSync(join(install, 'package-lock.json'), 'utf8') : undefined;
       check(!!stagedLock && installedLock !== undefined && dependencyHash(installedLock) !== dependencyHash(stagedLock.toString('utf8')),
