@@ -90,7 +90,7 @@ async function main() {
   const questions = new QuestionBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
   // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
-  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())), cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
   // the away features (0.3.0): the owner's absence settings, the spend ledger, pause and budget. The brokers and the engine read them; with no settings they behave as before

@@ -55,7 +55,7 @@ describe('legion_comms MCP tools (in-process client)', () => {
     await mod.dispose!();
   });
 
-  it('bot_send and room_post take an optional model (sonnet, opus, haiku, auto); the engine gets it for that turn only', async () => {
+  it('bot_send and room_post take an optional model (sonnet, opus, haiku, fable, auto); the engine gets it for that turn only', async () => {
     const h = makeHarness();
     const room = h.room(['zealot', 'scout']);
     h.agents.get('scout')!.model = 'opus';   // a per-task model is capped at the target's own setting
@@ -63,7 +63,9 @@ describe('legion_comms MCP tools (in-process client)', () => {
     const { tools } = await client.listTools();
     for (const n of ['bot_send', 'room_post']) {
       const schema: any = tools.find((t) => t.name === n)!.inputSchema;
-      assert.deepEqual(schema.properties.model.enum, ['sonnet', 'opus', 'haiku', 'auto'], n);
+      // a free string checked by the bridge against the account's catalog; the description names the aliases, Fable among them
+      assert.equal(schema.properties.model.type, 'string', n);
+      assert.match(schema.properties.model.description, /sonnet, opus, haiku, fable or auto/, n);
       assert.ok(!(schema.required ?? []).includes('model'), n);
     }
     const r: any = await client.callTool({ name: 'bot_send', arguments: { to: 'scout', text: 'quick one', model: 'haiku' } });

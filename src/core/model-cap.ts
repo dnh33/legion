@@ -1,19 +1,22 @@
 /**
  * The most expensive model a bot may ask for on another agent's behalf (per-task `model` on ask, tell, bot_send, room_post).
- * Rank: haiku 1, sonnet 2, opus 3. An agent's own setting is its ceiling, and `auto` (or an id we cannot place) counts as sonnet, so
+ * Rank: haiku 1, sonnet 2, opus 3, fable 4. An agent's own setting is its ceiling, and `auto` (or an id we cannot place) counts as sonnet, so
  * a bot never upgrades a peer past what its owner chose for it. `auto` as a request is always allowed (the router decides, and the
  * engine clamps the result to the same ceiling).
+ *
+ * Fable sits ABOVE Opus. Without its own rank it would count as Sonnet, and a Sonnet agent could be moved onto the dearest model.
  */
 export function modelRank(model: string | undefined): number {
   const m = (model ?? '').toLowerCase();
+  if (m.includes('fable')) return 4;
   if (m.includes('opus')) return 3;
   if (m.includes('haiku')) return 1;
   return 2;
 }
 
 /** The alias to run on when a request is clamped. */
-export function rankModel(rank: number): 'haiku' | 'sonnet' | 'opus' {
-  return rank >= 3 ? 'opus' : rank <= 1 ? 'haiku' : 'sonnet';
+export function rankModel(rank: number): 'haiku' | 'sonnet' | 'opus' | 'fable' {
+  return rank >= 4 ? 'fable' : rank >= 3 ? 'opus' : rank <= 1 ? 'haiku' : 'sonnet';
 }
 
 /** The `<provider>:` part of a provider model value (`openrouter:vendor/model`), if it has one. A Bedrock ARN is not one. */

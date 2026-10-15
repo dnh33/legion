@@ -494,31 +494,34 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .model-pill .mp-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .model-pill .icon { flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
 .model-pill.open { border-color: var(--accent-line); } .model-pill.open .icon { transform: rotate(180deg); }
-.model-pop { right: auto; width: min(380px, 100%); left: 8px; }
-.pop-head { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; font-weight: 600; font-size: 12.5px; }
-.pop-list { padding: 0 4px 4px; max-height: 320px; overflow-y: auto; }
-.pop-listwrap { position: relative; }
+.model-pop { right: auto; width: min(380px, 100%); left: 8px; display: flex; flex-direction: column; max-height: min(480px, 80vh); }
+.pop-head { display: flex; flex: none; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; font-weight: 600; font-size: 12.5px; }
+/* The body holds the one scrolling list, which takes the free height and carries the pinned Older head. Overflow is clipped here, never drawn over the footer. */
+.pop-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* the pinned Older head is 27.75px tall (border-box, measured at 960x600) and sits above the list's 4px bottom padding: a row scrolled into view clears both */
+.pop-list { padding: 0 4px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; scroll-padding-bottom: 32px; }
+.pop-listwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; }
+/* four full rows with their descriptions (label included), at 960x600: Auto and the first current models stay in view */
+/* the floor gives way on a short window (the popover cap is 80vh), so the list never runs under the footer */
+.pop-listwrap.is-tall { min-height: min(252px, 45vh); }
 .pop-listwrap::before, .pop-listwrap::after { content: ''; position: absolute; left: 0; right: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity var(--t) ease-out; z-index: 1; }
 .pop-listwrap::before { top: 0; background: linear-gradient(var(--surface), transparent); }
 .pop-listwrap::after { bottom: 0; background: linear-gradient(transparent, var(--surface)); }
 .pop-listwrap.sh-top::before, .pop-listwrap.sh-bot::after { opacity: 1; }
 .mp-group { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.pop-search { padding: 6px 4px 2px; }
+.pop-search { padding: 6px 4px 2px; flex: none; }
 .mp-search { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 10px; color: var(--text); font-size: 13px; }
 .mp-search::placeholder { color: var(--faint); }
 .mp-search:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .mp-search:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .mp-empty { padding: 10px 10px; color: var(--muted); font-size: 12.5px; }
-.mp-more { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px; margin-top: 2px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: 12.5px; }
-.mp-more:hover { background: var(--surface-3); }
-.mp-more .icon { transform: rotate(90deg); }
-.mp-more[aria-expanded='true'] .icon { transform: rotate(-90deg); }
 .mp-item { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; }
 .mp-item.hl { background: var(--surface-3); }
 .mp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.mp-text b { font-weight: 600; }
+/* a long model id is cut with an ellipsis; the row's title (tooltip) carries the whole id */
+.mp-text b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-text span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
 .mp-check { width: 16px; flex: none; color: var(--accent-text); padding-top: 2px; }
-.pop-foot { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.pop-foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .pop-foot kbd { margin-left: auto; }
 .field-note { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.4; }
 
@@ -788,3 +791,17 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .arm-notice::before, .bd-offer::before { background: var(--accent-text); }
 .proj-note::before { background: var(--muted); }
 .proj-note.needs::before { background: var(--warn); -webkit-mask-image: var(--ico-warn); mask-image: var(--ico-warn); }
+
+/* Model picker: collapsible heads (Older models, creator groups). Theme tokens only; focus rings keyboard-only. */
+/* A head wears the group-label size (.mp-group above); only the family is reset, so it is not the button's 13px. */
+.mp-head { width: 100%; display: flex; align-items: center; gap: 8px; background: none; border: 0; font-family: inherit; text-align: left; cursor: pointer; color: var(--muted); }
+.mp-head .mp-head-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-head .mp-count { font-variant-numeric: tabular-nums; opacity: 0.7; }
+/* Closed: the chevron points right. Open: it points down. */
+.mp-head svg { transition: transform 120ms ease; }
+.mp-head.is-open svg { transform: rotate(90deg); }
+/* The Older models head is the list's last row, pinned to its bottom edge: the rows scroll under it, and when it opens its rows follow it. */
+.mp-head.mp-older-head { position: sticky; bottom: 0; z-index: 2; background: var(--surface-2); border-top: 1px solid var(--line); }
+.mp-quiet { opacity: 0.75; flex-basis: 100%; }
+/* The highlighted row is a tint, never a ring: the same background as hover, with or without keyboard navigation. */
+.mp-head.hl { background: var(--surface-3); border-radius: var(--r-sm); }
