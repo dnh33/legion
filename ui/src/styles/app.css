@@ -488,17 +488,20 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .model-pill .mp-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .model-pill .icon { flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
 .model-pill.open { border-color: var(--accent-line); } .model-pill.open .icon { transform: rotate(180deg); }
-.model-pop { right: auto; width: min(380px, 100%); left: 8px; display: flex; flex-direction: column; max-height: min(440px, 72vh); }
+.model-pop { right: auto; width: min(380px, 100%); left: 8px; display: flex; flex-direction: column; max-height: min(480px, 80vh); }
 .pop-head { display: flex; flex: none; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; font-weight: 600; font-size: 12.5px; }
-.pop-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+/* The body splits into the scrolling list (it gives up height first) and the pinned Older head (its natural height). Overflow is clipped here, never drawn over the footer. */
+.pop-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .pop-list { padding: 0 4px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.pop-listwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 96px; }
+.pop-listwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 0; }
+/* four full rows with their descriptions (label included), at 960x600: Auto and the first current models stay in view */
+.pop-listwrap.is-tall { min-height: 252px; }
 .pop-listwrap::before, .pop-listwrap::after { content: ''; position: absolute; left: 0; right: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity var(--t) ease-out; z-index: 1; }
 .pop-listwrap::before { top: 0; background: linear-gradient(var(--surface), transparent); }
 .pop-listwrap::after { bottom: 0; background: linear-gradient(transparent, var(--surface)); }
 .pop-listwrap.sh-top::before, .pop-listwrap.sh-bot::after { opacity: 1; }
 .mp-group { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.pop-search { padding: 6px 4px 2px; }
+.pop-search { padding: 6px 4px 2px; flex: none; }
 .mp-search { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 10px; color: var(--text); font-size: 13px; }
 .mp-search::placeholder { color: var(--faint); }
 .mp-search:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .mp-search:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -789,7 +792,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .mp-head svg { transition: transform 120ms ease; }
 .mp-head.is-open svg { transform: rotate(90deg); }
 /* The Older models head sits under the scrolling list, always in view; its rows scroll in their own panel above the footer. */
-.mp-older { display: flex; flex-direction: column; flex: none; border-top: 1px solid var(--line); padding: 2px 4px 0; }
-.mp-older-rows { max-height: 180px; overflow-y: auto; padding: 0 4px 4px; }
+.mp-older { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden; border-top: 1px solid var(--line); padding: 2px 4px 0; }
+.mp-older > .mp-head { flex: none; }
+.mp-older-rows { flex: 0 1 auto; min-height: 0; max-height: 88px; overflow-y: auto; padding: 0 4px 4px; }
 .mp-quiet { opacity: 0.75; flex-basis: 100%; }
 :root[data-kbd-nav] .mp-head.hl, :root[data-kbd-nav] .mp-item.hl { outline: 2px solid currentColor; outline-offset: -2px; }

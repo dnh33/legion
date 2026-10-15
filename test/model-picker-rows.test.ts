@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPickerLayout, resolveHighlight, type PickerInput } from '../src/shared/model-picker-rows.js';
+import { buildPickerLayout, nextHighlightId, resolveHighlight, type PickerInput } from '../src/shared/model-picker-rows.js';
 
 const base = (over: Partial<PickerInput> = {}): PickerInput => ({
   query: '', selected: 'opus', autoDescription: 'Legion picks Sonnet or Opus per task',
@@ -119,4 +119,61 @@ test('the Current models label appears once, above the first current model', () 
   const firstCurrent = L.rows.findIndex((r) => r.kind === 'item' && r.id === 'opus');
   assert.ok(labelAt >= 0 && labelAt < firstCurrent);
   assert.equal(L.rows.filter((r) => r.kind === 'label').length, 1);
+});
+
+test('under a query, ArrowDown moves to the second match and ArrowUp wraps back, instead of snapping to the first match', () => {
+  // Three current models match "5.5": opus, sonnet, haiku. The highlight must follow the owner's moves.
+  const L = buildPickerLayout(base({ query: '5.5' }));
+  assert.deepEqual(L.nav.map((n) => n.id), ['opus', 'sonnet', 'haiku']);
+  assert.equal(L.nav[resolveHighlight(L.nav, 'sonnet', '5.5', 'opus')]!.id, 'sonnet', 'a moved highlight is kept under a query');
+  const down = nextHighlightId(L.nav, undefined, '5.5', 'opus', 1);
+  assert.equal(down, 'sonnet', 'first ArrowDown reaches the second match');
+  assert.equal(nextHighlightId(L.nav, down, '5.5', 'opus', 1), 'haiku');
+  assert.equal(nextHighlightId(L.nav, undefined, '5.5', 'opus', -1), 'haiku', 'ArrowUp from the first match wraps to the last');
+});
+
+test('a hover sets the highlight under a query: the hovered row is the one resolved', () => {
+  const L = buildPickerLayout(base({ query: '5.5' }));
+  // onMouseMove stores the row's id as the highlight; the resolver must return that row, not the first match.
+  assert.equal(L.nav[resolveHighlight(L.nav, 'haiku', '5.5', 'opus')]!.id, 'haiku');
+});
+
+test('under a query, a head toggles like it does without one: closing the Older head hides its matches but keeps the count', () => {
+  const open = buildPickerLayout(base({ query: 'haiku' }));
+  assert.equal(open.older?.head.open, true, 'a query opens the head by default');
+  const closed = buildPickerLayout(base({ query: 'haiku', queryOpen: { older: false } }));
+  assert.equal(closed.older?.head.open, false);
+  assert.deepEqual(closed.older?.rows, []);
+  assert.equal(closed.older?.head.count, 1, 'the count still shows the matches');
+  assert.equal(closed.nav.some((n) => n.kind === 'item' && n.id === 'claude-haiku-4-5'), false);
+});
+
+test('under a query, a creator group head closes and opens on its own state', () => {
+  const closed = buildPickerLayout(base({ groups, query: 'r1', queryOpen: { 'group-openrouter/deepseek': false } }));
+  const head = closed.rows.find((r) => r.kind === 'head' && r.id === 'group-openrouter/deepseek');
+  assert.ok(head && head.kind === 'head' && head.open === false);
+  assert.equal(closed.nav.some((n) => n.kind === 'item'), false, 'the matching model is hidden while the head is closed');
+});
+
+test('a creator-group row shows the model without its vendor prefix; the value and tooltip keep the full id', () => {
+  const L = buildPickerLayout(base({ groups: [{ id: 'openrouter/deepseek', label: 'DeepSeek (OpenRouter)', providerId: 'openrouter', models: ['deepseek/v3'] }], groupOpen: { 'group-openrouter/deepseek': true } }));
+  const row = L.rows.find((r) => r.kind === 'item' && r.value === 'openrouter:deepseek/v3');
+  assert.ok(row && row.kind === 'item');
+  assert.equal(row.displayName, 'v3', 'the text before the first slash is dropped');
+  assert.equal(row.title, 'deepseek/v3', 'the tooltip carries the full model id');
+  assert.equal(row.id, 'openrouter:deepseek/v3', 'the value and row id keep the full id');
+});
+
+test('the vendor prefix is cut at the first slash only, and an id without a slash keeps its whole name', () => {
+  const L = buildPickerLayout(base({
+    groups: [{ id: 'ollama', label: 'Ollama', providerId: 'ollama', models: ['llama3.1:8b', 'org/sub/name'] }],
+    groupOpen: { 'group-ollama': true },
+  }));
+  const names = L.rows.filter((r) => r.kind === 'item' && r.value.startsWith('ollama:')).map((r) => (r as { displayName: string }).displayName);
+  assert.deepEqual(names, ['llama3.1:8b', 'sub/name']);
+});
+
+test('a search still matches the full model id, prefix included', () => {
+  const L = buildPickerLayout(base({ groups: [{ id: 'openrouter/deepseek', label: 'DeepSeek (OpenRouter)', providerId: 'openrouter', models: ['deepseek/v3'] }], query: 'deepseek/v3' }));
+  assert.deepEqual(L.nav.filter((n) => n.kind === 'item').map((n) => n.id), ['openrouter:deepseek/v3']);
 });

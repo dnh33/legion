@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { loadCatalog, setModelChoice, useStore } from '../store';
 import { AUTO_INFO, groupModels, modelLabel, providerCreatorGroups } from '../models';
 import { loadProviders, refreshStaleModels, useProviders } from '../providers/providersStore';
-import { buildPickerLayout, resolveHighlight, type PickerHead, type PickerItem } from '../../../src/shared/model-picker-rows';
+import { buildPickerLayout, nextHighlightId, resolveHighlight, type PickerHead, type PickerItem } from '../../../src/shared/model-picker-rows';
 import { Icon } from './icons';
 
 /** A DOM id for a row: option ids must be unique and free of spaces, slashes and colons. */
@@ -11,7 +11,8 @@ const optionId = (id: string) => `mp-opt-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 /**
  * Composer model pill + popover. Ctrl+M (or /model) opens it.
  * Keys: arrows move the highlight, Enter picks it (or opens and closes a group head), Escape clears the search or closes, Tab closes.
- * A search puts the highlight on the first real match. The Older models head is pinned under the list, so it stays in view.
+ * A search puts the highlight on the first real match, and the arrows and hover move it from there. The Older models head is
+ * pinned under the list, so it stays in view.
  */
 export function ModelPicker({ model, agentName, onClose }: { model: string; agentName: string; onClose: () => void }) {
   const catalog = useStore((s) => s.catalog);
@@ -24,25 +25,29 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   const [olderOpen, setOlderOpen] = useState(() => older.some((m) => m.value === model));
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState('');
-  /** The row the owner moved to. Cleared by every change of the search, so a query always lands on its first match. */
+  /** Heads the owner opened or closed while a query is typed. Cleared by every change of the search. */
+  const [queryOpen, setQueryOpen] = useState<Record<string, boolean>>({});
+  /** The row the owner moved to. Cleared by every change of the search, so a query starts on its first match. */
   const [hlId, setHlId] = useState<string | undefined>(undefined);
   const [edge, setEdge] = useState({ top: false, bottom: false });
   const box = useRef<HTMLDivElement>(null);
 
-  const layout = buildPickerLayout({ query: q, selected: model, autoDescription: AUTO_INFO, current, older, groups, configured, olderOpen, groupOpen });
+  const layout = buildPickerLayout({ query: q, selected: model, autoDescription: AUTO_INFO, current, older, groups, configured, olderOpen, groupOpen, queryOpen });
   const { nav } = layout;
   const hl = resolveHighlight(nav, hlId, q, model);
   const cur = hl >= 0 ? nav[hl] : undefined;
   const failed = providers.find((p) => p.modelsError);
 
   const syncEdge = () => { const el = box.current?.querySelector('.pop-list'); if (el) setEdge({ top: el.scrollTop > 2, bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 2 }); };
-  /** A search opens every head and shows only matches, so a head cannot be closed while one is searched. */
+  /** Enter on a head flips what the head shows. A search opens every head by default, and the owner can close one while it is searched. */
   const toggleHead = (h: PickerHead) => {
-    if (q.trim()) return;
-    if (h.id === 'older') setOlderOpen((v) => !v);
+    if (q.trim()) setQueryOpen((s) => ({ ...s, [h.id]: !h.open }));
+    else if (h.id === 'older') setOlderOpen((v) => !v);
     else setGroupOpen((s) => ({ ...s, [h.id]: !h.open }));
   };
-  const move = (d: 1 | -1) => { if (nav.length) setHlId(nav[(hl + d + nav.length) % nav.length]!.id); };
+  /** Every change of the search clears the moved highlight and the heads opened under the old query. */
+  const changeQuery = (v: string) => { setQ(v); setHlId(undefined); setQueryOpen({}); };
+  const move = (d: 1 | -1) => { const id = nextHighlightId(nav, hlId, q, model, d); if (id !== undefined) setHlId(id); };
   const pick = (v: string) => { setModelChoice(v); onClose(); };
 
   useEffect(() => {
@@ -60,7 +65,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
 
   const itemRow = (n: PickerItem) => (
     <button key={n.id} type="button" id={optionId(n.id)} role="option" aria-selected={n.value === model} tabIndex={-1}
-      className={`mp-item${cur?.id === n.id ? ' hl' : ''}${n.value === model ? ' cur' : ''}`}
+      className={`mp-item${cur?.id === n.id ? ' hl' : ''}${n.value === model ? ' cur' : ''}`} title={n.title}
       onMouseMove={() => setHlId(n.id)} onClick={() => pick(n.value)}>
       <span className="mp-text"><b>{n.displayName}</b>{n.description && <span>{n.description}</span>}</span>
       <span className="mp-check">{n.value === model && <Icon name="check" size={14} />}</span>
@@ -82,22 +87,25 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
         if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
         else if (e.key === 'Enter') { e.preventDefault(); if (cur?.kind === 'head') toggleHead(cur); else if (cur?.kind === 'item') pick(cur.value); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (q) { setQ(''); setHlId(undefined); } else onClose(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (q) changeQuery(''); else onClose(); }
         else if (e.key === 'Tab') { e.preventDefault(); onClose(); }
       }}>
       <div className="pop-head"><span>Model</span><span className="muted-s">for {agentName}</span></div>
       <div className="pop-search">
-        <input className="mp-search" value={q} onChange={(e) => { setQ(e.target.value); setHlId(undefined); }}
+        <input className="mp-search" value={q} onChange={(e) => changeQuery(e.target.value)}
           placeholder="Search models" aria-label="Search models" aria-controls="mp-listbox" spellCheck={false} />
       </div>
       <div className="pop-body" role="listbox" id="mp-listbox" aria-label="Model" aria-activedescendant={cur ? optionId(cur.id) : undefined}>
-        <div className={`pop-listwrap${edge.top ? ' sh-top' : ''}${edge.bottom ? ' sh-bot' : ''}`}>
-          <div className="pop-list" onScroll={syncEdge}>
-            {layout.rows.map((r, k) => r.kind === 'label'
-              ? <div key={`label-${k}`} className="mp-group mp-label" role="presentation">{r.text}</div>
-              : r.kind === 'head' ? headRow(r) : itemRow(r))}
+        {layout.rows.length > 0 && (
+          // four rows or more get a floor, so the list never shrinks to a sliver; a shorter list is just its own height
+          <div className={`pop-listwrap${layout.rows.length >= 4 ? ' is-tall' : ''}${edge.top ? ' sh-top' : ''}${edge.bottom ? ' sh-bot' : ''}`}>
+            <div className="pop-list" onScroll={syncEdge}>
+              {layout.rows.map((r, k) => r.kind === 'label'
+                ? <div key={`label-${k}`} className="mp-group mp-label" role="presentation">{r.text}</div>
+                : r.kind === 'head' ? headRow(r) : itemRow(r))}
+            </div>
           </div>
-        </div>
+        )}
         {layout.older && (
           <div className="mp-older">
             {headRow(layout.older.head)}
