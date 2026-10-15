@@ -110,7 +110,7 @@ export function botText(s: string, what: string): string {
   return scrubSecrets(s, { keepHex: true });
 }
 
-const KNOWN = new Set(['id', 'projectId', 'title', 'description', 'status', 'assignee', 'due', 'priority', 'labels', 'order', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'trust', 'proposal', 'taskIds', 'roomIds', 'noteIds', 'activeRun', 'lastRun', 'activity']);
+const KNOWN = new Set(['id', 'projectId', 'title', 'description', 'status', 'assignee', 'due', 'priority', 'labels', 'order', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'trust', 'proposal', 'taskIds', 'roomIds', 'noteIds', 'activeRun', 'lastRun', 'activity', 'acceptedAt']);
 
 const asActor = (v: unknown): BoardActor => {
   if (isObj(v) && v.kind === 'owner') return { kind: 'owner' };
@@ -144,6 +144,7 @@ function loadItem(raw: unknown, projectId: string): { item: WorkItem; extra: Rec
     ...(isObj(raw.proposal) ? { proposal: { ...(typeof raw.proposal.suggestedAssignee === 'string' ? { suggestedAssignee: clip(raw.proposal.suggestedAssignee, 64) } : {}) } } : {}),
     taskIds: strArr(raw.taskIds, BOARD_LIMITS.taskLinks), roomIds: strArr(raw.roomIds, BOARD_LIMITS.roomLinks), noteIds: strArr(raw.noteIds, BOARD_LIMITS.noteLinks, 80).filter((n) => NOTE_ID_RE.test(n)),
     ...(typeof raw.activeRun === 'string' ? { activeRun: clip(raw.activeRun, 64) } : {}),
+    ...(typeof raw.acceptedAt === 'string' ? { acceptedAt: clip(raw.acceptedAt, 40) } : {}),
     ...(isObj(lr) && typeof lr.taskId === 'string' ? { lastRun: { taskId: clip(lr.taskId, 64), status: clip(String(lr.status ?? ''), 20), endedAt: typeof lr.endedAt === 'string' ? lr.endedAt : now, tainted: lr.tainted === true, preview: clip(typeof lr.preview === 'string' ? lr.preview : '', BOARD_LIMITS.previewChars) } } : {}),
     activity: Array.isArray(raw.activity) ? raw.activity.filter(isObj).slice(-BOARD_LIMITS.activityEntries).map((e) => ({ at: typeof e.at === 'string' ? e.at : now, by: asActor(e.by), kind: clip(String(e.kind ?? 'note'), 20), text: clip(String(e.text ?? ''), BOARD_LIMITS.noteChars) })) : [],
   };
@@ -617,7 +618,7 @@ export class BoardStore {
     const assignee = o.assignee === undefined ? null : cleanAssignee(o.assignee, proj);
     const status = o.status === undefined ? 'backlog' : cleanStatus(o.status);
     delete i.proposal;
-    i.assignee = assignee; i.status = status; i.order = this.atEnd(b, status, id);
+    i.assignee = assignee; i.status = status; i.order = this.atEnd(b, status, id); i.acceptedAt = nowIso();
     // trust stays `untrusted` on purpose: accepting puts it on the board; only "reviewed" lifts the run limits
     this.note(i, { kind: 'owner' }, 'accepted', 'Accepted from the Inbox');
     this.touch(i, { kind: 'owner' });
@@ -724,6 +725,7 @@ export class BoardStore {
     let text = false;
     if (next.title !== undefined && next.title !== i.title) { i.title = next.title; text = true; this.note(i, by, 'edit', 'Title changed'); }
     if (next.description !== undefined && next.description !== i.description) { i.description = next.description; text = true; this.note(i, by, 'edit', 'Description changed'); }
+    if (text) delete i.acceptedAt; // the owner accepted the text as it was before this edit
     if (text && i.trust !== 'untrusted') { i.trust = 'untrusted'; this.note(i, by, 'review', 'Text now includes an agent\'s edit: not reviewed'); }
     if (next.priority !== undefined && next.priority !== i.priority) { i.priority = next.priority; this.note(i, by, 'edit', `Priority ${next.priority}`); }
     if (next.labels !== undefined) i.labels = next.labels;

@@ -282,3 +282,17 @@ test('C3 the Inbox holds at most 30 proposals per project', () => {
   clock.now += 99 * 60_000;
   code(() => s.propose(PX, 'm1', { title: 'one more' }, run), 409, /already holds 30/);
 });
+
+test('polish 0.3.1: accepting a proposal records acceptedAt and keeps trust untrusted; an agent text edit clears it; it survives a reload', () => {
+  const d = dir();
+  const s = new BoardStore(d);
+  const p = s.propose(P, 'scout', { title: 'Write the release notes' }, run);
+  assert.equal(p.acceptedAt, undefined, 'a proposal is not accepted yet');
+  const a = s.accept(P, p.id, {});
+  assert.equal(a.trust, 'untrusted', 'accepting does not lift the run limits: only "reviewed" does');
+  assert.ok(a.acceptedAt && !Number.isNaN(Date.parse(a.acceptedAt)), 'acceptedAt is an ISO time');
+  assert.equal(new BoardStore(d).get(PID, p.id)?.acceptedAt, a.acceptedAt, 'acceptedAt survives a reload');
+  s.botUpdate(P, 'scout', p.id, { description: 'Now with the changelog link' }, run);
+  assert.equal(s.get(PID, p.id)?.acceptedAt, undefined, 'an agent edit of the text clears it: the owner accepted other text');
+  assert.equal(s.get(PID, p.id)?.trust, 'untrusted');
+});
