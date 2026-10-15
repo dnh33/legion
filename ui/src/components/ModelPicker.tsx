@@ -147,11 +147,11 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
       {noMatch && <div className="mp-empty" role="status">No models match “{q.trim()}”.</div>}
       <div className="pop-foot">
         {loading && !catalog ? <span>Loading models{'…'}</span>
-          : fallback ? <><span>{catalog?.error ? 'Couldn’t load models from Claude Code.' : 'Showing default models.'}</span><button type="button" className="link-btn" onClick={() => void loadCatalog(true)}>Retry</button></>
+          : fallback ? <><span>{catalog?.error ? 'Couldn’t load models from Claude Code.' : 'Showing default models.'}</span><button type="button" className="link-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => void loadCatalog(true)}>Retry</button></>
           : providersOn && loadingProviders ? <span role="status">Loading provider models{'…'}</span>
           : <span>Saved for this agent. Current: {modelLabel(catalog, model)}</span>}
         <kbd>Ctrl M</kbd>
-        {failed && !(providersOn && loadingProviders) && <span className="mp-quiet" role="status">Couldn’t refresh {failed.label} models. Showing saved ones.{' '}<button type="button" className="link-btn" onClick={() => void retryModels(failed.id)}>Retry</button></span>}
+        {failed && !(providersOn && loadingProviders) && <span className="mp-quiet" role="status">Couldn’t refresh {failed.label} models. Showing saved ones.{' '}<button type="button" className="link-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => void retryModels(failed.id)}>Retry</button></span>}
       </div>
     </div>
   );

@@ -70,7 +70,8 @@ export async function retryModels(id: string): Promise<void> {
  * and it does not set `busy`: the fetch can take a while, and Settings actions must stay open while it runs.
  */
 export async function refreshStaleModels(): Promise<void> {
-  set({ refreshing: true });
+  // The loading line shows only when a list will really be fetched, not on every open.
+  set({ refreshing: modelsStale(state.view) });
   try { set({ view: await request<ProvidersView>('POST', '/api/providers/auto-models') }); } catch { /* the saved lists stay; a failure shows as the provider's last error */ } finally { set({ refreshing: false }); }
 }
 
@@ -84,4 +85,9 @@ export function providerModelLabel(value: string | undefined, v: ProvidersView |
   if (!m || m[1] === 'arn') return undefined;
   const p: ProviderView | undefined = v?.providers.find((x) => x.id === m[1]);
   return p ? `${p.label} · ${m[2]}` : undefined;
+}
+/** Whether the picker's daily refresh has anything to fetch: an on provider with a key (or keyless) whose list is missing or a day old (the core's MODELS_TTL_MS). */
+export function modelsStale(v: ProvidersView | null, now: number = Date.now()): boolean {
+  return (v?.providers ?? []).some((p) => p.enabled && (p.keySet || p.keyless)
+    && (!p.modelsFetchedAt || now - Date.parse(p.modelsFetchedAt) >= 24 * 60 * 60 * 1000));
 }
