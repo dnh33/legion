@@ -102,3 +102,13 @@ describe('refreshCheck: who must not be sent to the Archivist', () => {
   });
   it('caps live refreshes at three', () => assert.equal(MAX_LIVE_REFRESHES, 3));
 });
+
+describe('buildRefreshPrompt: no invented sources', () => {
+  const p = buildRefreshPrompt(node(), 200);
+  it('allows a source only if the run opened it', () => assert.match(p, /only sources you actually opened in this run/i));
+  it('says to report, and add no new source, when it could not verify', () => {
+    assert.match(p, /could not verify/i);
+    assert.match(p, /propose no new source/i);
+  });
+  it('asks the run to list what it opened', () => assert.match(p, /what you opened/i));
+});

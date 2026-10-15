@@ -178,3 +178,13 @@ test('humanizeIds swaps known node ids in a title and leaves unknown ones and ot
   assert.equal(humanizeIds('no ids here, n_x is too short', () => 'T'), 'no ids here, n_x is too short');
   assert.deepEqual(idsIn('a -relates-> b'), []);
 });
+
+test('inboxFocusTarget: focus goes somewhere sensible when the focused row disappears', async () => {
+  const { inboxFocusTarget } = await import('../src/shared/kg-library.js');
+  assert.equal(inboxFocusTarget(1, 0, true), 'empty', 'the last row was accepted: the empty state heading');
+  assert.equal(inboxFocusTarget(3, 2, true), 'list', 'a row went, others remain: the list');
+  assert.equal(inboxFocusTarget(1, 0, false), null, 'focus is somewhere real already: leave it');
+  assert.equal(inboxFocusTarget(2, 2, true), null, 'nothing was removed');
+  assert.equal(inboxFocusTarget(0, 0, true), null);
+  assert.equal(inboxFocusTarget(0, 3, true), null, 'rows appeared: leave focus alone');
+});

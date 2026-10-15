@@ -80,9 +80,9 @@ export function buildRefreshPrompt(n: Pick<KgNode, 'id' | 'title' | 'sources'>, 
     'Do this:',
     '1. Re-check each source. Open the files and links you can reach, and compare them with what the note says.',
     '2. If you have WebFetch or WebSearch, also check the current official docs for the topic. If you have no web tools, say that in your report and work from the sources and the graph.',
-    '3. If something is out of date or wrong, propose the fix with kg_upsert_node using the same id. Change only what is wrong, keep the existing sources and add the ones you checked. Never delete, merge or supersede the note.',
+    '3. If something is out of date or wrong, propose the fix with kg_upsert_node using the same id. Change only what is wrong and keep the existing sources. Cite only sources you actually opened in this run (a file you read, a page you fetched); never add a source from memory or from a search result you did not open. If you could not verify the note, say so in your report and propose no new source. Never delete, merge or supersede the note.',
     '4. If the note is still current, change nothing and say it is still current.',
     '',
-    'Output shape: one line, UPDATED or STILL CURRENT, then at most three lines: what you checked, what changed, and what you could not check.',
+    'Output shape: one line, UPDATED or STILL CURRENT, then at most three lines: what you opened (files and addresses), what changed, and what you could not check.',
   ].join('\n');
 }

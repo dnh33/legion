@@ -619,15 +619,21 @@ export class Graph {
     const stale: Array<{ id: string; daysOld: number }> = [];
     const untrustedWithoutReview: string[] = [];
     const orphans: string[] = [];
+    // a pending edit copy is the note's own Inbox item (the Inbox and the Stale row say so): it is not a second note with the same title
+    // and not another untrusted note to review
+    const isProposalCopy = (n: KgNode): boolean => statusOf(n) === 'pending' && [...(this.out.get(n.id) ?? [])].some((eid) => this.edges.get(eid)?.rel === 'supersedes');
     for (const n of visible) {
       if (!touched.has(n.id)) orphans.push(n.id);
-      const list = titles.get(normTitle(n.title)) ?? [];
-      list.push(n);
-      titles.set(normTitle(n.title), list);
+      const proposal = isProposalCopy(n);
+      if (!proposal) {
+        const list = titles.get(normTitle(n.title)) ?? [];
+        list.push(n);
+        titles.set(normTitle(n.title), list);
+      }
       const t = Date.parse(n.updatedAt);
       const days = Number.isFinite(t) ? Math.floor((nowMs - t) / 86_400_000) : 0;
       if (days > staleDaysFor(n.type)) stale.push({ id: n.id, daysOld: days });
-      if (isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
+      if (!proposal && isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
     }
     const duplicateTitles = [...titles.values()].filter((l) => l.length > 1).map((l) => ({ title: l[0]!.title, ids: l.map((x) => x.id) }));
     return {
