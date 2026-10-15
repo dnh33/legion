@@ -23,6 +23,8 @@ export const readStones = (file = join(REPO, 'scripts', 'stepping-stones.json'))
   return stones;
 };
 const cmp = (x, y) => { const p = x.split('.').map(Number), q = y.split('.').map(Number); for (let i = 0; i < 3; i++) if (p[i] !== q[i]) return p[i] - q[i]; return 0; };
+/** The recorded sha256 of the stone's published files (scripts/stepping-stones.json `pins`): { '0.3.0': { files: { name: sha256 } } }. */
+export const readPins = (file = join(REPO, 'scripts', 'stepping-stones.json')) => JSON.parse(readFileSync(file, 'utf8')).pins ?? {};
 export const stoneAssetUrl = (base, m) => `${base}/releases/download/v${m.version}/${m.asset.name}`;
 
 const NET_MS = 60_000;
@@ -113,8 +115,10 @@ export async function stoneProblems({ oldBytes, oldSig, newBytes, trust, parseMa
  * The same check against a live release (the daily job): fetches both manifests and the old-name package from `base`.
  * A missing second name is a FAILURE: every 0.3.0 and later install then gets a 404, falls back to the old name and says "up to date" forever.
  * `latestTag()` answers the tag of the latest release; the second-name manifest must be that release's own.
+ * `pins` (stepping-stones.json): when given, the live old-name manifest, its signature and the stone package must match the recorded sha256. Only the daily job passes it
+ * (it needs the network anyway); unit tests leave it out and stay offline.
  */
-export async function liveProblems({ base = REPO_BASE, getBytes, latestTag, fetchAsset, trust, parseManifest, stones = readStones() }) {
+export async function liveProblems({ base = REPO_BASE, getBytes, latestTag, fetchAsset, trust, parseManifest, stones = readStones(), pins }) {
   const dl = `${base}/releases/latest/download`;
   const old = await getBytes(`${dl}/${OLD_NAME}`), oldSig = await getBytes(`${dl}/${OLD_NAME}.sig`);
   if (old.status !== 200 || oldSig.status !== 200) return [`the live old-name manifest or its signature is missing (HTTP ${old.status} / ${oldSig.status}): every install that has not updated yet is stranded`];
@@ -142,6 +146,18 @@ export async function liveProblems({ base = REPO_BASE, getBytes, latestTag, fetc
     const ownSig = await getBytes(`${base}/releases/download/v${o.version}/${OLD_NAME}.sig`);
     if (ownSig.status !== 200) out.push(`the stepping stone's own release v${o.version} does not serve ${OLD_NAME}.sig (HTTP ${ownSig.status})`);
     else if (Buffer.compare(ownSig.bytes, oldSig.bytes) !== 0) out.push(`the live old-name signature differs from the stone's as published at v${o.version}: it must be that file, byte for byte`);
+  }
+  if (o && pins) {
+    const rec = pins[o.version]?.files;
+    if (!rec) out.push(`stepping-stones.json has no pin for the stone v${o.version}: record the sha256 of its manifest, signature and package`);
+    else {
+      const sha = (b) => createHash('sha256').update(b).digest('hex');
+      const pin = (name, got) => {
+        if (typeof rec[name] !== 'string') out.push(`stepping-stones.json has no pin for ${name} of v${o.version}`);
+        else if (rec[name] !== got) out.push(`${name} of v${o.version} does not match its pin in stepping-stones.json (live ${got.slice(0, 12)}, pinned ${rec[name].slice(0, 12)}): the stone changed after it was recorded`);
+      };
+      pin(OLD_NAME, sha(old.bytes)); pin(`${OLD_NAME}.sig`, sha(oldSig.bytes)); pin(o.asset.name, o.asset.sha256); // the package: its served bytes already equal the signed sha256 above
+    }
   }
   return out;
 }
