@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds the manifests and SHA256SUMS.txt from a package made by release-package.mjs. It does NOT sign: the owner signs by hand
-// with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only] [--stepping-stone <folder>] [--stones <v,v>]
+// with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--full-zip <file>] [--requires-full-install | --carry-full] [--notify-only] [--stepping-stone <folder>] [--stones <v,v>]
 //
 // TWO manifest names (docs/SHIPPING.md, Stepping stones). legion-update-manifest-2.json is this release's own manifest and is what 0.3.0 and later read
 // first. legion-update-manifest.json is what 0.2.7 reads. Only the stepping-stone release itself (a version listed in scripts/stepping-stones.json)
@@ -13,7 +13,7 @@ import { basename, join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, loadDist, readZipEntry } from './lib/release-lib.mjs';
 import { NEW_NAME, OLD_NAME, readStones } from './lib/stepping-stone.mjs';
 
-const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag', 'notify-only': 'flag', 'stepping-stone': 'v', stones: 'v' });
+const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag', 'carry-full': 'flag', 'notify-only': 'flag', 'stepping-stone': 'v', stones: 'v' });
 const stones = a.stones ? a.stones.split(',') : readStones();
 if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only]');
 const zip = readFileSync(resolve(a.zip));
@@ -67,7 +67,14 @@ if (a['requires-full-install'] && !fullAsset) {
   console.error('warning: --notify-only: installs get a notice only, this release cannot self-apply');
 }
 if (a['notify-only'] && fullAsset) die('--notify-only and --full-zip contradict each other');
-if (fullAsset && !a['requires-full-install']) console.error('warning: --full-zip without --requires-full-install: the manifest will not declare the dependency change, so installs treat it as a code-only update');
+// --carry-full: a CODE-ONLY release that also carries its own full package, because its lock differs from the stepping stone's (docs/SHIPPING.md, Stepping stones).
+// The manifest stays code-only (requiresFullInstall false); installs with a matching lock take the code route and never download the full package, while a
+// stale-lock install (the frozen 0.3.0 updater) falls back to it.
+if (a['carry-full']) {
+  if (!fullAsset) die('--carry-full needs --full-zip <legion-<version>-win-x64.zip>');
+  if (a['requires-full-install']) die('--carry-full and --requires-full-install contradict each other: --carry-full is for a code-only release, --requires-full-install for a dependency change');
+}
+if (fullAsset && !a['requires-full-install'] && !a['carry-full']) console.error('warning: --full-zip without --requires-full-install: the manifest will not declare the dependency change, so installs treat it as a code-only update');
 const cmp = (x, y) => { const p = x.split('.').map(Number), q = y.split('.').map(Number); for (let i = 0; i < 3; i++) if (p[i] !== q[i]) return p[i] - q[i]; return 0; };
 const manifest = {
   schema: 1, product: 'legion', channel: 'stable', version, publishedAt: info.publishedAt,
@@ -91,7 +98,7 @@ if (ownIsStone) {
   if (st.requiresFullInstall || st.fullAsset) die(`${st.version} is itself a full-install release, so it cannot be a stepping stone`);
   if (cmp(st.version, version) >= 0) die(`the stepping stone ${st.version} is not older than ${version}`);
   if (!stones.includes(st.version)) die(`${st.version} is not listed in scripts/stepping-stones.json`);
-  if (fullAsset) {
+  if (fullAsset && !a['carry-full']) { // a carried full package keeps the manifest code-only: no minUpdater, no steppingStone
     manifest.minUpdater = 2;
     manifest.steppingStone = { version: st.version, publishedAt: st.publishedAt, depsSha256: st.depsSha256, asset: st.asset };
   }

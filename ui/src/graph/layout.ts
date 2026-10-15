@@ -11,6 +11,7 @@ const REPEL = 2800;
 const REPEL_MAX2 = 340 * 340;
 const GRAVITY = 0.0075;
 const DECAY = 0.58;
+const MAX_STEP = 60;
 export const ALPHA_MIN = 0.012;
 
 export const radiusFor = (deg: number): number => Math.min(15, 6 + Math.sqrt(deg) * 2.1);
@@ -127,10 +128,16 @@ export class Sim {
       const k = (0.34 / Math.sqrt(Math.min(s.deg, t.deg) || 1)) * a * 1.4;
       const f = (d - len) * k;
       dx = (dx / d) * f; dy = (dy / d) * f;
-      s.vx += dx; s.vy += dy; t.vx -= dx; t.vy -= dy;
+      // the busier end moves less: a hub with many spokes would otherwise take the full pull of every spoke each tick,
+      // overshoot and diverge (a blank Lattice, positions ~1e132)
+      const sd = s.deg || 1, td = t.deg || 1, bias = sd / (sd + td);
+      s.vx += dx * (1 - bias) * 2; s.vy += dy * (1 - bias) * 2; t.vx -= dx * bias * 2; t.vy -= dy * bias * 2;
     }
     for (const p of ns) {
       p.vx -= p.x * GRAVITY * (0.4 + a); p.vy -= p.y * GRAVITY * (0.4 + a);
+      // a last guard: no single tick moves a node further than this, so the layout can never run away
+      const v2 = p.vx * p.vx + p.vy * p.vy;
+      if (v2 > MAX_STEP * MAX_STEP) { const sc = MAX_STEP / Math.sqrt(v2); p.vx *= sc; p.vy *= sc; }
       if (p.fx !== null) { p.x = p.fx; p.vx = 0; } else { p.vx *= DECAY; p.x += p.vx; }
       if (p.fy !== null) { p.y = p.fy; p.vy = 0; } else { p.vy *= DECAY; p.y += p.vy; }
     }

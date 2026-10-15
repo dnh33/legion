@@ -25,8 +25,10 @@ import { join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO, requireRehearsalFor } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
+import { carryForFolder } from './lib/stone-carry.mjs';
+import { frozenParserProblems, sourcesFromGit } from './lib/frozen-parser.mjs';
 
-const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v' });
+const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v' });
 requireRehearsalFor(a, ['no-network', 'stones']);
 
 // --pkg is REQUIRED, with no default. It used to fall back to a hardcoded owner-local folder, which was wrong twice over:
@@ -145,9 +147,27 @@ else {
   // A dependency change must ship the signed full package, or the release only notifies. This used to be a warning that a
   // forgotten --full-zip slipped through; it is a failure now, and the package in the folder is checked byte for byte.
   const sumsText = existsSync(join(pkgFolder, 'SHA256SUMS.txt')) ? readFileSync(join(pkgFolder, 'SHA256SUMS.txt'), 'utf8') : '';
-  const fullProblems = await fullAssetProblems({ manifest: m, version, dir: pkgFolder, sums: sumsText });
+  // Option A (docs/SHIPPING.md, Stepping stones): a code-only release whose lock differs from the stone's lock must carry the full package.
+  const stonesForCarry = a.stones ? a.stones.split(',') : readStones();
+  let carry = { carryRequired: true, problems: [] };
+  if (m.requiresFullInstall === true) carry = { carryRequired: false, problems: [] }; // a full-install release carries its package because it says so
+  else try {
+    const { dependencyHash } = await import(new URL(`../dist/src/core/updater/package.js?p=${Date.now()}`, import.meta.url).href);
+    const { parseManifest } = await import(new URL(`../dist/src/core/updater/manifest.js?p=${Date.now()}`, import.meta.url).href);
+    const oldP = join(pkgFolder, OLD_NAME);
+    carry = carryForFolder({ version, stones: stonesForCarry, appZip: existsSync(appZip) ? readFileSync(appZip) : Buffer.alloc(0), oldManifestBytes: existsSync(oldP) ? readFileSync(oldP) : Buffer.alloc(0), parseManifest, dependencyHash, stoneLockPath: a['stone-lock'] });
+  } catch (e) { carry.problems.push(`could not compare the lock with the stepping stone's: ${e.message}`); }
+  for (const p of carry.problems) fail(`stepping stone lock: ${p}`);
+  const fullProblems = await fullAssetProblems({ manifest: m, version, dir: pkgFolder, sums: sumsText, carryRequired: carry.carryRequired, stoneVersion: stonesForCarry[stonesForCarry.length - 1] });
   for (const p of fullProblems) fail(`fullAsset: ${p}`);
-  if (!fullProblems.length) pass(m.requiresFullInstall === true ? 'full package: fullAsset equals the full zip (name, size, sha256) and is listed in SHA256SUMS.txt' : 'manifest is code-only (requiresFullInstall: false, no fullAsset)');
+  if (!fullProblems.length) pass(m.requiresFullInstall === true ? 'full package: fullAsset equals the full zip (name, size, sha256) and is listed in SHA256SUMS.txt' : carry.carryRequired ? 'code-only release carries its full package (lock differs from the stepping stone): fullAsset equals the full zip (name, size, sha256) and is listed in SHA256SUMS.txt' : 'manifest is code-only (requiresFullInstall: false, no fullAsset; its lock equals the stepping stone lock)');
+  // The frozen stepping-stone updater (its own manifest.ts, as tagged) can never change: it must accept this manifest, or the install holding it is stranded.
+  {
+    const stoneTag = `v${stonesForCarry[stonesForCarry.length - 1]}`;
+    const fp = await frozenParserProblems({ manifestBytes: readFileSync(manifestPath), sources: sourcesFromGit({ tag: stoneTag }), label: stoneTag });
+    for (const p of fp) fail(`frozen parser: ${p}`);
+    if (!fp.length) pass(`the manifest parses with the frozen ${stoneTag} parser and the current one`);
+  }
   if (!m.notes || !String(m.notes).trim()) fail('manifest has no release notes — people read these before updating');
   else if (String(m.notes).length > 2000) fail('manifest notes exceed the 2000-char cap');
   else pass(`manifest carries release notes (${String(m.notes).length} chars)`);

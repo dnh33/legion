@@ -11,6 +11,10 @@
 //   stone-walk   the stepping stone (docs/SHIPPING.md): the live release reads only the OLD manifest name, which carries a code-only stone; it goes to the
 //             stone (done by its own old helper), and on its next check the stone, which reads the SECOND name, goes to the full candidate. Install
 //             intact, data surviving, the second swap done by the NEW helper. Proves a 0.2.7 install never meets a full package with the old helper.
+//   stone-stranded   the stone-era gap (docs/SHIPPING.md, Stepping stones): 0.2.7 -> the REAL v0.3.0 package -> a code-only release whose lock differs from
+//             the stone's and that carries its own full package. The frozen 0.3.0 updater refuses the code package and must fall back to the full one;
+//             a further code-only release with the same lock is then applied by the CODE route without downloading its carried full package.
+//   stone-stranded-nofull   the same release without a fullAsset (what the old rule published): the stone install must end on a notice, running the stone.
 //   stone-later   a code-only release published AFTER the full one (docs/SHIPPING.md): the old name still carries the stone, the second name the newer code-only
 //             release. The live release reaches the stone through the old name, then the newest release through the second name.
 //   stone-direct   a build from this checkout (the stone's updater, --baseline 0.98.0) goes straight to the full candidate through the second name
@@ -27,15 +31,23 @@ import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { args, die } from '../lib/release-lib.mjs';
+import { args, die, readZipEntry } from '../lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { scenario: 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v' });
 for (const k of ['scenario', 'install', 'prepared', 'work', 'baseline']) if (!a[k]) die(`--${k} is required`);
-if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished', 'vanished-live', 'chain', 'stone-walk', 'stone-direct', 'stone-later'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct or stone-later');
+if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished', 'vanished-live', 'chain', 'stone-walk', 'stone-direct', 'stone-later', 'stone-stranded', 'stone-stranded-nofull'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later, stone-stranded or stone-stranded-nofull');
 const here = dirname(fileURLToPath(import.meta.url));
 const install = resolve(a.install), work = resolve(a.work), preparedDir = resolve(a.prepared);
 const prepared = { ...JSON.parse(readFileSync(join(preparedDir, 'prepared.json'), 'utf8')), pubKeyFile: join(preparedDir, 'legion-update-k1.pub.pem') };
 const PORT = 18443, APP_PORT = 4747;
+// The frozen v0.3.0 dependencyHash (src/core/updater/package.ts): the lock with its own version fields blanked out. The scenario job has no build, so it is copied here.
+const dependencyHash = (lockJson) => {
+  const sha256 = (b) => createHash('sha256').update(b).digest('hex');
+  let parsed; try { parsed = JSON.parse(lockJson); } catch { return sha256(Buffer.from(lockJson, 'utf8')); }
+  const clone = structuredClone(parsed); delete clone.version;
+  if (clone.packages && typeof clone.packages === 'object' && clone.packages['']) { const e = { ...clone.packages[''] }; delete e.version; clone.packages[''] = e; }
+  return sha256(Buffer.from(JSON.stringify(clone), 'utf8'));
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`);
 const problems = [];
@@ -116,8 +128,9 @@ async function report() {
   let intact = 'unknown';
   try {
     if (h?.version === a.baseline) { const d = diff(before, await tree(install)); intact = d.length ? `NO, differs from baseline: ${d.slice(0, 5).join(', ')}` : 'yes, byte-identical to the baseline'; }
-    else if (h?.version === good) {
-      const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json')); const wrong = [];
+    else if (h?.version === good || (a.scenario === 'stone-stranded' && h?.version === prepared.versions.stranded)) {
+      // the stranded versions share numbers with other scenarios' candidates, so only that scenario reads its own list; a later hop (0.99.3) is a different package and reads as unknown
+      const list = readJson(join(preparedDir, 'served', h.version === good ? 'good' : 'stone-stranded', 'PACKAGE-FILES.json')); const wrong = [];
       for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
       intact = wrong.length ? `NO, ${wrong.length} file(s) differ from the new package: ${wrong.slice(0, 5).join(', ')}` : 'yes, equals the new package';
     }
@@ -175,7 +188,7 @@ try {
   }
 
   if (a.scenario.startsWith('slow-')) writeFileSync(delayFile, `${good}:${a.scenario === 'slow-short' ? 25000 : 75000}`);
-  const servedName = a.scenario === 'rollback' ? 'bad' : a.scenario === 'stone-later' ? 'stone-later' : a.scenario.startsWith('stone-') ? 'stone' : 'good';
+  const servedName = a.scenario === 'rollback' ? 'bad' : ['stone-later', 'stone-stranded', 'stone-stranded-nofull'].includes(a.scenario) ? a.scenario : a.scenario.startsWith('stone-') ? 'stone' : 'good';
   writeFileSync(control, servedName);
   log(`serving the ${servedName} candidate; waiting for the app to find, stage and apply it`);
 
@@ -256,7 +269,7 @@ try {
     check(wrong.length === 0, `the install is the complete full package (${list?.files.length ?? 0} files${wrong.length ? `; wrong: ${wrong.slice(0, 5).join(', ')}` : ''})`);
     check(await waitFor('the old copy to be cleaned', async () => !existsSync(join(up, 'prev')), 120000) !== null, '.update/prev was deleted after the healthy start');
   } else if (a.scenario === 'stone-later') {
-    const co = prepared.versions.base, later = prepared.versions.later;
+    const co = prepared.versions.stone, later = prepared.versions.later;
     const h1 = await waitFor(`/health to report the stone ${co}`, async () => { const h = await health(); return h?.ok && h.version === co ? h : null; }, 600000);
     check(!!h1, `hop 1: the stepping stone ${co} starts and reports health (the old name offered the stone, not the newest release)`);
     const h2 = await waitFor(`/health to report the newest release ${later}`, async () => { const h = await health(); return h?.ok && h.version === later ? h : null; }, 600000);
@@ -273,7 +286,8 @@ try {
     check(!hits.some((x) => String(x.path).endsWith('-win-x64.zip')), 'no full package was requested');
   } else if (a.scenario === 'stone-walk' || a.scenario === 'stone-direct') {
     const walk = a.scenario === 'stone-walk';
-    const co = prepared.versions.base;
+    const co = prepared.versions.stone; // the REAL published stone (v0.3.0); only its manifest is re-signed
+    let stoneStamp = null;
     const hitsNow = () => (existsSync(serveLog) ? readFileSync(serveLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
     if (walk) {
       // Hop 1: the live release reads the old name, which is the code-only stone. Its own helper does the swap.
@@ -284,14 +298,16 @@ try {
       const log1 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
       check(byBaseHelper(log1.split('\n').find((l) => l.includes(`apply ${a.baseline} -> ${co}`)) ?? 'missing helper:'), `hop 1 was done by the baseline's own helper (${baseStamp ?? 'no stamp'})`);
       check(!log1.includes('re-running the swap helper'), 'hop 1 was a code-only swap (no runtime re-exec)');
+      stoneStamp = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0] ?? null;
     }
     const h2 = await waitFor(`/health to report the full candidate ${good}`, async () => { const h = await health(); return h?.ok && h.version === good ? h : null; }, 900000);
     check(!!h2, `${walk ? 'hop 2' : 'the update'}: the full candidate ${good} starts and reports health`);
     const log2 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
     const from2 = walk ? co : a.baseline;
     const line2 = log2.split('\n').find((l) => l.includes(`apply ${from2} -> ${good}`)) ?? '';
-    const stampNow = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
-    check(!!stampNow && line2.includes(`[${stampNow}]`), `the full swap was done by the NEW helper: ${line2.trim()}`);
+    // stone-walk: hop 2 is done by the helper the REAL stone brought (read after hop 1, before hop 2 replaced it); stone-direct: by the helper of the new build
+    const stampNow = walk ? stoneStamp : readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
+    check(!!stampNow && line2.includes(`[${stampNow}]`), `the full swap was done by the ${walk ? "stepping stone's" : 'NEW'} helper (${stampNow}): ${line2.trim()}`);
     check(log2.includes('re-running the swap helper'), 'the full swap used the full-package route (runtime re-exec)');
     check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === good ? true : null), 120000) !== null, 'the full update is committed');
     check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
@@ -312,6 +328,82 @@ try {
       check(!hits.some((x) => String(x.path).endsWith('-app.zip')), 'the code-only package was not requested');
     }
     check(first(`legion-${good}-win-x64.zip`) >= 0, 'the full package was downloaded (through the redirect hop)');
+  } else if (a.scenario === 'stone-stranded' || a.scenario === 'stone-stranded-nofull') {
+    const stone = prepared.versions.stone, s2 = prepared.versions.stranded, s3 = prepared.versions.stranded2;
+    const nofull = a.scenario === 'stone-stranded-nofull';
+    const hitsNow = () => (existsSync(serveLog) ? readFileSync(serveLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+    const first = (hits, end) => hits.findIndex((x) => String(x.path).endsWith(end) && x.status === 200);
+    const applyLog = () => (existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '');
+    const committedTo = (v) => waitFor(`the journal to read committed to ${v}`, async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === v ? true : null), 120000);
+    // Hop 1: 0.2.7 reads the old name, which is the REAL v0.3.0 package (its manifest re-signed); its own old helper does the swap.
+    const h1 = await waitFor(`/health to report the real stone ${stone}`, async () => { const h = await health(); return h?.ok && h.version === stone ? h : null; }, 600000);
+    check(!!h1, `hop 1: the real stepping stone ${stone} starts and reports health`);
+    check(!!(await committedTo(stone)), 'hop 1 is committed');
+    check(byBaseHelper(applyLog().split('\n').find((l) => l.includes(`apply ${a.baseline} -> ${stone}`)) ?? 'missing helper:'), `hop 1 was done by the baseline's own helper (${baseStamp ?? 'no stamp'})`);
+    if (nofull) {
+      // The stone install is offered a code-only release whose lock differs and that carries NO full package: it downloads the code package, refuses it
+      // (dependencies changed) and has nothing to fall back to. It must end on a notice, still running the stone, with a full package never requested.
+      const got = await waitFor(`the stone to ask for the code package of ${s2}`, async () => (first(hitsNow(), `legion-${s2}-app.zip`) >= 0 ? true : null), 600000);
+      check(!!got, `the stone install downloaded the code package of ${s2} and looked at it`);
+      // The refusal itself. The frozen stone keeps its reason in memory only (it logs nothing for a StageError, and /api/update/status needs the per-launch
+      // admin secret), so the reason is shown from what the stone decides on: checkTree refuses with 'full-install' exactly when the dependency hash of the
+      // installed lock differs from the one in the staged package (v0.3.0 package.ts). Both are read from the real files here. The stone is done with the
+      // package when its staging folder is gone again (the stage is removed on every refusal) with no swap started.
+      const stagingGone = await waitFor('the stone to finish with the code package (staging folder removed)', async () => {
+        const st = join(up, 'staging');
+        if (existsSync(st) && readdirSync(st).length > 0) return null;
+        await sleep(3000);
+        return existsSync(st) && readdirSync(st).length > 0 ? null : true;
+      }, 180000);
+      check(!!stagingGone, 'the stone removed its staging folder: it staged the code package and dropped it');
+      const stagedLock = readZipEntry(readFileSync(join(preparedDir, 'served', 'stone-stranded-nofull', `legion-${s2}-app.zip`)), `legion-${s2}/package-lock.json`);
+      const installedLock = existsSync(join(install, 'package-lock.json')) ? readFileSync(join(install, 'package-lock.json'), 'utf8') : undefined;
+      check(!!stagedLock && installedLock !== undefined && dependencyHash(installedLock) !== dependencyHash(stagedLock.toString('utf8')),
+        'refusal reason: the dependency hash of the staged package lock differs from the installed lock, so the frozen checkTree throws full-install');
+      const served2 = readJson(join(preparedDir, 'served', 'stone-stranded-nofull', 'legion-update-manifest-2.json'));
+      check(!!served2 && served2.requiresFullInstall === false && !served2.fullAsset, 'refusal reason: the served manifest names no fullAsset, so the stone has nothing to fall back to');
+      await sleep(15000); // a short grace for a retry that must not happen; the wait above is what proves the refusal
+      const h2 = await health();
+      check(h2?.ok && h2.version === stone, `the install is still the stone ${stone} (notify-only; running ${h2?.version})`);
+      check(readJson(join(up, 'journal.json'))?.to !== s2, 'no swap to the refused release was started');
+      check(!hitsNow().some((x) => String(x.path).endsWith('-win-x64.zip')), 'no full package was requested (the manifest carried none)');
+      check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data in the data folder survived');
+    } else {
+      // Hop 2: the code package of s2 has a lock the stone does not hold. The frozen updater refuses it and falls back to the manifest's own full package.
+      const h2 = await waitFor(`/health to report ${s2}`, async () => { const h = await health(); return h?.ok && h.version === s2 ? h : null; }, 900000);
+      check(!!h2, `hop 2: the code-only release ${s2} starts and reports health (via its carried full package)`);
+      check(!!(await committedTo(s2)), 'hop 2 is committed');
+      const log2 = applyLog();
+      check(log2.split('\n').some((l) => l.includes(`apply ${stone} -> ${s2}`)), `the swap ${stone} -> ${s2} is in the apply log`);
+      check(log2.includes('re-running the swap helper'), 'hop 2 used the full-package swap (runtime re-exec)');
+      check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
+      const hits2 = hitsNow();
+      const iApp = first(hits2, `legion-${s2}-app.zip`), iFull = first(hits2, `legion-${s2}-win-x64.zip`);
+      check(iApp >= 0 && iFull > iApp, 'the code package was requested first, then the full package (the fallback)');
+      const list = readJson(join(preparedDir, 'served', 'stone-stranded', 'PACKAGE-FILES.json'));
+      const wrong = [];
+      for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
+      check(!!list && wrong.length === 0, `the install is the complete full package (${list?.files.length ?? 0} files${wrong.length ? `; wrong: ${wrong.slice(0, 5).join(', ')}` : ''})`);
+      check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data in the data folder survived');
+      check(await waitFor('the old copy to be cleaned', async () => !existsSync(join(up, 'prev')), 120000) !== null, '.update/prev was deleted after the healthy start');
+      const reexecs = (applyLog().match(/re-running the swap helper/g) ?? []).length;
+      // Hop 3: the next code-only release has the same lock and also carries its full package. The user restarts Legion, which checks on start.
+      // The code route must be taken; the carried package must not be downloaded.
+      killInstalled();
+      await sleep(5000);
+      writeFileSync(control, 'stone-stranded-2');
+      log(`serving the next code-only release ${s3} (same lock, carries its full package); restarting Legion`);
+      const appLog2 = openSync(join(work, 'app.log'), 'a');
+      spawn(join(install, 'runtime', 'electron', 'electron.exe'), [install, '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage'], { env, detached: true, stdio: ['ignore', appLog2, appLog2], windowsHide: true }).unref();
+      const h3 = await waitFor(`/health to report ${s3}`, async () => { const h = await health(); return h?.ok && h.version === s3 ? h : null; }, 900000);
+      check(!!h3, `hop 3: the code-only release ${s3} starts and reports health`);
+      check(!!(await committedTo(s3)), 'hop 3 is committed');
+      const hits3 = hitsNow();
+      check(first(hits3, `legion-${s3}-app.zip`) >= 0, 'the code package of the next release was downloaded');
+      check(!hits3.some((x) => String(x.path).endsWith(`legion-${s3}-win-x64.zip`)), 'its carried full package was NEVER requested (matching lock = code route)');
+      check((applyLog().match(/re-running the swap helper/g) ?? []).length === reexecs, 'hop 3 was a code-only swap (no runtime re-exec)');
+      check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data survived the third hop');
+    }
   } else if (a.scenario.startsWith('vanished')) {
     const staged = join(up, 'staging', good, 'stage.json');
     const seen = await waitFor('the package to be staged', async () => (existsSync(staged) ? true : null), 600000);
