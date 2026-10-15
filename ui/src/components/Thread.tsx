@@ -20,7 +20,7 @@ import { WorkingRow } from './WorkingRow';
 import { ProposalCards } from './ProposalCards';
 import { TodoList } from './TodoList';
 import { taskProjectChip } from '../projects/projectsLogic';
-import { canTakeFocus, clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
+import { clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -146,7 +146,8 @@ export function Thread() {
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
   const taskQuestions = questions.filter((q) => q.taskId === taskId);
   const otherQuestions = questions.filter((q) => q.agentId === agentId && q.taskId !== taskId);
-  // opened from a rail row: bring the waiting card into view and focus it (once; the request is dropped when it is used or its card is gone)
+  // opened from a rail row: bring the waiting card into view (once; the request is dropped when it is used or its card is gone). It is not focused:
+  // a focused approval card answers A at once (ApprovalCard's own key), so a card that just appeared must not take focus (the ARM_MS rule)
   const askReq = useSyncExternalStore(subscribeFocus, getAskRequest);
   useEffect(() => {
     if (!askReq || !taskId || askReq.taskId !== taskId) return;
@@ -158,7 +159,6 @@ export function Thread() {
       const el = scroller.current?.querySelector<HTMLElement>(pick.kind === 'approval' ? `[data-approval-id="${CSS.escape(pick.id)}"]` : `[data-question-id="${CSS.escape(pick.id)}"]`);
       if (!el) return; // not drawn yet: this effect runs again after the next render
       el.scrollIntoView?.({ block: 'nearest' });
-      if (canTakeFocus(document.activeElement as HTMLElement | null)) el.focus({ preventScroll: true });
     }
     clearAskRequest();
   });

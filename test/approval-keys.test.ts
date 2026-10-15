@@ -76,3 +76,12 @@ test('both key paths read the shared rule: the thread shortcut goes through thre
   assert.match(cardSrc, /const noKey = clickOnly\(a\);/);
   assert.match(cardSrc, /if \(!noKey && \(e\.key === 'a' \|\| e\.key === 'A'\)\)/);
 });
+
+test('a board proposal card may take focus on reveal: no key answers it, and the window shortcut skips anything inside .approval', () => {
+  // proposal cards are focusable (the owner ruling: the card on top, focused), so the focus is safe only because nothing on them answers a key
+  const proposal = readFileSync(join(process.cwd(), 'ui/src/components/ProposalCards.tsx'), 'utf8');
+  assert.doesNotMatch(proposal, /onKeyDown|e\.key === 'a'|e\.key === 'A'/, 'a focused proposal card answers no key');
+  assert.match(proposal, /className="approval"/, 'the card carries the .approval class');
+  const thread = readFileSync(join(process.cwd(), 'ui/src/components/Thread.tsx'), 'utf8');
+  assert.match(thread, /closest\('\.approval, \.question, \.modal'\)/, 'the window shortcut skips a focused .approval card');
+});
