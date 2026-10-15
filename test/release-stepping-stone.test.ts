@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -272,4 +272,30 @@ test('stone: SHIPPING.md lists every stepping stone and says they are never dele
   assert.ok(stones.length > 0);
   for (const v of stones) assert.ok(doc.includes(`v${v}`), `SHIPPING.md must list v${v}`);
   assert.match(doc, /never delete a stepping-stone release, tag or asset/i);
+});
+test('stone rules: the daily check enforces the pins in stepping-stones.json (manifest, signature, package); no pins given = nothing checked, so unit tests stay offline', async () => {
+  const { L, parseManifest, trust } = await lib(); const p = pair();
+  const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');
+  const ok = (bytes: Buffer) => ({ status: 200, bytes });
+  const getBytes = async (url: string) => url.endsWith('manifest-2.json') ? ok(p.newB) : url.endsWith('.sig') ? ok(Buffer.from('s')) : ok(p.oldB);
+  const good = { 'legion-update-manifest.json': sha(p.oldB), 'legion-update-manifest.json.sig': sha('s'), 'legion-0.3.0-app.zip': p.asset.sha256 };
+  const run = (pins?: unknown) => L.liveProblems({ getBytes, latestTag: async () => 'v0.5.0', fetchAsset: async () => p.asset, trust, parseManifest, ...(pins === undefined ? {} : { pins }) });
+  assert.deepEqual(await run(), [], 'no pins: not checked');
+  assert.deepEqual(await run({ '0.3.0': { files: good } }), []);
+  for (const f of Object.keys(good)) {
+    const r = (await run({ '0.3.0': { files: { ...good, [f]: 'f'.repeat(64) } } })).join();
+    assert.match(r, /pin/i, f); assert.ok(r.includes(f), `names ${f}: ${r}`);
+  }
+  assert.match((await run({ '0.3.0': { files: { 'legion-update-manifest.json': good['legion-update-manifest.json'] } } })).join(), /no pin/i, 'a missing pin entry is a failure, not a pass');
+  assert.match((await run({})).join(), /no pin/i, 'pins given but none for the stone');
+});
+test('stone: stone-check.mjs hands the pins to the check, and the pins file is well-formed', () => {
+  const src = readFileSync(join(S('stone-check.mjs')), 'utf8');
+  assert.match(src, /readPins\(\)/); assert.match(src, /pins/);
+  const j = readJ(join(REPO, 'scripts', 'stepping-stones.json')) as { stones: string[]; pins: Record<string, { files: Record<string, string> }>; pinNote: string };
+  for (const v of j.stones) {
+    assert.deepEqual(Object.keys(j.pins[v].files).sort(), ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${v}-app.zip`].sort());
+    for (const h of Object.values(j.pins[v].files)) assert.match(h, /^[0-9a-f]{64}$/);
+  }
+  assert.doesNotMatch(j.pinNote, /Nothing reads pins yet/);
 });
