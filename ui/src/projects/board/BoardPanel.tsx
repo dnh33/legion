@@ -16,7 +16,7 @@ import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal
 import { DoneWhen, MarshalPanel } from './MarshalPanel';
 import { checksPending, checksText, parseChecks } from './marshalLogic';
 import {
-  applyFilters, assigneeKey, changedFields, rebaseForm, runHint, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
+  applyFilters, assigneeKey, changedFields, rebaseForm, runHint, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, reviewBadge, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
   labelsOf, learnDraft, moveAnnouncement, shouldOfferNote, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
 } from './boardLogic';
 import type { Filters } from './boardLogic';
@@ -191,7 +191,7 @@ function Board({ project }: { project: Project }) {
                           <span>{assigneeLabel(i.assignee, name)}</span>
                           {i.due && <span className={`bd-due d-${dueState(i.due)}`}>{dueText(i.due)}</span>}
                           {i.labels.map((l) => <span key={l} className="bd-label">{l}</span>)}
-                          {i.trust === 'untrusted' && (i.createdBy.kind === 'agent' && i.createdBy.tainted ? <span className="bd-taint">Outside content, not reviewed</span> : <span className="bd-warn">Not reviewed</span>)}
+                          <ReviewNote item={i} />
                         </div>
                         <label className="bd-move">Move to
                           <select value={i.status} disabled={archived} aria-label={`Move ${i.title} to`} onChange={(e) => mv(i, e.target.value as BoardStatus, byColumn(all)[e.target.value as BoardStatus].length)}>
@@ -214,7 +214,7 @@ function Board({ project }: { project: Project }) {
                 <tbody>
                   {[...shown].sort((a, b) => COLUMNS.indexOf(a.status) - COLUMNS.indexOf(b.status) || a.order - b.order).map((i) => (
                     <tr key={i.id}>
-                      <th scope="row"><button type="button" className="proj-link" onClick={() => setEditing(i)}>{i.title}</button>{i.trust === 'untrusted' && <span className="bd-warn"> Not reviewed</span>}</th>
+                      <th scope="row"><button type="button" className="proj-link" onClick={() => setEditing(i)}>{i.title}</button><ReviewNote item={i} /></th>
                       <td><select aria-label={`Status of ${i.title}`} value={i.status} disabled={archived} onChange={(e) => mv(i, e.target.value as BoardStatus, byColumn(all)[e.target.value as BoardStatus].length)}>{COLUMNS.map((c) => <option key={c} value={c}>{columnLabel(c)}</option>)}</select></td>
                       <td>{priorityMark(i.priority)}</td><td>{assigneeLabel(i.assignee, name)}</td><td className={`bd-due d-${dueState(i.due)}`}>{dueText(i.due) || 'No date'}</td>
                     </tr>
@@ -231,6 +231,13 @@ function Board({ project }: { project: Project }) {
       {editing && <ItemDialog key={editing === 'new' ? 'new' : editing.id} startLearn={learn} onOffer={(i) => setOffer(i)} project={project} item={editing === 'new' ? null : (view?.items.find((x) => x.id === editing.id) ?? editing)} members={members} name={name} archived={archived} onClose={() => { setEditing(null); setLearn(false); }} />}
     </section>
   );
+}
+
+/** The review note on a card or a list row, from the one rule in boardLogic (null once the owner reviewed the text). */
+function ReviewNote({ item }: { item: WorkItem }) {
+  const b = reviewBadge(item);
+  if (!b) return null;
+  return <span className={b.tone === 'taint' ? 'bd-taint' : b.tone === 'warn' ? 'bd-warn' : 'bd-acc'}>{b.text}</span>;
 }
 
 function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox: WorkItem[]; members: Array<{ id: string; name: string }>; name: (id: string) => string; archived: boolean; projectId: string; busy: boolean }) {
@@ -324,8 +331,17 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
     if (r) { sayItem(item ? 'Item saved.' : 'Item created.'); onClose(); } else if (item) resync();
   };
   return (
-    <Modal title={item ? 'Work item' : 'New work item'} onClose={onClose} width={640}>
-      <form className="form bd-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    <Modal title={item ? 'Work item' : 'New work item'} onClose={onClose} width={640} footer={<div className="bd-actions">
+      <button type="submit" form="bd-item-form" className="btn primary" disabled={archived || busy || !title.trim() || counter.over || labelList.length > BOARD_LIMITS.labels}>{item ? 'Save' : 'Create'}</button>
+      {item && !item.proposal && (
+        <button type="button" className="btn" disabled={!canRun || busy} title={item && !canRun ? runHint(item, canRun) : undefined} aria-describedby="bd-runnote" onClick={() => void runItem(project.id, item.id).then((ok) => { if (ok) onClose(); })}>Run this item</button>
+      )}
+      {item && (sure
+        ? <button type="button" className="btn-ghost danger" disabled={archived || busy} onClick={() => void deleteItem(project.id, item.id).then(() => { sayItem('Item deleted.'); onClose(); })}>Really delete</button>
+        : <button type="button" className="btn-ghost danger" disabled={archived || busy} onClick={() => setSure(true)}>Delete</button>)}
+      <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+    </div>}>
+      <form id="bd-item-form" className="form bd-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         {item?.trust === 'untrusted' && !item.proposal && (
           <div className="proj-note needs" role="note">
             <strong>Written by an agent, not reviewed.</strong> Read the text below. Until you mark it reviewed, &ldquo;Run this item&rdquo; starts the run with the stricter &ldquo;ask&rdquo; approvals.
@@ -409,16 +425,6 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
             </div>
           </>
         )}
-        <div className="bd-actions">
-          <button type="submit" className="btn primary" disabled={archived || busy || !title.trim() || counter.over || labelList.length > BOARD_LIMITS.labels}>{item ? 'Save' : 'Create'}</button>
-          {item && !item.proposal && (
-            <button type="button" className="btn" disabled={!canRun || busy} aria-describedby="bd-runnote" onClick={() => void runItem(project.id, item.id).then((ok) => { if (ok) onClose(); })}>Run this item</button>
-          )}
-          {item && (sure
-            ? <button type="button" className="btn-ghost danger" disabled={archived || busy} onClick={() => void deleteItem(project.id, item.id).then(() => { sayItem('Item deleted.'); onClose(); })}>Really delete</button>
-            : <button type="button" className="btn-ghost danger" disabled={archived || busy} onClick={() => setSure(true)}>Delete</button>)}
-          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-        </div>
         {item && !item.proposal && <p className="field-note" id="bd-runnote">{runHint(item, canRun)}</p>}
       </form>
     </Modal>

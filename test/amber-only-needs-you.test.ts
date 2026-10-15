@@ -103,7 +103,8 @@ describe('amber means something needs you', () => {
     assert.ok(tainted.length > 0 && tainted.some((r) => usesAmber(r.body)), 'an item written after reading outside content is amber');
     const board = readFileSync(join(UI, 'projects', 'board', 'BoardPanel.tsx'), 'utf8');
     assert.ok(/createdBy\.kind === 'agent' && i\.createdBy\.tainted \? ' tainted'/.test(board), 'the card gets the tainted class from createdBy.tainted');
-    assert.ok(/Outside content/.test(board), 'the card says why it is amber');
+    const logic = readFileSync(join(UI, 'projects', 'board', 'boardLogic.ts'), 'utf8');
+    assert.ok(/Outside content/.test(logic), 'the card says why it is amber (the review badge text, boardLogic reviewBadge)');
   });
 
   it('the two project notes that ask the owner to act are marked amber', () => {

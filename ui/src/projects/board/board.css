@@ -33,6 +33,8 @@
 .bd-due.d-today { color: var(--text); font-weight: 600; }
 .bd-label { border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 6px; }
 .bd-warn { color: var(--text-2); font-weight: 600; }
+.bd-acc { color: var(--text-2); font-weight: 600; }
+.bd-table .bd-warn, .bd-table .bd-acc, .bd-table .bd-taint { margin-left: 6px; }
 .bd-move { display: none; font-size: 11px; color: var(--muted); flex-direction: column; gap: 2px; }
 .bd-desc { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--text-2); }
 .bd-tablewrap { overflow-x: auto; }
