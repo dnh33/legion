@@ -134,3 +134,46 @@ export function shouldReloadOnTaskEnd(status: TaskStatus, stale: readonly KgStal
   if (status === 'running' || status === 'queued') return false;
   return busyIds.length > 0 || stale.some((r) => !!r.refreshTaskId);
 }
+
+/** What a screen reader hears when the Refresh button becomes Refreshing: said once, in a polite live region on the row. */
+export function refreshAnnouncement(title: string, btn: { label: string; inert: boolean } | null): string {
+  return btn?.inert ? `Refreshing ${title}.` : '';
+}
+
+export interface RefreshOutcome { taskId: string; id: string; title: string; failed: boolean }
+
+/**
+ * Pairs refresh runs with the task events that end them, in either order: the end event of a run can arrive before the POST answer that
+ * names the run, and a run that never ends must not pile up. Each run is reported once.
+ */
+export function createRefreshTracker(cap = 100) {
+  const runs = new Map<string, { id: string; title: string }>();
+  const ended = new Map<string, TaskStatus>();
+  const trim = (m: Map<string, unknown>) => { while (m.size > cap) m.delete(m.keys().next().value as string); };
+  const outcome = (taskId: string, run: { id: string; title: string }, status: TaskStatus): RefreshOutcome => ({ taskId, ...run, failed: isFailedRun(status) });
+  return {
+    /** The core named a run for a note. Returns its outcome when it had already ended. */
+    start(taskId: string, run: { id: string; title: string }): RefreshOutcome | undefined {
+      const status = ended.get(taskId);
+      if (status !== undefined) { ended.delete(taskId); return outcome(taskId, run, status); }
+      runs.set(taskId, run);
+      trim(runs);
+      return undefined;
+    },
+    /** A task ended (or not). Returns the outcome when it is a known refresh run. */
+    end(taskId: string, status: TaskStatus): RefreshOutcome | undefined {
+      if (status === 'running' || status === 'queued') return undefined;
+      const run = runs.get(taskId);
+      if (!run) { ended.set(taskId, status); trim(ended); return undefined; }
+      runs.delete(taskId);
+      return outcome(taskId, run, status);
+    },
+  };
+}
+
+/** Drops failure notes of notes that are no longer stale (updated, retired or deleted by any path). Returns the same object when nothing goes. */
+export function pruneFailed(failed: Readonly<Record<string, string>>, stale: readonly KgStaleRow[]): Record<string, string> {
+  const live = new Set(stale.map((r) => r.id));
+  const keep = Object.entries(failed).filter(([id]) => live.has(id));
+  return keep.length === Object.keys(failed).length ? (failed as Record<string, string>) : Object.fromEntries(keep);
+}

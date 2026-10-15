@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ageLabel, buildAuditView, confidenceLabel, isFailedRun, refreshAvailability, refreshButtonFor, refreshFailureText, shouldReloadOnTaskEnd, sourcesLabel } from '../src/shared/kg-audit.js';
+import { ageLabel, buildAuditView, confidenceLabel, createRefreshTracker, isFailedRun, pruneFailed, refreshAnnouncement, refreshAvailability, refreshButtonFor, refreshFailureText, shouldReloadOnTaskEnd, sourcesLabel } from '../src/shared/kg-audit.js';
 import { readFileSync } from 'node:fs';
 import type { KgStaleRow } from '../src/shared/kg.js';
 
@@ -191,5 +191,53 @@ describe('one button for Refresh and Refreshing, so keyboard focus stays on it',
     const src = readFileSync('ui/src/graph/LeftColumn.tsx', 'utf8');
     assert.doesNotMatch(src, />Refreshing<\/button>/);
     assert.match(src, /refreshButtonFor\(/);
+  });
+});
+
+describe('screen readers hear Refresh turn into Refreshing, once', () => {
+  it('the announcement names the note while the run is live and is empty otherwise', () => {
+    assert.equal(refreshAnnouncement('Shopify tips', { label: 'Refreshing', inert: true }), 'Refreshing Shopify tips.');
+    assert.equal(refreshAnnouncement('Shopify tips', { label: 'Refresh', inert: false }), '');
+    assert.equal(refreshAnnouncement('Shopify tips', null), '');
+  });
+  it('LeftColumn renders it in a polite live region on the row', () => {
+    const src = readFileSync('ui/src/graph/LeftColumn.tsx', 'utf8');
+    assert.match(src, /role="status"[^>]*aria-live="polite"|aria-live="polite"[^>]*role="status"/);
+    assert.match(src, /refreshAnnouncement\(/);
+  });
+});
+
+describe('the failed-refresh state cannot go stale', () => {
+  it('a run that ends before the POST answer is still caught when the answer arrives', () => {
+    const t = createRefreshTracker();
+    assert.equal(t.end('task_1', 'error'), undefined, 'unknown run: remembered, nothing to report yet');
+    assert.deepEqual(t.start('task_1', { id: 'n_1', title: 'Shopify tips' }), { taskId: 'task_1', id: 'n_1', title: 'Shopify tips', failed: true });
+  });
+  it('a run that ends after the answer reports once', () => {
+    const t = createRefreshTracker();
+    assert.equal(t.start('task_2', { id: 'n_2', title: 'B' }), undefined);
+    assert.deepEqual(t.end('task_2', 'cancelled'), { taskId: 'task_2', id: 'n_2', title: 'B', failed: true });
+    assert.equal(t.end('task_2', 'cancelled'), undefined, 'not twice');
+  });
+  it('a run that finished fine is reported as not failed', () => {
+    const t = createRefreshTracker();
+    t.start('task_3', { id: 'n_3', title: 'C' });
+    assert.deepEqual(t.end('task_3', 'done'), { taskId: 'task_3', id: 'n_3', title: 'C', failed: false });
+  });
+  it('a live run is not an end', () => {
+    const t = createRefreshTracker();
+    t.start('task_4', { id: 'n_4', title: 'D' });
+    assert.equal(t.end('task_4', 'running'), undefined);
+  });
+  it('keeps its memory bounded', () => {
+    const t = createRefreshTracker(3);
+    for (let i = 0; i < 10; i++) t.start(`t${i}`, { id: `n${i}`, title: 'x' });
+    assert.equal(t.end('t0', 'error'), undefined, 'the oldest run was dropped');
+    assert.ok(t.end('t9', 'error'));
+  });
+  it('a failure note goes when the note is no longer stale, by any path', () => {
+    assert.deepEqual(pruneFailed({ a: 't1', b: 't2' }, [{ id: 'b', daysOld: 100 }]), { b: 't2' });
+    const same = { b: 't2' };
+    assert.equal(pruneFailed(same, [{ id: 'b', daysOld: 100 }]), same, 'unchanged object when nothing goes');
   });
 });

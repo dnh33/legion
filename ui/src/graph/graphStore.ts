@@ -5,7 +5,8 @@ import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
 import type { KgEdge, KgLintReport, KgNode, KgNodeType, KgSearchHit, KgSource, KgSubgraph } from '../../../src/shared/kg';
 import { ApiError, request, subscribe } from '../api';
-import { isFailedRun, refreshFailureText, shouldReloadOnTaskEnd } from '../../../src/shared/kg-audit';
+import type { RefreshOutcome } from '../../../src/shared/kg-audit';
+import { createRefreshTracker, pruneFailed, refreshFailureText, shouldReloadOnTaskEnd } from '../../../src/shared/kg-audit';
 import { mapPool, orderOverview, reconcileView, sameHits, sameView, seedGroups, touchesDetail, touchesView } from './viewsync';
 
 export const MAX_VIEW_NODES = 400;
@@ -409,8 +410,8 @@ export async function loadLint() {
   set({ lintLoading: true, lintError: null });
   try {
     const lint = await request<KgLintReport>('GET', '/api/kg/lint');
-    set({ lint, lintLoading: false, offline: false });
-    for (const r of lint.stale) if (r.refreshTaskId) refreshRuns.set(r.refreshTaskId, { id: r.id, title: r.title ?? titleOf(r.id) });
+    set({ lint, lintLoading: false, offline: false, refreshFailed: pruneFailed(s.refreshFailed, lint.stale) });
+    for (const r of lint.stale) if (r.refreshTaskId) settleRun(refreshTracker.start(r.refreshTaskId, { id: r.id, title: r.title ?? titleOf(r.id) }));
     const need = new Set<string>();
     lint.orphans.forEach((i) => need.add(i)); lint.untrustedWithoutReview.forEach((i) => need.add(i));
     lint.stale.forEach((x) => need.add(x.id)); lint.contradictions.forEach((c) => { need.add(c.a); need.add(c.b); });
@@ -419,7 +420,13 @@ export async function loadLint() {
   } catch (e) { set({ lintLoading: false, lintError: errMsg(e), offline: isOffline(e) }); }
 }
 /** Refresh runs this view knows about: run id -> the note and its title, so a run that ends can be named even after the list was re-read. */
-const refreshRuns = new Map<string, { id: string; title: string }>();
+const refreshTracker = createRefreshTracker();
+/** A refresh run is over: when it failed or was cancelled, say so now and keep a note on its row until the next try. */
+function settleRun(o: RefreshOutcome | undefined) {
+  if (!o?.failed) return;
+  set({ refreshFailed: { ...s.refreshFailed, [o.id]: o.taskId } });
+  notify(refreshFailureText(o.title), 'error', { label: 'Open the run', taskId: o.taskId });
+}
 
 /** Refresh on a stale note: the core starts one Archivist run; its proposal lands in the Inbox. A refusal is shown in the core's own plain words. */
 export async function refreshNote(id: string) {
@@ -428,7 +435,7 @@ export async function refreshNote(id: string) {
   set({ refreshBusy: [...s.refreshBusy, id], refreshFailed: failed });
   try {
     const r = await request<{ taskId: string }>('POST', `/api/kg/nodes/${enc(id)}/refresh`, {});
-    refreshRuns.set(r.taskId, { id, title: s.lint?.stale.find((x) => x.id === id)?.title ?? titleOf(id) });
+    settleRun(refreshTracker.start(r.taskId, { id, title: s.lint?.stale.find((x) => x.id === id)?.title ?? titleOf(id) }));
   } catch (e) {
     notify(errMsg(e), 'error');
   } finally {
@@ -587,16 +594,7 @@ export function refreshFromServer(changed?: string[]) {
 }
 function onEvent(e: LegionEvent) {
   // a refresh run ended failed or cancelled: say so now, and keep a note on its row until the next try
-  if (e.type === 'task.updated' && e.task.status !== 'running' && e.task.status !== 'queued') {
-    const run = refreshRuns.get(e.task.id);
-    if (run) {
-      refreshRuns.delete(e.task.id);
-      if (isFailedRun(e.task.status)) {
-        set({ refreshFailed: { ...s.refreshFailed, [run.id]: e.task.id } });
-        notify(refreshFailureText(run.title), 'error', { label: 'Open the run', taskId: e.task.id });
-      }
-    }
-  }
+  if (e.type === 'task.updated') settleRun(refreshTracker.end(e.task.id, e.task.status));
   // a run ended while a Refresh waits for its answer or a row shows a live run: read the list again. A run that found nothing to change
   // writes nothing, so no kg.updated follows it.
   if (e.type === 'task.updated' && shouldReloadOnTaskEnd(e.task.status, s.lint?.stale ?? [], s.refreshBusy)) { void loadLint(); return; }

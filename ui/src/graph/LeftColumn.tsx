@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { openRun } from './openRun';
-import { buildAuditView, refreshButtonFor } from '../../../src/shared/kg-audit';
+import { buildAuditView, refreshAnnouncement, refreshButtonFor } from '../../../src/shared/kg-audit';
 import type { AuditRow } from '../../../src/shared/kg-audit';
 import { useMatch } from './CanvasPane';
 import {
@@ -229,6 +229,7 @@ function StaleRow({ r }: { r: AuditRow }) {
         {btn && <button className={`btn-ghost sm${btn.inert ? ' lt-refreshing' : ''}`} aria-disabled={btn.inert || undefined} aria-label={`${btn.label} ${r.title}`}
           onClick={btn.inert ? undefined : () => void refreshNote(r.id)} title={btn.inert ? undefined : "Ask the Archivist to re-check this note's sources"}>{btn.label}</button>}
       </div>
+      <span className="lt-sr" role="status" aria-live="polite">{refreshAnnouncement(r.title, btn)}</span>
       <div className="lt-stale-meta">
         <span>{r.age}</span>
         {r.noSource ? <b className="lt-tag warn">No source</b> : <span>{r.sources}</span>}

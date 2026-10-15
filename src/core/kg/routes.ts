@@ -166,7 +166,7 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
           ...row, title: n.title, type: n.type, sourceCount: n.sources?.length ?? 0, createdBy: n.createdBy,
           ...(n.confidence !== undefined ? { confidence: n.confidence } : {}), ...(n.projectId ? { projectId: n.projectId } : {}),
           ...(taskId ? { refreshTaskId: taskId } : {}),
-          ...(d.refresh && n.createdBy !== 'system' ? (() => { const b = refreshBlockOf(n as KgNode, refreshEnv(n as KgNode, targets)); return b ? { refreshBlock: b.block } : {}; })() : {}),
+          ...(n.createdBy !== 'system' ? (() => { const b = refreshBlockOf(n as KgNode, refreshEnv(n as KgNode, targets)); return b ? { refreshBlock: b.block } : {}; })() : {}),
         };
       }),
     };

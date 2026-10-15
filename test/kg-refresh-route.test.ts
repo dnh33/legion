@@ -337,3 +337,15 @@ test('a note that is gone gets a plain message without its id, on both routes', 
   }
   await s.close();
 });
+
+test('a pending note is marked pending in the lint rows even in a build without refresh', async () => {
+  const handlers = new Map<string, (c: any) => unknown>();
+  const stale = { id: 'n_w', title: 'Waiting', type: 'concept', body: '', tags: [], scope: 'shared', createdBy: 'builder', status: 'pending', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
+  const graph = {
+    lint: () => ({ orphans: [], danglingEdges: [], duplicateTitles: [], stale: [{ id: 'n_w', daysOld: 200 }], contradictions: [], untrustedWithoutReview: [], counts: { nodes: 1, edges: 0 } }),
+    pendingProposalTargets: () => new Set<string>(), peekNode: () => stale, canSeeNode: () => true, hasPendingProposalFor: () => false,
+  } as any;
+  addKgRoutes((m, p, h) => { handlers.set(`${m} ${p}`, h); }, { graph: () => graph, bsvEnabled: () => false });
+  const out = await handlers.get('GET /api/kg/lint')!({ params: [], url: new URL('http://x/'), body: undefined }) as { stale: Array<{ refreshBlock?: string }> };
+  assert.equal(out.stale[0]!.refreshBlock, 'pending');
+});
