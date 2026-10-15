@@ -156,7 +156,7 @@ test('none: the install\'s own runtime starts no window and says why', () => {
 
 test('main.ts exits at once when it was started as the update window, before any lock or path', () => {
   const src = readFileSync(join(process.cwd(), 'src', 'electron', 'main.ts'), 'utf8');
-  const guard = src.indexOf("process.env.LEGION_UPDATE_WINDOW === '1') app.exit(0)");
+  const guard = src.indexOf("process.env.LEGION_UPDATE_WINDOW === '1') process.exit(0)");
   assert.ok(guard > 0, 'the guard exists');
   assert.ok(guard < src.indexOf('const here = '), 'it comes before any path');
   assert.ok(guard < src.indexOf('requestSingleInstanceLock'), 'and before the lock');

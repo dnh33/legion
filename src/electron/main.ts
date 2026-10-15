@@ -26,7 +26,8 @@ import type { ProviderChangeResult } from './provider-ipc.js';
 
 // Legion's main must never run as the "Updating Legion" window: the window is started by the update helper, and a runtime that ignores
 // the window's entry would boot a second Legion in the middle of the swap. Write nothing, take no lock, touch no path.
-if (process.env.LEGION_UPDATE_WINDOW === '1') app.exit(0);
+// process.exit, not app.exit: app.exit returns and the rest of this module (the lock, the paths) would still run.
+if (process.env.LEGION_UPDATE_WINDOW === '1') process.exit(0);
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
