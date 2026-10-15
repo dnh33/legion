@@ -89,7 +89,7 @@ test('C17b: a kill during a full-package swap is recovered at the next start (th
     const f = fixture();
     const before = snap(f.install);
     await assert.rejects(swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET, step: kill(label) }), /killed at/);
-    assert.equal(await recoverInterrupted(f.install, { runningVersion: '1.0.0' }), 'rolled-back', label);
+    assert.equal(await recoverInterrupted(f.install, { runningVersion: '1.0.0', nowMs: Date.now() + 10 * 60_000 }), 'rolled-back', label);
     assert.deepEqual(snap(f.install), before, `after a kill at ${label}`);
   }
 });
@@ -103,7 +103,7 @@ test('C17: a kill at every step is recovered at the next start (live tree == the
     const f = fixture();
     const before = snap(f.install);
     await assert.rejects(swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', step: kill(label) }), /killed at/);
-    const res = await recoverInterrupted(f.install, { runningVersion: '1.0.0' });
+    const res = await recoverInterrupted(f.install, { runningVersion: '1.0.0', nowMs: Date.now() + 10 * 60_000 }); // the killed helper stopped beating
     assert.equal(res, 'rolled-back', label);
     assert.deepEqual(snap(f.install), before, `after a kill at ${label}`);
     assert.equal(readJournal(f.install)?.state, 'rolled-back');
