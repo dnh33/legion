@@ -492,7 +492,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .pop-head { display: flex; flex: none; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; font-weight: 600; font-size: 12.5px; }
 /* The body holds the one scrolling list, which takes the free height and carries the pinned Older head. Overflow is clipped here, never drawn over the footer. */
 .pop-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.pop-list { padding: 0 4px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* the pinned Older head is 27.75px tall (border-box, measured at 960x600) and sits above the list's 4px bottom padding: a row scrolled into view clears both */
+.pop-list { padding: 0 4px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; scroll-padding-bottom: 32px; }
 .pop-listwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; }
 /* four full rows with their descriptions (label included), at 960x600: Auto and the first current models stay in view */
 /* the floor gives way on a short window (the popover cap is 80vh), so the list never runs under the footer */

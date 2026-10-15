@@ -7,7 +7,7 @@
  * its open state; a head toggles the same way with or without a query. No section label repeats a head's name.
  */
 
-export interface PickerModel { value: string; displayName: string; description?: string }
+export interface PickerModel { value: string; displayName: string; description?: string; /** The model id the alias resolves to (claude-opus-5-5); a query matches it too. */ resolvedModel?: string }
 export interface PickerGroup { id: string; label: string; providerId: string; models: string[] }
 
 export interface PickerInput {
@@ -50,19 +50,19 @@ const withoutVendor = (modelId: string) => { const i = modelId.indexOf('/'); ret
 
 export function buildPickerLayout(input: PickerInput): PickerLayout {
   const ql = input.query.trim().toLowerCase();
-  const hit = (...xs: string[]) => !ql || xs.some((x) => x.toLowerCase().includes(ql));
+  const hit = (...xs: Array<string | undefined>) => !ql || xs.some((x) => x !== undefined && x.toLowerCase().includes(ql));
   const rows: PickerRow[] = [];
 
   if (hit('Auto', 'auto')) rows.push({ kind: 'item', id: 'auto', value: 'auto', displayName: 'Auto', description: input.autoDescription });
 
-  const currentHits = input.current.filter((m) => hit(m.displayName, m.value));
+  const currentHits = input.current.filter((m) => hit(m.displayName, m.value, m.resolvedModel));
   if (currentHits.length) {
     rows.push({ kind: 'label', text: 'Current models' });
     for (const m of currentHits) rows.push({ kind: 'item', id: m.value, value: m.value, displayName: m.displayName, description: m.description });
   }
 
   let older: PickerLayout['older'];
-  const olderHits = input.older.filter((m) => hit(m.displayName, m.value));
+  const olderHits = input.older.filter((m) => hit(m.displayName, m.value, m.resolvedModel));
   if (olderHits.length) {
     // Under a query the head opens by itself and counts the matches; otherwise it counts every older model and follows the owner's state.
     const open = ql ? (input.queryOpen?.[OLDER_HEAD] ?? true) : input.olderOpen;
@@ -92,6 +92,9 @@ export function buildPickerLayout(input: PickerInput): PickerLayout {
   }
   return { rows, ...(older ? { older } : {}), nav };
 }
+
+/** Two search texts are the same query when they match after trimming: a Space typed after a word changes nothing. */
+export const sameQuery = (a: string, b: string): boolean => a.trim() === b.trim();
 
 /**
  * Where the highlight sits in `nav`. The row the owner moved to (an arrow key or a hover) stays highlighted while it is still

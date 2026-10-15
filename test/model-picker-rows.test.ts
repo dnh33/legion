@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPickerLayout, nextHighlightId, resolveHighlight, type PickerInput } from '../src/shared/model-picker-rows.js';
+import { buildPickerLayout, nextHighlightId, resolveHighlight, sameQuery, type PickerInput } from '../src/shared/model-picker-rows.js';
 
 const base = (over: Partial<PickerInput> = {}): PickerInput => ({
   query: '', selected: 'opus', autoDescription: 'Legion picks Sonnet or Opus per task',
@@ -176,4 +176,25 @@ test('the vendor prefix is cut at the first slash only, and an id without a slas
 test('a search still matches the full model id, prefix included', () => {
   const L = buildPickerLayout(base({ groups: [{ id: 'openrouter/deepseek', label: 'DeepSeek (OpenRouter)', providerId: 'openrouter', models: ['deepseek/v3'] }], query: 'deepseek/v3' }));
   assert.deepEqual(L.nav.filter((n) => n.kind === 'item').map((n) => n.id), ['openrouter:deepseek/v3']);
+});
+
+test('a query matches the resolved model id too, so "claude" finds the alias rows (round 4)', () => {
+  // The current Opus row's value is the alias "opus"; its resolved id is claude-opus-5-5. Typing "claude" must list it.
+  const current = [
+    { value: 'opus', displayName: 'Opus 5.5', description: 'Deepest.', resolvedModel: 'claude-opus-5-5' },
+    { value: 'sonnet', displayName: 'Sonnet 5.5', description: 'Fast.', resolvedModel: 'claude-sonnet-5-5' },
+  ];
+  const claude = buildPickerLayout(base({ query: 'claude', current }));
+  const ids = claude.nav.map((n) => n.id);
+  assert.ok(ids.includes('opus') && ids.includes('sonnet'), 'the alias rows match on their resolved id: ' + ids.join(','));
+  const opus = buildPickerLayout(base({ query: 'opus', current }));
+  assert.equal(opus.nav[0]!.id, 'opus');
+  assert.equal(buildPickerLayout(base({ query: 'sonnet', current })).nav[0]!.id, 'sonnet');
+});
+
+test('a query that is equal after trim is not a change of query (a Space keeps the moved highlight, round 4)', () => {
+  assert.equal(sameQuery('', ' '), true);
+  assert.equal(sameQuery('opus', 'opus '), true);
+  assert.equal(sameQuery('opus', 'opus 4'), false);
+  assert.equal(sameQuery('opus', ''), false);
 });

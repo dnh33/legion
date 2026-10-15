@@ -60,6 +60,11 @@ export const removeProvider = (id: string) => act(id, () => request<ProvidersVie
 export const saveLimits = (maxTurns: number, maxToolCallsPerTurn: number) => act('limits', () => request<ProvidersView>('PUT', '/api/providers/limits', { maxTurns, maxToolCallsPerTurn }));
 export const testProvider = (id: string) => act(id, async () => { await request('POST', `/api/providers/${id}/test`); await loadProviders(); });
 export const refreshModels = (id: string) => act(id, async () => { await request('POST', `/api/providers/${id}/models`); await loadProviders(); });
+/** The picker's Retry for one provider: the loading state shows while the refresh runs, then the new result. */
+export async function retryModels(id: string): Promise<void> {
+  set({ refreshing: true });
+  try { await refreshModels(id); } finally { set({ refreshing: false }); }
+}
 /**
  * The picker's daily refresh: fetches only the lists that are missing or a day old, and answers with the view. Never fails the picker,
  * and it does not set `busy`: the fetch can take a while, and Settings actions must stay open while it runs.
