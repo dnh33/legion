@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { ARM_MS, isArmed } from '../src/shared/approval-keys.js';
 import { VERDICT_MS, createAppearances, createCardArm, createKeyClock, isNavKey, liveReady } from '../ui/src/a11y/keyClockCore.js';
+import { focusStaysInside, refocusAfterStep } from '../ui/src/chat/questionCard.js';
 
 const src = (p: string): string => readFileSync(join(process.cwd(), p), 'utf8');
 const container = (inner: object) => ({ contains: (n: unknown) => n === inner });
@@ -203,11 +204,36 @@ test('a step change inside the same question card is internal: a focus that come
 test('QuestionCard: a step change is marked to the arm, once per change, not on mount', () => {
   const q = src('ui/src/components/QuestionCard.tsx');
   assert.match(q, /arm\.stepped\(performance\.now\(\)\)/);
-  assert.match(q, /prevStep\.current !== step/);
+  assert.match(q, /if \(prevStep\.current === step\) return;/, 'the effect runs only on a change of step (it returns early otherwise)');
 });
 
 test('the hints re-check on every page key, and when the wait is due (the timer), so they undim without a blocked key', () => {
   const clock = src('ui/src/a11y/keyClock.ts');
   assert.match(clock, /page\.subscribe\(/);
   assert.match(clock, /window\.setTimeout\(\(\) => refresh\(\), arm\.untilArmed\(now\) \+ 5\)/);
+});
+
+test("after a step change, focus that was inside the card goes back into it: the new step's first option, or the Review step's primary control; nothing when it was outside", () => {
+  assert.equal(refocusAfterStep({ inside: false, review: false, optionCount: 3 }), "none", "focus was elsewhere: it stays there");
+  assert.equal(refocusAfterStep({ inside: true, review: false, optionCount: 3 }), "option");
+  assert.equal(refocusAfterStep({ inside: true, review: true, optionCount: 0 }), "primary", "the Review step has its primary control");
+  assert.equal(refocusAfterStep({ inside: true, review: false, optionCount: 0 }), "primary", "a step without options falls back to the primary control");
+});
+
+test("focus stays inside after a blur when it moved to another element of the card, or when the window still has focus (the option was removed under it)", () => {
+  assert.equal(focusStaysInside({ relatedInside: true, relatedNull: false, windowFocused: true }), true);
+  assert.equal(focusStaysInside({ relatedInside: false, relatedNull: false, windowFocused: true }), false, "moved elsewhere on the page");
+  assert.equal(focusStaysInside({ relatedInside: false, relatedNull: true, windowFocused: true }), true, "lost to nothing while the window has focus: the element was removed");
+  assert.equal(focusStaysInside({ relatedInside: false, relatedNull: true, windowFocused: false }), false, "the window lost focus: its focus event brings it back");
+});
+
+test("QuestionCard: a step change refocuses the card after the stepped window opens (so the refocus does not re-arm it), once the options are known", () => {
+  const q = src("ui/src/components/QuestionCard.tsx");
+  assert.match(q, /refocusAfterStep\(\{/);
+  assert.match(q, /focusStaysInside\(\{/);
+  assert.match(q, /primaryRef/);
+  const stepped = q.indexOf("arm.stepped(performance.now())");
+  const refocus = q.indexOf("refocusAfterStep({");
+  assert.ok(stepped > 0 && refocus > stepped, "the stepped window opens before the refocus");
+  assert.ok(q.indexOf("const opts = ") < refocus, "the refocus effect runs after the options exist");
 });

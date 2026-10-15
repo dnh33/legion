@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PendingQuestion, QuestionPick } from '../../../src/shared/types';
 import { answerQuestion, useStore } from '../store';
 import {
-  applyOther, applyPick, finalAnswers, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewOf, stepCount,
+  applyOther, applyPick, finalAnswers, focusStaysInside, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, refocusAfterStep, reviewOf, stepCount,
 } from '../chat/questionCard';
 import { Icon } from './icons';
 import { useArmUi, useCardArm } from '../a11y/keyClock';
@@ -45,14 +45,24 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const [blocks, setBlocks] = useState(0);
   useEffect(() => { if (armed) setIgnored(false); }, [armed]);
   const notReady = (): void => { setIgnored(true); setBlocks((n) => n + 1); refresh(); };
-  // a step change is internal to the card: focus that returns to it right after does not restart the arm
+  // a step change is internal to the card: the arm is told, and focus that was inside goes back in (the effect after the options)
   const prevStep = useRef(step);
-  useEffect(() => { if (prevStep.current !== step) { prevStep.current = step; arm.stepped(performance.now()); } }, [step, arm]);
+  const focusInside = useRef(false);
+  const primaryRef = useRef<HTMLButtonElement>(null);
   const optRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const otherRef = useRef<HTMLInputElement>(null);
 
   const cur = step < n ? q.questions[step]! : null;
   const opts = useMemo(() => (cur ? orderedOptions(cur.options) : []), [cur]);
+  useEffect(() => {
+    if (prevStep.current === step) return;
+    prevStep.current = step;
+    arm.stepped(performance.now());
+    // the option that had focus unmounted with its step: the new step's first option, or the Review step's primary control, takes it back (inside the stepped window, so it does not re-arm)
+    const kind = refocusAfterStep({ inside: focusInside.current, review: isReviewStep(step, n), optionCount: opts.length });
+    if (kind === 'option') optRefs.current[0]?.focus({ preventScroll: true });
+    else if (kind === 'primary') primaryRef.current?.focus({ preventScroll: true });
+  }, [step, arm, n, opts]);
   const preview = focus < opts.length ? opts[focus]?.preview : undefined;
 
   useEffect(() => { setFocus(0); setOtherOpen(false); }, [step]);
@@ -90,7 +100,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));
 
   return (
-    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now())} onKeyUp={() => arm.released(performance.now())} onKeyDown={onKeyDown}>
+    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => { focusInside.current = true; arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); }} onBlur={(e) => { focusInside.current = focusStaysInside({ relatedInside: e.currentTarget.contains(e.relatedTarget as Node | null), relatedNull: e.relatedTarget === null, windowFocused: document.hasFocus() }); }} onKeyUp={() => arm.released(performance.now())} onKeyDown={onKeyDown}>
       <div className="approval-head">
         <Icon name="help" size={14} />
         <span>Needs your answer</span>
@@ -158,8 +168,8 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
       <div className="approval-actions">
         <button type="button" className="btn" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>Back</button>
         {cur
-          ? <button type="button" className="btn primary" disabled={!isAnswered(answers, step)} onClick={() => setStep((s) => Math.min(s + 1, n))}>Next</button>
-          : <button type="button" className="btn primary" disabled={busy || !allAnswered} onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } submit(); }}>Submit</button>}
+          ? <button type="button" className="btn primary" ref={primaryRef} disabled={!isAnswered(answers, step)} onClick={() => setStep((s) => Math.min(s + 1, n))}>Next</button>
+          : <button type="button" className="btn primary" ref={primaryRef} disabled={busy || !allAnswered} onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } submit(); }}>Submit</button>}
         {ignored && !armed && <span className="approval-note">Ready in a moment</span>}
         <span className="sr-only" role="status" aria-live="polite">{liveReady(blocks)}</span>
         <span className="approval-note">arrows move · Enter picks · 1-4 pick · Esc closes Other</span>
