@@ -8,8 +8,8 @@ import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import type { ProviderView, ProvidersView } from '../../../src/shared/providers-view';
 
-export interface ProvidersUiState { view: ProvidersView | null; loaded: boolean; busy: string | null; error: string | null; notes: Record<string, string> }
-let state: ProvidersUiState = { view: null, loaded: false, busy: null, error: null, notes: {} };
+export interface ProvidersUiState { view: ProvidersView | null; loaded: boolean; busy: string | null; error: string | null; notes: Record<string, string>; /** The picker's background model refresh is in flight. */ refreshing: boolean }
+let state: ProvidersUiState = { view: null, loaded: false, busy: null, error: null, notes: {}, refreshing: false };
 const listeners = new Set<() => void>();
 const set = (p: Partial<ProvidersUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -65,7 +65,8 @@ export const refreshModels = (id: string) => act(id, async () => { await request
  * and it does not set `busy`: the fetch can take a while, and Settings actions must stay open while it runs.
  */
 export async function refreshStaleModels(): Promise<void> {
-  try { set({ view: await request<ProvidersView>('POST', '/api/providers/auto-models') }); } catch { /* the saved lists stay; a failure shows as the provider's last error */ }
+  set({ refreshing: true });
+  try { set({ view: await request<ProvidersView>('POST', '/api/providers/auto-models') }); } catch { /* the saved lists stay; a failure shows as the provider's last error */ } finally { set({ refreshing: false }); }
 }
 
 /** The model values the pickers offer for providers that are switched on: `<provider>:<model>`. */
