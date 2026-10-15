@@ -139,17 +139,17 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .banner.offline .icon { color: var(--danger); }
 .banner.offline span { margin-left: 0; color: var(--text-2); opacity: 1; }
 .banner.offline .icon { flex: none; }
-/* board proposals waiting on you, above the thread (components/ProposalCards.tsx): several stack and scroll, buttons wrap at large UI scale */
-.proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 40vh; overflow-y: auto; }
-.proposal-cards .approval { margin: 0; background: var(--card-tint); }
-.proposal-cards .approval-actions { flex-wrap: wrap; }
-/* The card and its action row share one solid tint (a flat colour, so the sticky row matches the card it sits on). */
+/* board proposals waiting on you, above the thread (components/ProposalCards.tsx): several stack and scroll. A card is at most half the window high.
+   Its body scrolls when the text is long; its action row is a sibling below the body, never under it, so Accept, Reject, Open on board and More are
+   all reachable at rest and at any scroll. */
+.proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 50vh; overflow-y: auto; }
 .proposal-cards { --card-tint: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
-/* The region scrolls the card, never its buttons: at a short window (1.5x zoom at 960x600) the action row sticks to the bottom of the region, so
-   Accept, Reject and Open on board stay whole. It takes the card's side and bottom padding, so it sits flush with the card, and its bottom corners
-   follow the card's radius. The fade above it shows a cut line as cut, not as a band. */
-.proposal-actions { position: sticky; bottom: 0; margin: 8px -14px -12px; padding: 10px 14px 12px; background: var(--card-tint); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); }
-.proposal-actions::before { content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px; background: linear-gradient(transparent, var(--card-tint)); pointer-events: none; }
+.proposal-cards .approval { margin: 0; background: var(--card-tint); display: flex; flex-direction: column; max-height: 50vh; }
+.proposal-cards .approval-actions { flex-wrap: wrap; }
+.proposal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+/* the fade over the body's last line: transparent into the card tint. It overlaps only the body's bottom padding, so More is not dimmed at rest. */
+.proposal-fade { flex: none; height: 10px; margin-top: -10px; position: relative; pointer-events: none; background: linear-gradient(transparent, var(--card-tint)); }
+.proposal-actions { flex: none; margin: 0 -14px; padding: 0 14px; background: var(--card-tint); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); }
 @media (max-height: 500px) { .proposal-desc:not(.open) { -webkit-line-clamp: 2; } }
 /* The entry or card a rail click brought into view holds focus: :focus, not :focus-visible, so a mouse user sees it (kbdNav rings are keyboard-only by design).
    Inset, so the ring is not clipped by the region that scrolls the card. */

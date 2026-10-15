@@ -48,6 +48,7 @@ export function ProposalCards({ agentId, taskId }: { agentId: string; taskId: st
         const long = descriptionNeedsMore(i.description);
         return (
           <div key={i.id} className="approval" tabIndex={0} role="group" data-proposal-id={i.id} aria-label={`Board proposal: ${i.title}`}>
+            <div className="proposal-body">
             <div className="approval-head"><Icon name="inbox" size={14} /><span>Needs your OK</span><b className="approval-tool">board item</b></div>
             <p className="proposal-title">{who} proposes a board item{project ? ` in ${project}` : ''}: <b>{i.title}</b></p>
             <p className="muted-s">{proposalNote(who, tainted)}</p>
@@ -57,6 +58,8 @@ export function ProposalCards({ agentId, taskId }: { agentId: string; taskId: st
                 {long && <button type="button" className="link-btn" aria-expanded={!!more[i.id]} onClick={() => setMore({ ...more, [i.id]: !more[i.id] })}>{more[i.id] ? 'Less' : 'More'}</button>}
               </>
             )}
+            </div>
+            <div className="proposal-fade" aria-hidden="true" />
             <div className="approval-actions proposal-actions">
               <button className="btn primary" disabled={st.disabled} title={st.reason} onClick={() => void acceptItem(i.projectId, i.id, { assignee: suggested ? { kind: 'agent', id: suggested } : null }).then((r) => { const t = actionNotice(r, `${i.title} accepted to Backlog.`); if (t) { sayItem(t); toast(t, 'info'); } })}>Accept</button>
               <button className="btn" disabled={st.disabled} title={st.reason} onClick={() => void rejectItem(i.projectId, i.id).then((r) => { const t = actionNotice(r, `${i.title} rejected.`); if (t) { sayItem(t); toast(t, 'info'); } })}>Reject</button>
