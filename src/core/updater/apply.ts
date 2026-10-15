@@ -13,7 +13,7 @@ import { execFile, spawn } from 'node:child_process';
 import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // C21: this helper is copied alone to <install>/.update/run/apply.mjs and run standalone during the swap,
 // so it imports node: builtins ONLY. The types and the pure recovery judge are inlined here (no sibling
@@ -41,6 +41,8 @@ export interface WindowDep {
   releaseLock(): Promise<void>;
   /** Tells the window the result. Ok: it shows Done and closes. Failed or rolled back: it shows the reason and waits for the person. `started`: whether the helper has started Legion again; when it has not, the window starts it when the person leaves. */
   finish(result: 'ok' | 'failed' | 'rolled-back', message?: string, started?: boolean): Promise<void>;
+  /** The helper's last step on every exit path: puts back anything the window start changed. Never throws; safe to call twice. */
+  dispose?(): void;
 }
 
 /** The only names an update may replace (directories and files at the top of the install folder). */
@@ -472,6 +474,10 @@ export interface ApplyDeps {
 }
 
 export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['result']> {
+  try { return await runApplyInner(job, d); } finally { try { d.window?.dispose?.(); } catch { /* the window is a courtesy */ } }
+}
+
+async function runApplyInner(job: ApplyJob, d: ApplyDeps): Promise<Outcome['result']> {
   const { installDir } = job;
   const progress: ProgressSink = d.progress ?? (() => undefined);
   const startTime = Date.now();
@@ -699,17 +705,51 @@ export function helperJourney(installDir: string, job: { updateId?: string; data
 /** Where the window's own files live: <install>/.update/run/window, outside every folder a swap renames. The app copies them there before it quits. */
 export const WINDOW_DIR_PARTS: readonly string[] = Object.freeze(['run', 'window']);
 
+export type WindowLaunch = 'folder' | 'patch' | 'none';
+const isInside = (child: string, parent: string): boolean => { const r = relative(resolve(parent), resolve(child)); return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r); };
+const ownRuntime = (installDir: string, runtimeDir: string): boolean => relative(resolve(installDir, 'runtime', 'electron'), resolve(runtimeDir)) === '';
+
+/**
+ * How to start the window from `runtimeDir` (the folder of the helper's electron.exe). Electron runs `resources/app` when it exists and ignores a folder argument,
+ * so a packaged runtime (app shim, no default_app.asar) cannot be pointed at the window by argument.
+ *  - folder: no app shim, and default_app.asar is there (a dev runtime): pass the window folder as before.
+ *  - patch: an app shim exists in a COPY of the runtime (inside <install>/.update or the temp folder): point the shim at the window for the start.
+ *  - none: anything else. The install's own runtime above all: its shim starts Legion's own main, and the helper must not do that during a swap.
+ */
+export function windowLaunchPlan(p: { runtimeDir: string; installDir: string; hasAppShim: boolean; hasDefaultApp: boolean; tempDir?: string }): WindowLaunch {
+  if (!p.hasAppShim) return p.hasDefaultApp ? 'folder' : 'none';
+  if (ownRuntime(p.installDir, p.runtimeDir)) return 'none';
+  if (isInside(p.runtimeDir, upDir(p.installDir)) || isInside(p.runtimeDir, p.tempDir ?? tmpdir())) return 'patch';
+  return 'none';
+}
+
+/** Test hooks: where the runtime is, how to spawn, how long to wait before the shim goes back. */
+export interface WindowHooks { execPath?: string; spawn?: typeof spawn; restoreAfterMs?: number; pollMs?: number; tempDir?: string }
+
 /**
  * Drives the "Updating Legion" window (a tiny Electron app, update-window-main.ts, started from THIS helper's runtime and the files in .update/run/window).
  * They talk through files: this side writes window-job.json once and appends numbered lines to commands.jsonl; the window answers in state.json.
  * Never throws and never waits long: the window is a courtesy, the update is the job.
  */
-export function realWindow(installDir: string, job: { updateId: string; appPid?: number; from: string; to: string; names?: readonly string[]; relaunch?: Relaunch; window: { enabled: boolean; userData: string; args?: string[] } }, log: (line: string) => void): WindowDep {
+export function realWindow(installDir: string, job: { updateId: string; appPid?: number; from: string; to: string; names?: readonly string[]; relaunch?: Relaunch; window: { enabled: boolean; userData: string; args?: string[] } }, log: (line: string) => void, hooks: WindowHooks = {}): WindowDep {
   const dir = join(upDir(installDir), ...WINDOW_DIR_PARTS);
   const cmdFile = join(dir, 'commands.jsonl');
   const stateFile = join(dir, 'state.json');
+  const execPath = hooks.execPath ?? process.execPath;
+  const spawnFn = hooks.spawn ?? spawn;
   let pid: number | undefined;
   let seq = 0;
+  // The packaged runtime's app shim while it points at the window: the original bytes wait here until they are put back.
+  let shimFile = '';
+  let shimOriginal: Buffer | undefined;
+  let shimTimer: ReturnType<typeof setInterval> | undefined;
+  const restoreOnExit = (): void => restoreShim('helper exit');
+  const restoreShim = (why: string): void => {
+    if (shimTimer) { clearInterval(shimTimer); shimTimer = undefined; }
+    if (!shimOriginal) return;
+    try { writeFileSync(shimFile, shimOriginal); shimOriginal = undefined; process.off('exit', restoreOnExit); log(`window: the runtime's app shim is back as it was (${why})`); }
+    catch (e) { log(`window: could not put the runtime's app shim back: ${e instanceof Error ? e.message : String(e)}`); }
+  };
   const alive = (p: number): boolean => { try { process.kill(p, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
   const send = (c: Record<string, unknown>): void => { seq += 1; try { appendFileSync(cmdFile, JSON.stringify({ seq, ...c }) + '\n'); } catch { /* ignore */ } };
   const lock = (): string => { try { return (JSON.parse(readFileSync(stateFile, 'utf8')) as { lock?: string }).lock ?? ''; } catch { return ''; } };
@@ -718,18 +758,46 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
     start() {
       try {
         if (!existsSync(join(dir, 'package.json'))) { log('window: not started (its files are not in .update/run/window)'); return; }
+        const runtimeDir = dirname(execPath);
+        const shim = join(runtimeDir, 'resources', 'app', 'package.json');
+        const hasAppShim = existsSync(shim);
+        const plan = windowLaunchPlan({ runtimeDir, installDir, hasAppShim, hasDefaultApp: existsSync(join(runtimeDir, 'resources', 'default_app.asar')), ...(hooks.tempDir ? { tempDir: hooks.tempDir } : {}) });
+        if (plan === 'none') { log(hasAppShim && ownRuntime(installDir, runtimeDir) ? "window: not started (the helper runs from Legion's own runtime)" : 'window: not started (this runtime cannot start it safely)'); return; }
         for (const f of [cmdFile, stateFile]) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
         writeFileSync(join(dir, 'window-job.json'), JSON.stringify({ installDir, updateId: job.updateId, helperPid: process.pid, appPid: job.appPid, userData: job.window.userData, from: job.from, to: job.to, kind: job.names?.includes('node_modules') ? 'full' : 'code', startedAt: Date.now(), ...(job.relaunch ? { relaunch: job.relaunch } : {}) }));
+        if (plan === 'patch') {
+          // Electron runs resources/app and ignores a folder argument: point the copy's shim at the window for the start, then put the original bytes back.
+          const slash = (x: string): string => x.split(sep).join('/');
+          const main = posix.relative(slash(dirname(shim)), slash(join(dir, 'dist', 'src', 'electron', 'update-window-main.js')));
+          try {
+            shimOriginal = readFileSync(shim); shimFile = shim;
+            writeFileSync(shim, JSON.stringify({ name: 'legion', version: '0.0.0', main }));
+          } catch (e) {
+            log(`window: not started (the runtime's app shim could not be changed: ${e instanceof Error ? e.message : String(e)})`);
+            restoreShim('write failed'); return;
+          }
+          log('window: the copy of the runtime now starts the window (its app shim is put back when the window is up)');
+          process.on('exit', restoreOnExit);
+          const t0 = Date.now();
+          shimTimer = setInterval(() => { if (existsSync(stateFile)) restoreShim('the window is up'); else if (Date.now() - t0 >= (hooks.restoreAfterMs ?? 10_000)) restoreShim('10 s passed'); }, hooks.pollMs ?? 100);
+          shimTimer.unref();
+        }
         // the helper runs with ELECTRON_RUN_AS_NODE=1; the window must run as a real app
         const env: Record<string, string | undefined> = { ...process.env, LEGION_UPDATE_WINDOW: '1' };
         delete env.ELECTRON_RUN_AS_NODE;
-        const c = spawn(process.execPath, [dir, ...(job.window.args ?? [])], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false, env });
-        c.on('error', (e) => log(`window: could not start: ${e.message}`));
-        c.unref();
-        pid = c.pid;
+        // the window's own output goes to a file (real descriptors, never pipes: the helper must not wait on them)
+        let out: number | undefined;
+        try { out = openSync(join(dir, 'window-output.log'), 'a'); } catch { /* no output file: the window still starts */ }
+        try {
+          const c = spawnFn(execPath, [...(plan === 'folder' ? [dir] : []), ...(job.window.args ?? [])], { cwd: dir, detached: true, stdio: out !== undefined ? ['ignore', out, out] : 'ignore', windowsHide: false, env });
+          c.on?.('error', (e: Error) => { log(`window: could not start: ${e.message}`); restoreShim('the window did not start'); });
+          c.unref?.();
+          pid = c.pid;
+        } finally { if (out !== undefined) { try { closeSync(out); } catch { /* ignore */ } } }
         log(`window: started pid=${pid ?? 'none'} id=${job.updateId}`);
-      } catch (e) { log(`window: could not start: ${e instanceof Error ? e.message : String(e)}`); }
+      } catch (e) { log(`window: could not start: ${e instanceof Error ? e.message : String(e)}`); restoreShim('the window did not start'); }
     },
+    dispose() { restoreShim('the helper is done'); },
     async releaseLock() {
       if (!pid) return;
       send({ cmd: 'release-lock' });
@@ -737,6 +805,7 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
       log(ok ? 'window: the single-instance lock was handed over' : 'window: the lock hand-over was not confirmed in 3 s: going on');
     },
     async finish(result, message, started) {
+      restoreShim('the update finished');
       if (!pid) return;
       send({ cmd: 'finish', result, ...(message ? { message } : {}), ...(started !== undefined ? { started } : {}) });
       if (result !== 'ok') return; // a failure stays on screen until the person chooses; it closes itself

@@ -146,7 +146,7 @@ function collect() {
   try { for (const n of readdirSync(home)) if (/^core\.log/.test(n)) cpSync(join(home, n), join(art, n)); } catch { /* none */ }
   try { cpSync(join(up, 'run', 'job.json'), join(art, 'job.json')); } catch { /* none */ }
   try { scanLogs(); } catch { /* best effort */ }
-  for (const [from, to] of [[join(up, 'apply.log'), 'apply.log'], [join(up, 'journal.json'), 'journal.json'], [join(up, 'outcome.json'), 'outcome.json'], [join(home, 'updater', 'state.json'), 'updater-state.json'], [join(work, 'app.log'), 'app.log']]) {
+  for (const [from, to] of [[join(up, 'apply.log'), 'apply.log'], [join(up, 'journal.json'), 'journal.json'], [join(up, 'outcome.json'), 'outcome.json'], [join(home, 'updater', 'state.json'), 'updater-state.json'], [join(work, 'app.log'), 'app.log'], [join(up, 'run', 'window', 'window-output.log'), 'window-output.log'], [join(up, 'run', 'window', 'state.json'), 'window-state.json']]) {
     try { if (existsSync(from)) cpSync(from, join(art, to)); } catch { /* best effort */ }
   }
 }
