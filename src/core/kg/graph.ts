@@ -670,8 +670,9 @@ export class Graph {
   touch(actor: Actor, id: string): KgNode {
     this.requireHuman(actor, 'mark a note as still current');
     const n = this.mustSee(actor, id);
-    if (isInactive(n)) throw new KgError('conflict', `"${id}" is ${statusOf(n)}.`);
-    this.requireNotPending(n);
+    const name = oneLine(n.title).slice(0, 80);
+    if (isInactive(n)) throw new KgError('conflict', `"${name}" is ${statusOf(n)}, so there is nothing to mark.`);
+    if (statusOf(n) === 'pending') throw new KgError('conflict', `"${name}" is waiting in your Inbox. Accept or reject it first.`);
     const ops: LogOp[] = [{ op: 'patch', id, fields: { updatedAt: this.stamp() } }];
     const undo = this.inverseOf(ops);
     this.apply(ops);

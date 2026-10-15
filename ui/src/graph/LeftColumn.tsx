@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { openRun } from './openRun';
-import { buildAuditView } from '../../../src/shared/kg-audit';
+import { buildAuditView, refreshButtonFor } from '../../../src/shared/kg-audit';
 import type { AuditRow } from '../../../src/shared/kg-audit';
 import { useMatch } from './CanvasPane';
 import {
@@ -23,7 +23,7 @@ export function LeftColumn() {
   const bsv = useG((s) => s.bsv);
   const bsvMsg = useG((s) => s.bsvMsg);
   const bsvLoaded = (stats?.byScope.bsv ?? 0) > 0;
-  const lintCount = lint ? lint.orphans.length + lint.danglingEdges.length + lint.duplicateTitles.length + lint.stale.length + lint.contradictions.length + lint.untrustedWithoutReview.length : 0;
+  const lintCount = lint ? lint.orphans.length + lint.danglingEdges.length + lint.duplicateTitles.length + lint.stale.filter((r) => r.createdBy !== 'system').length + lint.contradictions.length + lint.untrustedWithoutReview.length : 0;
   return (
     <aside className="lt-left" aria-label="Lattice search and tools">
       <div className="lt-tabs" role="tablist" aria-label="Lattice panels">
@@ -217,7 +217,7 @@ const STALE_SHOWN = 40;
 
 function StaleRow({ r }: { r: AuditRow }) {
   const busy = useG((s) => s.refreshBusy.includes(r.id));
-  const running = busy || !!r.refreshTaskId;
+  const btn = refreshButtonFor(r, busy);
   return (
     <div className="lt-stale-row">
       <div className="lt-stale-top">
@@ -225,17 +225,18 @@ function StaleRow({ r }: { r: AuditRow }) {
           <TypeDot type={r.type ?? 'note'} />
           <span className="lt-row-title">{r.title}</span>
         </button>
-        {/* aria-disabled, not disabled: the button keeps keyboard focus when the click turns Refresh into Refreshing */}
-        {running && <button className="btn-ghost sm lt-refreshing" aria-disabled="true" aria-label={`Refreshing ${r.title}`}>Refreshing</button>}
-        {!running && r.canRefresh && <button className="btn-ghost sm" onClick={() => void refreshNote(r.id)} aria-label={`Refresh ${r.title}`} title="Ask the Archivist to re-check this note's sources">Refresh</button>}
-        {!running && r.note && <span className="lt-faint lt-nowrap lt-stale-note">{r.note}</span>}
+        {/* One button for Refresh and Refreshing: swapping two elements remounts and drops keyboard focus. aria-disabled, not disabled, keeps it focusable. */}
+        {btn && <button className={`btn-ghost sm${btn.inert ? ' lt-refreshing' : ''}`} aria-disabled={btn.inert || undefined} aria-label={`${btn.label} ${r.title}`}
+          onClick={btn.inert ? undefined : () => void refreshNote(r.id)} title={btn.inert ? undefined : "Ask the Archivist to re-check this note's sources"}>{btn.label}</button>}
       </div>
       <div className="lt-stale-meta">
         <span>{r.age}</span>
         {r.noSource ? <b className="lt-tag warn">No source</b> : <span>{r.sources}</span>}
         <span>{r.confidence}</span>
+        {!btn?.inert && r.note && <span className="lt-faint">{r.note}</span>}
+        {r.failedTaskId && !btn?.inert && <span className="lt-failed">Last refresh failed <button className="lt-link" onClick={() => void openRun(r.failedTaskId!)}>Open the run</button></span>}
         {r.refreshTaskId && <button className="lt-link" onClick={() => void openRun(r.refreshTaskId!)}>Open the run</button>}
-        {r.canMarkCurrent && !running && <button className="lt-link" onClick={() => void markCurrent(r.id)} aria-label={`Mark ${r.title} as still current`} title="You checked it and it holds">Still current</button>}
+        {r.canMarkCurrent && !btn?.inert && <button className="lt-link" onClick={() => void markCurrent(r.id)} aria-label={`Mark ${r.title} as still current`} title="You checked it and it holds">Still current</button>}
       </div>
     </div>
   );
@@ -249,7 +250,9 @@ function StaleList({ rows }: { rows: AuditRow[] }) {
 
 /** The audit: every stale note with its age, sources and confidence, oldest first, and a Refresh for the ones that are yours. */
 function StaleSection({ stale, others }: { stale: Parameters<typeof buildAuditView>[0]; others: number }) {
-  const view = useMemo(() => buildAuditView(stale), [stale]);
+  const archivist = useStore((s) => s.agents.some((a) => a.id === 'archivist'));
+  const failed = useG((s) => s.refreshFailed);
+  const view = useMemo(() => buildAuditView(stale, { archivist, failed }), [stale, archivist, failed]);
   const [open, setOpen] = useState(true);
   const [builtInOpen, setBuiltInOpen] = useState(false);
   // with nothing else on the list the "All clear" block already says it; the line below is for when other problems are listed
@@ -257,7 +260,7 @@ function StaleSection({ stale, others }: { stale: Parameters<typeof buildAuditVi
   return (
     <section className="lt-lint-sec">
       <button className="lt-sec-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <GIcon name="chevron" size={12} /> Stale <b className="lt-count">{view.mine.length + view.builtIn.length}</b>
+        <GIcon name="chevron" size={12} /> Stale{view.count > 0 && <> <b className="lt-count">{view.count}</b></>}
       </button>
       {open && (
         <>

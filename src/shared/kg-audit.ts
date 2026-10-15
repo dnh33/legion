@@ -44,12 +44,14 @@ export interface AuditRow {
   builtIn: boolean;
   /** A Refresh button is shown and enabled. */
   canRefresh: boolean;
-  /** "Still current" is offered: the owner checked the note and it holds. Never for built-in notes. */
+  /** "Still current" is offered: the owner checked the note and it holds. Never where the core refuses it (built-in, pending). */
   canMarkCurrent: boolean;
   /** Why there is no Refresh, in a few words (a proposal waits, the note needs a review, ...). */
   note: string | undefined;
   /** The Archivist run refreshing this note right now; the row then shows "Refreshing" and "Open the run". */
   refreshTaskId: string | undefined;
+  /** The last refresh run of this note ended failed or cancelled; the row says so until the next refresh starts. */
+  failedTaskId: string | undefined;
 }
 
 export interface AuditView {
@@ -57,6 +59,8 @@ export interface AuditView {
   mine: AuditRow[];
   /** System seed notes, oldest first, in a collapsed group without Refresh. */
   builtIn: AuditRow[];
+  /** What the Stale header counts: the rows under it. Built-in notes are counted in their own group. */
+  count: number;
   /** True when both groups are empty. */
   empty: boolean;
   emptyText: string;
@@ -69,23 +73,57 @@ export const BLOCK_NOTES: Record<NonNullable<KgStaleRow['refreshBlock']>, string
   pending: 'Waiting in your Inbox',
 };
 
-function toRow(s: KgStaleRow): AuditRow {
+/** The one rule for what a stale row offers, shared by the list and the detail panel and matching what the core accepts. */
+export function refreshAvailability(s: Pick<KgStaleRow, 'createdBy' | 'refreshBlock' | 'refreshTaskId'>, archivist: boolean): { canRefresh: boolean; canMarkCurrent: boolean; note: string | undefined } {
   const builtIn = s.createdBy === 'system';
+  const blocked = s.refreshBlock ? BLOCK_NOTES[s.refreshBlock] : undefined;
+  const live = !!s.refreshTaskId;
+  const noArchivist = !builtIn && !blocked && !live && !archivist;
+  return {
+    canRefresh: !builtIn && !live && !blocked && archivist,
+    // touch refuses built-in and pending notes
+    canMarkCurrent: !builtIn && s.refreshBlock !== 'pending',
+    note: blocked ?? (noArchivist ? 'No Archivist' : undefined),
+  };
+}
+
+/** The one Refresh button. Refresh and Refreshing are the same element with another label, so keyboard focus stays on it. */
+export function refreshButtonFor(r: Pick<AuditRow, 'canRefresh' | 'refreshTaskId'>, busy: boolean): { label: 'Refresh' | 'Refreshing'; inert: boolean } | null {
+  if (busy || r.refreshTaskId) return { label: 'Refreshing', inert: true };
+  return r.canRefresh ? { label: 'Refresh', inert: false } : null;
+}
+
+/** A refresh run that did not finish its job. */
+export const isFailedRun = (status: TaskStatus): boolean => status === 'error' || status === 'cancelled';
+
+export function refreshFailureText(title: string): string {
+  const t = title.length > 60 ? `${title.slice(0, 59)}…` : title;
+  return `Refresh of ${t} failed.`;
+}
+
+function toRow(s: KgStaleRow, archivist: boolean, failed: Readonly<Record<string, string>>): AuditRow {
+  const a = refreshAvailability(s, archivist);
   return {
     id: s.id, title: s.title || s.id, type: s.type, daysOld: s.daysOld,
     age: ageLabel(s.daysOld), sources: sourcesLabel(s.sourceCount), noSource: !s.sourceCount, confidence: confidenceLabel(s.confidence),
-    builtIn, canRefresh: !builtIn && !s.refreshTaskId && !s.refreshBlock, canMarkCurrent: !builtIn,
-    note: s.refreshBlock ? BLOCK_NOTES[s.refreshBlock] : undefined, refreshTaskId: s.refreshTaskId,
+    builtIn: s.createdBy === 'system', ...a, refreshTaskId: s.refreshTaskId, failedTaskId: failed[s.id],
   };
 }
 
 const oldestFirst = (a: AuditRow, b: AuditRow): number => b.daysOld - a.daysOld || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 
-export function buildAuditView(stale: readonly KgStaleRow[]): AuditView {
-  const rows = stale.map(toRow);
+export interface AuditOptions {
+  /** The roster has an Archivist. Default true. */
+  archivist?: boolean;
+  /** Note id -> the run that last failed or was cancelled while refreshing it. */
+  failed?: Readonly<Record<string, string>>;
+}
+
+export function buildAuditView(stale: readonly KgStaleRow[], opts: AuditOptions = {}): AuditView {
+  const rows = stale.map((r) => toRow(r, opts.archivist !== false, opts.failed ?? {}));
   const mine = rows.filter((r) => !r.builtIn).sort(oldestFirst);
   const builtIn = rows.filter((r) => r.builtIn).sort(oldestFirst);
-  return { mine, builtIn, empty: !mine.length && !builtIn.length, emptyText: AUDIT_EMPTY_TEXT };
+  return { mine, builtIn, count: mine.length, empty: !mine.length && !builtIn.length, emptyText: AUDIT_EMPTY_TEXT };
 }
 
 /**

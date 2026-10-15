@@ -4,7 +4,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ageLabel, buildAuditView, confidenceLabel, shouldReloadOnTaskEnd, sourcesLabel } from '../src/shared/kg-audit.js';
+import { ageLabel, buildAuditView, confidenceLabel, isFailedRun, refreshAvailability, refreshButtonFor, refreshFailureText, shouldReloadOnTaskEnd, sourcesLabel } from '../src/shared/kg-audit.js';
+import { readFileSync } from 'node:fs';
 import type { KgStaleRow } from '../src/shared/kg.js';
 
 const row = (o: Partial<KgStaleRow> & { id: string }): KgStaleRow => ({ daysOld: 100, title: o.id, type: 'concept', sourceCount: 1, createdBy: 'human', ...o });
@@ -104,9 +105,12 @@ describe('buildAuditView', () => {
     assert.equal(by.x!.note, 'Private to another agent');
     assert.equal(by.w!.note, 'Waiting in your Inbox');
   });
-  it('Still current is offered on every owner row, blocked or not, and never on built-in rows', () => {
-    const v = buildAuditView([row({ id: 'a' }), row({ id: 'b', refreshBlock: 'untrusted' }), row({ id: 'seed', createdBy: 'system' })]);
-    assert.ok(v.mine.every((r) => r.canMarkCurrent));
+  it('Still current is offered on owner rows the core will accept, never on built-in or pending rows', () => {
+    const v = buildAuditView([row({ id: 'a' }), row({ id: 'b', refreshBlock: 'untrusted' }), row({ id: 'w', refreshBlock: 'pending' }), row({ id: 'seed', createdBy: 'system' })]);
+    const by = Object.fromEntries(v.mine.map((r) => [r.id, r]));
+    assert.equal(by.a!.canMarkCurrent, true);
+    assert.equal(by.b!.canMarkCurrent, true);
+    assert.equal(by.w!.canMarkCurrent, false, 'touch refuses a pending note');
     assert.equal(v.builtIn[0]!.canMarkCurrent, false);
   });
 });
@@ -124,4 +128,68 @@ describe('shouldReloadOnTaskEnd: a row must not stay on "Refreshing"', () => {
     assert.equal(shouldReloadOnTaskEnd('queued', rows, ['n_1']), false);
   });
   it('does not reload when no refresh is pending at all', () => assert.equal(shouldReloadOnTaskEnd('done', [{ id: 'a', daysOld: 100 }], []), false));
+});
+
+describe('the Stale header counts what the list shows', () => {
+  it('count is the owner rows only; built-in notes have their own count', () => {
+    const v = buildAuditView([row({ id: 'a' }), row({ id: 'b' }), row({ id: 's1', createdBy: 'system' }), row({ id: 's2', createdBy: 'system' })]);
+    assert.equal(v.count, 2);
+    assert.equal(v.builtIn.length, 2);
+  });
+});
+
+describe('no Archivist on the roster', () => {
+  it('hides Refresh and says why, on rows that could otherwise be refreshed', () => {
+    const v = buildAuditView([row({ id: 'a' }), row({ id: 'b', refreshBlock: 'proposal' })], { archivist: false });
+    const by = Object.fromEntries(v.mine.map((r) => [r.id, r]));
+    assert.equal(by.a!.canRefresh, false);
+    assert.equal(by.a!.note, 'No Archivist');
+    assert.equal(by.b!.note, 'Proposal in your Inbox', 'a real block keeps its own reason');
+  });
+  it('is on by default', () => assert.equal(buildAuditView([row({ id: 'a' })]).mine[0]!.canRefresh, true));
+  it('refreshAvailability is the one rule for the list and the detail panel', () => {
+    assert.deepEqual(refreshAvailability(row({ id: 'a' }), true), { canRefresh: true, canMarkCurrent: true, note: undefined });
+    assert.deepEqual(refreshAvailability(row({ id: 'a' }), false), { canRefresh: false, canMarkCurrent: true, note: 'No Archivist' });
+    assert.equal(refreshAvailability(row({ id: 'a', refreshBlock: 'pending' }), true).canMarkCurrent, false);
+    assert.equal(refreshAvailability(row({ id: 's', createdBy: 'system' }), true).canRefresh, false);
+  });
+});
+
+describe('a failed refresh stays visible', () => {
+  it('the toast text names the note by title', () => {
+    assert.equal(refreshFailureText('Shopify theme tips'), 'Refresh of Shopify theme tips failed.');
+    assert.ok(refreshFailureText('x'.repeat(200)).length < 100);
+  });
+  it('error and cancelled are failures; done and live are not', () => {
+    assert.equal(isFailedRun('error'), true);
+    assert.equal(isFailedRun('cancelled'), true);
+    assert.equal(isFailedRun('done'), false);
+    assert.equal(isFailedRun('running'), false);
+  });
+  it('the row carries the failed run until the next refresh clears it', () => {
+    const v = buildAuditView([row({ id: 'a' }), row({ id: 'b' })], { failed: { a: 'task_7' } });
+    const by = Object.fromEntries(v.mine.map((r) => [r.id, r]));
+    assert.equal(by.a!.failedTaskId, 'task_7');
+    assert.equal(by.b!.failedTaskId, undefined);
+  });
+});
+
+describe('one button for Refresh and Refreshing, so keyboard focus stays on it', () => {
+  it('is the same button with another label while the run is live', () => {
+    const idle = buildAuditView([row({ id: 'a' })]).mine[0]!;
+    assert.deepEqual(refreshButtonFor(idle, false), { label: 'Refresh', inert: false });
+    assert.deepEqual(refreshButtonFor(idle, true), { label: 'Refreshing', inert: true });
+    const live = buildAuditView([row({ id: 'a', refreshTaskId: 't' })]).mine[0]!;
+    assert.deepEqual(refreshButtonFor(live, false), { label: 'Refreshing', inert: true });
+  });
+  it('is absent for blocked and built-in rows', () => {
+    const v = buildAuditView([row({ id: 'p', refreshBlock: 'proposal' }), row({ id: 's', createdBy: 'system' })]);
+    assert.equal(refreshButtonFor(v.mine[0]!, false), null);
+    assert.equal(refreshButtonFor(v.builtIn[0]!, false), null);
+  });
+  it('LeftColumn does not swap two separate elements (a remount drops focus to the body)', () => {
+    const src = readFileSync('ui/src/graph/LeftColumn.tsx', 'utf8');
+    assert.doesNotMatch(src, />Refreshing<\/button>/);
+    assert.match(src, /refreshButtonFor\(/);
+  });
 });

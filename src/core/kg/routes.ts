@@ -178,7 +178,7 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     const r = d.refresh;
     if (!r) throw new HttpError(503, 'Refreshing notes is not available in this build.');
     const n = g().getNode(HUMAN, params[0]!);
-    if (!n) throw new HttpError(404, `Unknown node "${params[0]}"`);
+    if (!n) throw new HttpError(404, 'That note no longer exists.');
     const check = refreshCheck(n, r.now(), refreshEnv(n));
     if (!check.ok) throw new HttpError(check.status, check.message);
     if (liveRefresh(n.id)) throw new HttpError(409, 'This note is already being refreshed. Open the run to follow it.');
@@ -198,7 +198,7 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
   // "Still current": the owner checked the note and it holds. A plain touch: updatedAt moves to now, nothing else changes. Admin-only by default-deny.
   add('POST', '/api/kg/nodes/:id/checked', wrap(({ params }) => {
     const n = g().getNode(HUMAN, params[0]!);
-    if (!n) throw new HttpError(404, `Unknown node "${params[0]}"`);
+    if (!n) throw new HttpError(404, 'That note no longer exists.');
     if (n.createdBy === 'system') throw new HttpError(409, 'Built-in notes ship with Legion and update with it. There is nothing to mark.');
     g().touch(HUMAN, n.id);
     return { ok: true };

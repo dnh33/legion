@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { openExternal } from '../api';
+import { useStore } from '../store';
 import { Markdown } from '../components/Markdown';
 import { ago } from '../util';
 import {
@@ -7,7 +8,7 @@ import {
 } from './graphStore';
 import { GIcon } from './icons';
 import { openRun } from './openRun';
-import { BLOCK_NOTES } from '../../../src/shared/kg-audit';
+import { refreshAvailability } from '../../../src/shared/kg-audit';
 import { fmtDate, isUntrusted, NODE_TYPES, statusOf } from './palette';
 import { Creator, ScopeTag, TypeDot } from './shared';
 import { parseTags } from '../../../src/shared/kg-library';
@@ -26,19 +27,23 @@ function prep(src: string): string {
   }).join('\n');
 }
 
-/** Refresh, Still current and Open the run for a note the Lint tab lists as stale (the same routes as the buttons there). Nothing shows for other notes or before the list was read. */
+/** Refresh, Still current and Open the run for a note the Lint tab lists as stale (the same routes and the same rule as the buttons there). Nothing shows for other notes or before the list was read. */
 function RefreshAction({ id }: { id: string }) {
   const row = useG((s) => s.lint?.stale.find((r) => r.id === id));
   const busy = useG((s) => s.refreshBusy.includes(id));
+  const failedTaskId = useG((s) => s.refreshFailed[id]);
+  const archivist = useStore((s) => s.agents.some((a) => a.id === 'archivist'));
   if (!row || row.createdBy === 'system') return null;
-  if (busy || row.refreshTaskId) {
-    return <><span className="lt-faint">Refreshing</span>{row.refreshTaskId && <> <button className="lt-link" type="button" onClick={() => void openRun(row.refreshTaskId!)}>Open the run</button></>}</>;
-  }
-  const why = row.refreshBlock ? BLOCK_NOTES[row.refreshBlock] : undefined;
+  const a = refreshAvailability(row, archivist);
+  const live = busy || !!row.refreshTaskId;
   return (
     <>
-      {why ? <span className="lt-faint">{why}</span> : <button className="lt-link" type="button" onClick={() => void refreshNote(id)} title="Ask the Archivist to re-check this note's sources">Refresh</button>}
-      {' '}<button className="lt-link" type="button" onClick={() => void markCurrent(id)} title="You checked it and it holds">Still current</button>
+      {live && <span className="lt-faint">Refreshing</span>}
+      {row.refreshTaskId && <> <button className="lt-link" type="button" onClick={() => void openRun(row.refreshTaskId!)}>Open the run</button></>}
+      {!live && a.canRefresh && <button className="lt-link" type="button" onClick={() => void refreshNote(id)} title="Ask the Archivist to re-check this note's sources">Refresh</button>}
+      {!live && a.note && <span className="lt-faint">{a.note}</span>}
+      {!live && failedTaskId && <> <span className="lt-faint">Last refresh failed.</span> <button className="lt-link" type="button" onClick={() => void openRun(failedTaskId)}>Open the run</button></>}
+      {!live && a.canMarkCurrent && <>{' '}<button className="lt-link" type="button" onClick={() => void markCurrent(id)} title="You checked it and it holds">Still current</button></>}
     </>
   );
 }

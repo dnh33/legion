@@ -312,3 +312,28 @@ test('the proposal targets are read once per lint request, not once per stale ro
   assert.equal(clones, 0, 'no copy of a note per row');
   await s.close();
 });
+
+test('Still current on a pending note is a 409 that names the note by its title, never its id', async () => {
+  const s = await setup();
+  const g = s.mod.graph();
+  const base = g.upsertNode(HUMAN, { title: 'Theme tips', body: 'old' }).node.id;
+  const prop = g.upsertNode(agentActor('archivist'), { id: base, title: 'Theme tips (proposed)', body: 'new text' });
+  const r = await s.call('POST', `/api/kg/nodes/${prop.node.id}/checked`, {});
+  assert.equal(r.status, 409);
+  const text = JSON.stringify(r.body);
+  assert.match(text, /Theme tips \(proposed\)/);
+  assert.ok(!text.includes(prop.node.id), 'no raw id in the message');
+  await s.close();
+});
+
+test('a note that is gone gets a plain message without its id, on both routes', async () => {
+  const s = await setup();
+  for (const path of ['/api/kg/nodes/n_missing/refresh', '/api/kg/nodes/n_missing/checked']) {
+    const r = await s.call('POST', path, {});
+    assert.equal(r.status, 404);
+    const text = JSON.stringify(r.body);
+    assert.match(text, /That note no longer exists\./);
+    assert.ok(!text.includes('n_missing'), 'no raw id in the message');
+  }
+  await s.close();
+});
