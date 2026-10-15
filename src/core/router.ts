@@ -1,4 +1,5 @@
 /** Auto model routing + escalation. */
+import { USAGE_LIMIT_ERROR_PREFIXES, ORG_POLICY_LIMIT_PREFIXES } from '@anthropic-ai/claude-agent-sdk';
 import type { ConcreteModel, ModelChoice } from '../shared/types.js';
 
 export interface RouteDecision { model: ConcreteModel; reason: string; prompt: string }
@@ -14,6 +15,12 @@ const LONG_PROMPT_CHARS = 1800;
 const PREFIX_RE = /^\s*\/(opus|sonnet)(?=\s|$)\s*/i;
 const MODEL_PREFIX_RE = /^\s*\/model\s+([A-Za-z0-9._:\[\]-]+)(?=\s|$)\s*/i;
 const NO_ESCALATE_RE = /auth|login|credit|billing|rate.?limit|429|401|403|overloaded/i;
+/** True when the text is one of the SDK's own "usage limit reached" messages (exact prefixes), or matches the older regex. */
+export function isUsageLimitText(text: string): boolean {
+  const t = text.trimStart();
+  if (USAGE_LIMIT_ERROR_PREFIXES.some((p) => t.startsWith(p)) || ORG_POLICY_LIMIT_PREFIXES.some((p) => t.startsWith(p))) return true;
+  return NO_ESCALATE_RE.test(text);
+}
 const ESCALATE_SUBTYPES = new Set(['error_during_execution']);
 // Running out of turns is not Sonnet failing: the task pauses and continues on the same model. Escalating would hand Opus
 // a second full turn budget on the same session, doubling the cost without asking. The same goes for the spend limit:
@@ -51,6 +58,6 @@ export function shouldEscalate(r: { model: ConcreteModel; subtype: string; isErr
   if (r.model !== 'sonnet') return false;
   if (NEVER_ESCALATE_SUBTYPES.has(r.subtype)) return false;
   if (!ESCALATE_SUBTYPES.has(r.subtype) && !r.isError) return false;
-  if (r.errorText && NO_ESCALATE_RE.test(r.errorText)) return false;
+  if (r.errorText && isUsageLimitText(r.errorText)) return false;
   return true;
 }
