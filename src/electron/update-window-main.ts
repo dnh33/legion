@@ -8,7 +8,7 @@
  * Its own files (cache, logs) go to a temp folder, so it cannot hold a lock on anything the new build's window needs.
  */
 import { app, BrowserWindow } from 'electron';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,13 @@ const readText = (p: string): string => { try { return readFileSync(p, 'utf8'); 
 // folder is refused; the same name with another folder is not). Everything else this process writes goes to a temp folder of its own.
 app.setPath('userData', job.userData);
 const own = join(tmpdir(), `legion-update-window-${process.pid}`);
+// A window cannot delete its own cache folder while it runs (Chromium re-creates files at exit), so each window removes the leftovers of earlier ones.
+try {
+  for (const n of readdirSync(tmpdir())) {
+    if (!/^legion-update-window-\d+$/.test(n) || join(tmpdir(), n) === own) continue;
+    try { if (Date.now() - statSync(join(tmpdir(), n)).mtimeMs > 10 * 60_000) rmSync(join(tmpdir(), n), { recursive: true, force: true }); } catch { /* in use: the next window tries again */ }
+  }
+} catch { /* ignore */ }
 try { mkdirSync(own, { recursive: true }); } catch { /* ignore */ }
 app.setPath('sessionData', own);
 app.setPath('logs', own);
