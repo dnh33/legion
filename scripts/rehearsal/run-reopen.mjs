@@ -102,17 +102,21 @@ delete env.ELECTRON_RUN_AS_NODE;
 const electron = join(install, 'runtime', 'electron', 'electron.exe');
 const appLog = openSync(join(work, 'app.log'), 'a');
 /** Starts the installed app the way a shortcut does (plus a DevTools port, so the window's own admin key can press the Update button). */
+// Each launch gets its own DevTools port: a reopened app cannot bind the first one while the old process is still exiting
+// (run 38736013293: "Cannot start http server for devtools"), and windowCall must talk to the window that is running now.
+let cdp = CDP, launches = 0;
 function launchApp(why) {
-  const c = spawn(electron, [install, '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage', `--remote-debugging-port=${CDP}`, '--remote-allow-origins=*'], { env, detached: true, stdio: ['ignore', appLog, appLog], windowsHide: true });
+  cdp = CDP + launches++;
+  const c = spawn(electron, [install, '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage', `--remote-debugging-port=${cdp}`, '--remote-allow-origins=*'], { env, detached: true, stdio: ['ignore', appLog, appLog], windowsHide: true });
   c.unref();
-  log(`started the installed app (${why}), pid ${c.pid}`);
+  log(`started the installed app (${why}), pid ${c.pid}, devtools port ${cdp}`);
   return c.pid;
 }
 
 /** The Update button's request, sent from inside the installed app's own window, which is the only holder of the admin key. */
 async function windowCall(method, path, body) {
   try {
-    const targets = await (await fetch(`http://127.0.0.1:${CDP}/json`, { signal: AbortSignal.timeout(3000) })).json();
+    const targets = await (await fetch(`http://127.0.0.1:${cdp}/json`, { signal: AbortSignal.timeout(3000) })).json();
     const page = targets.find((t) => t.type === 'page' && /^https?:\/\/127\.0\.0\.1/.test(t.url)) ?? targets.find((t) => t.type === 'page' && !/^devtools:/.test(t.url));
     if (!page?.webSocketDebuggerUrl) return { err: 'no window yet' };
     const expr = `(async()=>{const l=window.legion;if(!l||!l.admin)return {err:'no admin key in the window yet'};const r=await fetch(l.baseUrl+${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'x-legion-admin':l.admin,authorization:'Bearer '+l.token,'content-type':'application/json'}${method === 'GET' ? '' : `,body:${JSON.stringify(JSON.stringify(body ?? {}))}`}});let j=null;try{j=await r.json()}catch(e){};return {status:r.status,json:j}})()`;
@@ -179,9 +183,10 @@ try {
   if (!h0) throw new Error('the baseline never became healthy');
 
   // ---- first attempt ----
+  let lastWinErr = 0;
   const press = async () => !!(await waitFor('the window to offer the update and take the Update click', async () => {
     const st = await windowCall('GET', '/api/update/status');
-    if (!st?.json) return null;
+    if (!st?.json) { if (Date.now() - lastWinErr > 30_000) { lastWinErr = Date.now(); log(`the window did not answer: ${st?.err ?? 'no status'} (devtools port ${cdp})`); } return null; }
     if (st.json.staged?.version === good && st.json.consent) return true;
     if (!st.json.available) return null;
     const r = await windowCall('POST', '/api/update/install');
