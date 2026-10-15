@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- On a nearly full disk, Legion no longer starts copying its 370 MB runtime ahead of an update. It logs one plain line and the update still installs, the slower way. It tries again only when the next update is ready.
+- After a failed update, Retry now checks for the update first if it has not yet, and always answers: if the update cannot start right now it says "The update will try again when Legion is idle." and logs why. Dismiss and Retry clicks are logged.
+- A restart after an update waits up to 5 seconds for the one-window lock instead of quitting at once, so an update no longer rolls back when another launch holds it for a moment.
+
 ## [0.3.1] - 2026-10-15
 
 This update installs by itself. It is a larger download than usual, about 285 MB, because it changes the parts Legion is built on. Later small updates stay small.

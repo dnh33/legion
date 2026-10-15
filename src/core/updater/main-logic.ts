@@ -28,7 +28,9 @@ export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; e
     installDir: c.installDir, stagedDir: c.stagedDir, parentPid: o.parentPid, port: o.port, from: c.from, to: c.to,
     ...(c.names ? { names: c.names } : {}),
     // the same command the Start-menu shortcut runs: electron.exe "<install dir>"
-    relaunch: { cmd: o.execPath, args: [c.installDir], cwd: c.installDir },
+    // LEGION_UPDATE_HANDOFF tells the new build it is the helper's own relaunch, so the update marker (which the helper still holds while it
+    // waits for this build to report healthy) does not hold the build back from starting. It does not skip the single-instance lock.
+    relaunch: { cmd: o.execPath, args: [c.installDir], cwd: c.installDir, env: { LEGION_UPDATE_HANDOFF: '1' } },
   };
 }
 
