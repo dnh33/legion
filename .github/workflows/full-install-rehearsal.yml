@@ -9,10 +9,13 @@ name: Full-install rehearsal
 #   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
 #   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
 #   vanished-live  the same from the live release, whose own helper does the swap (reported, does not gate)
-#   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered a code-only stone under the OLD manifest name, applies it, then reaches the
+#   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered the REAL published v0.3.0 package (manifest re-signed) under the OLD manifest name, applies it, then reaches the
 #             full candidate through the second name. stone-direct: a build with the new updater goes straight to the full candidate by the second name.
 #   stone-later   a code-only release published after the full one: the old name still carries the stone, the second name the newer release; the live
 #             release reaches the stone, then the newest release.
+#   stone-stranded   the stone-era gap: 0.2.7 -> the REAL published v0.3.0 package -> a code-only release whose lock differs from the stone's and that carries its own
+#             full package (release-manifest --carry-full): the frozen 0.3.0 updater must fall back to it; the next code-only release (same lock) takes the code route
+#   stone-stranded-nofull   the same release WITHOUT the carried package (the old rule): the stone install ends on a notice, still running the stone
 #   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 #             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
@@ -38,6 +41,8 @@ on:
       - scripts/lib/release-lib.mjs
       - scripts/lib/full-asset-check.mjs
       - scripts/lib/stepping-stone.mjs
+      - scripts/lib/stone-carry.mjs
+      - scripts/lib/frozen-parser.mjs
       - scripts/stepping-stones.json
       - scripts/rehearsal/**
       - .github/workflows/full-install-rehearsal.yml
@@ -100,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later]
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later, stone-stranded, stone-stranded-nofull]
     defaults:
       run:
         shell: pwsh
@@ -124,7 +129,7 @@ jobs:
           $base = $Matches[1]
           # The stone walks start from the last release BEFORE the stone (0.3.0): a 0.3.0 install is the stone itself and goes
           # straight to a full package by the second name, which chain and the full update above already cover from the live release.
-          if ('${{ matrix.scenario }}' -in 'stone-walk', 'stone-later') { $base = '0.2.7' }
+          if ('${{ matrix.scenario }}' -in 'stone-walk', 'stone-later', 'stone-stranded', 'stone-stranded-nofull') { $base = '0.2.7' }
           "BASELINE=$base" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "baseline is $base"
       - name: Baseline built from this checkout (scenarios that must run the new swap helper)
