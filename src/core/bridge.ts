@@ -28,7 +28,9 @@ export const MAX_BRIDGE_RUNS_PER_ROOT = 40;
 export const ROOT_RUN_WINDOW_MS = 60 * 60 * 1000;
 export const RATE_WINDOW_MS = 10 * 60 * 1000;
 /** The per-task model a lead may ask for through `ask`, `tell`, `bot_send` and `room_post`. */
-export const OVERRIDE_MODELS = ['sonnet', 'opus', 'haiku', 'auto'] as const;
+export const OVERRIDE_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'auto'] as const;
+/** A model id as Claude Code and the provider catalogs write it (no spaces): checked for shape, then against the account's catalog. */
+const MODEL_ID_RE = /^[a-z0-9._:/[\]-]{1,80}$/;
 const clampTimeout = (v: unknown, def = 600) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(3600, Math.max(1, v)) : def);
 
 export interface BridgeStartParams {
@@ -207,27 +209,31 @@ export class Bridge {
   }
 
   /**
-   * Validates a lead's per-task model: one of sonnet, opus, haiku, auto (case and padding forgiven), and, when the catalog can be
-   * read, one the account offers. An unreadable catalog never vetoes. Returns the normalised alias, or undefined for none.
+   * Validates a lead's per-task model. The account's catalog decides when it can be read: a model it offers (by id, name or
+   * resolved id) passes, and one it does not is refused. Without a readable catalog the aliases in OVERRIDE_MODELS are the
+   * fallback, and any other id is refused. `auto` always passes. Returns the normalised value, or undefined for none.
    */
   async resolveModel(v: unknown): Promise<ModelChoice | undefined> {
     const m = this.normaliseModel(v);
-    if (m === undefined) return undefined;
-    if (m === 'auto' || !this.catalog) return m;
+    if (m === undefined || m === 'auto') return m;
+    const alias = (OVERRIDE_MODELS as readonly string[]).includes(m);
     let c: Catalog | undefined;
-    try { c = await this.catalog(); } catch { return m; }
-    if (!c || c.error || c.models.length === 0) return m;
+    if (this.catalog) { try { c = await this.catalog(); } catch { c = undefined; } }
+    if (!c || c.error || c.models.length === 0) {
+      if (alias) return m;
+      throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}, or a model id this account offers`);
+    }
     if (!c.models.some((x) => [x.value, x.displayName, x.resolvedModel ?? ''].some((s) => s.toLowerCase().includes(m)))) {
       throw new BridgeError(`Model "${m}" is not offered on this account (available: ${c.models.map((x) => x.value).join(', ')}).`);
     }
     return m;
   }
 
-  /** One home for the override-model validation: undefined/null → undefined, else the trimmed lowercase alias that must be in OVERRIDE_MODELS. */
+  /** One home for the override-model shape check: undefined/null → undefined, else the trimmed lowercase value (an alias or a model id). */
   private normaliseModel(v: unknown): ModelChoice | undefined {
     if (v === undefined || v === null) return undefined;
     const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
-    if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
+    if (!MODEL_ID_RE.test(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}, or a model id this account offers`);
     return m;
   }
 
@@ -245,8 +251,8 @@ export class Bridge {
    * `notice` is a human-readable line describing what happened, returned so the caller can surface it; it is produced whether
    * the override was applied, silently redundant, or refused. No override is ever silent again.
    *
-   * NOTE on the ceiling's limits (deliberately not overclaimed): modelRank is a three-bucket guess (opus=3, haiku=1,
-   * everything else=2), so a model it cannot place is treated as mid-tier and passes. It is a cost/allocation guard for the
+   * NOTE on the ceiling's limits (deliberately not overclaimed): modelRank is a four-bucket guess (fable=4, opus=3, haiku=1,
+   * everything else=2; Fable ranks above Opus), so a model it cannot place is treated as mid-tier and passes. It is a cost/allocation guard for the
    * three aliases Legion knows, NOT a general security boundary, and this function does not pretend otherwise.
    */
   private checkCeiling(target: AgentProfile, model: ModelChoice | undefined): string | undefined {

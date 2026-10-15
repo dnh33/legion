@@ -119,6 +119,8 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
       });
 
       add('POST', '/api/providers/:id/models', ({ params }) => wrap(async () => ({ models: await runtime.refreshModels(mustId(params[0]!)) })));
+      // The picker's daily refresh: fetches only the stale lists, never throws, and answers with the view.
+      add('POST', '/api/providers/auto-models', () => wrap(async () => { await runtime.ensureModels(); return runtime.view(); }));
       add('POST', '/api/providers/:id/test', ({ params }) => wrap(() => runtime.test(mustId(params[0]!))));
     },
   };

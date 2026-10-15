@@ -60,6 +60,8 @@ export const removeProvider = (id: string) => act(id, () => request<ProvidersVie
 export const saveLimits = (maxTurns: number, maxToolCallsPerTurn: number) => act('limits', () => request<ProvidersView>('PUT', '/api/providers/limits', { maxTurns, maxToolCallsPerTurn }));
 export const testProvider = (id: string) => act(id, async () => { await request('POST', `/api/providers/${id}/test`); await loadProviders(); });
 export const refreshModels = (id: string) => act(id, async () => { await request('POST', `/api/providers/${id}/models`); await loadProviders(); });
+/** The picker's daily refresh: fetches only the lists that are missing or a day old. Never fails the picker. */
+export const refreshStaleModels = () => act('auto-models', async () => { await request('POST', '/api/providers/auto-models'); await loadProviders(); });
 
 /** The model values the pickers offer for providers that are switched on: `<provider>:<model>`. */
 export function providerModelGroups(v: ProvidersView | null): Array<{ id: string; label: string; models: string[] }> {

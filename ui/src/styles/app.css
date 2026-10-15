@@ -782,3 +782,12 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .arm-notice::before, .bd-offer::before { background: var(--accent-text); }
 .proj-note::before { background: var(--muted); }
 .proj-note.needs::before { background: var(--warn); -webkit-mask-image: var(--ico-warn); mask-image: var(--ico-warn); }
+
+/* Model picker: collapsible heads (Older models, creator groups). Theme tokens only; focus rings keyboard-only. */
+.mp-head { width: 100%; display: flex; align-items: center; gap: 8px; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.mp-head .mp-head-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-head .mp-count { font-variant-numeric: tabular-nums; opacity: 0.7; }
+.mp-head svg { transition: transform 120ms ease; }
+.mp-head[aria-expanded="true"] svg { transform: rotate(180deg); }
+.mp-quiet { opacity: 0.75; }
+:root[data-kbd-nav] .mp-head.hl, :root[data-kbd-nav] .mp-item.hl { outline: 2px solid currentColor; outline-offset: -2px; }

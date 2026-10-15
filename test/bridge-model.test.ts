@@ -229,7 +229,7 @@ test('B: unknown or odd model values are refused with the list of allowed ones; 
   for (const bad of ['gpt-5', 'claude-opus-4-1', 'Opus 5', 'haiku;rm', ' ']) {
     const r = await callTool(opts, 'ask', { agent: 'builder', message: 'x', model: bad });
     assert.equal(r.isError, true, bad);
-    assert.match(r.text, /sonnet, opus, haiku, auto/);
+    assert.match(r.text, /sonnet, opus, haiku, fable, auto/);
     const t = await callTool(opts, 'tell', { agent: 'builder', message: 'x', model: bad });
     assert.equal(t.isError, true, bad);
   }

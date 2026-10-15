@@ -11,6 +11,7 @@ import type { CommsHub, SenderRun } from './hub.js';
 import type { TaskOrigin } from '../../shared/comms.js';
 import type { ApprovalMode, ModelChoice } from '../../shared/types.js';
 import { modelParam } from '../agent-tools.js';
+import { OVERRIDE_MODELS } from '../bridge.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -31,6 +32,14 @@ export function buildCommsToolsServer(
   resolveModel?: (v: unknown) => Promise<ModelChoice | undefined>,
 ): McpSdkServerConfigWithInstance {
   const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}), ...(run?.origin?.viaMcpClient ? { viaMcpClient: true } : {}) });
+  /** The per-turn model, checked against the catalog when resolveModel is given, else against the alias list alone (the comment on the parameter). */
+  const checkedModel = async (v: string | undefined): Promise<ModelChoice | undefined> => {
+    if (v === undefined) return undefined;
+    if (resolveModel) return resolveModel(v);
+    const m = v.trim().toLowerCase();
+    if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new CommsError(400, `model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
+    return m;
+  };
   const botList = tool(
     'bot_list',
     'List the other bots you can talk to: id, name, description, state (idle / working / waiting) and the rooms you share with each.',
@@ -48,7 +57,7 @@ export function buildCommsToolsServer(
       model: modelParam,
     },
     (a) => guard(async () => {
-      const model = a.model !== undefined && resolveModel ? await resolveModel(a.model) : a.model;
+      const model = await checkedModel(a.model);
       const m = hub.botSend(agentId, a.to, a.text, a.replyTo, sender(), { model });
       if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, note: 'You already sent this message a moment ago; it was not sent again.' });
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, note: 'Delivered asynchronously; the answer will arrive as a message from that bot.' });
@@ -65,7 +74,7 @@ export function buildCommsToolsServer(
       model: modelParam,
     },
     (a) => guard(async () => {
-      const model = a.model !== undefined && resolveModel ? await resolveModel(a.model) : a.model;
+      const model = await checkedModel(a.model);
       const m = hub.roomPost(agentId, a.room, a.text, a.mention, sender(), { model });
       if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, note: 'You already posted this a moment ago; it was not posted again.' });
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, to: m.to });
