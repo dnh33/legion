@@ -52,4 +52,4 @@
 .snd-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
 .snd-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .sounds-section .btn { min-height: 28px; }
-:root[data-kbd-nav] .sounds-section input:focus-visible, :root[data-kbd-nav] .sounds-section button:focus-visible, :root[data-kbd-nav] .sounds-section select:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .sounds-section input:focus-visible, :root[data-kbd-nav][data-focus-rings] .sounds-section button:focus-visible, :root[data-kbd-nav][data-focus-rings] .sounds-section select:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }

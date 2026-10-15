@@ -942,7 +942,7 @@ describe('second UX review', () => {
     assert.match(house, /\.house-ghead > \.house-reset:empty \{ display: none; \}/);
     assert.match(editor, /footer=\{loaded \? <div ref=\{setFoot\}/, 'Cancel and Save are in the dialog footer');
     assert.match(editor, /type="submit" form=\{formId\}/);
-    assert.match(css, /\.form\.arm-form \[aria-invalid='true'\], \.form\.arm-form \[aria-invalid='true'\]:focus \{ border-color: var\(--danger\)/);
+    assert.match(css, /\.form\.arm-form \[aria-invalid='true'\] \{ border-color: var\(--danger\)/, 'the invalid border is a state, not a focus rule, so it wins over the focus border by specificity');
     assert.match(css, /\.arm-check\.dim input \{ opacity: \.45; \}/);
     assert.ok(!/max-height: 320px/.test(css) && !/max-height: 160px/.test(css), 'no scroll box inside the scrolling dialog');
     assert.match(picks, /\{open \? \(\s*<ul className="arm-picklist">/, 'only an open group draws its rows');
