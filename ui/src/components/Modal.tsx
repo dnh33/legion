@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { closeOverlays } from '../store';
 
 export function Modal({ title, onClose = closeOverlays, children, width = 560, footer }: {
@@ -19,7 +20,7 @@ export function Modal({ title, onClose = closeOverlays, children, width = 560, f
       ?? root?.querySelector<HTMLElement>('.modal-body :is(input, textarea, select, button):not([disabled])')
       ?? root?.querySelector<HTMLElement>('button:not([disabled])');
     first?.focus();
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); closeRef.current(); } };
     window.addEventListener('keydown', esc);
     return () => { window.removeEventListener('keydown', esc); prev?.focus?.(); };
   }, []);
@@ -32,7 +33,9 @@ export function Modal({ title, onClose = closeOverlays, children, width = 560, f
     if (e.shiftKey && a === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
     else if (!e.shiftKey && a === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
   };
-  return (
+  // Portaled to <body>: rendered in place, a dialog is clipped by any masked, transformed or overflow-hidden ancestor (the project page's
+  // scroll pane has a mask-image, which cut the Work item dialog off at the top). React events still bubble through the portal.
+  const dialog = (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) closeRef.current(); }}>
       <div className="modal" ref={ref} role="dialog" aria-modal="true" aria-label={title} style={{ width }} onKeyDown={onKey}>
         <div className="modal-head">
@@ -44,4 +47,6 @@ export function Modal({ title, onClose = closeOverlays, children, width = 560, f
       </div>
     </div>
   );
+  // no document.body means a server render (the UI tests render markup that way): there is nothing to clip, so the dialog stays inline
+  return typeof document === 'undefined' || !document.body ? dialog : createPortal(dialog, document.body);
 }
