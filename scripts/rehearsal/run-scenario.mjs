@@ -250,7 +250,7 @@ try {
     check(!!j1, 'hop 1 is committed');
     const log1 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
     check(byBaseHelper(log1.split('\n').find((l) => l.includes(`apply ${a.baseline} -> ${co}`)) ?? 'missing helper:'), `hop 1 was done by the baseline's own helper (${baseStamp ?? 'no stamp'})`);
-    check(!log1.includes('re-running the swap helper'), 'hop 1 was a code-only swap (no runtime re-exec)');
+    check(!log1.includes('full package:'), 'hop 1 was a code-only swap (no full-package route)');
     const stampNow = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
     check(!!stampNow, `the code-only update replaced the helper source in dist (${stampNow})`);
     // Hop 2: the full-package candidate, applied by the helper the code-only update installed.
@@ -260,7 +260,7 @@ try {
     const log2 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
     const line2 = log2.split('\n').find((l) => l.includes(`apply ${co} -> ${good}`)) ?? '';
     check(!!stampNow && line2.includes(`[${stampNow}]`), `hop 2 was done by the NEW helper: ${line2.trim()}`);
-    check(log2.includes('re-running the swap helper'), 'hop 2 used the full-package swap (runtime re-exec)');
+    check(log2.includes('full package:'), 'hop 2 used the full-package swap (runtime outside the install)');
     // the journal commits only after the healthy start is confirmed, so wait for it like hop 1 does (reading it at once raced the commit)
     check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === good ? true : null), 120000) !== null, 'hop 2 is committed');
     const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));
@@ -276,7 +276,7 @@ try {
     check(!!h2, `hop 2: the newest code-only release ${later} starts and reports health`);
     check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === later ? true : null), 120000) !== null, 'the update to the newest release is committed');
     const log2 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
-    check(!log2.includes('re-running the swap helper'), 'both hops were code-only swaps (no runtime re-exec)');
+    check(!log2.includes('full package:'), 'both hops were code-only swaps (no full-package route)');
     check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data in the data folder survived');
     const hits = (existsSync(serveLog) ? readFileSync(serveLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
     const first = (end) => hits.findIndex((x) => String(x.path).endsWith(end) && x.status === 200);
@@ -297,7 +297,7 @@ try {
       check(!!j1, 'hop 1 is committed');
       const log1 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
       check(byBaseHelper(log1.split('\n').find((l) => l.includes(`apply ${a.baseline} -> ${co}`)) ?? 'missing helper:'), `hop 1 was done by the baseline's own helper (${baseStamp ?? 'no stamp'})`);
-      check(!log1.includes('re-running the swap helper'), 'hop 1 was a code-only swap (no runtime re-exec)');
+      check(!log1.includes('full package:'), 'hop 1 was a code-only swap (no full-package route)');
       stoneStamp = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0] ?? null;
     }
     const h2 = await waitFor(`/health to report the full candidate ${good}`, async () => { const h = await health(); return h?.ok && h.version === good ? h : null; }, 900000);
@@ -308,7 +308,7 @@ try {
     // stone-walk: hop 2 is done by the helper the REAL stone brought (read after hop 1, before hop 2 replaced it); stone-direct: by the helper of the new build
     const stampNow = walk ? stoneStamp : readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
     check(!!stampNow && line2.includes(`[${stampNow}]`), `the full swap was done by the ${walk ? "stepping stone's" : 'NEW'} helper (${stampNow}): ${line2.trim()}`);
-    check(log2.includes('re-running the swap helper'), 'the full swap used the full-package route (runtime re-exec)');
+    check(log2.includes('full package:'), 'the full swap used the full-package route (runtime outside the install)');
     check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === good ? true : null), 120000) !== null, 'the full update is committed');
     check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
     const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));
@@ -383,7 +383,7 @@ try {
       check(!!(await committedTo(s2)), 'hop 2 is committed');
       const log2 = applyLog();
       check(log2.split('\n').some((l) => l.includes(`apply ${stone} -> ${s2}`)), `the swap ${stone} -> ${s2} is in the apply log`);
-      check(log2.includes('re-running the swap helper'), 'hop 2 used the full-package swap (runtime re-exec)');
+      check(log2.includes('full package:'), 'hop 2 used the full-package swap (runtime outside the install)');
       check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
       const hits2 = hitsNow();
       const iApp = first(hits2, `legion-${s2}-app.zip`), iFull = first(hits2, `legion-${s2}-win-x64.zip`);
@@ -394,7 +394,7 @@ try {
       check(!!list && wrong.length === 0, `the install is the complete full package (${list?.files.length ?? 0} files${wrong.length ? `; wrong: ${wrong.slice(0, 5).join(', ')}` : ''})`);
       check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data in the data folder survived');
       check(await waitFor('the old copy to be cleaned', async () => !existsSync(join(up, 'prev')), 120000) !== null, '.update/prev was deleted after the healthy start');
-      const reexecs = (applyLog().match(/re-running the swap helper/g) ?? []).length;
+      const reexecs = (applyLog().match(/full package:/g) ?? []).length;
       // Hop 3: the next code-only release has the same lock and also carries its full package. The user restarts Legion, which checks on start.
       // The code route must be taken; the carried package must not be downloaded.
       killInstalled();
@@ -409,7 +409,7 @@ try {
       const hits3 = hitsNow();
       check(first(hits3, `legion-${s3}-app.zip`) >= 0, 'the code package of the next release was downloaded');
       check(!hits3.some((x) => String(x.path).endsWith(`legion-${s3}-win-x64.zip`)), 'its carried full package was NEVER requested (matching lock = code route)');
-      check((applyLog().match(/re-running the swap helper/g) ?? []).length === reexecs, 'hop 3 was a code-only swap (no runtime re-exec)');
+      check((applyLog().match(/full package:/g) ?? []).length === reexecs, 'hop 3 was a code-only swap (no full-package route)');
       check(readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data'), 'user data survived the third hop');
     }
   } else if (a.scenario.startsWith('vanished')) {
