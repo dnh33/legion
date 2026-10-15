@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
@@ -19,8 +19,10 @@ import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
 import { WorkingRow } from './WorkingRow';
+import { ProposalCards } from './ProposalCards';
 import { TodoList } from './TodoList';
 import { taskProjectChip } from '../projects/projectsLogic';
+import { clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -146,6 +148,22 @@ export function Thread() {
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
   const taskQuestions = questions.filter((q) => q.taskId === taskId);
   const otherQuestions = questions.filter((q) => q.agentId === agentId && q.taskId !== taskId);
+  // opened from a rail row: bring the waiting card into view (once; the request is dropped when it is used or its card is gone). It is not focused:
+  // a focused approval card answers A at once (ApprovalCard's own key), so a card that just appeared must not take focus (the ARM_MS rule)
+  const askReq = useSyncExternalStore(subscribeFocus, getAskRequest);
+  useEffect(() => {
+    if (!askReq || !taskId || askReq.taskId !== taskId) return;
+    const pick = pickAskCard(taskId, askReq.askId, taskApprovals, taskQuestions);
+    // a request that names a proposal is the proposal card's to focus (ProposalCards); an unnamed one takes the first card
+    const named = askReq.askId === '' || taskApprovals.some((a) => a.id === askReq.askId) || taskQuestions.some((q) => q.id === askReq.askId);
+    if (!named) return;
+    if (pick) {
+      const el = scroller.current?.querySelector<HTMLElement>(pick.kind === 'approval' ? `[data-approval-id="${CSS.escape(pick.id)}"]` : `[data-question-id="${CSS.escape(pick.id)}"]`);
+      if (!el) return; // not drawn yet: this effect runs again after the next render
+      el.scrollIntoView?.({ block: 'nearest' });
+    }
+    clearAskRequest();
+  });
   useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskQuestions.length, running, toBottom, tick, meta]);
 
   // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card, and
@@ -246,6 +264,7 @@ export function Thread() {
       {loaded && conn === 'offline' && agents.length > 0 && (
         <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
       )}
+      <ProposalCards agentId={agentId} taskId={taskId ?? null} />
       {otherApprovals.length > 0 && (
         <button className="banner" onClick={() => selectTask(otherApprovals[0].taskId)}>
           <Icon name="shield" size={13} /> {otherApprovals.length} approval{otherApprovals.length > 1 ? 's' : ''} waiting in another task <span>Open {'→'}</span>

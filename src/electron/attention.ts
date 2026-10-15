@@ -86,7 +86,7 @@ export interface Notif {
   title: string;
   body: string;
   /** What a click opens. Empty: just show the window. */
-  target: { projectId?: string; taskId?: string };
+  target: { projectId?: string; taskId?: string; itemId?: string; agentId?: string };
 }
 export interface PlanResult {
   state: PlanState;

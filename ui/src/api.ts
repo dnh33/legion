@@ -22,7 +22,7 @@ declare global {
       /** Tells the desktop which project page and thread this window shows (ids only), so it does not notify for what you are looking at. */
       reportView?(v: { pageProjectId: string | null; threadTaskId: string | null }): void;
       /** A notification or the tray asked to open an ask. */
-      onOpenAsk?(cb: (ref: { projectId?: string; taskId?: string }) => void): () => void;
+      onOpenAsk?(cb: (ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }) => void): () => void;
       /** Project folder and member changes: main shows the native confirmation (and the folder chooser) and calls the core with a secret this window never holds. */
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
     };

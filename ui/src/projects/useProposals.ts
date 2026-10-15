@@ -6,6 +6,7 @@ import { useEffect, useMemo } from 'react';
 import type { WorkItem } from '../../../src/shared/board';
 import { useStore } from '../store';
 import { loadBoard, probeBoard, useBoard } from './board/boardStore';
+import { proposalsSettled } from './projectsLogic';
 
 const requested = new Set<string>();
 let listening = false;
@@ -24,4 +25,13 @@ export function useAllProposals(): WorkItem[] {
     }
   }, [enabled, projects]);
   return useMemo(() => Object.values(views).flatMap((v) => v?.inbox ?? []), [views]);
+}
+
+/** True once the proposals source has loaded once (see proposalsSettled): the rail stays silent on its first load. */
+export function useProposalsSettled(): boolean {
+  const projectsLoaded = useStore((s) => s.projectsLoaded);
+  const projects = useStore((s) => s.projects);
+  const enabled = useBoard((s) => s.enabled);
+  const attempted = useBoard((s) => s.attempted);
+  return proposalsSettled({ projectsLoaded, enabled, activeIds: projects.filter((p) => p.status === 'active').map((p) => p.id), attempted });
 }

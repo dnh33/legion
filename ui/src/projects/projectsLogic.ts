@@ -117,7 +117,8 @@ export const inWhere = (projects: Pick<Project, 'id' | 'name'>[], projectId: str
 const clipTitle = (t: string): string => (t.length > 40 ? t.slice(0, 39) + '…' : t);
 
 /** One thing waiting on the owner that the rail hides under the project in view (decision B1). */
-export interface WaitingRow { kind: 'approval' | 'question' | 'proposal'; id: string; taskId: string; agentId: string; projectId: string | null; label: string }
+/** `label` is the whole sentence (the agent included): the row's tooltip and accessible name. `short` is what the row shows: the project, then the title. */
+export interface WaitingRow { kind: 'approval' | 'question' | 'proposal'; id: string; taskId: string; agentId: string; projectId: string | null; label: string; short: string }
 
 /**
  * Approvals and questions the rail would hide under this filter: their task is in another project or none, or the agent
@@ -135,21 +136,68 @@ export function waitingElsewhere(
   const here = projects.find((p) => p.id === filter);
   const items = [...approvals.map((a) => ({ ...a, kind: 'approval' as const })), ...questions.map((q) => ({ ...q, kind: 'question' as const }))];
   const rows: Array<WaitingRow & { at: string }> = [];
+  const placeName = (id: string | null | undefined): string => (id ? projects.find((p) => p.id === id)?.name ?? 'a removed project' : 'Outside projects');
   for (const it of items) {
     const t = tasks.find((x) => x.id === it.taskId);
     if (t && t.projectId === filter && here?.members.includes(it.agentId)) continue;
     const who = names[it.agentId] ?? it.agentId;
     const verb = it.kind === 'approval' ? 'needs your OK' : 'asks you something';
     const where = !t ? 'in another task' : `${inWhere(projects, t.projectId)}: ${clipTitle(t.title)}`;
-    rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, at: it.at });
+    const short = t ? `${placeName(t.projectId)}: ${clipTitle(t.title)}` : 'Another task';
+    rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, short, at: it.at });
   }
   for (const p of proposals) {
     if (p.projectId === filter) continue; // in the project in view it is on the page
     const agentId = p.createdBy.kind === 'agent' ? p.createdBy.id ?? '' : '';
     const who = names[agentId] ?? (agentId || 'An agent');
-    rows.push({ kind: 'proposal', id: p.id, taskId: '', agentId, projectId: p.projectId, label: `${who} proposes a board item ${inWhere(projects, p.projectId)}: ${clipTitle(p.title)}`, at: p.createdAt });
+    rows.push({ kind: 'proposal', id: p.id, taskId: '', agentId, projectId: p.projectId, label: `${who} proposes a board item ${inWhere(projects, p.projectId)}: ${clipTitle(p.title)}`, short: `${placeName(p.projectId)}: ${clipTitle(p.title)}`, at: p.createdAt });
   }
   return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
+}
+
+/**
+ * The switcher's "waiting elsewhere" badge. The number always shows; the words collapse on a narrow rail (CSS), and `full` is the title, so
+ * the whole text is still there for a pointer and a screen reader.
+ */
+export function elsewhereBadge(n: number): { count: string; words: string; full: string } {
+  return { count: String(n), words: 'waiting elsewhere', full: `${n} waiting elsewhere` };
+}
+
+/** What the live region last knew of the rail's "needs you in other projects" list: under which filter, its item keys, and whether a first list has been taken as the baseline. */
+export interface WaitLive { filter: string | null; ids: string[]; baselined: boolean }
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
+
+/**
+ * The proposals source has loaded once: the projects are in, and every active board has been tried (or the board is off). Until then the rail
+ * stays silent on its list, so the launch load is not announced. Once true it stays true.
+ */
+export function proposalsSettled(o: { projectsLoaded: boolean; enabled: 'unknown' | 'yes' | 'no'; activeIds: readonly string[]; attempted: Readonly<Record<string, true | undefined>> }): boolean {
+  if (!o.projectsLoaded || o.enabled === 'unknown') return false;
+  if (o.enabled === 'no') return true;
+  return o.activeIds.every((id) => o.attempted[id] === true);
+}
+
+/**
+ * One look at the rail's waiting list (`ids` are its item keys, under `filter`, `settled` from proposalsSettled). Returns the one line
+ * to announce, or null. Until the source has loaded nothing is announced. The first look after it has loaded is the baseline. After that a
+ * line for each real change in the set (the first item into an empty list included). A project-filter change re-bases silently.
+ */
+export function waitingLiveStep(prev: WaitLive | null, filter: string | null, ids: readonly string[], settled: boolean): { st: WaitLive; line: string | null } {
+  const next = [...ids];
+  if (!settled) return { st: { filter, ids: next, baselined: false }, line: null };
+  if (!prev || !prev.baselined || prev.filter !== filter) return { st: { filter, ids: next, baselined: true }, line: null };
+  if (sameSet(prev.ids, next)) return { st: { filter, ids: next, baselined: true }, line: null };
+  const line = next.length === 0 ? 'Nothing else needs you' : `${next.length} ${next.length === 1 ? 'item needs' : 'items need'} you`;
+  return { st: { filter, ids: next, baselined: true }, line };
+}
+
+/**
+ * The switcher badge's words hide when the name would be cut with them shown. `natural` is the name's full width, `avail` its box width now,
+ * `wordsPx` the words' width. When the words are hidden (`now`) the name has `wordsPx` more, so the room with the words is `avail - wordsPx`.
+ */
+export function badgeCompact(now: boolean, natural: number, avail: number, wordsPx: number): boolean {
+  const room = now ? avail - wordsPx : avail;
+  return natural > room;
 }
 
 type LiveTask = Pick<Task, 'id' | 'agentId' | 'status' | 'projectId' | 'title' | 'updatedAt'>;

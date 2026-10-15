@@ -153,3 +153,11 @@ test('shown rows: a first render under a resting pointer still shows the top thr
   const r = reconcileShown({ prev: [], live: ['a', 'b', 'c', 'd'], answered: new Set(), cap: 3, expanded: false, frozen: true });
   assert.deepEqual(r.shown, ['a', 'b', 'c']);
 });
+
+test('reconcileShown: a pinned row (the one an open-ask landed for) is shown even past the cap', () => {
+  const r = reconcileShown({ prev: [], live: ['a', 'b', 'c', 'd', 'e'], answered: new Set(), cap: 3, expanded: false, frozen: false, pin: 'e' });
+  assert.deepEqual(r.shown, ['a', 'b', 'c', 'e']);
+  assert.equal(r.more, 1);
+  const r2 = reconcileShown({ prev: [], live: ['a', 'b', 'c', 'd'], answered: new Set(), cap: 3, expanded: false, frozen: false, pin: 'gone' });
+  assert.deepEqual(r2.shown, ['a', 'b', 'c']);
+});

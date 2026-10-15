@@ -30,8 +30,9 @@ import { WhatsNew } from './whatsnew/WhatsNew';
 import { initProjects, openAsk } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
+import { escapeAction } from './escapeLogic';
 import {
-  closeOverlays, closeSettings, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore, setView, reopenGithubAfterReload } from './store';
+  closeOverlays, closeSettings, getState, setState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore, setView, reopenGithubAfterReload } from './store';
 
 /** Ops-panel slide (app.css `.app` grid transition is 180 ms): keep the panel mounted until it has slid out. */
 const OPS_SLIDE_MS = 220;
@@ -113,7 +114,12 @@ export function App() {
       else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'm') { e.preventDefault(); window.dispatchEvent(new Event('legion:model-picker')); }
       else if (mod && e.key === ',') { e.preventDefault(); toggleSettings(); }
       else if (mod && e.key === '.') { e.preventDefault(); if (getState().view !== 'project') toggleOps(); }
-      else if (e.key === 'Escape') { const s = getState(); if (s.palette || s.doctorOpen) { e.preventDefault(); closeOverlays(); } else if (s.settingsOpen && !document.querySelector('.scrim .modal') && !(e.target as HTMLElement)?.closest?.('input, textarea, select')) { e.preventDefault(); closeSettings(); } }
+      else if (e.key === 'Escape') {
+        const s = getState();
+        const what = escapeAction({ palette: s.palette, doctorOpen: s.doctorOpen, settingsOpen: s.settingsOpen, dialogOpen: !!document.querySelector('.scrim .modal'), inField: !!(e.target as HTMLElement)?.closest?.('input, textarea, select') });
+        if (what) e.preventDefault(); // Modal's own Esc handler skips a keydown that is already handled, so only the topmost overlay closes
+        if (what === 'palette') setState({ palette: false }); else if (what === 'overlays') closeOverlays(); else if (what === 'settings') closeSettings();
+      }
       else if (e.altKey && !mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); switchAgentByIndex(Number(e.key) - 1); }
     };
     window.addEventListener('keydown', h);

@@ -1,15 +1,17 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { openEditor, selectAgent, useStore } from '../store';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher, openProjectMenu } from '../projects/ProjectSwitcher';
-import { agentsFor, waitingElsewhere } from '../projects/projectsLogic';
-import { railLine } from '../projects/page/pageLogic';
+import { agentsFor, waitingElsewhere, waitingLiveStep } from '../projects/projectsLogic';
+import type { WaitLive } from '../projects/projectsLogic';
+import { announce } from '../projects/page/announce';
+import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
-import { useAllProposals } from '../projects/useProposals';
-import { openAsk, openProjectBoard } from '../projects/projectsStore';
+import { useAllProposals, useProposalsSettled } from '../projects/useProposals';
+import { openRailRow } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
 import { githubTag } from '../github/agentAccess';
 import '../github/github-access.css';
@@ -38,6 +40,15 @@ export function AgentRail() {
   // anything waiting on the owner stays in sight whatever project is in view (decision B1): one click opens it in its own project
   const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
   const waiting = useMemo(() => waitingElsewhere(approvals, questions, tasks, projects, names, filter, proposals), [approvals, questions, tasks, projects, names, filter, proposals]);
+  // the live region gets one short line for a real change in what needs you, never the list (a change used to re-read every row); the first
+  // non-empty list after launch and a project-filter change are silent (waitingLiveStep)
+  const live = useRef<WaitLive | null>(null);
+  const settled = useProposalsSettled();
+  useEffect(() => {
+    const step = waitingLiveStep(live.current, filter, waiting.map((r) => `${r.kind}:${r.id}`), loaded && settled);
+    live.current = step.st;
+    if (step.line) announce(step.line);
+  }, [loaded, settled, filter, waiting]);
   const lineFacts = useMemo(() => ({ tasks, projects, agents, approvals, questions, board: { items: [], inbox: proposals } }), [tasks, projects, agents, approvals, questions, proposals]);
 
   // one tab stop for the member list: Arrow keys move inside it
@@ -57,15 +68,15 @@ export function AgentRail() {
       {view === 'project' && <a className="pg-skip" href="#pg-panel" onClick={(e) => { e.preventDefault(); document.getElementById('pg-panel')?.focus(); }}>Skip to project page</a>}
       <ProjectSwitcher />
       {waiting.length > 0 && (
-        <section className="rail-waiting" data-testid="rail-waiting" aria-live="polite" aria-label="Needs you in other projects">
+        <section className="rail-waiting" data-testid="rail-waiting" aria-label="Needs you in other projects">
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.slice(0, WAIT_CAP).map((row) => (
-            <button key={row.id} type="button" className="rail-wait-row" title={row.label}
-              onClick={() => { if (row.kind === 'proposal' && row.projectId) openProjectBoard(row.projectId); else openAsk({ taskId: row.taskId }); }}>
-              <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
+            <button key={row.id} type="button" className="rail-wait-row" title={row.label} aria-label={row.label}
+              onClick={() => openRailRow(row)}>
+              <Icon name={row.kind === 'approval' ? 'shield' : row.kind === 'proposal' ? 'inbox' : 'help'} size={12} /><span>{row.short}</span>
             </button>
           ))}
-          {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more</button>}
+          {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" title="Opens the project list. It does not open an item." onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more in other projects</button>}
         </section>
       )}
       <div className="rail-head"><span title={filterName ? `Members of ${filterName}` : undefined}>{filterName ? 'Members' : 'Agents'}</span></div>
@@ -81,9 +92,9 @@ export function AgentRail() {
           const subText = queuedHeld > 0 ? (held.get(a.id) === 1 ? 'Queued message paused' : `${held.get(a.id)} queues paused`) : line.text;
           const full = queuedHeld > 0 ? subText : line.full;
           return (
-            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => selectAgent(a.id)} aria-current={a.id === sel}
-              tabIndex={a.id === tabStop ? 0 : -1} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}`}
-              aria-label={`${a.name}. ${full}${line.runs >= 2 ? `. ${line.runs} live runs` : ''}`}>
+            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => { const first = line.tone === 'attn' && !queuedHeld ? agentAsks(lineFacts, a.id, filter)[0] : undefined; if (!(first && openRailRow(first))) selectAgent(a.id); }} aria-current={a.id === sel}
+              tabIndex={a.id === tabStop ? 0 : -1} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}${line.tone === 'attn' && !queuedHeld ? '. Opens the chat with what needs you' : ''}`}
+              aria-label={`${a.name}. ${full}${line.runs >= 2 ? `. ${line.runs} live runs` : ''}${line.tone === 'attn' && !queuedHeld ? '. Opens the chat with what needs you' : ''}`}>
               {hasBust(a.id)
                 ? <span className={`avatar bust-avatar${running ? ' busy' : ''}`}><AgentBust agentId={a.id} size={34} runs={line.runs} /></span>
                 : <span className={`avatar${running ? ' busy' : ''}`}>{a.emoji || '●'}{line.runs >= 2 && <span className="pg-rc" aria-hidden="true">{line.runs}</span>}</span>}

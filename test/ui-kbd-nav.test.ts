@@ -115,6 +115,11 @@ describe('every focus ring is keyboard-only', () => {
       for (const m of stripComments(readFileSync(f, 'utf8')).matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
         const pre = m[1]!; const body = m[2]!;
         if (/:focus(-within)?(?![-\w])/.test(pre) && !pre.includes('data-kbd-nav') && /box-shadow:\s*0 0 0 3px/.test(body)) assert.fail(`${f}: ${pre.trim()} draws a ring for the mouse`);
+        // the owner (2026-10-15): no focus ring or focus state for mouse users anywhere, only for keyboard and assistive navigation.
+        // A plain :focus outline is drawn after a click or a programmatic focus too, so it must sit under the gate as well.
+        if (/:focus(?![-\w])/.test(pre) && /(^|;)\s*outline\s*:(?!\s*(none|0)\b)/.test(body)) {
+          for (const part of splitTop(pre)) if (/:focus(?![-\w])/.test(part) && !part.includes('data-kbd-nav')) assert.fail(`${f}: ${part.trim()} draws an outline for the mouse`);
+        }
       }
     }
   });
