@@ -78,7 +78,7 @@
 .lib-edit label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .lib-edit input, .lib-edit textarea, .lt-edit input, .lt-edit textarea, .lt-edit select { padding: 7px 9px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; font-size: 13px; outline: 0; }
 .lib-edit textarea, .lt-edit textarea { resize: vertical; line-height: 1.5; min-height: 70px; }
-:where(:root[data-focus-rings]) :is(.lib-edit input:focus, .lib-edit textarea:focus, .lt-edit input:focus, .lt-edit textarea:focus, .lt-edit select:focus) { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .lib-edit input:focus, :root[data-kbd-nav][data-focus-rings] .lib-edit textarea:focus, :root[data-kbd-nav][data-focus-rings] .lt-edit input:focus, :root[data-kbd-nav][data-focus-rings] .lt-edit textarea:focus, :root[data-kbd-nav][data-focus-rings] .lt-edit select:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) :is(.lib-edit input:focus, .lib-edit textarea:focus, .lt-edit input:focus, .lt-edit textarea:focus, .lt-edit select:focus) { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .lib-edit input:focus, :root[data-kbd-nav][data-focus-rings] .lib-edit textarea:focus, :root[data-kbd-nav][data-focus-rings] .lt-edit input:focus, :root[data-kbd-nav][data-focus-rings] .lt-edit textarea:focus, :root[data-kbd-nav][data-focus-rings] .lt-edit select:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ---------- badges ---------- */
 .lib-badge { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--text-2); font-size: 11px; font-weight: 500; line-height: 1; white-space: nowrap; }
@@ -162,7 +162,7 @@ button.lib-act-title:hover { text-decoration: underline; text-decoration-color: 
 .lt-edgeedit label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .lt-edgeedit input, .lt-edgeedit textarea { padding: 6px 8px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--text); font: inherit; font-size: 12.5px; outline: 0; }
 .lt-edgeedit textarea { resize: vertical; min-height: 44px; }
-:where(:root[data-focus-rings]) :is(.lt-edgeedit input:focus, .lt-edgeedit textarea:focus) { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .lt-edgeedit input:focus, :root[data-kbd-nav][data-focus-rings] .lt-edgeedit textarea:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) :is(.lt-edgeedit input:focus, .lt-edgeedit textarea:focus) { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .lt-edgeedit input:focus, :root[data-kbd-nav][data-focus-rings] .lt-edgeedit textarea:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .lt-edgeedit .lt-actions { margin: 0; }
 .lt-relpick { display: flex; flex-wrap: wrap; gap: 4px; }
 .lt-relpick button { padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2); font: 500 11px var(--font-mono); }

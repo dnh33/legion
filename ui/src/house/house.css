@@ -109,7 +109,7 @@
 .house-readmd :is(h3, h4, h5, h6):first-child { margin-top: 0; }
 
 .house-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); transition: border-color var(--t), box-shadow var(--t); }
-:where(:root[data-focus-rings]) .house-search:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .house-search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) .house-search:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .house-search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .house-search input::placeholder { color: var(--muted); opacity: 1; }
 .house-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
 

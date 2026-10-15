@@ -77,21 +77,33 @@ function splitTop(sel: string): string[] {
 }
 
 const FOCUS_STATE = /:focus(?:-visible|-within)?(?![-\w])/;
-/**
- * Every selector part of a focus state (:focus, :focus-visible, :focus-within) that draws a ring (an outline, a box-shadow) or a coloured
- * border, and is not gated by [data-focus-rings]. A bare suppression (outline: none) and a background-only tint are not rings.
- * The shared tint rule (app.css) is a background-image, so it is not a ring either.
- */
-function ungatedFocusRings(css: string): Array<{ selector: string; body: string }> {
+/** A declaration that draws a ring: an outline, a box-shadow, or a coloured border (any border shorthand, side or colour, but not none or 0). */
+const RING_DECL = [
+  /(^|;)\s*outline\s*:(?!\s*(none|0)\b)/,
+  /(^|;)\s*box-shadow\s*:(?!\s*none\b)/,
+  /(^|;)\s*border(-(top|right|bottom|left|inline|block))?(-color)?\s*:(?!\s*(none|0)\b)/,
+];
+/** The selector with its :not(...) clauses removed, so that :not([data-focus-rings]) cannot pass as the setting's gate. */
+const positive = (sel: string): string => sel.replace(/:not\([^()]*\)/g, '');
+
+/** Every selector part of a focus state (:focus, :focus-visible, :focus-within) that draws a ring. A bare suppression (outline: none) and a background-only tint are not rings. */
+function focusRingParts(css: string): Array<{ selector: string; body: string }> {
   const out: Array<{ selector: string; body: string }> = [];
   for (const m of stripComments(css).matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
     const pre = m[1]!.trim(); const body = m[2]!.trim();
     if (pre.startsWith('@') || !FOCUS_STATE.test(pre)) continue;
-    const ring = /(^|;)\s*outline\s*:(?!\s*(none|0)\b)/.test(body) || /(^|;)\s*box-shadow\s*:(?!\s*none\b)/.test(body) || /(^|;)\s*border-color\s*:/.test(body);
-    if (!ring) continue;
-    for (const part of splitTop(pre)) if (FOCUS_STATE.test(part) && !part.includes('[data-focus-rings]')) out.push({ selector: part.trim(), body });
+    if (!RING_DECL.some((re) => re.test(body))) continue;
+    for (const part of splitTop(pre)) if (FOCUS_STATE.test(part)) out.push({ selector: part.trim(), body });
   }
   return out;
+}
+/** Ring parts with no positive [data-focus-rings] gate: the setting must gate every ring. */
+function ungatedFocusRings(css: string): Array<{ selector: string; body: string }> {
+  return focusRingParts(css).filter((r) => !positive(r.selector).includes('[data-focus-rings]'));
+}
+/** Ring parts gated by the setting but not by keyboard navigation: a mouse click would show them, so they must also need [data-kbd-nav]. */
+function ringsOutsideKbdNav(css: string): Array<{ selector: string; body: string }> {
+  return focusRingParts(css).filter((r) => positive(r.selector).includes('[data-focus-rings]') && !positive(r.selector).includes('[data-kbd-nav]'));
 }
 
 /**
@@ -111,6 +123,9 @@ describe('every focus ring and coloured focus border is behind the setting', () 
       const bad = ungatedFocusRings(readFileSync(f, 'utf8')).filter((r) => !ALLOWLIST.includes(r.selector));
       assert.deepEqual(bad, []);
     });
+    it(`${f.split(/[\\/]ui[\\/]src[\\/]/)[1]}: a ring behind the setting also needs keyboard navigation (no mouse ring)`, () => {
+      assert.deepEqual(ringsOutsideKbdNav(readFileSync(f, 'utf8')).map((r) => r.selector), []);
+    });
   }
   it('the guard sees an ungated ring, a focus border and a focus glow; accepts a gated one, a bare suppression and a tint', () => {
     assert.equal(ungatedFocusRings('.a:focus-visible { outline: 2px solid red; }').length, 1);
@@ -124,6 +139,21 @@ describe('every focus ring and coloured focus border is behind the setting', () 
     assert.equal(ungatedFocusRings(':root[data-focus-rings] .f:focus { border-color: var(--accent-line); }').length, 0);
     assert.equal(ungatedFocusRings(':root[data-kbd-nav]:not([data-focus-rings]) :is(button, a, [role=tab]):focus-visible { background-image: linear-gradient(var(--focus-tint), var(--focus-tint)); }').length, 0);
   });
+  it('F8: a ring under :not([data-focus-rings]) is ungated, and a border shorthand (any side) is a ring', () => {
+    assert.equal(ungatedFocusRings(':root[data-kbd-nav]:not([data-focus-rings]) .a:focus-visible { outline: 2px solid red; }').length, 1, 'the "off" state is not the gate');
+    assert.equal(ungatedFocusRings(':root:not([data-focus-rings]) .f:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }').length, 1);
+    assert.equal(ungatedFocusRings('.f:focus { border: 1px solid var(--accent-line); }').length, 1, 'border shorthand');
+    assert.equal(ungatedFocusRings('.f:focus-visible { border-bottom: 2px solid var(--accent); }').length, 1, 'side border');
+    assert.equal(ungatedFocusRings('.f:focus { border: none; }').length, 0);
+    assert.equal(ungatedFocusRings('.f:focus { border-top: 0; }').length, 0);
+    assert.equal(ungatedFocusRings('.f:focus { border-radius: 6px; }').length, 0, 'a radius is not a ring');
+  });
+  it('F3: a ring gated only by the setting (no kbd-nav) is flagged, a ring under both is not', () => {
+    assert.equal(ringsOutsideKbdNav(':where(:root[data-focus-rings]) .f:focus-within { border-color: var(--accent-line); }').length, 1);
+    assert.equal(ringsOutsideKbdNav(':where(:root[data-focus-rings]) :is(.form input:focus, .form select:focus) { border-color: var(--accent-line); }').length, 1, 'one part, the :is() commas stay inside it');
+    assert.equal(ringsOutsideKbdNav(':root[data-kbd-nav][data-focus-rings] .f:focus { border-color: var(--accent-line); }').length, 0);
+    assert.equal(ringsOutsideKbdNav(':root[data-kbd-nav]:not([data-focus-rings]) .f:focus-visible { outline: 2px solid red; }').length, 0, 'not a setting gate at all: left to the ungated check');
+  });
   it('the forced-colors fallback draws a system-colour outline for keyboard focus whatever the setting, and is the only such ring', () => {
     const app = readFileSync(join(process.cwd(), 'ui', 'src', 'styles', 'app.css'), 'utf8');
     assert.match(app, /@media \(forced-colors: active\)\s*\{\s*:root\[data-kbd-nav\] :focus-visible\s*\{[^}]*outline: 2px solid Highlight/);
@@ -134,13 +164,48 @@ describe('every focus ring and coloured focus border is behind the setting', () 
 describe('the tint shown while rings are off', () => {
   const app = readFileSync(join(process.cwd(), 'ui', 'src', 'styles', 'app.css'), 'utf8');
   const tokens = readFileSync(join(process.cwd(), 'ui', 'src', 'styles', 'tokens.css'), 'utf8');
+  const tintRule = () => stripComments(app).match(/:root\[data-kbd-nav\]:not\(\[data-focus-rings\]\) :is\(button[^{]*:focus-visible[^{]*\{([^}]*)\}/);
   it('app.css has one shared tint rule under kbd-nav without the setting, for the focusable controls', () => {
-    const rule = stripComments(app).match(/:root\[data-kbd-nav\]:not\(\[data-focus-rings\]\) :is\(button[^{]*:focus-visible[^{]*\{([^}]*)\}/);
+    const rule = tintRule();
     assert.ok(rule, 'tint rule present');
     assert.match(rule![0], /button/);
     assert.match(rule![0], /\[role=option\]/);
     assert.match(rule![0], /summary/);
     assert.match(rule![1]!, /background-image:\s*linear-gradient\(var\(--focus-tint\),\s*var\(--focus-tint\)\)/);
+  });
+  it('F2: the tint list covers select and the non-text inputs (range, date, file), not text fields', () => {
+    const sel = tintRule()![0];
+    assert.match(sel, /[\s(,]select[\s,)]/, 'select');
+    assert.match(sel, /input\[type=range\]/, 'range');
+    assert.match(sel, /input\[type=date\]/, 'date');
+    assert.match(sel, /input\[type=file\]/, 'file');
+    assert.doesNotMatch(sel, /[\s(,]input[\s,)]/, 'a bare input (a text field) gets no tint, the caret is its cue');
+  });
+  it('F6: rows that code focuses with tabindex=-1 show the tint under kbd-nav, and the generic tabindex=-1 stays out of the list', () => {
+    const sel = tintRule()![0];
+    assert.match(sel, /li\[tabindex="-1"\]/);
+    assert.match(sel, /\[tabindex\]:not\(\[tabindex="-1"\]\)/);
+  });
+  it('F1: a filled accent control (.btn.primary, .pg-btn.primary) gets an on-accent tint, which comes after the shared tint so it wins the tie', () => {
+    const tint = stripComments(app).indexOf('background-image: linear-gradient(var(--focus-tint), var(--focus-tint))');
+    const onAccent = stripComments(app).match(/:root\[data-kbd-nav\]:not\(\[data-focus-rings\]\)[^{]*\.btn\.primary[^{]*:focus-visible[^{]*\{([^}]*)\}/);
+    assert.ok(onAccent, 'on-accent tint rule for .btn.primary');
+    assert.match(onAccent![1]!, /background-image:\s*linear-gradient\(var\(--focus-tint-on-accent\),\s*var\(--focus-tint-on-accent\)\)/);
+    assert.match(onAccent![0], /\.pg-btn\.primary/, 'the project page primary button too');
+    assert.ok(stripComments(app).indexOf(onAccent![0]) > tint, 'after the shared tint rule');
+  });
+  it('F5: a card with its own gradient (approval, question, blender) keeps it under the tint, instead of going flat', () => {
+    const card = stripComments(app).match(/:root\[data-kbd-nav\]:not\(\[data-focus-rings\]\)\s*\.approval\[tabindex\]:focus-visible\s*\{([^}]*)\}/);
+    assert.ok(card, 'approval card rule');
+    assert.match(card![1]!, /linear-gradient\(var\(--focus-tint\),\s*var\(--focus-tint\)\),\s*linear-gradient\(var\(--warn-soft\)/);
+    const live = stripComments(app).match(/\.approval\.blender\.is-live\[tabindex\]:focus-visible\s*\{([^}]*)\}/);
+    assert.ok(live, 'live blender approval rule');
+    assert.match(live![1]!, /var\(--danger-soft\)/);
+  });
+  it('F1: --focus-tint-on-accent is a token in both themes', () => {
+    const [dark, light] = [tokens.split(':root[data-theme=\'light\']')[0]!, tokens.split(':root[data-theme=\'light\']')[1]!];
+    assert.match(dark, /--focus-tint-on-accent:/);
+    assert.match(light!, /--focus-tint-on-accent:/);
   });
   it('--focus-tint is a token in both themes', () => {
     const [dark, light] = [tokens.split(':root[data-theme=\'light\']')[0]!, tokens.split(':root[data-theme=\'light\']')[1]!];
@@ -154,6 +219,14 @@ describe('the tint shown while rings are off', () => {
   });
   it('with rings off the browser default focus outline is suppressed, but not under forced colours (where the fallback must show)', () => {
     assert.match(stripComments(app), /@media not all and \(forced-colors: active\)\s*\{\s*:root\[data-kbd-nav\]:not\(\[data-focus-rings\]\) :focus-visible\s*\{\s*outline: none;?\s*\}\s*\}/);
+  });
+  it('F4: the outline suppression for inputs is narrowed to text-like fields, so a checkbox, radio, range, date or select gets the ring when the setting is on', () => {
+    const rule = stripComments(app).match(/([^{};]*textarea:focus-visible[^{};]*)\{\s*outline:\s*none;?\s*\}/);
+    assert.ok(rule, 'the text-field suppression rule');
+    const parts = splitTop(rule![1]!).map((s) => s.trim());
+    assert.ok(!parts.includes('input:focus-visible'), 'no bare input suppression');
+    assert.doesNotMatch(rule![1]!, /checkbox|radio|range|date|file|select/, 'only text-like inputs and textarea are suppressed');
+    assert.ok(parts.some((s) => /^input:is\(/.test(s) && /\[type=text\]/.test(s) && /:not\(\[type\]\)/.test(s)), 'text-like input types are suppressed');
   });
   it('text fields show a caret, not a coloured border, when the setting is off: the only ungated ring in app.css is the forced-colors fallback', () => {
     assert.deepEqual(ungatedFocusRings(app).map((r) => r.selector), [FORCED_COLORS_FALLBACK]);

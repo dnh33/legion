@@ -31,7 +31,7 @@
 
 /* New task */
 .pg-comp { position: relative; border: 1px solid var(--control-line); border-radius: var(--r-lg); background: var(--bg); padding: 12px 13px; }
-:where(:root[data-focus-rings]) .pg-comp:focus-within { border-color: var(--text-2); }
+:where(:root[data-kbd-nav][data-focus-rings]) .pg-comp:focus-within { border-color: var(--text-2); }
 .pg-comp textarea { display: block; width: 100%; min-height: 140px; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; resize: none; outline: none; }
 .pg-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 0; }
 .pg-pills .pl { color: var(--muted); font-size: 12.5px; }

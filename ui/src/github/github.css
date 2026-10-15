@@ -53,7 +53,7 @@
 .gh-search input, .gh-field input, .gh-field select { width: 100%; height: 30px; padding: 0 10px; background: var(--code-bg); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: inherit; font-size: 12.5px; box-sizing: border-box; }
 .gh-search input::placeholder, .gh-field input::placeholder { color: var(--muted); }
 :root[data-kbd-nav][data-focus-rings] .gh-search input:focus-visible, :root[data-kbd-nav][data-focus-rings] .gh-field input:focus-visible, :root[data-kbd-nav][data-focus-rings] .gh-field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-:where(:root[data-focus-rings]) :is(.gh-search input:focus, .gh-field input:focus, .gh-field select:focus) { border-color: var(--accent-line); }
+:where(:root[data-kbd-nav][data-focus-rings]) :is(.gh-search input:focus, .gh-field input:focus, .gh-field select:focus) { border-color: var(--accent-line); }
 .gh-list { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line); }
 .gh-repo { border-bottom: 1px solid var(--line); }
 .gh-repo-row { display: flex; align-items: center; gap: 10px; min-height: 40px; }
