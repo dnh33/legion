@@ -20,6 +20,7 @@ import { GatesSection } from '../gates/GatesSection';
 import { NotificationsSection } from '../away/NotificationsSection';
 import { SoundsSection } from '../sound/SoundsSection';
 import { SpendingSection } from '../away/SpendingSection';
+import { AccessibilitySection } from '../a11y/AccessibilitySection';
 import { NAV, groupNav } from './settingsNav';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
 
@@ -80,6 +81,7 @@ export function SettingsPanel() {
                     : section === 'house' ? <HouseSection />
                   : section === 'armory' ? <ArmorySection />
                   : section === 'github' ? <GithubSection />
+                  : section === 'accessibility' ? <AccessibilitySection />
                   : section === 'logs' ? <LogsSection />
                   : section === 'connections' ? <ConnectionsSection s={settings} />
                     : <AboutSection s={settings} />

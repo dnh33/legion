@@ -4,7 +4,7 @@
 .proj-switch[data-badge='compact'] .else-words { display: none; }
 .proj-label { color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .proj-switch select { width: 100%; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-size: 13px; }
-:root[data-kbd-nav] .proj-switch select:focus-visible, :root[data-kbd-nav] .proj-page select:focus-visible, :root[data-kbd-nav] .proj-page input:focus-visible, :root[data-kbd-nav] .proj-page textarea:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+:root[data-kbd-nav][data-focus-rings] .proj-switch select:focus-visible, :root[data-kbd-nav][data-focus-rings] .proj-page select:focus-visible, :root[data-kbd-nav][data-focus-rings] .proj-page input:focus-visible, :root[data-kbd-nav][data-focus-rings] .proj-page textarea:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 .proj-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .proj-page { padding: 18px 22px 28px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .proj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -21,7 +21,7 @@
 .proj-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .proj-list li:last-child { border-bottom: 0; }
 .proj-link { background: transparent; border: 0; padding: 2px 0; text-align: left; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-:root[data-kbd-nav] .proj-link:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 3px; }
+:root[data-kbd-nav][data-focus-rings] .proj-link:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 3px; }
 .proj-pick { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
 .proj-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px !important; color: var(--text) !important; font-size: 13px !important; }
 .proj-note { margin: 0; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-2); font-size: 13px; }
