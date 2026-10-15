@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
-import { quietBefore } from '../a11y/keyClock';
+import { appearedAt, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
@@ -153,10 +153,13 @@ export function Thread() {
   // ARM_MS (every key restarts that clock); otherwise it scrolls to the card without focusing it. Stray typing on the page, a word or
   // a sentence, never allows anything: only a lone, deliberate A does.
   const cardEl = (id: string) => scroller.current?.querySelector<HTMLElement>(`[data-approval-id="${CSS.escape(id)}"]`) ?? null;
-  const shownAt = useRef(new Map<string, number>());
-  useEffect(() => { for (const a of taskApprovals) if (!shownAt.current.has(a.id)) shownAt.current.set(a.id, performance.now()); });
+  // a card's appearance is one shared source (the card reads the same one); an approval that is gone is forgotten
+  useEffect(() => {
+    for (const a of taskApprovals) appearedAt('approval:' + a.id, performance.now());
+    pruneAppearances('approval:', new Set(approvals.map((x) => 'approval:' + x.id)));
+  });
   const armedFor = (a: { id: string } | undefined, now: number, quietSince: number): boolean =>
-    !!a && isArmed(shownAt.current.get(a.id) ?? now, quietSince, now);
+    !!a && isArmed(appearedAt('approval:' + a.id, now), quietSince, now);
   const cardInView = (a: { id: string } | undefined): boolean => {
     const el = a && cardEl(a.id); const sc = scroller.current;
     if (!el || !sc) return false;
@@ -165,7 +168,7 @@ export function Thread() {
   };
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const now = performance.now(), quietSince = quietBefore(e, now);
+      const now = performance.now(), quietSince = quietBefore(e, now, e.key);
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;
@@ -174,7 +177,7 @@ export function Thread() {
       const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince)); if (!k) return;
       e.preventDefault();
       if ('reveal' in k) {
-        shownAt.current.set(k.id, performance.now());
+        restartAppearance('approval:' + k.id, performance.now());
         const el = cardEl(k.id);
         if (el) el.scrollIntoView({ block: 'nearest' }); else toBottom();
         return;

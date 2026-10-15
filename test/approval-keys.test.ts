@@ -62,8 +62,8 @@ test('A on a card that only just appeared or was just revealed does nothing: "ba
   // the clock: every key restarts it, so continuous typing never arms A
   const thread = readFileSync(join(process.cwd(), 'ui/src/components/Thread.tsx'), 'utf8');
   // the clock and the arithmetic moved to the shared modules (keyClock, isArmed), so a card's own keys read the same ones: test/card-arming.test.ts
-  assert.match(thread, /quietSince = quietBefore\(e, now\)/);
-  assert.match(thread, /isArmed\(shownAt\.current\.get\(a\.id\) \?\? now, quietSince, now\)/);
+  assert.match(thread, /quietSince = quietBefore\(e, now, e\.key\)/);
+  assert.match(thread, /isArmed\(appearedAt\('approval:' \+ a\.id, now\), quietSince, now\)/);
 });
 
 test('both key paths read the shared rule: the thread shortcut goes through threadKey, the card through clickOnly', () => {

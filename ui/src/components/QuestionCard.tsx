@@ -5,7 +5,7 @@ import {
   applyOther, applyPick, finalAnswers, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewOf, stepCount,
 } from '../chat/questionCard';
 import { Icon } from './icons';
-import { useCardArm } from '../a11y/keyClock';
+import { useArmUi, useCardArm } from '../a11y/keyClock';
 
 /** "Asked by Marshal through the agent bridge, hop 2": shown when a bot woken elsewhere needs an answer. */
 function Origin({ o }: { o: NonNullable<PendingQuestion['origin']> }) {
@@ -37,7 +37,13 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const [focus, setFocus] = useState(0);
   const [otherOpen, setOtherOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const arm = useCardArm();
+  const arm = useCardArm(`question:${q.id}`);
+  const { armed, refresh } = useArmUi(arm);
+  // an ignored pick or submit says so: the note while not armed, and the same words once for a screen reader
+  const [ignored, setIgnored] = useState(false);
+  const [said, setSaid] = useState('');
+  useEffect(() => { if (armed) setIgnored(false); }, [armed]);
+  const notReady = (): void => { setIgnored(true); setSaid('Ready in a moment'); refresh(); };
   const optRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const otherRef = useRef<HTMLInputElement>(null);
 
@@ -55,12 +61,12 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const ok = arm.armed(e.nativeEvent);
+    const ok = arm.key(e.nativeEvent, e.key, e.repeat, performance.now());
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const act = questionKey({ key: e.key, step, questionCount: n, optionCount: opts.length, focus, otherOpen });
     if (act.kind === 'none') return;
     // picking and submitting answer the question, so they wait for the arm (the window shortcut's rule); moving the highlight does not
-    if (!ok && (act.kind === 'pick' || act.kind === 'submit')) return;
+    if (!ok && (act.kind === 'pick' || act.kind === 'submit')) { if (!e.repeat) notReady(); return; }
     e.preventDefault();
     if (act.kind === 'move') {
       const ni = Math.min(Math.max(0, focus + act.delta), Math.max(0, opts.length - 1));
@@ -80,7 +86,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));
 
   return (
-    <div className="approval question" tabIndex={0} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={arm.onFocus} onKeyDown={onKeyDown}>
+    <div className="approval question" tabIndex={0} data-armed={armed ? 'true' : 'false'} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={(e) => arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now())} onKeyDown={onKeyDown}>
       <div className="approval-head">
         <Icon name="help" size={14} />
         <span>Needs your answer</span>
@@ -111,7 +117,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
                   <button key={o.label} type="button" role="option" aria-selected={picked}
                     ref={(el) => { optRefs.current[i] = el; }}
                     className={`qopt${picked ? ' on' : ''}`}
-                    onMouseEnter={() => setFocus(i)} onFocus={() => setFocus(i)} onClick={() => pick(o.label)}>
+                    onMouseEnter={() => setFocus(i)} onFocus={() => setFocus(i)} onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } pick(o.label); }}>
                     <span className="qopt-label">{o.label}{o.recommended && <span className="qrec">Recommended</span>}</span>
                     {o.description && <span className="qopt-desc">{o.description}</span>}
                   </button>
@@ -149,7 +155,9 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
         <button type="button" className="btn" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>Back</button>
         {cur
           ? <button type="button" className="btn primary" disabled={!isAnswered(answers, step)} onClick={() => setStep((s) => Math.min(s + 1, n))}>Next</button>
-          : <button type="button" className="btn primary" disabled={busy || !allAnswered} onClick={submit}>Submit</button>}
+          : <button type="button" className="btn primary" disabled={busy || !allAnswered} onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } submit(); }}>Submit</button>}
+        {ignored && !armed && <span className="approval-note">Ready in a moment</span>}
+        <span className="sr-only" role="status" aria-live="polite">{said}</span>
         <span className="approval-note">arrows move · Enter picks · 1-4 pick · Esc closes Other</span>
       </div>
     </div>
