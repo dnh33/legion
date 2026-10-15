@@ -198,9 +198,11 @@ agent session; pass the path.
 ### 7. THE GATE — mandatory, must end in "Pre-flight passed"
 
 ```
-node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v>
-node scripts/release-verify.mjs   --dir D:/bots/legion-pkg-<v>
+node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v> [--stone-lock <package-lock.json of v0.3.0>]
+node scripts/release-verify.mjs   --dir D:/bots/legion-pkg-<v> [--stone-lock <package-lock.json of v0.3.0>]
 ```
+
+`--stone-lock` is optional. Without it both scripts read the stone's lock with `git show v0.3.0:package-lock.json`, so the `v0.3.0` tag must be in your checkout. `release-publish.mjs` takes the same flag and runs the same carry check before it creates the draft.
 
 This answers the one question `npm test` cannot: *can an install that exists today actually receive this release?*
 It checks version reciprocity, lockfile-vs-dependency hashing, artifact/manifest/sha agreement, notes presence, and
@@ -210,15 +212,29 @@ still passes).
 
 Both scripts also check the old name (`--no-network` skips only the download, for rehearsals): the old name must be the permanent signed stepping stone, 0.3.0, pinned in `scripts/lib/stepping-stone.mjs` (the stone release itself: its own manifest, identical under both names), byte for byte the files published at `v0.3.0` (fetched, a network failure fails the check; `release-publish.mjs` runs the same checks before it creates the draft), a full-install release's second manifest must name it and set `minUpdater`, and the stone's package URL must return the signed size and sha256. A later release that carries itself under the old name fails. Missing either name fails.
 
-A release that carries the full package (a full-install release, or a code-only one whose lock differs from the stone's) adds these checks (both scripts fail, not warn): the manifest's `fullAsset` must equal the `legion-<v>-win-x64.zip` in the folder (name, size, sha256) and be listed in `SHA256SUMS.txt`. A code-only release whose lock differs from the stone's and has **no** `fullAsset` fails, naming the stranded 0.3.0 installs; a `fullAsset` on a release whose lock equals the stone's fails too. The stone lock is read from `--stone-lock <file>` or `git show v0.3.0:package-lock.json`, and must hash to the `depsSha256` the stone's signed manifest names (a wrong lock file cannot decide). `release-preflight.mjs` also parses the manifest with the frozen `v0.3.0` parser (`src/core/updater/manifest.ts` at that tag) and the current one: both must accept it (a `fullAsset` named for another version fails here). After publishing, `release-verify.mjs --dir <fetched files> --published` downloads the live `fullAsset` and compares size and sha256 with the signed manifest.
+A release that carries the full package (a full-install release, or a code-only one whose lock differs from the stone's) adds these checks (both scripts fail, not warn): the manifest's `fullAsset` must equal the `legion-<v>-win-x64.zip` in the folder (name, size, sha256) and be listed in `SHA256SUMS.txt`. A code-only release whose lock differs from the stone's and has **no** `fullAsset` fails, naming the stranded 0.3.0 installs; a `fullAsset` on a release whose lock equals the stone's fails too. The stone lock is read from `--stone-lock <file>` or `git show v0.3.0:package-lock.json`, and must hash to the `depsSha256` the stone's signed manifest names (a wrong lock file cannot decide). `release-preflight.mjs` also parses the manifest with the frozen `v0.3.0` parser (`src/core/updater/manifest.ts` at that tag) and the current one: both must accept it (a `fullAsset` named for another version fails here). After publishing, `release-verify.mjs --dir <fetched files> --published` downloads the live `fullAsset` and compares size and sha256 with the signed manifest (see step 10).
 
-### 7a. Rehearse the update (full-install releases)
+### 7a. Rehearse the update (full-install releases and carry releases)
 
-Run the workflow "Full-install rehearsal" on the release commit (`gh workflow run full-install-rehearsal.yml --repo dnh33/legion --ref <commit or tag>`) and write the run id in the release PR. It installs the latest published release with `install.ps1`, then updates that install to a candidate built from the same commit, from a loopback server, with a throwaway signing key: success (the new version reports health, files match the package list, user data survives), rollback (a first start that fails puts the old version back) and a locked file (the swap refuses cleanly). `stone-walk` (the live release goes to a code-only stone, then to the full candidate, install intact and data surviving) and `stone-direct` (a build with the new updater goes straight to the full candidate through the second manifest name) and `stone-later` (a code-only release published after the full one: the live release reaches the stone through the old name, then the newest release through the second name) must be green too. The stone hop in the stone scenarios is the REAL published `v0.3.0` package (only its manifest is re-signed with the throwaway key), so the frozen 0.3.0 updater is what runs. `stone-stranded` (0.2.7, the real stone, then a code-only release whose lock differs and that carries its package: the stone must fall back to the full package; the next code-only release with the same lock takes the code route and never requests the carried package) and `stone-stranded-nofull` (the same without a `fullAsset`: the stone install must end on a notice, still on 0.3.0) must be green too. `vanished-live` is informational: it documents the known old-helper case that the stepping stone exists to avoid. Nothing real is touched. All three scenarios must be green before you publish.
+The rehearsal is required for every release that carries a full package. That is a full-install release, and it is also a code-only release whose lock differs from the stone's (a carry release). A carry release is the first live use of the 285 MB fallback, so it is rehearsed like a full-install release. A code-only release on the stone's lock needs no rehearsal.
 
-**Do not publish over a failure.** Two warnings are known and benign on Windows installs:
-`lettered patch: only installs that ALREADY support lettered versions…` (safe once any `-a` has shipped) and
-`could not determine installMode (non-fatal)`.
+Run the workflow "Full-install rehearsal" on the release commit: `gh workflow run full-install-rehearsal.yml --repo dnh33/legion --ref <commit or tag>`. Write the run id in the release PR.
+
+Each scenario runs on a fresh Windows runner. It installs a published release with `install.ps1`. It then updates that install to a candidate built from the same commit. The candidate comes from a loopback server and a throwaway signing key. Nothing real is touched. These scenarios must be green:
+
+- `success`: the new version reports health, the files match the package list, user data survives.
+- `rollback`: a first start that fails puts the old version back.
+- `locked`: a locked file makes the swap refuse cleanly.
+- `slow-short` and `slow-long`: a late first start. The install ends whole and running, on the new version or the old one.
+- `vanished`: the staged runtime folder disappears. The swap is refused before anything moves.
+- `chain`: the live release goes to a code-only candidate, then to the full candidate. The second swap is done by the new helper.
+- `stone-walk`: the live release goes to the code-only stone, then to the full candidate. The install stays whole and the data survives.
+- `stone-direct`: a build with the new updater goes straight to the full candidate through the second manifest name.
+- `stone-later`: a code-only release published after the full one. The live release reaches the stone through the old name, then the newest release through the second name.
+- `stone-stranded`: 0.2.7, then the real stone, then a code-only release whose lock differs and that carries its package. The stone falls back to the full package. The next code-only release with the same lock takes the code route and never requests the carried package.
+- `stone-stranded-nofull`: the same release without a `fullAsset`. The stone install stays on 0.3.0. The scenario checks the refusal reason: the package lock differs from the installed lock, and the manifest names no `fullAsset`.
+
+`vanished-live` is informational. It documents the known old-helper case that the stepping stone exists to avoid. The stone hop in the stone scenarios is the REAL published `v0.3.0` package. Only its manifest is re-signed with the throwaway key, so the frozen 0.3.0 updater is what runs. All scenarios above must be green before you publish.
 
 ### 7b. THE FULL SUITE MUST BE GREEN BEFORE `main` IS TOUCHED
 
@@ -271,9 +287,10 @@ the new one before running the verify, or the verify sees a mix of two releases 
 curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-manifest.json
 ```
 
-Fetch `legion-update-manifest-2.json` (and its `.sig`) from the same live URL too: it must answer 200 with the new version, and `node scripts/stone-check.mjs` must pass (it fails on a missing second name, a second name that is not the latest tag, an old name that is not the stone byte for byte, and a stone package that does not return the signed size and sha256). Check `version` **and** `requiresFullInstall` (false for a code-only release; true for a dependency change, and then the manifest must carry `fullAsset`; a code-only release also carries `fullAsset` while its lock differs from the stone's). Download the manifest, its `.sig`, the `app.zip` and
-`SHA256SUMS.txt` into a fresh folder and run `release-verify.mjs` **on those fetched bytes**. Local verification
-proves the folder is right; this proves a real install can receive it. For a release whose manifest has a `fullAsset` (full-install or carried) also download `legion-<v>-win-x64.zip` from the live URL and compare its size and sha256 with the manifest's `fullAsset`: `release-verify.mjs --published` does this over the network, and the first real test of a 285 MB download must not be a user's PC.
+Fetch `legion-update-manifest-2.json` (and its `.sig`) from the same live URL too: it must answer 200 with the new version, and `node scripts/stone-check.mjs` must pass (it fails on a missing second name, a second name that is not the latest tag, an old name that is not the stone byte for byte, and a stone package that does not return the signed size and sha256). Check `version` **and** `requiresFullInstall` (false for a code-only release; true for a dependency change, and then the manifest must carry `fullAsset`; a code-only release also carries `fullAsset` while its lock differs from the stone's). Download the manifests (both names) with their `.sig` files, the `app.zip` and
+`SHA256SUMS.txt` into a fresh folder and run `release-verify.mjs --dir <that folder> --published` **on those fetched bytes**.
+The folder needs only these small files. Do not copy the 285 MB zip into it. Local verification
+proves the folder is right; this proves a real install can receive it. For a release whose manifest has a `fullAsset` (full-install or carried), `--published` downloads `legion-<v>-win-x64.zip` from the live URL and compares its size and sha256 with the signed manifest's `fullAsset`. It also checks that `SHA256SUMS.txt` lists that hash. The first real test of a 285 MB download must not be a user's PC. If the download fails on a slow link, run the command again.
 
 Then check that a new install still works: `curl -sL https://getlegion.xyz/install.ps1` must return the same bytes as
 the release's `install.ps1` (not "Legion installer unavailable"), and

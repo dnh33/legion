@@ -270,3 +270,34 @@ test('publish: a carry release, and a code-only release on the stone lock, are a
   const a2 = publishDry(release(STONE_LOCK, 'code')); assert.equal(a2.status, 0, a2.stdout + a2.stderr);
   const a3 = publishDry(release(STONE_LOCK, 'carry')); assert.notEqual(a3.status, 0); assert.match(a3.stderr, /fullAsset/);
 });
+
+// ------------------------------------------------------------ rehearsal harness
+test('rehearsal: the stone-stranded-nofull scenario asserts the refusal reason, not only a 60 s wait, and its dependencyHash copy equals the updater\'s', async () => {
+  const src = readFileSync(join(REPO, 'scripts', 'rehearsal', 'run-scenario.mjs'), 'utf8').replace(/\r\n/g, '\n');
+  assert.doesNotMatch(src, /sleep\(60000\)/, 'the fixed one-minute wait is gone');
+  assert.match(src, /refusal reason: the dependency hash of the staged package lock differs/);
+  assert.match(src, /refusal reason: the served manifest names no fullAsset/);
+  const m = /\/\/ The frozen v0\.3\.0 dependencyHash[^\n]*\n(const dependencyHash = [\s\S]*?\n\};)\n/.exec(src);
+  assert.ok(m, 'the dependencyHash copy is in the harness');
+  const copy = new Function('createHash', `${m[1]}\nreturn dependencyHash;`)(createHash) as (s: string) => string;
+  const { dependencyHash } = await import(pathToFileURL(join(REPO, 'dist/src/core/updater/package.js')).href) as { dependencyHash: (s: string) => string };
+  const withVersion = JSON.stringify({ name: 'legion', version: '1.0.0', lockfileVersion: 3, packages: { '': { name: 'legion', version: '1.0.0' }, 'node_modules/x': { version: '2.0.0' } } });
+  for (const lock of [STONE_LOCK, NEW_LOCK, withVersion, 'not json']) assert.equal(copy(lock), dependencyHash(lock));
+  assert.equal(copy(withVersion), copy(withVersion.replace(/"version":"1\.0\.0"/g, '"version":"1.0.1"')), 'the lock\'s own version fields do not count');
+});
+
+test('SHIPPING.md: 7a covers carry releases, names every scenario of the workflow matrix, and the command examples carry --stone-lock and --published', () => {
+  const doc = readFileSync(join(REPO, 'docs', 'SHIPPING.md'), 'utf8').replace(/\r\n/g, '\n');
+  const a = doc.indexOf('### 7a.'); assert.ok(a > 0);
+  const sec = doc.slice(a, doc.indexOf('\n### ', a + 5));
+  assert.match(sec.split('\n')[0], /carry releases/);
+  assert.match(sec, /required for every release that carries a full package/i);
+  assert.doesNotMatch(sec, /All three scenarios/);
+  const matrix = /scenario: \[([^\]]+)\]/.exec(yml('full-install-rehearsal.yml'));
+  assert.ok(matrix);
+  for (const name of matrix[1].split(',').map((x) => x.trim())) assert.ok(sec.includes('`' + name + '`'), `7a names ${name}`);
+  assert.match(doc, /release-preflight\.mjs --version <v> --pkg [^\n]*--stone-lock/);
+  assert.match(doc, /release-verify\.mjs\s+--dir [^\n]*--stone-lock/);
+  assert.match(doc, /release-verify\.mjs --dir <that folder> --published/);
+  assert.doesNotMatch(sec, /—/, 'no em dash in 7a');
+});

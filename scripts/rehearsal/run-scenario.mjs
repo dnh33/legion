@@ -31,7 +31,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { args, die } from '../lib/release-lib.mjs';
+import { args, die, readZipEntry } from '../lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { scenario: 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v' });
 for (const k of ['scenario', 'install', 'prepared', 'work', 'baseline']) if (!a[k]) die(`--${k} is required`);
@@ -40,6 +40,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const install = resolve(a.install), work = resolve(a.work), preparedDir = resolve(a.prepared);
 const prepared = { ...JSON.parse(readFileSync(join(preparedDir, 'prepared.json'), 'utf8')), pubKeyFile: join(preparedDir, 'legion-update-k1.pub.pem') };
 const PORT = 18443, APP_PORT = 4747;
+// The frozen v0.3.0 dependencyHash (src/core/updater/package.ts): the lock with its own version fields blanked out. The scenario job has no build, so it is copied here.
+const dependencyHash = (lockJson) => {
+  const sha256 = (b) => createHash('sha256').update(b).digest('hex');
+  let parsed; try { parsed = JSON.parse(lockJson); } catch { return sha256(Buffer.from(lockJson, 'utf8')); }
+  const clone = structuredClone(parsed); delete clone.version;
+  if (clone.packages && typeof clone.packages === 'object' && clone.packages['']) { const e = { ...clone.packages[''] }; delete e.version; clone.packages[''] = e; }
+  return sha256(Buffer.from(JSON.stringify(clone), 'utf8'));
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`);
 const problems = [];
@@ -337,7 +345,24 @@ try {
       // (dependencies changed) and has nothing to fall back to. It must end on a notice, still running the stone, with a full package never requested.
       const got = await waitFor(`the stone to ask for the code package of ${s2}`, async () => (first(hitsNow(), `legion-${s2}-app.zip`) >= 0 ? true : null), 600000);
       check(!!got, `the stone install downloaded the code package of ${s2} and looked at it`);
-      await sleep(60000);
+      // The refusal itself. The frozen stone keeps its reason in memory only (it logs nothing for a StageError, and /api/update/status needs the per-launch
+      // admin secret), so the reason is shown from what the stone decides on: checkTree refuses with 'full-install' exactly when the dependency hash of the
+      // installed lock differs from the one in the staged package (v0.3.0 package.ts). Both are read from the real files here. The stone is done with the
+      // package when its staging folder is gone again (the stage is removed on every refusal) with no swap started.
+      const stagingGone = await waitFor('the stone to finish with the code package (staging folder removed)', async () => {
+        const st = join(up, 'staging');
+        if (existsSync(st) && readdirSync(st).length > 0) return null;
+        await sleep(3000);
+        return existsSync(st) && readdirSync(st).length > 0 ? null : true;
+      }, 180000);
+      check(!!stagingGone, 'the stone removed its staging folder: it staged the code package and dropped it');
+      const stagedLock = readZipEntry(readFileSync(join(preparedDir, 'served', 'stone-stranded-nofull', `legion-${s2}-app.zip`)), `legion-${s2}/package-lock.json`);
+      const installedLock = existsSync(join(install, 'package-lock.json')) ? readFileSync(join(install, 'package-lock.json'), 'utf8') : undefined;
+      check(!!stagedLock && installedLock !== undefined && dependencyHash(installedLock) !== dependencyHash(stagedLock.toString('utf8')),
+        'refusal reason: the dependency hash of the staged package lock differs from the installed lock, so the frozen checkTree throws full-install');
+      const served2 = readJson(join(preparedDir, 'served', 'stone-stranded-nofull', 'legion-update-manifest-2.json'));
+      check(!!served2 && served2.requiresFullInstall === false && !served2.fullAsset, 'refusal reason: the served manifest names no fullAsset, so the stone has nothing to fall back to');
+      await sleep(15000); // a short grace for a retry that must not happen; the wait above is what proves the refusal
       const h2 = await health();
       check(h2?.ok && h2.version === stone, `the install is still the stone ${stone} (notify-only; running ${h2?.version})`);
       check(readJson(join(up, 'journal.json'))?.to !== s2, 'no swap to the refused release was started');
