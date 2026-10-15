@@ -16,19 +16,20 @@
 // GitHub through scripts/rehearsal/preload.mjs, a DevTools port). No installed file is edited and no src/ file knows about any of it.
 // usage: node run-reopen.mjs --scenario reopen-reexec|auto-away --reopen-at <seconds|never> --install <dir> --prepared <dir> --work <dir> --baseline <version>
 import { createHash } from 'node:crypto';
-import { appendFileSync, cpSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, cpSync, ftruncateSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { args, die } from '../lib/release-lib.mjs';
 
-const a = args(process.argv.slice(2), { scenario: 'v', 'reopen-at': 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v' });
+const a = args(process.argv.slice(2), { scenario: 'v', 'reopen-at': 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v', 'pad-mb': 'v' });
 for (const k of ['scenario', 'reopen-at', 'install', 'prepared', 'work', 'baseline']) if (!a[k]) die(`--${k} is required`);
 if (!['reopen-reexec', 'auto-away'].includes(a.scenario)) die('--scenario must be reopen-reexec or auto-away');
 const reopenAt = a['reopen-at'] === 'never' ? null : Number(a['reopen-at']);
 if (reopenAt !== null && !(reopenAt >= 0)) die('--reopen-at must be a number of seconds or "never"');
 const clicked = a.scenario === 'reopen-reexec';
+const padMb = Number(a['pad-mb'] ?? 0);
 const here = dirname(fileURLToPath(import.meta.url));
 const install = resolve(a.install), work = resolve(a.work), preparedDir = resolve(a.prepared);
 const prepared = { ...JSON.parse(readFileSync(join(preparedDir, 'prepared.json'), 'utf8')), pubKeyFile: join(preparedDir, 'legion-update-k1.pub.pem') };
@@ -52,12 +53,13 @@ const serveLog = join(art, 'serve.log');
 const up = join(install, '.update');
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const sha = (p) => new Promise((res, rej) => { const h = createHash('sha256'); createReadStream(p).on('data', (c) => h.update(c)).on('error', rej).on('end', () => res(h.digest('hex'))); });
+const PAD_NAME = 'rehearsal-padding.bin';
 async function tree(root) {
   const out = {};
   const walk = async (d, rel) => {
     for (const n of readdirSync(d).sort()) {
       const r = rel ? `${rel}/${n}` : n;
-      if (r === '.update') continue;
+      if (r === '.update' || n === PAD_NAME) continue;
       const p = join(d, n); const st = statSync(p);
       if (st.isDirectory()) await walk(p, r);
       else { try { out[r] = `${st.size}:${await sha(p)}`; } catch (e) { out[r] = `${st.size}:unreadable(${e.code})`; } }
@@ -117,7 +119,7 @@ async function windowCall(method, path, body) {
     const ws = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('devtools socket failed')); });
     const msg = await new Promise((res, rej) => {
-      const t = setTimeout(() => rej(new Error('devtools call timed out')), 20000);
+      const t = setTimeout(() => rej(new Error('devtools call timed out')), 240000);
       ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id === 1) { clearTimeout(t); res(m); } };
       ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: expr, awaitPromise: true, returnByValue: true } }));
     });
@@ -134,7 +136,7 @@ const journal = () => readJson(join(up, 'journal.json'));
 const landed = async () => { const h = await health(); const j = journal(); return h?.ok && h.version === good && j?.state === 'committed' && j?.to === good ? h : null; };
 
 let before = {};
-const timeline = {};
+const timeline = {}, timelineNote = {};
 /** What the user is left with right now. */
 async function snapshot(why) {
   const h = await health();
@@ -153,7 +155,7 @@ async function snapshot(why) {
 }
 
 function writeResult(extra) {
-  const res = { scenario: a.scenario, label, reopenAt: a['reopen-at'], baseline: a.baseline, candidate: good, timeline, findings, problems, ...extra };
+  const res = { ...timelineNote, scenario: a.scenario, label, reopenAt: a['reopen-at'], baseline: a.baseline, candidate: good, timeline, findings, problems, ...extra };
   writeFileSync(join(art, 'result.json'), JSON.stringify(res, null, 2));
   return res;
 }
@@ -162,6 +164,10 @@ let final = null, first = null; const extra = {};
 try {
   log(`${label}: baseline ${a.baseline} installed at ${install}; ${clicked ? 'clicked path (auto-install off)' : 'auto-install on'}; reopen ${reopenAt === null ? 'never' : `${reopenAt}s after ${clicked ? 'the swap helper starts re-running' : 'the old app is gone'}`}`);
   check(readJson(join(install, 'build-info.json'))?.version === a.baseline, `the install is ${a.baseline}`);
+  // The helper's first job is to copy the whole Electron folder to the temp folder: 36 s on the owner's PC (antivirus scans every write), 3 s on a runner.
+  // A padding file in that folder stretches the runner's copy to the owner's duration, so the reopen offsets mean what they meant on his PC. It is not part of
+  // any package: the swap replaces the folder, and the tree comparison ignores it.
+  if (padMb > 0) { const fd = openSync(join(install, 'runtime', 'electron', PAD_NAME), 'w'); ftruncateSync(fd, padMb * 1024 * 1024); closeSync(fd); log(`padding file of ${padMb} MB added to runtime/electron to slow the helper's copy`); timelineNote.padMb = padMb; }
   before = await tree(install);
   log(`baseline tree hashed: ${Object.keys(before).length} files`);
   children.push(spawn(process.execPath, [join(here, 'serve.mjs'), '--served', join(preparedDir, 'served'), '--control', control, '--port', String(PORT), '--log', serveLog], { stdio: 'ignore', windowsHide: true }));
@@ -200,7 +206,7 @@ try {
       const h = await health();
       if (timeline.rerunAt === undefined) { const t = lineTs(/re-running the swap helper/); if (t) { timeline.rerunAt = t; log('the helper logged "re-running the swap helper" (the copy of the runtime starts; nothing on screen)'); } }
       if (!sawGone && h === null && (timeline.rerunAt !== undefined || existsSync(join(up, 'run', 'job.json')))) { sawGone = true; timeline.goneAt = Date.now(); log('the old Legion is gone'); }
-      if (!reopened && reopenAt !== null && sawGone && base() !== undefined && Date.now() >= base() + reopenAt * 1000 && procs().mains.length === 0) {
+      if (!reopened && reopenAt !== null && sawGone && base() !== undefined && Date.now() >= base() + reopenAt * 1000 && (procs().mains.length === 0 || (Date.now() > base() + reopenAt * 1000 + 8000 && log('an app process is still listed; reopening anyway'), Date.now() > base() + reopenAt * 1000 + 8000))) {
         reopened = true; timeline.reopenAt = Date.now();
         log(`reopening Legion ${Math.round((timeline.reopenAt - base()) / 1000)}s after ${clicked ? 'the helper log line' : 'the old app was gone'}`);
         launchApp('the user reopens Legion');
