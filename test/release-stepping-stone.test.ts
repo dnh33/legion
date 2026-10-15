@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -121,12 +121,14 @@ test('stone: a code-only release after a full one verifies with the stone under 
   const t = trustFixture(); const sd = stone(t);
   const ok = later('0.3.2', sd);
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(ok.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
-  const good = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network');
+  // the fixture stone and the later release share one lock, so no full package is needed; release-verify is told which lock is the stone's
+  const stoneLock = join(tmp(), 'package-lock.json'); writeFileSync(stoneLock, '{"lockfileVersion":3}\n');
+  const good = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network', '--stone-lock', stoneLock);
   assert.equal(good.code, 0, good.out);
   // the failure the stone design must prevent: the later code-only release replaces the stone under the old name
   copyFileSync(join(ok.dir, 'legion-update-manifest-2.json'), join(ok.dir, 'legion-update-manifest.json'));
   copyFileSync(join(ok.dir, 'legion-update-manifest-2.json.sig'), join(ok.dir, 'legion-update-manifest.json.sig'));
-  const bad = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network');
+  const bad = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network', '--stone-lock', stoneLock);
   assert.notEqual(bad.code, 0); assert.match(bad.out, /stepping stone/i);
 });
 
@@ -238,9 +240,11 @@ test('stone rules: fetchBytes gives up on a server that never answers', async ()
   } finally { srv.closeAllConnections(); srv.close(); }
 });
 
+// the fixture stone's package-lock.json (pkg() default); release-publish compares the release lock with it (the carry rule)
+const fixtureStoneLock = (): string => { const f = join(tmp(), 'package-lock.json'); writeFileSync(f, '{"lockfileVersion":3}\n'); return f; };
 test('publish: assets go up to a DRAFT, both manifest names with their signatures included, and only then does it become latest', () => {
   const t = trustFixture(); const sd = stone(t); const l = later('0.3.2', sd);
-  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--dry-run');
+  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--stone-lock', fixtureStoneLock(), '--dry-run');
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(l.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
   for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
   const r = run(l.dir); assert.equal(r.code, 0, r.out);
@@ -259,7 +263,7 @@ test('publish: refuses to create the draft when the old name is not the signed s
   for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
   copyFileSync(join(l.dir, 'legion-update-manifest-2.json'), join(l.dir, 'legion-update-manifest.json'));
   copyFileSync(join(l.dir, 'legion-update-manifest-2.json.sig'), join(l.dir, 'legion-update-manifest.json.sig'));
-  const r = sh('release-publish.mjs', '--dir', l.dir, '--version', '0.3.2', '--notes-file', join(l.dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--dry-run');
+  const r = sh('release-publish.mjs', '--dir', l.dir, '--version', '0.3.2', '--notes-file', join(l.dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--stone-lock', fixtureStoneLock(), '--dry-run');
   assert.notEqual(r.code, 0); assert.match(r.out, /stepping stone/i); assert.ok(!/gh release create/.test(r.out), 'no draft is created');
 });
 test('stone: SHIPPING.md lists every stepping stone and says they are never deleted', () => {
@@ -268,4 +272,30 @@ test('stone: SHIPPING.md lists every stepping stone and says they are never dele
   assert.ok(stones.length > 0);
   for (const v of stones) assert.ok(doc.includes(`v${v}`), `SHIPPING.md must list v${v}`);
   assert.match(doc, /never delete a stepping-stone release, tag or asset/i);
+});
+test('stone rules: the daily check enforces the pins in stepping-stones.json (manifest, signature, package); no pins given = nothing checked, so unit tests stay offline', async () => {
+  const { L, parseManifest, trust } = await lib(); const p = pair();
+  const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');
+  const ok = (bytes: Buffer) => ({ status: 200, bytes });
+  const getBytes = async (url: string) => url.endsWith('manifest-2.json') ? ok(p.newB) : url.endsWith('.sig') ? ok(Buffer.from('s')) : ok(p.oldB);
+  const good = { 'legion-update-manifest.json': sha(p.oldB), 'legion-update-manifest.json.sig': sha('s'), 'legion-0.3.0-app.zip': p.asset.sha256 };
+  const run = (pins?: unknown) => L.liveProblems({ getBytes, latestTag: async () => 'v0.5.0', fetchAsset: async () => p.asset, trust, parseManifest, ...(pins === undefined ? {} : { pins }) });
+  assert.deepEqual(await run(), [], 'no pins: not checked');
+  assert.deepEqual(await run({ '0.3.0': { files: good } }), []);
+  for (const f of Object.keys(good)) {
+    const r = (await run({ '0.3.0': { files: { ...good, [f]: 'f'.repeat(64) } } })).join();
+    assert.match(r, /pin/i, f); assert.ok(r.includes(f), `names ${f}: ${r}`);
+  }
+  assert.match((await run({ '0.3.0': { files: { 'legion-update-manifest.json': good['legion-update-manifest.json'] } } })).join(), /no pin/i, 'a missing pin entry is a failure, not a pass');
+  assert.match((await run({})).join(), /no pin/i, 'pins given but none for the stone');
+});
+test('stone: stone-check.mjs hands the pins to the check, and the pins file is well-formed', () => {
+  const src = readFileSync(join(S('stone-check.mjs')), 'utf8');
+  assert.match(src, /readPins\(\)/); assert.match(src, /pins/);
+  const j = readJ(join(REPO, 'scripts', 'stepping-stones.json')) as { stones: string[]; pins: Record<string, { files: Record<string, string> }>; pinNote: string };
+  for (const v of j.stones) {
+    assert.deepEqual(Object.keys(j.pins[v].files).sort(), ['legion-update-manifest.json', 'legion-update-manifest.json.sig', `legion-${v}-app.zip`].sort());
+    for (const h of Object.values(j.pins[v].files)) assert.match(h, /^[0-9a-f]{64}$/);
+  }
+  assert.doesNotMatch(j.pinNote, /Nothing reads pins yet/);
 });
