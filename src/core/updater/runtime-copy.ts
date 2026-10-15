@@ -8,7 +8,7 @@
  * and with what was stamped when the copy finished. The folder only gets its final name after the stamp is written, so a half copy
  * never looks complete.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readdir, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { RUNTIME_COPY_DIR, UPDATE_DIR } from './apply.js';
@@ -17,7 +17,29 @@ export const runtimeCopyDir = (installDir: string): string => join(installDir, U
 const STAMP = '.copy-stamp.json';
 
 export interface CopyStamp { exeName: string; exeSize: number; files: number; bytes: number; at: number }
-export interface CopyArgs { installDir: string; srcDir: string; exeName: string }
+/** Room left on the disk after the copy, so a copy never takes the last of it. */
+export const RUNTIME_COPY_MARGIN_BYTES = 512 * 1024 * 1024;
+export interface CopyArgs {
+  installDir: string; srcDir: string; exeName: string;
+  /** Free bytes on the volume that holds `dir` (default: statfs, as the package stage does). */
+  freeBytes?: (dir: string) => number;
+  marginBytes?: number;
+}
+const defaultFree = (dir: string): number => { const s = statfsSync(dir); return Number(s.bavail) * Number(s.bsize); };
+
+/** Not enough room for the copy: asked again only when the next update is staged (see shouldPrepare). */
+export type PrepareResult = { ok: true; reused: boolean } | { ok: false; error: string; lowDisk?: boolean };
+
+export interface PrepareGate { preparing: boolean; retryAt: number; lowDiskVersion: string | null }
+/**
+ * Should the app try to make the copy now? Not while one is running, not before a failure's delay is over, and never again for an
+ * update that already found the disk too full (the same update, however long it waits, will not have more room).
+ */
+export function shouldPrepare(g: PrepareGate, now: number, stagedVersion: string | undefined): boolean {
+  if (g.preparing || now < g.retryAt) return false;
+  if (g.lowDiskVersion !== null && g.lowDiskVersion === stagedVersion) return false;
+  return true;
+}
 
 function measure(dir: string): { files: number; bytes: number } {
   let files = 0; let bytes = 0;
@@ -68,8 +90,14 @@ async function copyTree(src: string, dest: string): Promise<void> {
  * Makes the copy (async, file by file) unless a verified one exists already. Builds into a temporary folder and renames it into place
  * once the stamp is written. Never throws; a failure leaves nothing half-built.
  */
-export async function prepareRuntimeCopy(a: CopyArgs): Promise<{ ok: true; reused: boolean } | { ok: false; error: string }> {
+export async function prepareRuntimeCopy(a: CopyArgs): Promise<PrepareResult> {
   if (verifyRuntimeCopy(a).ok) return { ok: true, reused: true };
+  // Room first: a 370 MB copy on a nearly full disk would fill it, fail, and leave the apply worse off. Short: copy nothing.
+  try {
+    const need = measure(a.srcDir).bytes + (a.marginBytes ?? RUNTIME_COPY_MARGIN_BYTES);
+    const free = (a.freeBytes ?? defaultFree)(a.installDir);
+    if (free < need) return { ok: false, lowDisk: true, error: `not enough free disk space for the runtime copy (${Math.ceil(need / 1048576)} MB needed, ${Math.floor(free / 1048576)} MB free)` };
+  } catch { /* the room cannot be read: go on, a real shortage fails the copy and is cleaned up below */ }
   const final = runtimeCopyDir(a.installDir);
   const tmp = join(a.installDir, UPDATE_DIR, `${RUNTIME_COPY_DIR}.tmp-${process.pid}`);
   try {

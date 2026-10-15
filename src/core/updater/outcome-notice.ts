@@ -50,3 +50,34 @@ export function logOutcome(dataDirPath: string, o: Outcome | null, nowMs: number
   }
   return writeAppLog(dataDirPath, failed ? 'warn' : 'info', 'outcome', { result: o.result, from: o.from, to: o.to, at: o.at, ...(o.reason ? { reason: o.reason } : {}) }, nowMs);
 }
+
+export type NoticeCall = (method: 'GET' | 'POST', route: string, body?: unknown) => Promise<{ status: number; json?: any } | undefined>;
+export const RETRY_LATER_LINE = 'The update will try again when Legion is idle.';
+export type NoticeResult = { kind: 'dismissed' } | { kind: 'installing' } | { kind: 'later'; line: string };
+
+/**
+ * What a click on the outcome notice does. Dismiss clears the record. Retry clears it too (a rolled-back version is released first), makes sure
+ * an update is known (a fresh start has not checked yet), then installs. If the install is refused or nobody answers, the owner gets one plain
+ * line and the reason goes to the log: a Retry never ends in silence.
+ */
+export async function runNoticeChoice(n: Pick<OutcomeNotice, 'rolledBack' | 'to'>, response: number, call: NoticeCall, log: (line: string) => void): Promise<NoticeResult> {
+  if (response !== 0) {
+    log('outcome notice: Dismiss clicked');
+    await call('POST', '/api/update/ack', {});
+    return { kind: 'dismissed' };
+  }
+  log(`outcome notice: Retry clicked for ${n.to}`);
+  if (n.rolledBack) await call('POST', '/api/update/retry', { version: n.to });
+  else await call('POST', '/api/update/ack', {});
+  const known = async (): Promise<boolean> => { const st = await call('GET', '/api/update/status'); return !!(st && st.status === 200 && (st.json?.available || st.json?.staged)); };
+  if (!(await known())) {
+    log('outcome notice: no update known yet, checking first');
+    const c = await call('POST', '/api/update/check', {});
+    if (!c || c.status !== 200) log(`outcome notice: the check did not run (${c ? `status ${c.status}: ${c.json?.error ?? 'no reason'}` : 'the core did not answer'})`);
+    await known();
+  }
+  const r = await call('POST', '/api/update/install', {});
+  if (r && r.status === 200) { log('outcome notice: install accepted'); return { kind: 'installing' }; }
+  log(`outcome notice: install refused (${r ? `status ${r.status}: ${typeof r.json?.error === 'string' ? r.json.error : 'no reason'}` : 'the core did not answer'})`);
+  return { kind: 'later', line: RETRY_LATER_LINE };
+}

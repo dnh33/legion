@@ -16,7 +16,7 @@ import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
-import { decideSingleInstance } from './instance-logic.js';
+import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
 import { projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
@@ -582,7 +582,13 @@ function shortcutsShareId(): void {
 // windows stack over one core. The decision is a pure function (instance-logic.ts) so the quit branch is tested, not
 // merely read. `second-instance` fires in the surviving first process and brings its window forward.
 const isUpdateRelaunch = process.env.LEGION_UPDATE_RELAUNCH === '1';
-const instance = decideSingleInstance(isUpdateRelaunch ? true : app.requestSingleInstanceLock());
+// Lock hand-over race: a third launch can hold the lock for a few milliseconds while the start gate lets it go, and the updater's relaunch
+// (LEGION_UPDATE_HANDOFF) that asks in that window would quit and the update would roll back. A handoff therefore retries for up to 5 s.
+// H2 (the updating window) replaces this hand-over; until then this retry is the guard.
+const instance = decideSingleInstance(isUpdateRelaunch ? true : await acquireStartLock({
+  request: () => app.requestSingleInstanceLock(), handoff: process.env.LEGION_UPDATE_HANDOFF === '1',
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(),
+}));
 if (instance.quit) {
   app.quit();
 } else {
@@ -672,6 +678,6 @@ if (instance.quit) {
     shortcutsShareId();
     const updaterHost = { installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
     initUpdater(updaterHost);
-    if (coreBooted) void showOutcomeNotice(updaterHost); // an update that did not finish says so once, with Retry and Dismiss
+    if (coreBooted) void showOutcomeNotice(updaterHost, dataDir()); // an update that did not finish says so once, with Retry and Dismiss
   });
 }

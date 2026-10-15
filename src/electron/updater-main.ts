@@ -12,10 +12,10 @@ import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
 import { cleanStaleApplyCopies, cleanupRuntimeCopy, confirmWhenHealthy, readOutcome, recoverAfterLiveSwap, UPDATE_DIR } from '../core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../core/updater/main-logic.js';
-import { planApplySpawn, prepareRuntimeCopy } from '../core/updater/runtime-copy.js';
+import { planApplySpawn, prepareRuntimeCopy, shouldPrepare } from '../core/updater/runtime-copy.js';
 import { holdStartForUpdate } from '../core/updater/start-gate.js';
 import { isUpdateInProgress, MARKER_FILE_NAME } from '../core/updater/update-marker.js';
-import { logOutcome, outcomeNotice, writeAppLog } from '../core/updater/outcome-notice.js';
+import { logOutcome, outcomeNotice, runNoticeChoice, writeAppLog } from '../core/updater/outcome-notice.js';
 import { trustedSender } from './admin-logic.js';
 
 type CoreCall = (method: 'GET' | 'POST', route: string, body?: unknown, native?: boolean) => Promise<{ status: number; json: any } | undefined>;
@@ -89,7 +89,7 @@ let noticeShown = false;
  * After the window is up and the core answers: if the last update did not finish and nobody has acknowledged it, say so once, in a dialog on
  * the Legion window. Retry downloads and installs again; Dismiss (or Esc) clears the record.
  */
-export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin'>): Promise<void> {
+export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin'>, dataDirPath: string): Promise<void> {
   if (noticeShown) return;
   const n = outcomeNotice(readOutcome(h.installDir));
   if (!n) return;
@@ -98,15 +98,13 @@ export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'own
     const w = h.getWin();
     const opts = { type: 'warning' as const, title: n.title, message: n.message, buttons: [...n.buttons], defaultId: 0, cancelId: 1, noLink: true };
     const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
-    if (r.response === 0) {
-      // a rolled-back version is blocked until released; /retry releases it and drops the record, /ack only drops the record
-      if (n.rolledBack) await h.ownCoreCall('POST', '/api/update/retry', { version: n.to });
-      else await h.ownCoreCall('POST', '/api/update/ack', {});
-      await h.ownCoreCall('POST', '/api/update/install', {});
-    } else {
-      await h.ownCoreCall('POST', '/api/update/ack', {});
+    const log = (line: string): void => { writeAppLog(dataDirPath, 'info', 'outcome-notice', { note: line }); };
+    const res = await runNoticeChoice(n, r.response, (m, route, body) => h.ownCoreCall(m, route, body), log);
+    if (res.kind === 'later') {
+      const o2 = { type: 'info' as const, title: n.title, message: res.line, buttons: ['OK'], defaultId: 0, noLink: true };
+      if (w && !w.isDestroyed()) await dialog.showMessageBox(w, o2); else await dialog.showMessageBox(o2);
     }
-  } catch { /* the Settings panel still shows the record */ }
+  } catch (e) { writeAppLog(dataDirPath, 'warn', 'outcome-notice', { note: `the notice failed: ${e instanceof Error ? e.message : String(e)}` }); /* the Settings panel still shows the record */ }
 }
 
 /** Before the core starts: finish or undo an update that was cut off (waiting out a swap whose helper is still beating). */
@@ -175,18 +173,19 @@ export async function confirmAfterBoot(installDir: string, getHealth: () => Prom
   try { await confirmWhenHealthy(installDir, VERSION, getHealth); } catch { /* ignore */ }
 }
 
-let preparing = false;
-let prepareRetryAt = 0;
+const prepareGate = { preparing: false, retryAt: 0, lowDiskVersion: null as string | null };
 /** While a full package waits in .update/staging, make the out-of-install runtime copy in the background so the apply does not have to. */
-async function keepRuntimeCopyReady(h: UpdaterHost): Promise<void> {
-  if (preparing || Date.now() < prepareRetryAt) return;
-  preparing = true;
-  const note = (t: string): void => { try { appendFileSync(join(h.installDir, UPDATE_DIR, 'apply.log'), `[${new Date().toISOString()}] ${t}\n`); } catch { /* ignore */ } };
+async function keepRuntimeCopyReady(h: UpdaterHost, stagedVersion: string | undefined): Promise<void> {
+  if (!shouldPrepare(prepareGate, Date.now(), stagedVersion)) return;
+  prepareGate.preparing = true;
+  const note = (t: string): void => { try { appendFileSync(join(h.installDir, UPDATE_DIR, 'apply.log'), `[${new Date().toISOString()}] ${t}
+`); } catch { /* ignore */ } };
   try {
     const r = await prepareRuntimeCopy({ installDir: h.installDir, srcDir: dirname(process.execPath), exeName: basename(process.execPath) });
     if (r.ok && !r.reused) note('prepared the runtime copy for the update helper');
-    if (!r.ok) { note(`could not prepare the runtime copy (${r.error}); the helper will make one itself`); prepareRetryAt = Date.now() + 10 * 60_000; }
-  } finally { preparing = false; }
+    if (!r.ok && r.lowDisk) { prepareGate.lowDiskVersion = stagedVersion ?? ''; note(`no runtime copy made: ${r.error}; the helper will make one itself when it applies the update`); }
+    else if (!r.ok) { note(`could not prepare the runtime copy (${r.error}); the helper will make one itself`); prepareGate.retryAt = Date.now() + 10 * 60_000; }
+  } finally { prepareGate.preparing = false; }
 }
 
 export function initUpdater(h: UpdaterHost): void {
@@ -200,7 +199,7 @@ export function initUpdater(h: UpdaterHost): void {
   const timer = setInterval(() => { void (async () => {
     if (applying || dialogOpen) return;
     const st = await h.ownCoreCall('GET', '/api/update/status').catch(() => undefined);
-    if (st?.status === 200 && process.platform === 'win32' && st.json.staged?.kind === 'full') void keepRuntimeCopyReady(h).catch(() => undefined);
+    if (st?.status === 200 && process.platform === 'win32' && st.json.staged?.kind === 'full') void keepRuntimeCopyReady(h, st.json.staged?.version).catch(() => undefined);
     else if (st?.status === 200) void cleanupRuntimeCopy(h.installDir).catch(() => undefined); // an update landed: the copy has done its job
     if (st?.status === 200 && st.json.readyToApply === true && app.isReady()) await applyNow(h, false);
   })().catch(() => undefined); }, 20_000);
