@@ -6,7 +6,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { confirmAfterBoot, initUpdater, recoverAtStart } from './updater-main.js';
+import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
@@ -663,10 +663,15 @@ if (instance.quit) {
   app.on('activate', () => showWindow());
 
   void app.whenReady().then(async () => {
+    // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
+    if ((await holdStartIfUpdating(root, dataDir())) === 'exit') { quitting = true; app.exit(0); return; }
     await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
+    logStartOutcome(root, dataDir()); // after recovery, so a rollback it just wrote is logged too
     await boot();
     if (coreBooted) void confirmAfterBoot(root, () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
-    initUpdater({ installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } });
+    const updaterHost = { installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
+    initUpdater(updaterHost);
+    if (coreBooted) void showOutcomeNotice(updaterHost); // an update that did not finish says so once, with Retry and Dismiss
   });
 }

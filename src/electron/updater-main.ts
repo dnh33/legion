@@ -3,15 +3,19 @@
  * ready and idle, takes the commit answer, copies the apply helper out of the folders it will swap, starts it detached, and quits.
  * The only child process it starts is that helper, run by the installed Electron binary in node mode. Plan: claude/plan-updater.md.
  */
-import { app, dialog, ipcMain, type BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { spawn } from 'node:child_process';
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
-import { cleanStaleApplyCopies, confirmWhenHealthy, recoverInterrupted, UPDATE_DIR } from '../core/updater/apply.js';
+import { cleanStaleApplyCopies, cleanupRuntimeCopy, confirmWhenHealthy, readOutcome, recoverAfterLiveSwap, UPDATE_DIR } from '../core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../core/updater/main-logic.js';
+import { planApplySpawn, prepareRuntimeCopy } from '../core/updater/runtime-copy.js';
+import { holdStartForUpdate } from '../core/updater/start-gate.js';
+import { isUpdateInProgress, MARKER_FILE_NAME } from '../core/updater/update-marker.js';
+import { logOutcome, outcomeNotice, writeAppLog } from '../core/updater/outcome-notice.js';
 import { trustedSender } from './admin-logic.js';
 
 type CoreCall = (method: 'GET' | 'POST', route: string, body?: unknown, native?: boolean) => Promise<{ status: number; json: any } | undefined>;
@@ -28,9 +32,86 @@ export interface UpdaterHost {
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const helperSource = join(here, '..', 'core', 'updater', 'apply.js');
 
-/** Before the core starts: finish or undo an update that was cut off. */
+const updateWindowHtml = 'data:text/html;charset=utf-8,' + encodeURIComponent(
+  '<body style="margin:0;background:#0b0d10;color:#e6e9ef;font:15px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;user-select:none">'
+  + '<div><div style="font-size:18px;font-weight:600;margin-bottom:8px">Legion is finishing an update.</div><div style="opacity:.75">It opens by itself.</div></div></body>');
+
+/**
+ * Before anything else at start: when an update is swapping files (a live marker), do not start a core. Show a small window and wait until the
+ * marker clears or goes stale (a hard cap ends the wait). The single-instance lock is released while waiting, so the helper's own relaunch of the
+ * new build can take it; afterwards this process asks for it again and quits if the new build already owns it.
+ * Returns 'exit' when this process must end now, 'go' to carry on starting.
+ */
+export async function holdStartIfUpdating(installDir: string, dataDirPath: string): Promise<'go' | 'exit'> {
+  const markerPath = join(installDir, UPDATE_DIR, MARKER_FILE_NAME);
+  let win: BrowserWindow | null = null;
+  const log = (line: string): void => { writeAppLog(dataDirPath, 'info', 'start-gate', { note: line }); };
+  const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
+  const markerDeps = {
+    markerPath, now: () => Date.now(), isPidAlive: alive, getPidStartTime: () => null,
+    createExclusive: () => { throw new Error('read-only here'); },
+    read: (p: string) => { try { return readFileSync(p, 'utf8'); } catch { return null; } },
+    remove: (p: string) => { rmSync(p, { force: true }); }, log,
+  };
+  let r;
+  try {
+    r = await holdStartForUpdate({
+      check: () => isUpdateInProgress(markerDeps),
+      sleep: (ms) => new Promise((res) => setTimeout(res, ms)), now: () => Date.now(),
+      clearStale: () => { try { rmSync(markerPath, { force: true }); } catch { /* a later start tries again */ } },
+      log, handoff: process.env.LEGION_UPDATE_HANDOFF === '1',
+      onWait: () => {
+        try { app.releaseSingleInstanceLock(); } catch { /* none held */ }
+        try {
+          win = new BrowserWindow({ width: 460, height: 200, frame: false, resizable: false, maximizable: false, minimizable: true, fullscreenable: false, center: true, backgroundColor: '#0b0d10', title: 'Legion', show: true, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+          void win.loadURL(updateWindowHtml);
+        } catch { /* no window: the wait still holds the start */ }
+      },
+    });
+  } catch { return 'go'; } // a gate that breaks must never stop Legion from opening
+  const w = win as BrowserWindow | null;
+  if (w && !w.isDestroyed()) w.destroy();
+  if (!r.waited) return 'go';
+  if (!app.requestSingleInstanceLock()) { log('the new build owns the single-instance lock: this process ends'); return 'exit'; }
+  let onDisk = VERSION;
+  try { onDisk = (JSON.parse(readFileSync(join(installDir, 'package.json'), 'utf8')) as { version?: string }).version ?? VERSION; } catch { /* keep VERSION */ }
+  if (onDisk !== VERSION) { log(`the install is now ${onDisk} but this process still runs ${VERSION} code: restarting`); app.relaunch(); return 'exit'; }
+  return 'go';
+}
+
+/** Logs the outcome the last update left, once per start, to app.log (a failure was invisible in the logs before). */
+export function logStartOutcome(installDir: string, dataDirPath: string): void {
+  try { logOutcome(dataDirPath, readOutcome(installDir)); } catch { /* logging never blocks the start */ }
+}
+
+let noticeShown = false;
+/**
+ * After the window is up and the core answers: if the last update did not finish and nobody has acknowledged it, say so once, in a dialog on
+ * the Legion window. Retry downloads and installs again; Dismiss (or Esc) clears the record.
+ */
+export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin'>): Promise<void> {
+  if (noticeShown) return;
+  const n = outcomeNotice(readOutcome(h.installDir));
+  if (!n) return;
+  noticeShown = true;
+  try {
+    const w = h.getWin();
+    const opts = { type: 'warning' as const, title: n.title, message: n.message, buttons: [...n.buttons], defaultId: 0, cancelId: 1, noLink: true };
+    const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
+    if (r.response === 0) {
+      // a rolled-back version is blocked until released; /retry releases it and drops the record, /ack only drops the record
+      if (n.rolledBack) await h.ownCoreCall('POST', '/api/update/retry', { version: n.to });
+      else await h.ownCoreCall('POST', '/api/update/ack', {});
+      await h.ownCoreCall('POST', '/api/update/install', {});
+    } else {
+      await h.ownCoreCall('POST', '/api/update/ack', {});
+    }
+  } catch { /* the Settings panel still shows the record */ }
+}
+
+/** Before the core starts: finish or undo an update that was cut off (waiting out a swap whose helper is still beating). */
 export async function recoverAtStart(installDir: string): Promise<void> {
-  try { await recoverInterrupted(installDir, { runningVersion: VERSION }); } catch { /* never blocks the start */ }
+  try { await recoverAfterLiveSwap(installDir, { runningVersion: VERSION }); } catch { /* never blocks the start */ }
   // A full update leaves a copy of the Electron folder in the temp folder (the helper cannot delete the folder it ran from).
   try { cleanStaleApplyCopies(tmpdir(), { maxAgeMs: 24 * 3600_000, nowMs: Date.now() }); } catch { /* best effort */ }
 }
@@ -67,7 +148,12 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
       copyFileSync(helperSource, join(run, 'apply.mjs'));
       const jobFile = join(run, 'job.json');
       writeFileSync(jobFile, JSON.stringify(buildJob(c.json, { parentPid: process.pid, port: h.pinnedPort(), execPath: process.execPath })));
-      const child = spawn(process.execPath, [join(run, 'apply.mjs'), jobFile], { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+      // A full package swap renames the runtime this process runs from. When a verified copy of it was made ahead of time, start the helper from
+      // that copy (no 36 s copy while the app is gone); otherwise the helper re-runs itself from a fresh copy, as before.
+      const full = process.platform === 'win32' && !!c.json.names?.includes('node_modules');
+      const plan = full ? planApplySpawn({ installDir: h.installDir, srcDir: dirname(process.execPath), exeName: basename(process.execPath) }) : { cmd: process.execPath, fromCopy: false, env: {} as Record<string, string> };
+      if (full) { try { appendFileSync(join(h.installDir, UPDATE_DIR, 'apply.log'), `[${new Date().toISOString()}] ${plan.fromCopy ? 'starting the swap helper from the prepared runtime copy' : 'no verified runtime copy: the helper will make one itself'}\n`); } catch { /* ignore */ } }
+      const child = spawn(plan.cmd, [join(run, 'apply.mjs'), jobFile], { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, ...plan.env, ELECTRON_RUN_AS_NODE: '1' } });
       child.on('error', () => undefined);
       child.unref();
       if (!child.pid) throw new Error('the helper did not start');
@@ -89,6 +175,20 @@ export async function confirmAfterBoot(installDir: string, getHealth: () => Prom
   try { await confirmWhenHealthy(installDir, VERSION, getHealth); } catch { /* ignore */ }
 }
 
+let preparing = false;
+let prepareRetryAt = 0;
+/** While a full package waits in .update/staging, make the out-of-install runtime copy in the background so the apply does not have to. */
+async function keepRuntimeCopyReady(h: UpdaterHost): Promise<void> {
+  if (preparing || Date.now() < prepareRetryAt) return;
+  preparing = true;
+  const note = (t: string): void => { try { appendFileSync(join(h.installDir, UPDATE_DIR, 'apply.log'), `[${new Date().toISOString()}] ${t}\n`); } catch { /* ignore */ } };
+  try {
+    const r = await prepareRuntimeCopy({ installDir: h.installDir, srcDir: dirname(process.execPath), exeName: basename(process.execPath) });
+    if (r.ok && !r.reused) note('prepared the runtime copy for the update helper');
+    if (!r.ok) { note(`could not prepare the runtime copy (${r.error}); the helper will make one itself`); prepareRetryAt = Date.now() + 10 * 60_000; }
+  } finally { preparing = false; }
+}
+
 export function initUpdater(h: UpdaterHost): void {
   ipcMain.handle('legion:update-restart-now', async (e): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> => {
     const win = h.getWin();
@@ -100,6 +200,8 @@ export function initUpdater(h: UpdaterHost): void {
   const timer = setInterval(() => { void (async () => {
     if (applying || dialogOpen) return;
     const st = await h.ownCoreCall('GET', '/api/update/status').catch(() => undefined);
+    if (st?.status === 200 && process.platform === 'win32' && st.json.staged?.kind === 'full') void keepRuntimeCopyReady(h).catch(() => undefined);
+    else if (st?.status === 200) void cleanupRuntimeCopy(h.installDir).catch(() => undefined); // an update landed: the copy has done its job
     if (st?.status === 200 && st.json.readyToApply === true && app.isReady()) await applyNow(h, false);
   })().catch(() => undefined); }, 20_000);
   timer.unref();

@@ -42,6 +42,14 @@ export const FULL_PACKAGE_SET: readonly string[] = Object.freeze([...CODE_SET, '
 export const UPDATE_DIR = '.update';
 /** Written in apply.log by every swap, so a log shows which generation of the helper did it (0.2.7 and older write no stamp). */
 export const APPLY_HELPER_STAMP = 'helper:stepping-stone-1';
+/** The prepared runtime the helper can start from (see runtime-copy.ts). Lives in .update, which the swap never renames. */
+export const RUNTIME_COPY_DIR = 'runtime-copy';
+/** The cross-process update marker (update-marker.ts reads the same file at every start). */
+export const MARKER_FILE_NAME = 'update-in-progress.json';
+/** The marker is a lease: live while its owner beats within this window, whatever process the owner is now. */
+export const MARKER_LEASE_MS = 120_000;
+/** Hard cap: a marker older than this never blocks anything, beating or not. */
+export const MARKER_MAX_MS = 20 * 60_000;
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
 export interface Journal { state: JournalState; from: string; to: string; entries: string[]; /** The entries whose live copy was moved to .update/prev. A rollback restores exactly these. Absent in journals from older helpers. */ hadPrev?: string[]; stagedDir: string; at: number; heartbeat: number }
@@ -82,13 +90,61 @@ export function readOutcome(installDir: string): Outcome | null {
 const writeOutcome = (installDir: string, o: Omit<Outcome, 'at'>): void => writeJson(outcomePath(installDir), { at: new Date().toISOString(), ...o });
 const saveJournal = (installDir: string, j: Journal): void => writeJson(journalPath(installDir), j);
 
-async function renameRetry(from: string, to: string, retryMs: number): Promise<void> {
+export function markerLeaseState(m: { startedAt: number; heartbeat?: number }, nowMs: number): 'capped' | 'leased' | 'lapsed' {
+  if (nowMs - m.startedAt > MARKER_MAX_MS) return 'capped';
+  return m.heartbeat !== undefined && nowMs - m.heartbeat <= MARKER_LEASE_MS ? 'leased' : 'lapsed';
+}
+
+interface MarkerFile { pid: number; startTimeMs: number; fromVersion: string; toVersion: string; startedAt: number; heartbeat: number }
+/**
+ * The helper's own update marker, written to <install>/.update/update-in-progress.json for update-marker.ts to read at the next start.
+ * Self-contained on purpose (this file cannot import update-marker.ts). The first helper begins it; the process the re-exec starts
+ * adopts it (same file, new pid); both beat it, so the lease stays fresh across the hand-over and a dead owner's marker lapses.
+ */
+export function fileMarker(installDir: string, o: { now?: () => number; isAlive?: (pid: number) => boolean } = {}): NonNullable<ApplyDeps['marker']> {
+  const now = o.now ?? Date.now;
+  const alive = o.isAlive ?? ((pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } });
+  const file = join(upDir(installDir), MARKER_FILE_NAME);
+  const read = (): MarkerFile | null => {
+    try {
+      const v = JSON.parse(readFileSync(file, 'utf8')) as Partial<MarkerFile>;
+      return v && Number.isInteger(v.pid) && typeof v.startedAt === 'number' && typeof v.toVersion === 'string' && typeof v.fromVersion === 'string'
+        ? { pid: v.pid as number, startTimeMs: typeof v.startTimeMs === 'number' ? v.startTimeMs : v.startedAt, fromVersion: v.fromVersion, toVersion: v.toVersion, startedAt: v.startedAt, heartbeat: typeof v.heartbeat === 'number' ? v.heartbeat : 0 }
+        : null;
+    } catch { return null; }
+  };
+  const live = (m: MarkerFile): boolean => {
+    const s = markerLeaseState(m, now());
+    return s === 'leased' || (s === 'lapsed' && alive(m.pid));
+  };
+  const write = (m: MarkerFile): void => writeJson(file, m);
+  const fresh = (i: MarkerInfo, startedAt = now()): MarkerFile => ({ pid: process.pid, startTimeMs: startedAt, fromVersion: i.fromVersion, toVersion: i.toVersion, startedAt, heartbeat: now() });
+  const refuse = (m: MarkerFile): BeginResult => ({ ok: false, reason: 'in-progress', message: `an update is already in progress (pid ${m.pid}, ${m.fromVersion} -> ${m.toVersion})` });
+  return {
+    begin(info) {
+      const cur = read();
+      if (cur && live(cur)) return refuse(cur);
+      try { write(fresh(info)); return { ok: true }; } catch (e) { return { ok: false, reason: 'error', message: `could not create the update marker: ${e instanceof Error ? e.message : String(e)}` }; }
+    },
+    adopt(info) {
+      const cur = read();
+      if (cur && live(cur) && cur.toVersion !== info.toVersion) return refuse(cur);
+      try { write(fresh(info, cur && cur.toVersion === info.toVersion ? cur.startedAt : now())); return { ok: true }; } catch (e) { return { ok: false, reason: 'error', message: `could not take over the update marker: ${e instanceof Error ? e.message : String(e)}` }; }
+    },
+    touch() { const cur = read(); if (cur && cur.pid === process.pid) { try { write({ ...cur, heartbeat: now() }); } catch { /* the next beat tries again */ } } },
+    end() { try { rmSync(file, { force: true }); } catch { /* a lapsed lease expires it */ } },
+    isInProgress() { const cur = read(); return !!cur && live(cur); },
+  };
+}
+
+async function renameRetry(from: string, to: string, retryMs: number, beat?: () => void): Promise<void> {
   const end = Date.now() + retryMs;
   for (;;) {
     try { renameSync(from, to); return; }
     catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (!['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'].includes(code ?? '') || Date.now() >= end) throw e;
+      beat?.();
       await sleepMs(500);
     }
   }
@@ -121,14 +177,19 @@ export async function swapIn(o: SwapOptions): Promise<void> {
   const j: Journal = { state: 'swapping', from: o.from, to: o.to, entries: names, hadPrev: names.filter((n) => existsSync(join(installDir, n))), stagedDir, at: Date.now(), heartbeat: Date.now() };
   saveJournal(installDir, j);
   step('journaled');
+  // The heartbeat of a live swap: a start that finds this journal must see a helper that is still working (recoverInterrupted defers
+  // while it is fresh), so beat between entries and while a rename waits for a lock.
+  const beat = (): void => { touchHeartbeat(installDir); };
   try {
     for (const n of names) {
       const live = join(installDir, n);
       step(`before-move:${n}`);
-      if (existsSync(live)) await renameRetry(live, join(prevDir(installDir), n), retryMs);
+      beat();
+      if (existsSync(live)) await renameRetry(live, join(prevDir(installDir), n), retryMs, beat);
       step(`before-install:${n}`);
-      await renameRetry(join(stagedDir, n), live, retryMs);
+      await renameRetry(join(stagedDir, n), live, retryMs, beat);
       step(`after-install:${n}`);
+      beat();
     }
   } catch (e) {
     if ((e as { kill?: boolean }).kill) throw e; // test hook: simulates the process dying here, so nothing may clean up
@@ -201,6 +262,26 @@ export async function cleanPrev(installDir: string): Promise<void> {
 }
 
 /**
+ * Deletes the prepared runtime copy (.update/runtime-copy, ~370 MB) after an update landed. Only when: the journal says committed, no
+ * update marker is left (the helper that ran from the copy has ended it), and the copy was made BEFORE that commit (a copy prepared
+ * afterwards is for the next update). Returns whether it removed anything. Never throws.
+ */
+export async function cleanupRuntimeCopy(installDir: string): Promise<boolean> {
+  try {
+    const dir = join(upDir(installDir), RUNTIME_COPY_DIR);
+    if (!existsSync(dir) || isLink(dir)) return false;
+    const j = readJournal(installDir);
+    if (!j || j.state !== 'committed') return false;
+    if (existsSync(join(upDir(installDir), MARKER_FILE_NAME))) return false;
+    let madeAt = 0;
+    try { madeAt = (JSON.parse(readFileSync(join(dir, '.copy-stamp.json'), 'utf8')) as { at?: number }).at ?? 0; } catch { /* no readable stamp: not a usable copy anyway */ }
+    if (madeAt > j.heartbeat) return false;
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
+    return !existsSync(dir);
+  } catch { return false; }
+}
+
+/**
  * The new build confirms itself only once its core really answers /health with THIS version. A start that is slow, or whose core
  * never came up, must not confirm (and so must not delete the previous copy): the helper's own window decides that case.
  */
@@ -228,6 +309,7 @@ export async function settleAfterStart(installDir: string, runningVersion: strin
     const had = existsSync(prevDir(installDir));
     await cleanPrev(installDir);
     if (had) note(`new build ${runningVersion} removed the previous copy`);
+    if (await cleanupRuntimeCopy(installDir)) note(`new build ${runningVersion} removed the prepared runtime copy`);
   } catch { /* a failed cleanup only leaves a folder behind */ }
 }
 
@@ -290,16 +372,36 @@ function judgeRecovery(journal: Journal | null, runningVersion: string): Recover
   }
 }
 
+/** True while a swap is journaled as `swapping` and its helper still beats: files are moving right now and nothing may be put back. */
+export function swapInFlight(installDir: string, ctx: { nowMs?: number; staleMs?: number } = {}): boolean {
+  const j = readJournal(installDir);
+  return !!j && j.state === 'swapping' && (ctx.nowMs ?? Date.now()) - j.heartbeat <= (ctx.staleMs ?? 120_000);
+}
+
 export async function recoverInterrupted(installDir: string, ctx: { runningVersion: string; nowMs?: number; staleMs?: number }): Promise<'none' | 'rolled-back' | 'awaiting-confirm'> {
   const j = readJournal(installDir);
   if (!j) return 'none';
   const now = ctx.nowMs ?? Date.now();
   // A live helper may still be deciding: defer when the heartbeat is fresh (judgeRecovery has no clock).
   if (j.state === 'awaiting-health' && ctx.runningVersion !== j.to && now - j.heartbeat <= (ctx.staleMs ?? 120_000)) return 'none';
+  // A reopened app must not rename files back under a helper that is still swapping them. The caller waits (swapInFlight) and asks again.
+  if (j.state === 'swapping' && now - j.heartbeat <= (ctx.staleMs ?? 120_000)) return 'none';
   // Singular recovery decision (teardown.ts judgeRecovery).
   const v = judgeRecovery(j, ctx.runningVersion);
   if (v.action === 'swap-back') { await rollback(installDir, v.reason); return 'rolled-back'; }
   return v.action === 'complete' ? 'awaiting-confirm' : 'none';
+}
+
+/**
+ * What main calls at every start: waits while a live helper is still swapping (its heartbeat is fresh), then recovers. The wait ends by itself
+ * when the heartbeat lapses (the helper died) or at `maxWaitMs`, so a start is never held for long. Returns what recoverInterrupted says.
+ */
+export async function recoverAfterLiveSwap(installDir: string, ctx: { runningVersion: string; sleep?: (ms: number) => Promise<void>; now?: () => number; maxWaitMs?: number; pollMs?: number; staleMs?: number }): Promise<'none' | 'rolled-back' | 'awaiting-confirm'> {
+  const now = ctx.now ?? Date.now;
+  const t0 = now();
+  const sleep = ctx.sleep ?? sleepMs;
+  while (swapInFlight(installDir, { nowMs: now(), ...(ctx.staleMs ? { staleMs: ctx.staleMs } : {}) }) && now() - t0 < (ctx.maxWaitMs ?? 150_000)) await sleep(ctx.pollMs ?? 2000);
+  return recoverInterrupted(installDir, { runningVersion: ctx.runningVersion, nowMs: now(), ...(ctx.staleMs ? { staleMs: ctx.staleMs } : {}) });
 }
 
 // ------------------------------------------------------------------ the helper process
@@ -326,7 +428,13 @@ export interface ApplyDeps {
   /** Graceful core shutdown before swap (teardown.ts). Returns ok:false to cancel the update. */
   gracefulTeardown?: (timeoutMs: number) => Promise<{ ok: boolean; error?: string }>;
   /** Cross-process update marker (update-marker.ts). */
-  marker?: { begin(info: MarkerInfo): BeginResult; end(): void; isInProgress(): boolean };
+  marker?: {
+    begin(info: MarkerInfo): BeginResult; end(): void; isInProgress(): boolean;
+    /** The process the re-exec starts takes over the marker of the process that started it (same target), instead of being refused by it. */
+    adopt?(info: MarkerInfo): BeginResult;
+    /** Refreshes the marker's heartbeat. */
+    touch?(): void;
+  };
   /** Data backup before any file is touched (state-preflight.ts). Fail-closed. */
   runPreflight?: () => PreflightResult;
   /** External relaunch waiter (relaunch-waiter.ts). */
@@ -352,13 +460,17 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     }
     return result;
   };
+  let beatAt = 0;
+  const beatMarker = (): void => { const t = Date.now(); if (d.marker?.touch && t - beatAt >= 2000) { beatAt = t; try { d.marker.touch(); } catch { /* the lease just ages */ } } };
   const waitUntil = async (cond: () => boolean | Promise<boolean>, ms: number): Promise<boolean> => {
     const end = Date.now() + ms;
-    for (;;) { if (await cond()) return true; if (Date.now() >= end) return false; await d.sleep(250); }
+    for (;;) { beatMarker(); if (await cond()) return true; if (Date.now() >= end) return false; await d.sleep(250); }
   };
   // Cross-process update marker: refuse if another update owns this install (update-marker.ts).
   if (d.marker) {
-    const begin = d.marker.begin({ fromVersion: job.from, toVersion: job.to });
+    const info = { fromVersion: job.from, toVersion: job.to };
+    // A re-exec'd process (or one started straight from the prepared runtime copy) carries LEGION_APPLY_REEXEC: it adopts the marker.
+    const begin = process.env.LEGION_APPLY_REEXEC === '1' && d.marker.adopt ? d.marker.adopt(info) : d.marker.begin(info);
     if (!begin.ok) {
       d.log(`update refused: ${begin.message}`);
       writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: begin.message });
@@ -415,6 +527,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   }
   // Swap (journaled rename).
   progress({ stage: 'swap', message: 'Installing the update', percent: 50 });
+  beatAt = 0; beatMarker();
   try {
     await swapIn({ installDir, stagedDir: job.stagedDir, from: job.from, to: job.to, retryMs: job.swapRetryMs ?? 15_000, ...(job.names ? { names: job.names } : {}), ...(d.step ? { step: d.step } : {}) });
   } catch (e) {
@@ -447,6 +560,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   const win = healthWindow(job);
   const isHealthy = async (): Promise<boolean> => {
     touchHeartbeat(installDir);
+    beatMarker();
     const h = await d.health(job.port);
     return !!h && h.ok && h.version === job.to;
   };
@@ -474,8 +588,10 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   if (d.marker) d.marker.end();
   return finish('rolled-back');
 }
-export function realDeps(installDir: string): ApplyDeps {
+export function realDeps(installDir: string, job?: { port: number }): ApplyDeps {
+  const port = job?.port ?? 4747;
   return {
+    marker: fileMarker(installDir),
     isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } },
     health: async (port) => {
       try {
@@ -531,11 +647,13 @@ export function realDeps(installDir: string): ApplyDeps {
     log: (line) => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } },
     gracefulTeardown: async (timeoutMs: number) => {
       // Best-effort core shutdown via the admin endpoint, then wait for the port to go silent.
-      try { await fetch('http://127.0.0.1:4747/admin/shutdown', { method: 'POST', signal: AbortSignal.timeout(2000) }); } catch { /* core may not be running */ }
+      // The port is the job's (a pinned or configured port, not always 4747). There is no shutdown route on the core yet, so this is a no-op
+      // plus the health wait below; the only thing that stops a core is its parent app.
+      try { await fetch(`http://127.0.0.1:${port}/admin/shutdown`, { method: 'POST', signal: AbortSignal.timeout(2000) }); } catch { /* core may not be running */ }
       const end = Date.now() + timeoutMs;
       for (;;) {
         try {
-          const r = await fetch('http://127.0.0.1:4747/health', { signal: AbortSignal.timeout(1500) });
+          const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) });
           if (!r.ok) return { ok: true };
         } catch { return { ok: true }; }
         if (Date.now() >= end) return { ok: false, error: 'the Legion core did not exit in time; nothing was changed' };
@@ -550,5 +668,5 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   const jobFile = process.argv[2] ?? '';
   let job: ApplyJob | null = null;
   try { job = JSON.parse(readFileSync(jobFile, 'utf8')) as ApplyJob; } catch { /* no job: nothing to do */ }
-  if (job) void (async () => { try { cleanStaleApplyCopies(tmpdir(), { maxAgeMs: 86_400_000, nowMs: Date.now() }); } catch { /* best effort */ } return runApply(job, realDeps(job.installDir)); })().then((r) => process.exit(r === 'ok' || r === 're-exec' ? 0 : 1)).catch(() => process.exit(2));
+  if (job) void (async () => { try { cleanStaleApplyCopies(tmpdir(), { maxAgeMs: 86_400_000, nowMs: Date.now() }); } catch { /* best effort */ } return runApply(job, realDeps(job.installDir, job)); })().then((r) => process.exit(r === 'ok' || r === 're-exec' ? 0 : 1)).catch(() => process.exit(2));
 }
