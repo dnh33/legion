@@ -291,7 +291,10 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         // The manifest did not declare the dependency change, but the app package's lock content differs from what is
         // installed (checkTree throws 'full-install'), or the install has no readable lock. When the release ALSO ships a
         // signed full package, apply that rather than giving up; otherwise this stays the notify-only fallback.
+        let fellBack = false;
         if (e instanceof StageError && e.code === 'full-install' && a.fullAsset) {
+          fellBack = true;
+          log('updater stage refused, trying the signed full package', e.code, e.message); // the refusal that starts the fallback; a 285 MB failure must leave a trace
           try {
             staged = await stageFullPackage(stageOpts);
             consent = true; phase = 'staged';
@@ -300,9 +303,13 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         }
         phase = 'idle'; staged = null; consent = false;
         if (e instanceof StageError) {
+          log('updater stage refused', e.code, e.message); // a refusal must be visible in the app log, not only in the panel
           error = e.code === 'full-install' ? 'This release changes dependencies. Download its source and run setup.cmd.' : `The update was not installed: ${e.message}`;
           if (e.code === 'full-install' && available) available.manifest = { ...available.manifest, requiresFullInstall: true };
-        } else if (e instanceof NetError) error = `The update was not downloaded: ${e.message}`;
+        } else if (e instanceof NetError) {
+          log(fellBack ? 'updater full package download failed' : 'updater download failed', e.message);
+          error = `The update was not downloaded: ${e.message}`;
+        }
         else { error = 'The update could not be prepared.'; log('updater stage failed', e instanceof Error ? e.message : String(e)); }
         return { ok: false };
       } finally { progress = undefined; }

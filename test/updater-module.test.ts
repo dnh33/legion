@@ -24,7 +24,7 @@ const T0 = Date.parse('2026-10-20T12:00:00Z');
 interface Rig { mod: UpdaterModule; srv: FakeServer; store: Store; approvals: ApprovalBroker; root: string; data: string; clock: { t: number }; engine: FakeEngine; routes: Map<string, (c: unknown) => unknown>; call: (method: string, path: string, c?: { body?: unknown; admin?: boolean; native?: string | false }) => Promise<unknown> }
 interface FakeEngine { started: unknown[]; cancelled: string[]; live: Set<string>; running(): string[]; cancel(id: string): boolean; startTask(p: unknown): unknown }
 
-async function rig(release: Release | null, o: { version?: string; platform?: NodeJS.Platform; git?: boolean; keys?: boolean; probes?: Record<string, () => boolean> } = {}): Promise<Rig> {
+async function rig(release: Release | null, o: { version?: string; platform?: NodeJS.Platform; git?: boolean; keys?: boolean; probes?: Record<string, () => boolean>; log?: (...a: unknown[]) => void } = {}): Promise<Rig> {
   const srv = await startFakeServer(release);
   const root = cleanupTemp('upd-root-'); const data = cleanupTemp('upd-data-');
   writeFileSync(join(root, 'package-lock.json'), LOCK);
@@ -40,7 +40,7 @@ async function rig(release: Release | null, o: { version?: string; platform?: No
   };
   const clock = { t: T0 };
   const deps = { config: {}, store, bus, engine, approvals, dataDir: data, bsvEnabled: () => false } as unknown as ModuleDeps;
-  const mod = createUpdaterModule(deps, { root, nativeSecret: NATIVE, source: srv.source, keys: o.keys === false ? [] : [k.key], version: o.version ?? '0.2.0', platform: o.platform ?? 'win32', timers: false, now: () => clock.t, ...(o.probes ? { probes: o.probes } : {}), freeBytes: () => 10 ** 12 });
+  const mod = createUpdaterModule(deps, { root, nativeSecret: NATIVE, source: srv.source, keys: o.keys === false ? [] : [k.key], version: o.version ?? '0.2.0', platform: o.platform ?? 'win32', timers: false, now: () => clock.t, ...(o.probes ? { probes: o.probes } : {}), ...(o.log ? { log: o.log } : {}), freeBytes: () => 10 ** 12 });
   const routes = new Map<string, (c: unknown) => unknown>();
   mod.routes!(((m: string, p: string, h: (c: unknown) => unknown) => { routes.set(`${m} ${p}`, h); }) as unknown as RouteAdder);
   const call = async (method: string, path: string, c: { body?: unknown; admin?: boolean; native?: string | false } = {}) => {
@@ -341,6 +341,16 @@ test('C10b: a dependency-change release WITHOUT a signed full package stays noti
   } finally { await notify.srv.close(); }
 });
 
+test('a refused stage (StageError) is written to the app log with its code, not only shown in the panel', async () => {
+  const lines: string[] = [];
+  const notify = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}' }), { log: (...a) => { lines.push(a.map(String).join(' ')); } });
+  try {
+    await notify.mod.check(true);
+    assert.deepEqual(await notify.mod.install(), { ok: false });
+    assert.ok(lines.some((l) => /updater stage refused/.test(l) && /full-install/.test(l)), `log lines: ${JSON.stringify(lines)}`);
+  } finally { await notify.srv.close(); }
+});
+
 test('C10c: a lock that changed WITHOUT the flag is caught at staging and escalated to the signed full package', async () => {
   // requiresFullInstall is false, so the route is 'code'. The app package's dependency CONTENT differs from the installed
   // lock, so checkTree throws full-install; because a fullAsset is signed, install() applies the full package, not give up.
@@ -353,6 +363,31 @@ test('C10c: a lock that changed WITHOUT the flag is caught at staging and escala
     assert.equal(s.phase, 'staged');
     assert.equal(s.staged?.kind, 'full');
     assert.ok(r.srv.hits.some((h) => h.includes('/legion-0.2.1-win-x64.zip')), 'the full package was fetched after the app package failed the deps check');
+  } finally { await r.srv.close(); }
+});
+
+test('the full-install refusal that triggers the full-package fallback is written to the app log', async () => {
+  const lines: string[] = [];
+  const r = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}', full: {} }), { log: (...a) => { lines.push(a.map(String).join(' ')); } });
+  try {
+    await r.mod.check(true);
+    assert.deepEqual(await r.mod.install(), { ok: true });
+    assert.ok(lines.some((l) => /updater stage refused/.test(l) && /full-install/.test(l) && /full package/i.test(l)), `log lines: ${JSON.stringify(lines)}`);
+    assert.ok(!lines.some((l) => /updater stage (failed|refused)/.test(l) && /download failed/.test(l)), 'the fallback worked, so no failure line');
+  } finally { await r.srv.close(); }
+});
+
+test('a network failure during the full-package fallback is written to the app log next to the refusal that started it', async () => {
+  const lines: string[] = [];
+  const r = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}', full: {} }), { log: (...a) => { lines.push(a.map(String).join(' ')); } });
+  try {
+    await r.mod.check(true);
+    // a dropped connection is a NetError
+    r.srv.handler.custom = (req, res) => { if ((req.url ?? '').endsWith('-win-x64.zip')) { req.socket.destroy(); return true; } return false; };
+    assert.deepEqual(await r.mod.install(), { ok: false });
+    assert.ok(lines.some((l) => /updater stage refused/.test(l) && /net/.test(l) && /could not reach/.test(l)), `log lines: ${JSON.stringify(lines)}`);
+    assert.ok(lines.some((l) => /full-install/.test(l)), 'the refusal that started the fallback is logged too');
+    assert.match((await r.mod.status()).error ?? '', /could not reach the update server/);
   } finally { await r.srv.close(); }
 });
 

@@ -4,7 +4,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
-- **Keep your knowledge fresh.** The Lattice's Lint tab now lists stale notes with their age, sources and confidence. Each one has Refresh, where the Archivist re-checks its sources and proposes an update you accept in the Inbox, and Still current, for a note you checked yourself.
+### Fixed
+
+- **The Lattice no longer goes blank when one note has many links.** A note linked from dozens of others pulled the layout apart until nothing was on screen. Busy notes now move less, and no note can jump far in one step.
 
 ## [0.3.0] - 2026-10-14
 

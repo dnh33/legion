@@ -14,5 +14,5 @@
       }
     }
   },
-  "pinNote": "sha256 of the stone as published, recorded after release. Every later release must carry the first two byte for byte under the old name. Nothing reads pins yet: enforcing them in stone-check is a follow-up."
+  "pinNote": "sha256 of the stone as published, recorded after release. Every later release must carry the first two byte for byte under the old name. scripts/stone-check.mjs (the daily CI job) compares the live files with these pins; the unit tests stay offline."
 }
