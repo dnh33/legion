@@ -16,6 +16,8 @@
   --accent-hover: #9dffc6;
   --accent-soft: rgba(124, 255, 178, .10);
   --accent-line: rgba(124, 255, 178, .35);
+  /* keyboard focus with the rings off: a tint over the control, the same weight as its hover */
+  --focus-tint: rgba(230, 233, 239, .08);
   --warn: #FFCC66;
   --danger: #FF6B6B;
   --danger-soft: rgba(255, 107, 107, .10);
@@ -53,6 +55,7 @@
   --accent-hover: #066a3d;
   --accent-soft: rgba(12, 159, 94, .09);
   --accent-line: rgba(12, 159, 94, .4);
+  --focus-tint: rgba(20, 23, 28, .07);
   --warn: #8f5d0c;
   --danger: #c0343e;
   --danger-soft: rgba(214, 64, 74, .08);

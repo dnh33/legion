@@ -31,7 +31,7 @@
 
 /* New task */
 .pg-comp { position: relative; border: 1px solid var(--control-line); border-radius: var(--r-lg); background: var(--bg); padding: 12px 13px; }
-.pg-comp:focus-within { border-color: var(--text-2); }
+:where(:root[data-focus-rings]) .pg-comp:focus-within { border-color: var(--text-2); }
 .pg-comp textarea { display: block; width: 100%; min-height: 140px; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; resize: none; outline: none; }
 .pg-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 0; }
 .pg-pills .pl { color: var(--muted); font-size: 12.5px; }
@@ -43,7 +43,7 @@
 .pg-pills .pg-pill:nth-of-type(2) { padding-left: 12px; }
 .pg-sh-conf { font-size: 12.5px; color: var(--text-2); padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); }
 .pg-busy-n { padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface-2); font-size: 13px; }
-:root[data-kbd-nav] .pg-busy-n:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .pg-busy-n:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .pg-busy-n b { font-weight: 600; }
 .pg-busy-n p { margin: 2px 0 0; color: var(--text-2); font-size: 12.5px; }
 .pg-busy-n .opts2 { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

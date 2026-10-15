@@ -1,4 +1,4 @@
-export type SettingsSection = 'claude' | 'gates' | 'notifications' | 'spending' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
+export type SettingsSection = 'claude' | 'gates' | 'accessibility' | 'notifications' | 'spending' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
 
 export interface NavItem { id: SettingsSection; label: string; hint: string }
 export interface NavGroup { heading: string | null; ids: SettingsSection[] }
@@ -9,7 +9,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { heading: 'Your agents', ids: ['gates', 'armory', 'house'] },
   { heading: 'Staying informed', ids: ['spending', 'notifications'] },
   { heading: 'Connections', ids: ['mcp', 'github', 'providers', 'connections', 'boat', 'blender'] },
-  { heading: 'Advanced', ids: ['logs', 'compaction'] },
+  { heading: 'Advanced', ids: ['accessibility', 'logs', 'compaction'] },
   { heading: null, ids: ['about'] },
 ];
 
@@ -26,6 +26,7 @@ const ITEMS: Record<SettingsSection, Omit<NavItem, 'id'>> = {
   connections: { label: 'Use from Claude', hint: 'Drive Legion from Claude Code' },
   boat: { label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   blender: { label: 'Blender', hint: 'Build 3D with the Sculptor' },
+  accessibility: { label: 'Accessibility', hint: 'Focus rings for the keyboard' },
   logs: { label: 'Logs', hint: 'What Legion did, on your computer' },
   compaction: { label: 'Compaction', hint: 'Context limits for long runs' },
   about: { label: 'About', hint: 'Version and folders' },

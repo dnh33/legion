@@ -10,7 +10,7 @@
 .rm-side { width: 272px; flex: none; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-right: 1px solid var(--line); }
 .rm-side-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px 6px 16px; color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .rm-search { display: flex; align-items: center; gap: 6px; height: 30px; margin: 2px 10px 6px; padding: 0 4px 0 9px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--muted); transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease); }
-.rm-search:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav] .rm-search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-focus-rings]) .rm-search:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .rm-search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .rm-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; color: var(--text); }
 .rm-search input::placeholder { color: var(--faint); }
 .rm-search input::-webkit-search-cancel-button { display: none; }
@@ -198,14 +198,14 @@ button.rm-reply:hover { color: var(--text); border-left-color: var(--muted); }
 .form label.rm-pickcard:hover { border-color: var(--line-strong); }
 .form label.rm-pickcard.on { border-color: var(--accent-line); background: var(--accent-soft); }
 .form label.rm-pickcard.off { opacity: .5; cursor: not-allowed; }
-.form label.rm-pickcard:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+:root[data-kbd-nav][data-focus-rings] .form label.rm-pickcard:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rm-pick-text { min-width: 0; display: flex; flex-direction: column; flex: 1; line-height: 1.3; }
 .rm-pick-text b { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-pick-text span { color: var(--muted); font-size: 11.5px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-strats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .form label.rm-strat { flex-direction: row; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); color: var(--text); cursor: pointer; transition: border-color var(--t), background var(--t); }
 .form label.rm-strat.on { border-color: var(--accent-line); background: var(--accent-soft); }
-.form label.rm-strat:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+:root[data-kbd-nav][data-focus-rings] .form label.rm-strat:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rm-strat input { margin: 2px 0 0; accent-color: var(--accent-text); flex: none; }
 .rm-strat > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .rm-strat b { font-size: 13px; font-weight: 600; }
