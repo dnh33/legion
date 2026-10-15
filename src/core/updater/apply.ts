@@ -13,7 +13,7 @@ import { execFile, spawn } from 'node:child_process';
 import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // C21: this helper is copied alone to <install>/.update/run/apply.mjs and run standalone during the swap,
 // so it imports node: builtins ONLY. The types and the pure recovery judge are inlined here (no sibling
@@ -767,8 +767,10 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
         writeFileSync(join(dir, 'window-job.json'), JSON.stringify({ installDir, updateId: job.updateId, helperPid: process.pid, appPid: job.appPid, userData: job.window.userData, from: job.from, to: job.to, kind: job.names?.includes('node_modules') ? 'full' : 'code', startedAt: Date.now(), ...(job.relaunch ? { relaunch: job.relaunch } : {}) }));
         if (plan === 'patch') {
           // Electron runs resources/app and ignores a folder argument: point the copy's shim at the window for the start, then put the original bytes back.
-          const slash = (x: string): string => x.split(sep).join('/');
-          const main = posix.relative(slash(dirname(shim)), slash(join(dir, 'dist', 'src', 'electron', 'update-window-main.js')));
+          // Electron joins resources/app and `main`, so `main` must be relative. Another drive has no relative path: no window then.
+          const rel = relative(dirname(shim), join(dir, 'dist', 'src', 'electron', 'update-window-main.js'));
+          if (isAbsolute(rel)) { log('window: not started (the runtime copy is on another drive than the install)'); return; }
+          const main = rel.split(sep).join('/');
           try {
             shimOriginal = readFileSync(shim); shimFile = shim;
             writeFileSync(shim, JSON.stringify({ name: 'legion', version: '0.0.0', main }));

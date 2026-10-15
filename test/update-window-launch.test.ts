@@ -161,3 +161,25 @@ test('main.ts exits at once when it was started as the update window, before any
   assert.ok(guard < src.indexOf('const here = '), 'it comes before any path');
   assert.ok(guard < src.indexOf('requestSingleInstanceLock'), 'and before the lock');
 });
+
+test('patch: a runtime copy in the temp folder on another drive than the install starts no window and leaves the shim alone', () => {
+  // the install on another drive than %TEMP% (the re-exec copy lives in %TEMP%): there is no relative path from the shim to the window
+  const otherRoot = process.platform === 'win32' ? ['D:/', 'C:/', 'E:/'].map((d) => parse(join(d, 'x')).root).find((d) => existsSync(d) && parse(tmpdir()).root.toUpperCase() !== d) : undefined;
+  if (!otherRoot) return; // needs two drives
+  const install = mkdtempSync(join(otherRoot, 'lwl-x-'));
+  const rt = mkdtempSync(join(tmpdir(), 'lwl-rt-'));
+  try {
+    mkdirSync(join(rt, 'resources', 'app'), { recursive: true });
+    writeFileSync(join(rt, 'resources', 'app', 'package.json'), SHIM);
+    const dir = join(install, '.update', 'run', 'window');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), '{}');
+    const lines: string[] = []; let spawns = 0;
+    const w = realWindow(install, { updateId: 'u', from: 'a', to: 'b', window: { enabled: true, userData: 'x' } }, (l) => lines.push(l), { execPath: join(rt, 'electron.exe'), spawn: (() => { spawns += 1; return {}; }) as never });
+    w.start();
+    assert.equal(spawns, 0);
+    assert.ok(lines.some((l) => l.includes('window: not started (the runtime copy is on another drive than the install)')), lines.join('\n'));
+    assert.equal(readFileSync(join(rt, 'resources', 'app', 'package.json'), 'utf8'), SHIM);
+    w.dispose?.();
+  } finally { rmSync(install, { recursive: true, force: true }); rmSync(rt, { recursive: true, force: true }); }
+});
