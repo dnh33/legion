@@ -9,7 +9,7 @@ import type { WorkItem } from '../src/shared/board.js';
 import { BoardStore } from '../src/core/projects/board/store.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { applyFilters, byColumn, cardLabel, descCounter, dueState, dueText, keyMove, learnDraft, moveAnnouncement, moveLocal, NO_FILTERS, parseAssignee, priorityMark, readFilters, shouldOfferNote } from '../ui/src/projects/board/boardLogic.js';
+import { applyFilters, byColumn, cardLabel, reviewBadge, descCounter, dueState, dueText, keyMove, learnDraft, moveAnnouncement, moveLocal, NO_FILTERS, parseAssignee, priorityMark, readFilters, shouldOfferNote } from '../ui/src/projects/board/boardLogic.js';
 
 const I = (id: string, status: WorkItem['status'], order: number, over: Partial<WorkItem> = {}): WorkItem => ({
   id, projectId: 'p', title: id, description: '', status, assignee: null, priority: 'normal', labels: [], order, createdBy: { kind: 'owner' }, updatedBy: { kind: 'owner' },
@@ -93,4 +93,42 @@ test('C19 Save what we learned: offered once when an item is closed without a no
   assert.match(d.body, /What the last run reported:\nCut the tiers to three\./); assert.match(d.body, /- SCOUT: Annual toggle confused people/); assert.ok(!d.body.includes('owner note'));
   assert.match(d.body, /What we learned:\n- $/);
   assert.ok(learnDraft(I('wi_000000000008', 'done', 0, { title: 'x'.repeat(120), lastRun: { taskId: 't', status: 'done', endedAt: '', tainted: false, preview: 'y'.repeat(9000) } }), (x) => x).body.length <= 4000);
+});
+
+test('polish 0.3.1: an accepted proposal does not read "Not reviewed"; the other review states keep their words', () => {
+  const plain = I('wi_000000000001', 'backlog', 0, { trust: 'untrusted', createdBy: { kind: 'agent', id: 'scout' } });
+  assert.deepEqual(reviewBadge(plain), { tone: 'warn', text: 'Not reviewed' });
+  const acc = { ...plain, acceptedAt: '2026-10-15T08:00:00.000Z' };
+  assert.deepEqual(reviewBadge(acc), { tone: 'accepted', text: 'Accepted, runs ask first' });
+  assert.ok(!/not reviewed/i.test(cardLabel(acc, (x) => x)), 'the card name agrees with the badge');
+  assert.ok(/not reviewed/i.test(cardLabel(plain, (x) => x)), 'an unaccepted agent item still says so');
+  assert.deepEqual(reviewBadge({ ...plain, createdBy: { kind: 'agent', id: 'scout', tainted: true } }), { tone: 'taint', text: 'Outside content, not reviewed' });
+  assert.deepEqual(reviewBadge({ ...acc, createdBy: { kind: 'agent', id: 'scout', tainted: true } }), { tone: 'taint', text: 'Accepted, outside content' });
+  assert.equal(reviewBadge(I('wi_000000000002', 'backlog', 0, { trust: 'human' })), null, 'a reviewed item has no badge');
+});
+
+test('polish 0.3.1: the board reads its review badge from one helper, and the work-item dialog keeps Save, Run and Delete in the Modal footer', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'board', 'BoardPanel.tsx'), 'utf8');
+  assert.equal((src.match(/<ReviewNote item=\{i\} \/>/g) ?? []).length, 2, 'the card and the list row both use the note');
+  assert.equal((src.match(/reviewBadge\(item\)/g) ?? []).length, 1, 'one place turns the helper into a badge');
+  assert.doesNotMatch(src, /Not reviewed<\/span>/, 'no hard-coded "Not reviewed" badge is left');
+  const dialog = src.slice(src.indexOf('function ItemDialog('));
+  const foot = dialog.indexOf('footer={<div className="bd-actions">');
+  const form = dialog.indexOf('<form id="bd-item-form"');
+  assert.ok(foot > 0 && form > 0, 'the action row is the Modal footer and the form has an id');
+  assert.ok(foot < form, 'the footer is passed to Modal, outside the scrolling form');
+  const footer = dialog.slice(foot, form);
+  assert.match(footer, /type="submit" form="bd-item-form"/, 'Save is in the footer and submits the form by id');
+  assert.match(footer, /Run this item/); assert.match(footer, /Delete/); assert.match(footer, /Cancel/);
+  assert.doesNotMatch(dialog.slice(form, dialog.indexOf('</Modal>')), />Run this item<|>Really delete<|>Delete</, 'the main actions are not left inside the scrolling body (the learn sub-form keeps its own)');
+});
+
+test('polish 0.3.1: the work-item dialog is a Modal, and the Modal portals to the body (PR #156), so a scrolling project page cannot cut its top off', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'board', 'BoardPanel.tsx'), 'utf8');
+  const dialog = src.slice(src.indexOf('function ItemDialog('));
+  assert.match(dialog, /return \(\n    <Modal /, 'the dialog is the shared Modal, not a second portal');
+  const modal = readFileSync(join(here, '..', '..', 'ui', 'src', 'components', 'Modal.tsx'), 'utf8');
+  assert.match(modal, /createPortal\(dialog, document\.body\)/, 'the shared Modal renders into the body');
 });

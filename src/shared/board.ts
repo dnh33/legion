@@ -39,6 +39,8 @@ export interface WorkItem {
   trust: 'human' | 'untrusted';
   /** Present only while the item waits in the Inbox. */
   proposal?: { suggestedAssignee?: string };
+  /** When the owner accepted it from the Inbox. Not a review: trust stays `untrusted` and the run limits stay until "reviewed". Cleared when an agent edits the text. */
+  acceptedAt?: string;
   taskIds: string[];
   roomIds: string[];
   /** Library notes about this item (project-scope note ids): linked by the owner, by an agent that names them, or automatically for notes a run saved. */

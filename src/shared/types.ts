@@ -354,7 +354,11 @@ export interface QueueItem { taskId: string; reason: QueueReason; /** 1 = next i
 export interface QueueSnapshot { cap: number; running: number; items: QueueItem[] }
 
 /** Counts of what waits on the owner, by project (`none` = a task with no project). Never carries the text of an ask. */
-export interface AttentionView { total: number; working: number; byProject: Record<string, number> }
+export interface AttentionView {
+  total: number; working: number; byProject: Record<string, number>;
+  /** The oldest proposal waiting in any Inbox (ids only), so "open what needs you" can open it. Absent when none waits. */
+  nextProposal?: { projectId: string; itemId: string; agentId: string };
+}
 
 /** A run stopped on purpose and waiting for an answer (PR 5 fills this; the field exists so clients can already read it). */
 export interface ParkedAsk {

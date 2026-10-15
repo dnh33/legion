@@ -3,11 +3,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkItem } from '../src/shared/board.js';
 import { deriveAsks } from '../src/shared/attention.js';
-import { waitingElsewhere } from '../ui/src/projects/projectsLogic.js';
+import { badgeCompact, elsewhereBadge, proposalsSettled, waitingElsewhere, waitingLiveStep, type WaitLive } from '../ui/src/projects/projectsLogic.js';
+import { askTarget } from '../ui/src/projects/railRoute.js';
 import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
 import {
-  ageText, asksOf, budgetBanner, digestHeader, foldedLine, hereRuns, liveRuns, metaParts, money, nextTab, pageStatus, projectMenu, railLine,
+  ageText, agentAsks, asksOf, budgetBanner, digestHeader, foldedLine, hereRuns, liveRuns, metaParts, money, nextTab, pageStatus, projectMenu, railLine,
   runsMenu, shortProjectName, sinceFor, spendBlock, stateGroups, stopDetail, tabDefs, unitModel, workingAgents, type PageFacts,
 } from '../ui/src/projects/page/pageLogic.js';
 
@@ -276,5 +277,56 @@ test('one pending proposal counts the same on the page, the project menu, the ra
   assert.equal(rows[0]!.kind, 'proposal');
   assert.equal(rows[0]!.projectId, P2);
   assert.equal(rows[0]!.label, 'Scout proposes a board item in Atlas: Move the deploy');
+  assert.equal(rows[0]!.short, 'Atlas: Move the deploy', 'the rail row leads with the project, then the title');
   assert.equal(waitingElsewhere([], [], [], [{ id: P2, name: 'Atlas', status: 'active', members: ['scout'] }] as never, { scout: 'Scout' }, P2, [prop]).length, 0, 'in its own project it is on the page, not "elsewhere"');
+});
+
+test('rail parity: the agent rail count equals the list its click opens from, and every entry has a target', () => {
+  const prop2 = { id: 'wi9', projectId: P1, title: 'Move the deploy', description: '', status: 'backlog', assignee: null, priority: 'normal', labels: [], order: 0, createdBy: { kind: 'agent', id: 'builder' }, updatedBy: { kind: 'agent', id: 'builder' }, createdAt: iso('11:00'), updatedAt: iso('11:00'), trust: 'untrusted', proposal: {}, taskIds: [], roomIds: [], noteIds: [], activity: [] } as never;
+  const f = base({ tasks: [task('t1', 'builder')], approvals: [approval('a1', 't1', 'builder')], board: { items: [], inbox: [prop2] } });
+  const asks = agentAsks(f, 'builder', P1);
+  assert.equal(asks.length, 2);
+  assert.equal(railLine(f, 'builder', P1, 'role').text, '2 things need you');
+  for (const a of asks) assert.notEqual(askTarget(a, f.tasks).kind, 'none', `${a.kind} has somewhere to go`);
+  assert.deepEqual(asks.map((a) => askTarget(a, f.tasks).kind).sort(), ['thread', 'thread'], 'both open a chat: the approval its thread, the proposal the agent\'s newest chat in the project');
+  assert.equal(agentAsks(f, 'scout', P1).length, 0);
+});
+
+test('the switcher badge keeps the number and the full words for the title, so the words can collapse on a narrow rail', () => {
+  assert.deepEqual(elsewhereBadge(4), { count: '4', words: 'waiting elsewhere', full: '4 waiting elsewhere' });
+  assert.deepEqual(elsewhereBadge(1), { count: '1', words: 'waiting elsewhere', full: '1 waiting elsewhere' });
+});
+
+test('the live line is silent until the proposals source has loaded once, then announces each real change, and a filter change is silent', () => {
+  let st: WaitLive | null = null;
+  let r = waitingLiveStep(st, null, [], false); st = r.st; assert.equal(r.line, null, 'launch: nothing is announced');
+  r = waitingLiveStep(st, null, ['a'], false); st = r.st; assert.equal(r.line, null, 'the initial load is silent while the source has not loaded');
+  r = waitingLiveStep(st, null, ['a'], true); st = r.st; assert.equal(r.line, null, 'what the source loaded first is the baseline');
+  r = waitingLiveStep(st, null, ['a', 'b'], true); st = r.st; assert.equal(r.line, '2 items need you');
+  r = waitingLiveStep(st, null, ['b', 'a'], true); st = r.st; assert.equal(r.line, null, 'the same items in another order are silent');
+  r = waitingLiveStep(st, null, ['b', 'c'], true); st = r.st; assert.equal(r.line, '2 items need you', 'a swap of one item is a real change');
+  r = waitingLiveStep(st, 'p2', ['x'], true); st = r.st; assert.equal(r.line, null, 'a project-filter change re-bases silently');
+  r = waitingLiveStep(st, 'p2', ['x', 'y', 'z'], true); st = r.st; assert.equal(r.line, '3 items need you');
+  r = waitingLiveStep(st, 'p2', [], true); st = r.st; assert.equal(r.line, 'Nothing else needs you');
+});
+
+test('after the source has loaded, the first proposal into an empty list announces', () => {
+  const base = waitingLiveStep(null, null, [], true);
+  const r = waitingLiveStep(base.st, null, ['proposal:p1'], true);
+  assert.equal(r.line, '1 item needs you');
+});
+
+test('proposalsSettled: not until the projects are in and every active board has been tried once; with no boards it is settled', () => {
+  assert.equal(proposalsSettled({ projectsLoaded: false, enabled: 'no', activeIds: [], attempted: {} }), false, 'no projects yet');
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'unknown', activeIds: ['p1'], attempted: {} }), false, 'the board probe has not answered');
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'yes', activeIds: ['p1', 'p2'], attempted: { p1: true } }), false, 'p2 has not been tried');
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'yes', activeIds: ['p1', 'p2'], attempted: { p1: true, p2: true } }), true);
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'no', activeIds: ['p1'], attempted: {} }), true, 'the board is off: nothing to load');
+});
+
+test('the switcher badge words hide exactly when the name would be cut with them shown (its room is the space it has now, less the words if they show)', () => {
+  assert.equal(badgeCompact(false, 100, 80, 30), true, 'the name needs 100, the box gives 80 with the words');
+  assert.equal(badgeCompact(false, 60, 80, 30), false, 'the name fits beside the words');
+  assert.equal(badgeCompact(true, 60, 110, 30), false, 'collapsed, the name fits once the words come back');
+  assert.equal(badgeCompact(true, 100, 110, 30), true, 'collapsed, it still would not fit with the words');
 });

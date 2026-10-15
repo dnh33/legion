@@ -8,8 +8,8 @@ import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import type { ProviderView, ProvidersView } from '../../../src/shared/providers-view';
 
-export interface ProvidersUiState { view: ProvidersView | null; loaded: boolean; busy: string | null; error: string | null; notes: Record<string, string> }
-let state: ProvidersUiState = { view: null, loaded: false, busy: null, error: null, notes: {} };
+export interface ProvidersUiState { view: ProvidersView | null; loaded: boolean; busy: string | null; error: string | null; notes: Record<string, string>; /** The picker's background model refresh is in flight. */ refreshing: boolean }
+let state: ProvidersUiState = { view: null, loaded: false, busy: null, error: null, notes: {}, refreshing: false };
 const listeners = new Set<() => void>();
 const set = (p: Partial<ProvidersUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -60,6 +60,20 @@ export const removeProvider = (id: string) => act(id, () => request<ProvidersVie
 export const saveLimits = (maxTurns: number, maxToolCallsPerTurn: number) => act('limits', () => request<ProvidersView>('PUT', '/api/providers/limits', { maxTurns, maxToolCallsPerTurn }));
 export const testProvider = (id: string) => act(id, async () => { await request('POST', `/api/providers/${id}/test`); await loadProviders(); });
 export const refreshModels = (id: string) => act(id, async () => { await request('POST', `/api/providers/${id}/models`); await loadProviders(); });
+/** The picker's Retry for one provider: the loading state shows while the refresh runs, then the new result. */
+export async function retryModels(id: string): Promise<void> {
+  set({ refreshing: true });
+  try { await refreshModels(id); } finally { set({ refreshing: false }); }
+}
+/**
+ * The picker's daily refresh: fetches only the lists that are missing or a day old, and answers with the view. Never fails the picker,
+ * and it does not set `busy`: the fetch can take a while, and Settings actions must stay open while it runs.
+ */
+export async function refreshStaleModels(): Promise<void> {
+  // The loading line shows only when a list will really be fetched, not on every open.
+  set({ refreshing: modelsStale(state.view) });
+  try { set({ view: await request<ProvidersView>('POST', '/api/providers/auto-models') }); } catch { /* the saved lists stay; a failure shows as the provider's last error */ } finally { set({ refreshing: false }); }
+}
 
 /** The model values the pickers offer for providers that are switched on: `<provider>:<model>`. */
 export function providerModelGroups(v: ProvidersView | null): Array<{ id: string; label: string; models: string[] }> {
@@ -71,4 +85,9 @@ export function providerModelLabel(value: string | undefined, v: ProvidersView |
   if (!m || m[1] === 'arn') return undefined;
   const p: ProviderView | undefined = v?.providers.find((x) => x.id === m[1]);
   return p ? `${p.label} · ${m[2]}` : undefined;
+}
+/** Whether the picker's daily refresh has anything to fetch: an on provider with a key (or keyless) whose list is missing or a day old (the core's MODELS_TTL_MS). */
+export function modelsStale(v: ProvidersView | null, now: number = Date.now()): boolean {
+  return (v?.providers ?? []).some((p) => p.enabled && (p.keySet || p.keyless)
+    && (!p.modelsFetchedAt || now - Date.parse(p.modelsFetchedAt) >= 24 * 60 * 60 * 1000));
 }

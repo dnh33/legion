@@ -4,16 +4,33 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-15
+
+This update installs by itself. It is a larger download than usual, about 285 MB, because it changes the parts Legion is built on. Later small updates stay small.
+
+### Added
+
+- **Keep your knowledge fresh.** The Lattice's Lint tab now lists stale notes with their age, sources and confidence. Each one has Refresh, where the Archivist re-checks its sources and proposes an update you accept in the Inbox, and Still current, for a note you checked yourself. Notes Legion ships with are grouped as Built-in notes. A refresh that fails says so, with a link to the run.
+- **The model picker shows every model.** Current models come first, older ones sit under Older models, and search finds both. With OpenRouter or another provider on, its models are listed under their maker, and each list refreshes once a day. Fable can now be picked for a single task.
+
 ### Changed
 
-- **Legion needs Node 22.12 or newer.** Older Node 20 no longer works. If you start Legion from source, update Node first. The prebuilt
-  package and the installer bring their own, so nothing changes for them.
+- **Legion needs Node 22.12 or newer.** Older Node 20 no longer works. If you start Legion from source, update Node first. The prebuilt package and the installer bring their own, so nothing changes for them.
 - **Legion uses Claude Agent SDK 0.3.296**, which includes the Claude Code version that supports Haiku 5.5.
-- **Agents on OpenAI, Ollama, LM Studio or vLLM count tokens with a real tokenizer.** Claude agents are unchanged: Claude Code
-  compacts their conversations itself. For the other providers, Legion's own compaction used to guess from the length of the text, so it started too early
-  on some conversations and too late on others (code and non-English text most). It now counts the way OpenAI-family models do, which
-  is exact for them and a close estimate for the rest. The package grows by about 1 MB. Very large tool results are measured from
-  their start and end, so they cannot slow a turn down.
+- **Agents on OpenAI, Ollama, LM Studio or vLLM count tokens with a real tokenizer.** Claude agents are unchanged: Claude Code compacts their conversations itself. For the other providers, Legion's own compaction used to guess from the length of the text, so it started too early on some conversations and too late on others (code and non-English text most). It now counts the way OpenAI-family models do, which is exact for them and a close estimate for the rest. The package grows by about 1 MB.
+- **Approval keys wait a moment.** A and D on an approval card, and the keys on a question card, do nothing for about a second after the card appears or gets focus, so a key you were already pressing cannot answer it. The card says "Ready in a moment" and its key hints look dimmed until then. Clicks work at once.
+- **A command an agent leaves running in the background stops after 30 minutes.** This comes with the new Claude Code. Start a long-running server yourself if it must keep going.
+- **An accepted board item says its runs still ask first.** Accepting a proposal does not lift the run limits; marking it as reviewed does.
+- **No more focus rings.** When you move with the keyboard, the item you are on gets a soft tint instead. If you need outlines, turn on Settings, Accessibility, Show focus rings. Windows high contrast always shows them.
+
+### Fixed
+
+- **"Needs you" opens what needs you.** Clicking an agent that needs you, a row under Needs you in other projects, a notification or the tray opens that agent's chat with the item on top, with Accept, Reject and Open on board. A notice about a project opens the project page. Rows read "Project: title".
+- **Work items on the Board open fully in view.** No dialog sits under the title bar any more, the Save, Run and Delete buttons stay visible in a small window, and Esc closes one thing at a time.
+- **The Lattice no longer goes blank when one note has many links.** A note linked from dozens of others pulled the layout apart until nothing was on screen. Busy notes now move less, and no note can jump far in one step.
+- **A question with several steps keeps your place.** After each answer, focus moves to the next step instead of getting lost.
+- **Long notes on approval cards and welcome steps no longer spill out of their card** in a small or zoomed window.
+- **Updates keep everyone moving.** A release that changes Legion's parts also works for computers still on an older version, and the updater writes down why it falls back to the full package.
 
 ## [0.3.0] - 2026-10-14
 

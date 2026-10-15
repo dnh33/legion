@@ -5,6 +5,7 @@ import {
   clearPath, expand, fitView, getG, MAX_VIEW_NODES, pickPath, select, setHover, startPick, toggleFrozen, useG, dismissNotice, titleOf,
 } from './graphStore';
 import { GIcon } from './icons';
+import { openRun } from './openRun';
 import { NODE_TYPES, typeColor } from './palette';
 
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -181,8 +182,10 @@ export function CanvasPane({ insetRight, insetLeft, onToggleLeft, leftOpen }: { 
       </div>}
 
       {notice && (
-        <div className={`lt-notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'} style={{ left: `calc(50% + ${(insetLeft - insetRight) / 2}px)` }} key={notice.n}>
-          <span>{notice.text}</span><button className="lt-x" onClick={dismissNotice} aria-label="Dismiss"><GIcon name="x" size={12} /></button>
+        <div className={`lt-notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'} style={{ left: `calc(50% + ${(insetLeft - insetRight) / 2}px)`, maxWidth: Math.max(220, Math.min(460, freeW - 20)) }} key={notice.n}>
+          <span>{notice.text}</span>
+          {notice.action && <button className="lt-link" onClick={() => { void openRun(notice.action!.taskId); dismissNotice(); }}>{notice.action.label}</button>}
+          <button className="lt-x" onClick={dismissNotice} aria-label="Dismiss"><GIcon name="x" size={12} /></button>
         </div>
       )}
     </div>

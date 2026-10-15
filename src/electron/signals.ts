@@ -23,7 +23,7 @@ export interface SignalsDeps {
   getWin(): BrowserWindow | null;
   setTray(tooltip: string, hasAsks: boolean): void;
   /** The window should open this ask (a notification was clicked). */
-  openAsk(ref: { projectId?: string; taskId?: string }): void;
+  openAsk(ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }): void;
 }
 export interface Signals {
   /** Call for every new window: the overlay is set again and focus changes are followed. */
@@ -31,7 +31,7 @@ export interface Signals {
   /** The window says what it shows (IPC). */
   setView(v: { pageProjectId: string | null; threadTaskId: string | null }): void;
   /** Where "open what needs you" goes. */
-  firstRef(): { projectId?: string; taskId?: string };
+  firstRef(): { projectId?: string; taskId?: string; itemId?: string; agentId?: string };
   stop(): void;
 }
 

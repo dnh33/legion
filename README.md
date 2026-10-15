@@ -26,7 +26,7 @@ Legion is in beta: expect rough edges and the odd bug.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux:** dev install only. The automated tests run on Windows, Linux and macOS in CI; the maintainer uses Windows.
-- **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Presets for OpenAI, Ollama, LM Studio and vLLM, and Codex, are under [Later](#later).
+- **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
 
 <details><summary>Details</summary>
 
@@ -51,7 +51,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 - A small Node service on `127.0.0.1` does the work, and an Electron window sits on top.
 - Agents run through the official Claude Agent SDK. Every existing agent runs on a Claude model by default.
-- OpenRouter is a second provider: add your own key and run any model. Settings, Providers also takes an address of your own for a server that speaks the OpenAI chat-completions format. Presets for OpenAI, Ollama, LM Studio and vLLM, and Codex, come later (see [Later](#later)).
+- OpenRouter is a second provider: add your own key and run any model. Settings, Providers also takes an address of your own for a server that speaks the OpenAI chat-completions format. It has ready cards for OpenAI, Ollama, LM Studio and vLLM too. Codex is not offered (see [Later](#later)).
 
 </details>
 
@@ -540,7 +540,6 @@ On macOS, use `Cmd` in place of `Ctrl`. While a Claude task works, Enter adds yo
 
 Not in v1, and not promised:
 
-- **Presets for OpenAI, Ollama, LM Studio and vLLM.** They show in Settings, Providers as next release. OpenRouter and an address of your own already ship.
 - **Codex.** Its command-line agent runs its own shell and file tools outside Legion's approvals, so it is not offered yet.
 - **BSV mode beyond one payment:** wallet reads (balances), a VM boundary for wallet tools, and spends by anything other than a run you started.
 - A code-signed installer.

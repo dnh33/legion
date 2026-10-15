@@ -392,6 +392,7 @@ function createWindow(showOnReady: boolean): void {
     title: 'Legion',
     icon: existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    // height 40 = --titlebar-h in ui/src/styles/tokens.css: change both together
     ...(isWin ? { titleBarOverlay: { color: '#0b0d10', symbolColor: '#e6e9ef', height: 40 } } : {}),
     webPreferences: {
       preload: join(here, 'preload.cjs'),
@@ -545,7 +546,7 @@ function setTrayState(tooltip: string, hasAsks: boolean): void {
   if (menuChanged) tray.setContextMenu(trayMenu());
 }
 /** A notification or the tray asks the window to open an ask; the window routes it (ui `openAsk`). Empty ref: the first one waiting. */
-function sendOpenAsk(ref: { projectId?: string; taskId?: string }): void {
+function sendOpenAsk(ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }): void {
   const send = (): void => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:open-ask', ref); } catch { /* the window is gone */ } };
   if (win && !win.isDestroyed() && !win.webContents.isLoading()) send(); else setTimeout(send, 800);
 }

@@ -1,12 +1,16 @@
 /** HTTP API under /api/kg. Bearer auth is already enforced by the dispatcher; every caller here is the human. */
 import { KG_LIMITS } from '../../shared/kg.js';
+import type { KgLintReport, KgNode } from '../../shared/kg.js';
+import type { Task } from '../../shared/types.js';
+import { EngineError } from '../engine.js';
 import { HttpError } from '../server.js';
 import type { Ctx, Handler } from '../server.js';
 import type { RouteAdder } from '../modules.js';
 import type { Graph } from './graph.js';
 import { applySeedPack, BSV_SEED_PATH, loadBsvSeed, summarizeBsvPack } from './seed.js';
-import { HUMAN, KgError } from './types.js';
+import { agentActor, HUMAN, KgError } from './types.js';
 import type { NodeInput } from './types.js';
+import { buildRefreshPrompt, MAX_LIVE_REFRESHES, refreshBlockOf, refreshCheck } from './refresh.js';
 import { exportLibrary, exportVault, importVault } from './vault.js';
 
 export interface RouteDeps {
@@ -14,6 +18,13 @@ export interface RouteDeps {
   bsvEnabled: () => boolean;
   /** Overridable for tests. */
   seedPath?: string;
+  /** What "Refresh" needs from the core: the agent that does it, a clock, a way to start its run and to ask whether a run is still live. */
+  refresh?: {
+    agentId: string;
+    now(): number;
+    start(a: { prompt: string; projectId?: string }): Task;
+    isLive(taskId: string): boolean;
+  };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -49,6 +60,21 @@ const wrap = (fn: (c: Ctx) => unknown | Promise<unknown>): Handler => async (c) 
 
 export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
   const g = () => d.graph();
+  /** node id -> the Archivist run refreshing it. An entry whose run has ended is dropped the next time it is read. */
+  const refreshing = new Map<string, string>();
+  const liveRefresh = (nodeId: string): string | undefined => {
+    const taskId = refreshing.get(nodeId);
+    if (taskId === undefined) return undefined;
+    if (d.refresh?.isLive(taskId)) return taskId;
+    refreshing.delete(nodeId);
+    return undefined;
+  };
+  const liveRefreshCount = (): number => { let n = 0; for (const id of [...refreshing.keys()]) if (liveRefresh(id)) n++; return n; };
+  /** What the core knows about a note for the refresh rules: can the Archivist read it, and does a proposal for it already wait. */
+  const refreshEnv = (n: KgNode, targets?: ReadonlySet<string>) => ({
+    archivistCanSee: d.refresh ? g().canSeeNode(agentActor(d.refresh.agentId, n.projectId ? { projectId: n.projectId } : {}), n) : true,
+    hasProposal: targets ? targets.has(n.id) : g().hasPendingProposalFor(n.id),
+  });
 
   add('GET', '/api/kg/stats', wrap(() => ({ ...g().stats(HUMAN), bsvAvailable: d.bsvEnabled() })));
 
@@ -126,9 +152,58 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     return sub;
   }));
 
-  add('GET', '/api/kg/lint', wrap(() => g().lint(HUMAN)));
+  // The stale rows carry what the Lint tab shows (title, type, sources, confidence, author) and the live Archivist run, if any.
+  add('GET', '/api/kg/lint', wrap((): KgLintReport => {
+    const report = g().lint(HUMAN);
+    const targets = g().pendingProposalTargets(); // once per request, not once per row
+    return {
+      ...report,
+      stale: report.stale.map((row) => {
+        const n = g().peekNode(HUMAN, row.id);
+        if (!n) return row;
+        const taskId = liveRefresh(n.id);
+        return {
+          ...row, title: n.title, type: n.type, sourceCount: n.sources?.length ?? 0, createdBy: n.createdBy,
+          ...(n.confidence !== undefined ? { confidence: n.confidence } : {}), ...(n.projectId ? { projectId: n.projectId } : {}),
+          ...(taskId ? { refreshTaskId: taskId } : {}),
+          ...(n.createdBy !== 'system' ? (() => { const b = refreshBlockOf(n as KgNode, refreshEnv(n as KgNode, targets)); return b ? { refreshBlock: b.block } : {}; })() : {}),
+        };
+      }),
+    };
+  }));
+
+  // "Refresh" on a stale note: one Archivist run that re-checks its sources and proposes an update (it lands in the Inbox). Admin-only by
+  // default-deny (not in admin.ts CLIENT_ROUTES). One run per note at a time.
+  add('POST', '/api/kg/nodes/:id/refresh', wrap(({ params }) => {
+    const r = d.refresh;
+    if (!r) throw new HttpError(503, 'Refreshing notes is not available in this build.');
+    const n = g().getNode(HUMAN, params[0]!);
+    if (!n) throw new HttpError(404, 'That note no longer exists.');
+    const check = refreshCheck(n, r.now(), refreshEnv(n));
+    if (!check.ok) throw new HttpError(check.status, check.message);
+    if (liveRefresh(n.id)) throw new HttpError(409, 'This note is already being refreshed. Open the run to follow it.');
+    if (liveRefreshCount() >= MAX_LIVE_REFRESHES) throw new HttpError(409, 'Three refreshes are running. Wait for one to finish.');
+    let task: Task;
+    try {
+      task = r.start({ prompt: buildRefreshPrompt(n, check.daysOld), ...(n.projectId ? { projectId: n.projectId } : {}) });
+    } catch (e) {
+      if (e instanceof EngineError && e.status === 404) throw new HttpError(404, 'The Archivist is not on your roster, so nothing can refresh this note. Add the Archivist back, then try again.');
+      throw e;
+    }
+    refreshing.set(n.id, task.id);
+    return { taskId: task.id };
+  }));
 
   // ---- the human's inbox and Activity list. Graph methods refuse any bot actor; none of this is a kg_* tool.
+  // "Still current": the owner checked the note and it holds. A plain touch: updatedAt moves to now, nothing else changes. Admin-only by default-deny.
+  add('POST', '/api/kg/nodes/:id/checked', wrap(({ params }) => {
+    const n = g().getNode(HUMAN, params[0]!);
+    if (!n) throw new HttpError(404, 'That note no longer exists.');
+    if (n.createdBy === 'system') throw new HttpError(409, 'Built-in notes ship with Legion and update with it. There is nothing to mark.');
+    g().touch(HUMAN, n.id);
+    return { ok: true };
+  }));
+
   add('GET', '/api/kg/inbox', wrap(({ url }) => g().inbox(HUMAN, { agentId: strParam(url, 'agent') })));
 
   add('POST', '/api/kg/inbox/accept', wrap(({ body }) => {

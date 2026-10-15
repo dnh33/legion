@@ -14,7 +14,8 @@ function helpers() {
   assert.ok(a > 0 && aEnd > a && b > aEnd);
   const code = (STORE.slice(a, aEnd) + STORE.slice(b)).replace(/export /g, '').replace(/state\.view/g, 'null');
   const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  return new Function(`${js}\nreturn { needsConfirmation, providerModelGroups, providerModelLabel };`)() as {
+  return new Function(`${js}\nreturn { needsConfirmation, providerModelGroups, providerModelLabel, modelsStale };`)() as {
+    modelsStale: (v: any, now: number) => boolean;
     needsConfirmation: (p: Record<string, unknown>) => boolean;
     providerModelGroups: (v: any) => Array<{ id: string; label: string; models: string[] }>;
     providerModelLabel: (value: string | undefined, v?: any) => string | undefined;
@@ -53,4 +54,17 @@ test('the key goes only through the native bridge: the store has no direct reque
   assert.match(SECTION, /const k = key; setKey\(''\)/);
   assert.match(SECTION, /type="password"/);
   assert.doesNotMatch(SECTION + STORE, /localStorage|sessionStorage/, 'nothing about a provider is kept in browser storage');
+});
+
+test('modelsStale: the picker shows its loading line only when an on provider with a key has a missing or day-old list', () => {
+  const h = helpers();
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  const p = (o: Record<string, unknown>) => ({ enabled: true, keySet: true, keyless: false, ...o });
+  assert.equal(h.modelsStale(null, now), false);
+  assert.equal(h.modelsStale({ providers: [p({ modelsFetchedAt: '2026-10-15T08:00:00Z' })] }, now), false, 'fresh');
+  assert.equal(h.modelsStale({ providers: [p({})] }, now), true, 'never fetched');
+  assert.equal(h.modelsStale({ providers: [p({ modelsFetchedAt: '2026-10-14T11:00:00Z' })] }, now), true, 'over a day old');
+  assert.equal(h.modelsStale({ providers: [p({ enabled: false })] }, now), false, 'off');
+  assert.equal(h.modelsStale({ providers: [p({ keySet: false })] }, now), false, 'no key');
+  assert.equal(h.modelsStale({ providers: [p({ keySet: false, keyless: true })] }, now), true, 'keyless counts');
 });

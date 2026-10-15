@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   cancelSelected, closeOverlays, newTask, openDoctor, openEditor, openSettings, selectAgent, toggleMascotLab, toggleOps, toggleTheme, useStore, vmAction,
 } from '../store';
@@ -56,7 +57,7 @@ export function CommandPalette() {
 
   const exec = (c?: Cmd) => { if (!c) return; closeOverlays(); setTimeout(c.run, 0); };
 
-  return (
+  return createPortal(
     <div className="scrim top" onMouseDown={(e) => { if (e.target === e.currentTarget) closeOverlays(); }}>
       <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette">
         <input data-autofocus autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a command or agent name…" spellCheck={false}
@@ -74,6 +75,7 @@ export function CommandPalette() {
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

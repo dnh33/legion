@@ -619,15 +619,21 @@ export class Graph {
     const stale: Array<{ id: string; daysOld: number }> = [];
     const untrustedWithoutReview: string[] = [];
     const orphans: string[] = [];
+    // a pending edit copy is the note's own Inbox item (the Inbox and the Stale row say so): it is not a second note with the same title
+    // and not another untrusted note to review
+    const isProposalCopy = (n: KgNode): boolean => statusOf(n) === 'pending' && [...(this.out.get(n.id) ?? [])].some((eid) => this.edges.get(eid)?.rel === 'supersedes');
     for (const n of visible) {
       if (!touched.has(n.id)) orphans.push(n.id);
-      const list = titles.get(normTitle(n.title)) ?? [];
-      list.push(n);
-      titles.set(normTitle(n.title), list);
+      const proposal = isProposalCopy(n);
+      if (!proposal) {
+        const list = titles.get(normTitle(n.title)) ?? [];
+        list.push(n);
+        titles.set(normTitle(n.title), list);
+      }
       const t = Date.parse(n.updatedAt);
       const days = Number.isFinite(t) ? Math.floor((nowMs - t) / 86_400_000) : 0;
       if (days > staleDaysFor(n.type)) stale.push({ id: n.id, daysOld: days });
-      if (isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
+      if (!proposal && isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
     }
     const duplicateTitles = [...titles.values()].filter((l) => l.length > 1).map((l) => ({ title: l[0]!.title, ids: l.map((x) => x.id) }));
     return {
@@ -635,6 +641,50 @@ export class Graph {
       contradictions, untrustedWithoutReview, counts: { nodes: visible.length, edges: edgeCount },
       ...(this.lite && actor.kind !== 'agent' ? { lite: this.lite } : {}),
     };
+  }
+
+  /**
+   * The ids a proposal in the Inbox names: the target of a pending edit copy (its `supersedes` link), both ends of a supersede
+   * proposal, the kept and dropped notes of a merge, and the old and new notes of a sweep. One pass over the notes.
+   */
+  pendingProposalTargets(): Set<string> {
+    const out = new Set<string>();
+    const list = (v: unknown) => { if (typeof v === 'string') for (const i of v.split(',')) if (i.trim()) out.add(i.trim()); };
+    for (const x of this.nodes.values()) {
+      if (statusOf(x) !== 'pending') continue;
+      for (const eid of this.out.get(x.id) ?? []) {
+        const e = this.edges.get(eid);
+        if (e?.rel === 'supersedes') out.add(e.to);
+      }
+      const p = x.props;
+      if (!p) continue;
+      for (const k of ['oldId', 'newId', 'keep', 'drop', 'oldIds', 'newIds']) list(p[k]);
+    }
+    return out;
+  }
+
+  /** True when a proposal in the Inbox names this note (one note: see pendingProposalTargets for many). */
+  hasPendingProposalFor(id: string): boolean { return this.pendingProposalTargets().has(id); }
+
+  /** A note for reading only, without the copy getNode makes. The caller must not change it. Human only. */
+  peekNode(actor: Actor, id: string): Readonly<KgNode> | undefined {
+    this.requireHuman(actor, 'peek at a note');
+    return this.seen(actor, id);
+  }
+
+  /** "Still current": the human checked a live note and it holds. Moves its updatedAt to now and changes nothing else. */
+  touch(actor: Actor, id: string): KgNode {
+    this.requireHuman(actor, 'mark a note as still current');
+    const n = this.mustSee(actor, id);
+    const name = oneLine(n.title).slice(0, 80);
+    if (isInactive(n)) throw new KgError('conflict', `"${name}" is ${statusOf(n)}, so there is nothing to mark.`);
+    if (statusOf(n) === 'pending') throw new KgError('conflict', `"${name}" is waiting in your Inbox. Accept or reject it first.`);
+    const ops: LogOp[] = [{ op: 'patch', id, fields: { updatedAt: this.stamp() } }];
+    const undo = this.inverseOf(ops);
+    this.apply(ops);
+    this.logActivity(actor, 'update', undo, this.nodes.get(id));
+    this.changed([id]);
+    return structuredClone(this.nodes.get(id)!);
   }
 
   // ------------------------------------------------------------------ writes
