@@ -498,6 +498,9 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
       return finish('failed', reason);
     }
   }
+  // Every full-package swap says so here, whichever way the helper got outside the install (the prepared runtime copy, or the
+  // re-exec above): the log names the route, and the rehearsal checks it.
+  if (job.names?.includes('node_modules')) d.log('full package: the swap helper runs from a runtime outside the install');
   d.log(`apply ${job.from} -> ${job.to} [${APPLY_HELPER_STAMP}]`);
   // Data backup before any file is touched (state-preflight.ts). Fail closed.
   if (d.runPreflight) {
