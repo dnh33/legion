@@ -5,6 +5,7 @@ import {
   applyOther, applyPick, finalAnswers, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewOf, stepCount,
 } from '../chat/questionCard';
 import { Icon } from './icons';
+import { useCardArm } from '../a11y/keyClock';
 
 /** "Asked by Marshal through the agent bridge, hop 2": shown when a bot woken elsewhere needs an answer. */
 function Origin({ o }: { o: NonNullable<PendingQuestion['origin']> }) {
@@ -36,6 +37,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const [focus, setFocus] = useState(0);
   const [otherOpen, setOtherOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const arm = useCardArm();
   const optRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const otherRef = useRef<HTMLInputElement>(null);
 
@@ -53,9 +55,12 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const ok = arm.armed(e.nativeEvent);
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const act = questionKey({ key: e.key, step, questionCount: n, optionCount: opts.length, focus, otherOpen });
     if (act.kind === 'none') return;
+    // picking and submitting answer the question, so they wait for the arm (the window shortcut's rule); moving the highlight does not
+    if (!ok && (act.kind === 'pick' || act.kind === 'submit')) return;
     e.preventDefault();
     if (act.kind === 'move') {
       const ni = Math.min(Math.max(0, focus + act.delta), Math.max(0, opts.length - 1));
@@ -75,7 +80,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));
 
   return (
-    <div className="approval question" tabIndex={0} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onKeyDown={onKeyDown}>
+    <div className="approval question" tabIndex={0} role="group" aria-label={`Question from the agent: ${q.questions[0]?.header ?? 'question'}`} onFocus={arm.onFocus} onKeyDown={onKeyDown}>
       <div className="approval-head">
         <Icon name="help" size={14} />
         <span>Needs your answer</span>

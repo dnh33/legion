@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
-import { ARM_MS, threadKey } from '../../../src/shared/approval-keys';
+import { isArmed, threadKey } from '../../../src/shared/approval-keys';
+import { quietBefore } from '../a11y/keyClock';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
@@ -153,10 +154,9 @@ export function Thread() {
   // a sentence, never allows anything: only a lone, deliberate A does.
   const cardEl = (id: string) => scroller.current?.querySelector<HTMLElement>(`[data-approval-id="${CSS.escape(id)}"]`) ?? null;
   const shownAt = useRef(new Map<string, number>());
-  const lastKeyAt = useRef(0);
   useEffect(() => { for (const a of taskApprovals) if (!shownAt.current.has(a.id)) shownAt.current.set(a.id, performance.now()); });
   const armedFor = (a: { id: string } | undefined, now: number, quietSince: number): boolean =>
-    !!a && now - Math.max(shownAt.current.get(a.id) ?? now, quietSince) >= ARM_MS;
+    !!a && isArmed(shownAt.current.get(a.id) ?? now, quietSince, now);
   const cardInView = (a: { id: string } | undefined): boolean => {
     const el = a && cardEl(a.id); const sc = scroller.current;
     if (!el || !sc) return false;
@@ -165,8 +165,7 @@ export function Thread() {
   };
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const now = performance.now(), quietSince = lastKeyAt.current;
-      lastKeyAt.current = now;
+      const now = performance.now(), quietSince = quietBefore(e, now);
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;

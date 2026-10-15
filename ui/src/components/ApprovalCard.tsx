@@ -9,6 +9,7 @@ import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blende
 import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blender';
 import { Icon } from './icons';
 import { clickOnly } from '../../../src/shared/approval-keys';
+import { useCardArm } from '../a11y/keyClock';
 
 /** "Asked by Marshal in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
 function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; inRoomView: boolean }) {
@@ -40,10 +41,13 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const bmode = bl ? blenderView(a).mode : 'sandbox';
   const live = bmode === 'live';
   const [remember, setRemember] = useState(false);
+  const arm = useCardArm();
   return (
-    <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} data-approval-id={a.id} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
+    <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} data-approval-id={a.id} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`} onFocus={arm.onFocus}
       onKeyDown={(e) => {
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // the card answers no key until it is armed: ARM_MS after it appeared or took focus, and after the last key (the window shortcut's rule)
+        const ok = arm.armed(e.nativeEvent);
+        if (!ok || e.ctrlKey || e.metaKey || e.altKey) return;
         // a Blender script is allowed by clicking, after reading it: no one-key approve
         if (!noKey && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); void decide(a.id, true); }
         if (e.key === 'd' || e.key === 'D') { e.preventDefault(); void decide(a.id, false); }
