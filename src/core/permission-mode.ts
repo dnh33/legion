@@ -22,14 +22,12 @@ export interface ModeInputs {
 const RANK: Record<RunMode, number> = { ask: 0, 'auto-edits': 1, smart: 2, full: 3 };
 const isRunMode = (m: unknown): m is RunMode => typeof m === 'string' && Object.hasOwn(RANK, m);
 // Unknown values (they can come from disk) rank strictest and resolve to 'ask'.
-/** The stricter of two modes. An unknown value ranks strictest and is returned as is (callers that need a valid mode normalise). */
+/** The stricter of two modes. An unknown value on either side (it can come from disk) fails closed to 'ask'. */
 export function stricterMode<A extends RunMode, B extends RunMode>(a: A, b: B): A | B {
-  return (RANK[a] ?? -1) <= (RANK[b] ?? -1) ? a : b;
+  if (!isRunMode(a) || !isRunMode(b)) return 'ask' as A | B;
+  return RANK[a] <= RANK[b] ? a : b;
 }
-const stricter = (a: RunMode, b: RunMode): RunMode => {
-  const pick = stricterMode(a, b);
-  return isRunMode(pick) ? pick : 'ask';
-};
+const stricter = (a: RunMode, b: RunMode): RunMode => stricterMode(a, b);
 
 export function presetMode(p: Preset): RunMode {
   switch (p) {

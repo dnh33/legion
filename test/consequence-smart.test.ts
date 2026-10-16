@@ -32,3 +32,12 @@ test('npm run with a script not on the list stays level 3, with flags too', () =
 test('the local-run commands carry the plain chip', () => {
   assert.equal(classifySafe({ kind: 'approval', toolName: 'Bash', input: { command: 'npm test' } }).chip, 'Runs a check on your computer');
 });
+test('flags that run another program make the call unknown (level 3), per tool family', () => {
+  const cmds = [
+    'go test -exec ./x ./...', 'go test -exec=./x ./...', 'go build -toolexec ./x ./...', 'go vet -vettool=./x ./...', 'go vet -vettool ./x ./...',
+    'cargo test --config build.rustc-wrapper="x"', 'cargo build --config=x', 'cargo check -Zunstable-options',
+    'npm test --script-shell ./x', 'npm run build --script-shell=./x', 'pnpm test --script-shell ./x', 'yarn test --script-shell=./x',
+    'npm test --node-options=--require=./x', 'node --node-options=--require=./x --test a.js', 'NODE_OPTIONS=--require=./x npm test',
+  ];
+  for (const command of cmds) assert.equal(classifySafe({ kind: 'approval', toolName: 'Bash', input: { command } }).level, 3, command);
+});

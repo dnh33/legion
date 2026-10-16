@@ -44,7 +44,8 @@ test('decideGuard: Smart cards a guard unless a level below 3 is given; full nev
 test('stricterMode orders ask < auto-edits < smart < full and fails closed on junk', () => {
   assert.equal(stricterMode('full', 'smart'), 'smart');
   assert.equal(stricterMode('smart', 'auto-edits'), 'auto-edits');
-  assert.equal(stricterMode('full', 'bogus' as never), 'bogus');
+  assert.equal(stricterMode('full', 'bogus' as never), 'ask');
+  assert.equal(stricterMode('bogus' as never, 'full'), 'ask');
 });
 test('baselineMode is the 0.3.0 mode: own mode, or ask for a follow agent, capped by the ceiling', () => {
   assert.equal(baselineMode({ agentMode: 'full' }), 'full');

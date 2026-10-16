@@ -73,11 +73,10 @@ function pathOf(input: Record<string, unknown>): unknown {
 
 /* ---------- shell ---------- */
 
-type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** flags that make the call run something else: unknown. */ unknownFlags?: string[]; /** Reads the arguments after the subcommand itself; undefined means "use the rule above". */ inspect?: (args: string[]) => Consequence | undefined };
+type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** Any of these flags (prefix match for --long=value) makes the call unknown: it runs something else. */ unknownFlags?: string[]; /** Reads the arguments after the subcommand itself; undefined means "use the rule above". */ inspect?: (args: string[]) => Consequence | undefined };
 interface ProgramRule extends Sub {
   /** Per subcommand (git, npm, ...). When present a subcommand with no entry is unknown. */
   subs?: Record<string, Sub>;
-  /** Any of these flags (prefix match for --long=value) makes the call unknown: it runs something else. */
 }
 
 const LOCAL = (): Consequence => rule(1, [], C.localRun);
@@ -88,7 +87,7 @@ const runScript = (args: string[]): Consequence | undefined => {
   const plain = args.filter((a) => a !== '--silent' && a !== '--quiet');
   return plain.length === 1 && SCRIPTS_OK.test(plain[0]!) ? LOCAL() : undefined;
 };
-const pkgManager = (): ProgramRule => ({ level: 3, tags: [], chip: UNKNOWN_CHIP, subs: {
+const pkgManager = (): ProgramRule => ({ level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--script-shell', '--node-options'], subs: {
   publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' },
   test: { level: 1, tags: [], chip: C.localRun },
   run: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: runScript },
@@ -149,7 +148,7 @@ const webRule = (args: string[]): Consequence | undefined => curlRule(args) ?? w
 
 /** Does the argument list carry this flag (lower case)? A short flag also matches clustered or attached (-ro, -ofile); a long one with =value. */
 const hasFlag = (lowered: readonly string[], f: string): boolean =>
-  lowered.some((a) => a === f || (f.startsWith('--') ? a.startsWith(f + '=') : /^-[a-z]$/.test(f) && /^-[^-]/.test(a) && a.includes(f[1]!)));
+  lowered.some((a) => a === f || (f.length > 2 ? a.startsWith(f + '=') : /^-[a-z]$/.test(f) && /^-[^-]/.test(a) && a.includes(f[1]!)));
 
 const positional = (args: readonly string[]): string[] => args.filter((a) => !a.startsWith('-'));
 const WRITES = (): Consequence => rule(2, ['edits'], C.writesFile);
@@ -203,11 +202,11 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
     },
   },
   npm: pkgManager(), yarn: pkgManager(), pnpm: pkgManager(),
-  npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: (a) => (a.length === 2 && a[0] === 'tsc' && a[1] === '--noEmit' ? LOCAL() : undefined) },
-  node: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: (a) => (a[0] === '--test' ? LOCAL() : undefined) },
+  npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a.length === 2 && a[0] === 'tsc' && a[1] === '--noEmit' ? LOCAL() : undefined) },
+  node: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a[0] === '--test' ? LOCAL() : undefined) },
   pytest: { level: 1, tags: [], chip: C.localRun, unknownFlags: ['-p', '--pyargs'] },
-  cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: LOCALSUB, build: LOCALSUB, check: LOCALSUB } },
-  go: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { test: LOCALSUB, build: LOCALSUB, vet: LOCALSUB } },
+  cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--config', '-z'], subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: LOCALSUB, build: LOCALSUB, check: LOCALSUB } },
+  go: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['-exec', '--exec', '-toolexec', '--toolexec', '-vettool', '--vettool'], subs: { test: LOCALSUB, build: LOCALSUB, vet: LOCALSUB } },
   gh: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { release: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
 };
 
