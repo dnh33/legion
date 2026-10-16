@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld('legion', {
   projectChange(change) {
     return ipcRenderer.invoke('legion:project-change', change);
   },
+  // Gate settings that loosen anything: main shows the native confirmation and holds the native secret.
+  gatesChange(change) {
+    return ipcRenderer.invoke('legion:gates-change', change);
+  },
   // Browser tool: choosing the browser program (Edge, Chrome) and local addresses. Main shows the native confirmation and holds the native secret.
   browserChange(change) {
     return ipcRenderer.invoke('legion:browser-change', change);

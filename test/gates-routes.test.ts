@@ -26,7 +26,7 @@ async function boot(o: { keyed?: boolean; nativeSecret?: string | undefined } = 
   const s = await start(f.ctx);
   const req = (headers: Record<string, string>) => (m: string, path: string, body?: unknown) =>
     fetch(s.base + path, { method: m, headers: { ...headers, ...J }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return { mod, core, pid: p.id, call: req(AUTH), native: req({ ...AUTH, 'X-Legion-Native': NATIVE }), wrongNative: req({ ...AUTH, 'X-Legion-Native': 'not-the-secret' }), client: req(asClient), anon: req({}), close: async () => { await mod.dispose?.(); await s.close(); } };
+  return { mod, core, base: s.base, pid: p.id, call: req(AUTH), native: req({ ...AUTH, 'X-Legion-Native': NATIVE }), wrongNative: req({ ...AUTH, 'X-Legion-Native': 'not-the-secret' }), client: req(asClient), anon: req({}), close: async () => { await mod.dispose?.(); await s.close(); } };
 }
 
 test('every gates route is admin-only', async () => {
@@ -215,4 +215,27 @@ test('a file changed outside shows in the settings view; Accept needs the native
     assert.deepEqual(core.store.changedOutside(), []);
     assert.equal((await admin('POST', `/api/gates/keep/${p.id}`)).status, 404, 'nothing left to keep');
   } finally { await mod.dispose?.(); await s.close(); }
+});
+
+test('a bearer token gets 403 on every gates route, accept and keep included, even with the native header', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    const routes: Array<[string, string, unknown?]> = [['GET', '/api/gates/settings'], ['PATCH', '/api/gates/app', { preset: 'smart' }], ['PATCH', `/api/gates/projects/${r.pid}`, { preset: 'smart' }], ['POST', '/api/gates/reload', {}], ['POST', `/api/gates/accept/${r.pid}`, {}], ['POST', `/api/gates/keep/${r.pid}`, {}]];
+    for (const [m, path, body] of routes) {
+      assert.equal(isClientRoute(m, path), false, `${m} ${path}`);
+      const res = await fetch(r.base + path, { method: m, headers: { ...asClient, ...J, 'X-Legion-Native': NATIVE }, body: body === undefined ? undefined : JSON.stringify(body) });
+      assert.equal(res.status, 403, `${m} ${path}`);
+    }
+    assert.equal(r.core.store.app().preset, undefined);
+  } finally { await r.close(); }
+});
+
+test('a signed loosening reaches the file: the native PATCH is stored with a signature', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    assert.equal((await r.native('PATCH', '/api/gates/app', { preset: 'smart' })).status, 200);
+    await r.core.store.flush();
+    assert.match(readFileSync(join(r.core.store.folder, 'app.json'), 'utf8'), /"sig": "[0-9a-f]{64}"/);
+    assert.equal(((await (await r.call('GET', '/api/gates/settings')).json()) as { app: { preset?: string } }).app.preset, 'smart');
+  } finally { await r.close(); }
 });

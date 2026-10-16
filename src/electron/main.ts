@@ -17,6 +17,7 @@ import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLin
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
+import { gatesChange } from './gates-ipc.js';
 import { projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
@@ -302,7 +303,7 @@ function ownCore(): { port: number; headers: Record<string, string> } | undefine
   return { port: pinned.port, headers: { 'X-Legion-Admin': adminSecret } };
 }
 
-async function ownCoreCall(method: 'GET' | 'POST' | 'PUT', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
+async function ownCoreCall(method: 'GET' | 'POST' | 'PUT' | 'PATCH', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
   const live = !!coreProc && coreProc.exitCode === null;
   if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined; // only a core that proved it holds our secret ever sees it
   const headers: Record<string, string> = { 'X-Legion-Admin': adminSecret };
@@ -637,6 +638,11 @@ if (instance.quit) {
       return r.canceled ? undefined : r.filePaths[0];
     };
     try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await gatesChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;

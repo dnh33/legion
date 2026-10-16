@@ -25,6 +25,8 @@ declare global {
       onOpenAsk?(cb: (ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }) => void): () => void;
       /** Project folder and member changes: main shows the native confirmation (and the folder chooser) and calls the core with a secret this window never holds. */
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Gate settings that loosen anything: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
+      gatesChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
     };
   }
 }
