@@ -183,3 +183,12 @@ test('patch: a runtime copy in the temp folder on another drive than the install
     w.dispose?.();
   } finally { rmSync(install, { recursive: true, force: true }); rmSync(rt, { recursive: true, force: true }); }
 });
+
+test('rehearsal hold: only with LEGION_REHEARSAL=1, whole milliseconds, capped at 15 s', async () => {
+  const { rehearsalHoldMs } = await import('../src/core/updater/apply.js');
+  assert.equal(rehearsalHoldMs({}), 0);
+  assert.equal(rehearsalHoldMs({ LEGION_REHEARSAL_HOLD_SWAP_MS: '8000' }), 0, 'never outside a rehearsal');
+  assert.equal(rehearsalHoldMs({ LEGION_REHEARSAL: '1', LEGION_REHEARSAL_HOLD_SWAP_MS: '8000' }), 8000);
+  assert.equal(rehearsalHoldMs({ LEGION_REHEARSAL: '1', LEGION_REHEARSAL_HOLD_SWAP_MS: '99999' }), 15000);
+  for (const bad of ['-1', '1e4', '8000ms', ' 8000', '']) assert.equal(rehearsalHoldMs({ LEGION_REHEARSAL: '1', LEGION_REHEARSAL_HOLD_SWAP_MS: bad }), 0, bad);
+});

@@ -124,6 +124,11 @@ app.on('second-instance', () => {
 // a window that fails must still say something is happening, and must never outlive its helper silently
 process.on('uncaughtException', (e) => { log(`error: ${e.message}`); });
 
+// The loop starts at boot, not when the page is up: the lock can be taken before `ready`, and on a fast swap the old app is gone and the
+// hand-over is asked for within a few hundred milliseconds. Taking the lock only after the page loaded meant never taking it at all.
+tick();
+setInterval(tick, 100);
+
 void app.whenReady().then(() => {
   win = new BrowserWindow({
     width: 480, height: 470, frame: false, resizable: false, maximizable: false, minimizable: true, fullscreenable: false, center: true,
@@ -137,6 +142,5 @@ void app.whenReady().then(() => {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
-  void win.loadFile(join(winDir, 'update-window.html')).then(() => { log(`opened ${job.from} to ${job.to} (${job.kind})`); tick(); });
-  setInterval(tick, 250);
+  void win.loadFile(join(winDir, 'update-window.html')).then(() => { log(`opened ${job.from} to ${job.to} (${job.kind})`); lastModel = ''; tick(); });
 });

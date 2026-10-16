@@ -605,6 +605,9 @@ async function runApplyInner(job: ApplyJob, d: ApplyDeps): Promise<Outcome['resu
   d.log('swapped; starting the new build');
   // Relaunch via external waiter (relaunch-waiter.ts) so the old process is provably gone first.
   progress({ stage: 'relaunch', message: 'Starting the new build', percent: 80 });
+  // Rehearsal only: hold here so a reopen can be shown to land in the window (a real swap on a fast disk is over in milliseconds).
+  const hold = rehearsalHoldMs(process.env);
+  if (hold && d.window) { d.log(`rehearsal: holding ${hold} ms before the hand-over`); await sleepMs(hold); }
   // The window lets go of the single-instance lock first, so the new build can take it; the window itself stays up until the build is healthy.
   await releaseWindowLock();
   stepStart('starting');
@@ -704,6 +707,14 @@ export function helperJourney(installDir: string, job: { updateId?: string; data
 
 /** Where the window's own files live: <install>/.update/run/window, outside every folder a swap renames. The app copies them there before it quits. */
 export const WINDOW_DIR_PARTS: readonly string[] = Object.freeze(['run', 'window']);
+
+/** Rehearsal only: how long the helper holds before the lock hand-over. Needs LEGION_REHEARSAL=1; whole milliseconds, at most 15 s; anything else is 0. */
+export function rehearsalHoldMs(env: Record<string, string | undefined>): number {
+  if (env.LEGION_REHEARSAL !== '1') return 0;
+  const raw = env.LEGION_REHEARSAL_HOLD_SWAP_MS ?? '';
+  if (!/^\d{1,5}$/.test(raw)) return 0;
+  return Math.min(Number(raw), 15_000);
+}
 
 export type WindowLaunch = 'folder' | 'patch' | 'none';
 const isInside = (child: string, parent: string): boolean => { const r = relative(resolve(parent), resolve(child)); return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r); };
