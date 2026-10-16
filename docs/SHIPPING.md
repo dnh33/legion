@@ -271,6 +271,8 @@ node scripts/release-publish.mjs --dir D:/bots/legion-pkg-<v> --version <v> --no
 
 `release-publish.mjs` refuses to start unless all ten files are in the folder, then runs `gh release create --draft`, one `gh release upload` of all ten, and only then `gh release edit --draft=false --latest`. So `releases/latest` never serves a release whose second manifest, signature or package is still missing. `--dry-run` prints the three commands. If a step fails the release stays a draft; fix it and run the missing step by hand.
 
+`--prerelease` publishes the release as a prerelease and not latest (`--draft=false --prerelease --latest=false`), so the live walk (`.github/workflows/live-walk.yml` with the `tag` input) can run on the real published assets before anyone is offered the update. After the walk and the live checks pass, make it latest with `gh release edit v<v> --prerelease=false --latest`.
+
 Ten assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json` and its `.sig`, `legion-update-manifest-2.json` and its `.sig`, `SHA256SUMS.txt`, `SHA256SUMS.txt.sig`, `install.ps1` and `install.sh`. **Every release publishes both manifest names**: a release without the second name makes every 0.3.0+ install read a 404, fall back to the stone and say "up to date" for ever. The installers are not optional: `getlegion.xyz/install.ps1` fetches `install.ps1` from the latest release, so a release without it breaks every new install the moment it becomes latest (0.2.6-s and 0.2.6-t shipped without them on 2026-10-12; new installs failed until they were added).
 
 **Why draft first:** `gh release create` without `--draft` publishes immediately. A draft lets you upload, verify,

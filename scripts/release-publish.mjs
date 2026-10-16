@@ -3,7 +3,7 @@
 // `--draft=false --latest`. The release becomes "latest" with all ten assets already in place, so there is no moment when `releases/latest`
 // serves a manifest whose second name, signature or package is not there yet (a 0.3.0+ install would read a 404 and fall back to the stone).
 // It refuses to start when any of the ten files is missing. Run release-preflight and release-verify first; this does not replace them.
-// usage: node scripts/release-publish.mjs --dir <folder> --version <v> --notes-file <file> [--repo dnh33/legion] [--title <text>] [--dry-run]
+// usage: node scripts/release-publish.mjs --dir <folder> --version <v> --notes-file <file> [--repo dnh33/legion] [--title <text>] [--dry-run] [--prerelease]
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -12,9 +12,9 @@ import { args, die, loadDist, REPO, requireRehearsalFor } from './lib/release-li
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 import { folderFullPackageProblems } from './lib/stone-carry.mjs';
 
-const a = args(process.argv.slice(2), { dir: 'v', version: 'v', 'notes-file': 'v', repo: 'v', title: 'v', 'dry-run': 'flag', 'trust-module': 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v' });
+const a = args(process.argv.slice(2), { dir: 'v', version: 'v', 'notes-file': 'v', repo: 'v', title: 'v', 'dry-run': 'flag', prerelease: 'flag', 'trust-module': 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v' });
 requireRehearsalFor(a, ['no-network', 'trust-module', 'stones']);
-if (!a.dir || !a.version || !a['notes-file']) die('usage: node scripts/release-publish.mjs --dir <folder> --version <v> --notes-file <file> [--repo dnh33/legion] [--title <text>] [--dry-run] [--stone-lock <package-lock.json of the stepping stone>]');
+if (!a.dir || !a.version || !a['notes-file']) die('usage: node scripts/release-publish.mjs --dir <folder> --version <v> --notes-file <file> [--repo dnh33/legion] [--title <text>] [--dry-run] [--prerelease] [--stone-lock <package-lock.json of the stepping stone>]');
 const dir = resolve(a.dir), v = a.version, repo = a.repo ?? 'dnh33/legion', tag = `v${v}`;
 const assets = [`legion-${v}-app.zip`, `legion-${v}-win-x64.zip`, OLD_NAME, `${OLD_NAME}.sig`, NEW_NAME, `${NEW_NAME}.sig`, 'SHA256SUMS.txt', 'SHA256SUMS.txt.sig', 'install.ps1', 'install.sh'];
 const missing = assets.filter((n) => !existsSync(join(dir, n)));
@@ -35,7 +35,9 @@ if (carry.lockProblems.length || carry.fullProblems.length) die(`not publishing,
 const steps = [
   ['release', 'create', tag, '--repo', repo, '--title', a.title ?? `Legion ${tag}`, '--notes-file', resolve(a['notes-file']), '--draft'],
   ['release', 'upload', tag, '--repo', repo, ...assets.map((n) => join(dir, n))],
-  ['release', 'edit', tag, '--repo', repo, '--draft=false', '--latest'],
+  // --prerelease: public but NOT latest, so the live walk can run on the real assets first (docs/SHIPPING.md). Making it latest later is one
+  // `gh release edit <tag> --prerelease=false --latest`, after the walk.
+  ['release', 'edit', tag, '--repo', repo, '--draft=false', ...(a.prerelease ? ['--prerelease', '--latest=false'] : ['--latest'])],
 ];
 for (const s of steps) {
   if (a['dry-run']) { console.log(`gh ${s.join(' ')}`); continue; }
