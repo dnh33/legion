@@ -15,6 +15,7 @@ export function createCommsModule(deps: ModuleDeps, opts: { projects?: HubOption
     engine: deps.engine, store: deps.store, bus: deps.bus, dataDir: deps.dataDir, isVisible: (a) => a.requires !== 'bsv' || deps.bsvEnabled(),
     comms: normalizeComms((deps.config as { comms?: unknown }).comms),
     ...(opts.projects ? { projects: opts.projects } : {}),
+    runModeOf: (agentId, taskId) => { try { return deps.engine.runModeOf?.(agentId, taskId); } catch { return undefined; } },
     // a bot's room request is a card the user answers in the app; the broker denies it after 10 minutes or when the task ends
     approve: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_comms__${r.tool}`, r.input, r.origin, { summary: r.summary }),
   });

@@ -11,6 +11,7 @@ import { DEFAULT_COMMS, MAX_ROOM_BUDGET_USD, MIN_ROOM_BUDGET_USD } from '../../s
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { stricterMode, decideGuard } from '../approvals.js';
+import type { RunMode } from '../permission-mode.js';
 import { OVERRIDE_MODELS } from '../bridge.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
@@ -65,6 +66,8 @@ export interface HubOptions {
   approve?: RoomApprover;
   /** Projects (read only): lets a room belong to one, and keeps its members inside the project's. Absent: rooms have no project. */
   projects?: { get(id: string): { name: string; status: string; members: string[] } | undefined };
+  /** The mode an agent's run is judged by now (the engine's resolver: agent mode, project preset, ceiling). Absent: the agent's own stored mode. */
+  runModeOf?: (agentId: string, taskId?: string) => RunMode | undefined;
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
@@ -202,6 +205,7 @@ export class CommsHub {
   private readonly off: () => void;
 
   private readonly visible: (a: AgentProfile) => boolean;
+  private readonly runModeOf?: (agentId: string, taskId?: string) => RunMode | undefined;
 
   constructor(o: HubOptions) {
     this.visible = o.isVisible ?? (() => true);
@@ -212,6 +216,7 @@ export class CommsHub {
     this.comms = { ...DEFAULT_COMMS, ...(o.comms ?? {}) };
     this.approve = o.approve;
     this.projects = o.projects;
+    this.runModeOf = o.runModeOf;
     const floor = o.turnCostFloorUsd ?? o.comms?.turnCostFloorUsd;
     this.turnFloor = typeof floor === 'number' && floor >= 0 ? floor : DEFAULT_TURN_FLOOR_USD;
     this.rooms = new RoomStore(o.dataDir);
@@ -710,7 +715,8 @@ export class CommsHub {
    */
   private async askUser(sender: AgentProfile, tool: RoomRequest['tool'], summary: string, input: Record<string, unknown>, ctx: BotToolContext): Promise<void> {
       const ceiling = ctx.ceiling ?? ctx.origin?.approvalCeiling;
-      const mode = ceiling ? stricterMode(this.agentMode(sender.id), ceiling) : this.agentMode(sender.id);
+      const own = this.agentMode(sender.id, ctx.taskId);
+      const mode = ceiling ? stricterMode(own, ceiling) : own;
       if (!decideGuard(mode).needsCard) return;
       if (!this.approve || !ctx.taskId) throw new CommsError(409, 'There is no way to ask the user for approval from here, so nothing was changed.');
     const now = this.now();
@@ -1008,7 +1014,7 @@ export class CommsHub {
         ...(task.tainted ? { tainted: true } : {}),
       });
     } else if (task.status === 'done' && result && !NO_REPLY.test(result)) {
-      const ceiling = stricterMode(this.agentMode(w.botId), w.ceiling);
+      const ceiling = stricterMode(this.ceilingMode(w.botId, w.taskId), w.ceiling);
       const from: RoomSender = { kind: 'bot', agentId: w.botId };
       const plan = this.plan(room, from, result, { auto: true });
       // the same words again (a tool call already posted them, or this bot just said them): nothing new to store or to wake
@@ -1350,14 +1356,28 @@ export class CommsHub {
   }
 
   private nameOf(id: string): string { return this.agents.getAgent(id)?.name ?? id; }
-  private agentMode(id: string): ApprovalMode { return this.agents.getAgent(id)?.approval ?? 'ask'; }
+  /** The mode the agent's run is judged by now. Without a resolver (a hub built on its own) it is the stored mode, as in 0.3.0. */
+  private agentMode(id: string, taskId?: string): RunMode {
+    const live = this.runModeOf?.(id, taskId);
+    if (live) return live;
+    const a = this.agents.getAgent(id);
+    return a ? a.approval : 'ask';
+  }
+  /**
+   * The same mode as a message or wake ceiling. A ceiling is an ApprovalMode, which has no Smart: Smart becomes Accept edits, so what
+   * a woken bot may do is never looser than what its sender may do.
+   */
+  private ceilingMode(id: string, taskId?: string): ApprovalMode {
+    const m = this.agentMode(id, taskId);
+    return m === 'smart' ? 'auto-edits' : m;
+  }
 
   /**
    * Hop, ceiling and human-presence for a message an agent sends right now. If the agent is running woken
    * tasks, it inherits the strictest of them (a bot cannot launder a chain through a second room).
    */
   private senderContext(agentId: string): { hop: number; ceiling: ApprovalMode; humanChain: boolean } {
-    const mode = this.agentMode(agentId);
+    const mode = this.ceilingMode(agentId);
     const active = [...this.busy.values()].filter((w) => w.botId === agentId && !w.external && !w.cancelled);
     if (active.length === 0) return { hop: 0, ceiling: mode, humanChain: false };
     return {

@@ -24,7 +24,7 @@ const fail = (e: unknown): ToolResult => ({ content: [{ type: 'text', text: `Err
 /** `askOwner` shows the owner an approval card and resolves with the answer (false: declined or no answer). */
 export type AskOwner = (r: { taskId: string; agentId: string; tool: string; summary: string; input: Record<string, unknown>; origin?: ModuleJob['origin'] }) => Promise<boolean>;
 
-export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The agent's LIVE approval mode from the store, so promoting it mid-task stops its cards on the next call. */ modeOf?: ModeOf }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
+export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The run's LIVE mode from the engine's resolver, so promoting the agent or changing a preset mid-task applies on the next call. */ modeOf?: ModeOf }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
   /** The run's project, looked up again at every call (archive and membership changes apply at once). */
   const scope = () => {
     const p = deps.projects.forRun(job.projectId, agentId);
@@ -39,7 +39,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
    * setting, so a run started by another bot or an MCP client still asks whatever the receiver is set to.
    */
   const askOwner = async (r: { tool: string; summary: string; input: Record<string, unknown> }): Promise<boolean> => {
-    const live = deps.modeOf?.(agentId);
+    const live = deps.modeOf?.(agentId, job.taskId);
     const ceiling = job.ceiling ?? job.origin?.approvalCeiling;
     const effective = ceiling ? stricterMode(live ?? fallbackMode, ceiling) : (live ?? fallbackMode);
     if (!decideGuard(effective).needsCard) return true;

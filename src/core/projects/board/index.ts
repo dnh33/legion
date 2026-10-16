@@ -156,7 +156,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     mcpServers: (agent, job): Record<string, McpServerConfig> => {
       // no project (or not an active one this agent belongs to) = no board tool at all
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
-      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } }, askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
+      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id, taskId) => { try { return deps.engine.runModeOf?.(id, taskId); } catch { return undefined; } }, askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
     },
     preamble: (agent, ctx) => {
       const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;

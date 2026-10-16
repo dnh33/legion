@@ -336,6 +336,7 @@ export class BlenderGuard {
       ...(job?.ceiling ? { ceiling: job.ceiling } : {}),
       ...(this.d.modeOf ? { modeOf: this.d.modeOf } : {}),
       agentId: agent.id,
+      taskId,
       fallbackMode: agent.approval,
       ask: () => this.d.approvals.request(
         taskId, agent.id, BLENDER_EXEC_TOOL,
@@ -594,6 +595,7 @@ export class BlenderGuard {
       ...(job?.ceiling ? { ceiling: job.ceiling } : {}),
       ...(this.d.modeOf ? { modeOf: this.d.modeOf } : {}),
       agentId: agent.id,
+      taskId,
       fallbackMode: agent.approval,
       ask: () => this.d.approvals.request(
         taskId, agent.id, BLENDER_ASSET_TOOL,

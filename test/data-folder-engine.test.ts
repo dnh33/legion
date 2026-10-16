@@ -14,9 +14,9 @@ const fwd = DATA.replace(/\\/g, '/');
 const guardModule = { id: 'dataguard', protectedPaths: () => dataFolderTargets(DATA) } as never;
 
 /** Runs commands through the PreToolUse hook that owns the shell floor's card for Claude's shell tools. A card is answered "no". */
-async function viaHook(mode: 'ask' | 'auto-edits' | 'full', commands: Array<[string, string]>) {
+async function viaHook(mode: 'ask' | 'auto-edits' | 'smart' | 'full', commands: Array<[string, string]>) {
   const modes: ModeResolver = { mode: () => mode };
-  const r = setup({ approval: mode, modes });
+  const r = setup({ approval: mode === 'smart' ? 'ask' : mode, modes });
   r.engine.setModules([guardModule]);
   const task = r.start('a1', 'go');
   const out: Array<{ command: string; card: boolean; noRemember: boolean; decision?: string }> = [];
@@ -37,8 +37,8 @@ async function viaHook(mode: 'ask' | 'auto-edits' | 'full', commands: Array<[str
   return out;
 }
 
-test('Ask and Auto-edits: mv, cp, rm and redirects on the data folder get a card with no Remember (the mv and cp probes included)', async () => {
-  for (const mode of ['ask', 'auto-edits'] as const) {
+test('Ask, Auto-edits and Smart: mv, cp, rm and redirects on the data folder get a card with no Remember (the mv and cp probes included)', async () => {
+  for (const mode of ['ask', 'auto-edits', 'smart'] as const) {
     const out = await viaHook(mode, [
       ['Bash', `mv ${fwd}/gates/app.json C:/work/projB/x`],
       ['Bash', `cp C:/work/projB/old.json ${fwd}/gates/app.json`],
@@ -64,7 +64,7 @@ test('Bypass: no extra card (the one mode the owner chose to leave open)', async
 });
 
 test('N29: Claude Code keeps its folder between shell calls: an unproven cd marks the rest of the run', async () => {
-  for (const mode of ['ask', 'auto-edits'] as const) {
+  for (const mode of ['ask', 'auto-edits', 'smart'] as const) {
     // call 1 moves into the data folder (a read, free); call 2 is a relative write that means the data folder
     const out = await viaHook(mode, [['Bash', `cd ${fwd}`], ['Bash', 'rm gates/app.json'], ['PowerShell', 'Remove-Item gates\app.json']]);
     assert.equal(out[0]!.card, false, `${mode}: the cd itself only reads`);

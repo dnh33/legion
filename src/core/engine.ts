@@ -17,6 +17,7 @@ import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { describeWaited, isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
+import type { RunMode } from './permission-mode.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
@@ -332,6 +333,8 @@ interface Active {
   shellCwds?: string[];
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
   projectAtStart?: string;
+  /** For an outside helper's run: the project it helps (its cap and deny rules bind the run although the run is not in it). */
+  outsideOf?: string;
   /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
   toolUses: Set<string>;
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
@@ -900,6 +903,7 @@ export class Engine {
     const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set() };
     act.tainted = !!(job.origin?.tainted || this.store.getTask(job.taskId)?.tainted);
     act.projectAtStart = this.projectOf(job.taskId, job.agentId)?.id;
+    if (job.outsideOf) act.outsideOf = job.outsideOf;
     this.active.set(job.taskId, act);
     void this.runJob(job, act);
   }
@@ -1493,13 +1497,29 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
-  private modeNow(job: Job, agent: AgentProfile): ApprovalMode {
+  private modeNow(job: Job, agent: AgentProfile): RunMode {
     const live = this.store.getAgent(agent.id);
     const own = live?.approval ?? agent.approval;
     const ceiling = job.origin?.approvalCeiling;
     if (!this.modes) return ceiling ? stricterMode(own, ceiling) : own;
-    // the cap comes from the project the run STARTED in (job.projectAtStart, set when the run began): a project archived or left mid-run keeps its cap
-    return this.modes.mode({ agentMode: own, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.projectAtStart ? { startProjectId: job.projectAtStart } : {}), ...(ceiling ? { ceiling } : {}) });
+    // the cap comes from the project the run STARTED in (job.projectAtStart, set when the run began), or for an outside helper the project it helps
+    // (job.outsideOf, the same value decideGate gets): a project archived or left mid-run keeps its cap
+    const startProjectId = job.projectAtStart ?? job.outsideOf;
+    return this.modes.mode({ agentMode: own, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(startProjectId ? { startProjectId } : {}), ...(ceiling ? { ceiling } : {}) });
+  }
+
+  /**
+   * The mode an agent's run is judged by right now, for modules that only know the agent and the task (the browser, Blender and board
+   * guards, the comms hub). The project cap comes from the live run's start project (or the project an outside helper helps), else from the
+   * task's own project; with no task there is no start project, so no cap. Undefined when the agent is gone.
+   */
+  runModeOf(agentId: string, taskId?: string): RunMode | undefined {
+    const agent = this.store.getAgent(agentId);
+    if (!agent) return undefined;
+    const act = taskId ? this.active.get(taskId) : undefined;
+    const startProjectId = act?.projectAtStart ?? act?.outsideOf ?? (taskId ? this.projectOf(taskId, agentId)?.id : undefined);
+    if (!this.modes) return agent.approval;
+    return this.modes.mode({ agentMode: agent.approval, source: agent.approvalSource ?? 'own', ...(startProjectId ? { startProjectId } : {}) });
   }
 
   /**
@@ -1507,7 +1527,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
   private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; /** false: the floor's card is raised by a hook for this path; only its refusals apply here. */ floorCard?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
-    const effective = (): ApprovalMode => this.modeNow(job, agent);
+    const effective = (): RunMode => this.modeNow(job, agent);
     return async (toolName, input) => {
       // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
       // (no await when no card is due: the card of a normal tool must still be raised synchronously)
@@ -1583,7 +1603,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
           + '\n\n' + renderTeamwork(servers)
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
-          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
+          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
           // the lead's role comes last, after the persona and the project, so no edit or wording above can drop it
@@ -1646,7 +1666,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (this.config.claude.executablePath) options.pathToClaudeCodeExecutable = this.config.claude.executablePath;
     // A task woken by another bot can never be more permissive than the strictest sender on the chain
     // (confused-deputy guard): it never runs in bypass mode and its cards name who asked.
-    const effective = (): ApprovalMode => this.modeNow(job, agent);
+    const effective = (): RunMode => this.modeNow(job, agent);
     // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
     const cardHookSeconds = this.approvals.timeoutSeconds + 60;
     if (this.modeNow(job, agent) === 'full') {
@@ -1809,7 +1829,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
         + '\n\n' + renderTeamwork(allServers)
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) })
-        + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
+        + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`

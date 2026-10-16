@@ -9,11 +9,13 @@ import { dataFolderTargets } from '../exec/canonical-path.js';
 import type { ApprovalMode, LegionEvent } from '../../shared/types.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
-import { effectiveMode } from '../permission-mode.js';
+import { baselineMode, effectiveMode } from '../permission-mode.js';
+import type { GoalAutonomy, RunMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
-import { PRESETS } from '../../shared/gates-registry.js';
+import { PRESETS, gateValue } from '../../shared/gates-registry.js';
+import type { GateValue, Preset } from '../../shared/gates-registry.js';
 import { makeSigner } from './sign.js';
 import { GatesError, GatesStore } from './store.js';
 import type { GatesKeyState } from './store.js';
@@ -23,11 +25,14 @@ export { GatesStore, GatesError } from './store.js';
 export interface ModeResolver {
   /**
    * The mode a tool call is judged by right now (spec 4.2). Called on every call, so a change takes effect on the next one.
-   * `startProjectId` is the project the run started in (`job.projectAtStart`), never the live membership: fail closed.
+   * `startProjectId` is the project the run started in (`job.projectAtStart`, or the helped project for an outside helper), never the live membership: fail closed.
+   * `source` is read from disk, so it is not trusted: anything but 'own' or 'project' (absent counts as 'own') gives Ask.
    */
-  mode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; startProjectId?: string; ceiling?: ApprovalMode }): ApprovalMode;
+  mode(a: { agentMode: ApprovalMode; source?: unknown; startProjectId?: string; ceiling?: ApprovalMode; goal?: { autonomy: GoalAutonomy; lease?: Preset } }): RunMode;
+  /** What the run would be judged by with no presets at all (the would-have-asked comparison). Optional so a bare `{ mode }` stays a resolver. */
+  baseline?(a: { agentMode: ApprovalMode; source?: unknown; ceiling?: ApprovalMode }): RunMode;
 }
-export interface GatesCore { store: GatesStore; resolver: ModeResolver }
+export interface GatesCore { store: GatesStore; resolver: ModeResolver; /** The value of a gate for a run that started in `startProjectId` (the project's override, else the app's, else the preset's). */ gate(id: string, startProjectId?: string): GateValue }
 
 /**
  * `keyring` is the gates key (its own key file; the per-launch secrets change on every start, so they cannot sign files that must
@@ -38,19 +43,27 @@ export interface GatesCore { store: GatesStore; resolver: ModeResolver }
 export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: { get(): Buffer | undefined; state?(): GatesKeyState } }): GatesCore {
   const signer = makeSigner(o.keyring?.get());
   const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PRESETS, ...(signer ? { signer } : {}), ...(o.keyring?.state ? { keyState: o.keyring.state() } : {}) });
+  // A source that is neither 'own' nor 'project' (a damaged agent record) fails closed to Ask, before any preset is read.
+  const sourceOf = (source: unknown): 'own' | 'project' | undefined => (source === undefined || source === 'own' ? 'own' : source === 'project' ? 'project' : undefined);
   const resolver: ModeResolver = {
-    mode({ agentMode, source, startProjectId, ceiling }) {
+    mode({ agentMode, source, startProjectId, ceiling, goal }) {
+      const src = sourceOf(source);
+      if (!src) return 'ask';
       const ps = startProjectId ? store.project(startProjectId) : undefined;
-      const m = effectiveMode({
-        agentMode, source: source ?? 'own', appPreset: store.app().preset ?? 'ask',
+      return effectiveMode({
+        agentMode, source: src, appPreset: store.app().preset ?? 'ask',
         ...(ps ? { project: { ...(ps.preset ? { preset: ps.preset } : {}), limit: ps.limit ?? true } } : {}),
+        ...(goal ? { goal } : {}),
         ...(ceiling ? { ceiling } : {}),
       });
-      // 'smart' cannot occur while only Ask is allowed; part 2 removes this guard together with the callers' support for it
-      return m === 'smart' ? agentMode : m;
+    },
+    baseline({ agentMode, source, ceiling }) {
+      const src = sourceOf(source);
+      return src ? baselineMode({ agentMode, source: src, ...(ceiling ? { ceiling } : {}) }) : 'ask';
     },
   };
-  return { store, resolver };
+  const gate = (id: string, startProjectId?: string): GateValue => gateValue(id, { app: store.app(), ...(startProjectId ? { project: store.project(startProjectId) } : {}) });
+  return { store, resolver, gate };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore }
