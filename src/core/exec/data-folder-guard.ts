@@ -1,22 +1,28 @@
 /**
- * Does a shell command change Legion's own protected files (gate settings, the gates key, projects, config, state, armory, away)?
- * Pure apart from the disk reads of `canonicalLocal`: the engine decides what to do with the answer (a card with no Remember).
+ * Does a shell command touch Legion's own protected files (gate settings, the gates key, projects, config, state, connectors, providers, armory,
+ * away)? Pure apart from the disk reads of `canonicalLocal`: the engine decides what to do with the answer (a card with no Remember).
  *
- * The command is read as text, not run. It is cut into simple commands (`&&`, `||`, `;`, `|`, newlines, braces, parentheses). Each one
- * is read in order with the working folder it will have: the run's folder, moved by `cd`, `pushd`, `popd`, `Set-Location`, `sl`,
- * `chdir` earlier in the line, and by `git -C <dir>`. Only a command that can write, move, delete, rename or link is looked at (see
- * `WRITERS`), and every redirection `>` / `>>` counts as a write to its target. Each path it names is turned into one canonical
- * spelling (`canonicalLocal`: relative paths, `..`, admin shares, `\\?\`, trailing dots, 8.3 names and junctions) and compared with
- * the same protected set the file tools use (`isProtected`). Plain reads (cat, Get-Content, ls, rg, git log) are free.
+ * Default deny. The command is read as text, not run:
+ * - It is normalised the way the shell reads it: quotes, bash backslash escapes, `$'...'`, the pwsh backtick and the cmd caret;
+ *   `~` and the known folder variables (HOME, USERPROFILE, APPDATA, LOCALAPPDATA, TEMP, TMP) from the run's environment.
+ * - Hidden commands are read too: `$(...)`, backticks, heredoc bodies, `<<<`, and the strings given to iex / Invoke-Expression,
+ *   Start-Process -ArgumentList, cmd /c, powershell -Command, bash -c, node -e and python -c.
+ * - It is cut into simple commands. Each word, resolved against the working folder it will have (`cd`, `pushd`, `popd`,
+ *   `Set-Location`, `Push-Location`, `Pop-Location`, `git -C`), is compared with the protected set in canonical spelling
+ *   (`canonicalLocal`). A word that is a protected entry, is inside one, or holds one (the data folder, the home folder, the drive
+ *   root) is a hit, and so is an existing hardlink to a protected file.
+ * - A hit counts unless every part of the command only reads (`READERS`, git status/log/diff/show, echo with no redirection).
+ *   A redirection into a protected path always counts.
  *
- * `names`: a path it names is protected. `hidden`: a command that can write names a path that is built when it runs (an unknown
- * variable, `$(...)`, a backtick, `~user`, a brace list, a wildcard) or a folder the guard lost track of, so it could point there.
- * Limit, stated plainly: this is text matching. A script that builds its path elsewhere gets past it; the signed gates folder is the
- * real barrier.
+ * `names`: a word is (or holds) a protected path. `hidden`: a word could be one and the guard cannot tell: an unknown variable,
+ * `$(...)`, `~user`, a brace list, an unresolved 8.3 name, a relative word after a `cd` that can fail or does not last, a line that
+ * sets HOME, TEMP or CDPATH or redefines `cd`, or an encoded PowerShell command.
+ * Limit, stated plainly: this is text matching. A script or program that builds its path when it runs gets past it; only an OS
+ * sandbox stops that. The signed gates folder is the real barrier.
  */
 import { homedir } from 'node:os';
 import { dirname, posix, win32 } from 'node:path';
-import { canonicalLocal, isOpaqueDevicePath, isProtected } from './canonical-path.js';
+import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isOpaqueDevicePath } from './canonical-path.js';
 
 export type ShellKindName = 'sh' | 'pwsh' | 'cmd';
 export type FolderHit = 'none' | 'names' | 'hidden';
@@ -24,29 +30,54 @@ export type FolderHit = 'none' | 'names' | 'hidden';
 const WIN = process.platform === 'win32';
 const P = WIN ? win32 : posix;
 
-/** Commands that can write, move, delete, rename or link (lower case, without folder or `.exe`). Every path they name is checked. */
-const WRITERS = new Set([
-  'rm', 'del', 'erase', 'rd', 'rmdir', 'mv', 'move', 'ren', 'rename', 'cp', 'copy', 'xcopy', 'robocopy', 'unlink', 'shred', 'rsync',
-  'remove-item', 'ri', 'move-item', 'mi', 'copy-item', 'cpi', 'rename-item', 'rni', 'set-content', 'sc', 'add-content', 'ac', 'out-file',
-  'clear-content', 'new-item', 'ni', 'set-itemproperty', 'export-csv', 'export-clixml', 'tee-object', 'set-acl', 'invoke-webrequest', 'iwr', 'invoke-restmethod', 'irm',
-  'mklink', 'ln', 'tee', 'dd', 'truncate', 'touch', 'mkdir', 'md', 'install', 'chmod', 'chown', 'attrib', 'icacls', 'takeown', 'subst', 'curl', 'wget',
-  'tar', 'unzip', '7z', 'zip', 'expand-archive', 'compress-archive', 'expand',
+/** Commands that only read (lower case, without folder or `.exe`). A line made only of these is free, whatever it names. */
+const READERS = new Set([
+  'cat', 'type', 'more', 'less', 'head', 'tail', 'get-content', 'gc', 'get-childitem', 'gci', 'dir', 'ls', 'get-item', 'gi', 'test-path',
+  'select-string', 'sls', 'rg', 'grep', 'findstr', 'wc', 'stat', 'pwd', 'get-location',
 ]);
+/** Print their words: the words are text, not paths (read for protected names only); read-only when nothing is redirected. */
+const ECHOS = new Set(['echo', 'write-output']);
+const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'rev-parse']);
+const NAV = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 'push-location', 'pop-location']);
+/** Words that do nothing by themselves (the end of a loop or a branch). */
+const NEUTRAL = new Set(['done', 'fi', 'esac', 'true', ':', 'for']);
 const LINKERS = new Set(['mklink', 'ln', 'new-item', 'ni']);
-/** Interpreters whose one-liner (`-e`, `-c`) can write anything. */
+/** Interpreters whose one-liner (`-e`, `-c`) or here-doc can write anything. */
 const ONELINERS = new Set(['node', 'nodejs', 'python', 'python3', 'py', 'perl', 'ruby']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'cmd', 'powershell', 'pwsh']);
-const GIT_WRITES = new Set(['add', 'am', 'apply', 'checkout', 'clean', 'clone', 'commit', 'init', 'merge', 'mv', 'pull', 'fetch', 'rebase', 'reset', 'restore', 'revert', 'rm', 'stash', 'switch', 'cherry-pick', 'tag', 'branch', 'config', 'worktree', 'submodule', 'gc', 'update-index', 'checkout-index', 'format-patch']);
-const GIT_PATHS = new Set(['add', 'am', 'apply', 'checkout', 'clean', 'clone', 'init', 'mv', 'reset', 'restore', 'rm', 'switch', 'worktree', 'checkout-index', 'format-patch', 'update-index', 'config']);
-const GIT_PATH_VARS = new Set(['add', 'mv', 'rm', 'clean', 'apply', 'am', 'clone', 'init', 'restore', 'checkout-index']);
 const SKIP_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', 'sudo', 'time', 'env', 'command', 'exec', 'nohup', 'call', 'start', 'xargs', 'builtin', 'noglob']);
 const MARKERS = /homedir|appdata|userprofile|os\.path|pathlib|join\(|resolve\(|environ|getenv|process\.env|\$env:|\bhome\b/i;
+/** The folder variables read from the run's environment. Any other variable is unknown. */
+const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp'];
 
-interface Tok { text: string; op?: '>' | '<' | 'sep' }
+const VARS = '(?:HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|CDPATH)';
+/** The line sets a folder variable (or CDPATH): `~`, `$HOME` and `cd` no longer mean what the run's environment says. */
+const REASSIGN = new RegExp([
+  `(?:^|[^\\w$.:-])(?:\\$\\{?env:|\\$)?${VARS}\\}?\\s*\\+?=`,
+  `\\b(?:read|unset|for)\\s+(?:-\\w+\\s+)*${VARS}\\b`,
+  `\\b(?:set-item|si|new-item|ni|set-content|sc|remove-item|ri|clear-item|cli)\\b[^\\n;|&]*\\benv:${VARS}\\b`,
+  `\\b(?:set-variable|sv|new-variable|nv|remove-variable|rv)\\s+(?:-name\\s+)?${VARS}\\b`,
+  'setenvironmentvariable',
+  `\\bset\\s+"?${VARS}=`,
+].join('|'), 'i');
+const NAVS = '(?:cd|chdir|pushd|popd|set-location|sl|push-location|pop-location)';
+/** The line redefines `cd` (a function, an alias): its moves cannot be followed. */
+const REDEFINE = new RegExp(`(?:^|[\\s;&|(){}])(?:function\\s+${NAVS}\\b|${NAVS}\\s*\\(\\s*\\)|alias\\s+${NAVS}=|(?:set-alias|sal|new-alias|nal)\\s+(?:-name\\s+)?${NAVS}\\b|doskey\\s+${NAVS}=)`, 'i');
+const lineUnknown = (text: string): boolean => REASSIGN.test(text) || REDEFINE.test(text);
+
+/** Paths inside a longer word (code, a quoted list, `-o<path>`): drive, UNC, `~/...` and `../...` spellings. */
+const EMBED = /[A-Za-z]:[\\/][^\s'"`,;|()<>]*|(?<![\w:])[\\/]{2}[^\s'"`,;|()<>]+|(?<![\w.~-])~(?=[\\/]|$|[\s'"`,;)])[^\s'"`,;|()<>]*|(?<![\w.-])(?:\.\.[\\/])+[^\s'"`,;|()<>]*/g;
+/** A literal `$` from single quotes: never a variable, put back before the path is read. */
+const LIT = '';
+
+type Op = '>' | '<' | '&&' | '||' | ';' | '&' | '|' | '(' | ')';
+interface Tok { text: string; alt?: string; op?: Op; subs?: string[]; doc?: boolean }
+/** Where the next command runs: the folders it may be in; `exact` when there is only one and it is certain. */
+interface Where { cwds: string[]; exact: boolean }
 
 function lookup(env: NodeJS.ProcessEnv, home: string): (name: string) => string | undefined {
   const m = new Map<string, string>();
-  for (const [k, v] of Object.entries(env)) if (typeof v === 'string') m.set(k.toLowerCase(), v);
+  for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && KNOWN.includes(k.toLowerCase())) m.set(k.toLowerCase(), v);
   const h = m.get('userprofile') ?? m.get('home') ?? home;
   if (!m.has('home')) m.set('home', h);
   if (!m.has('userprofile')) m.set('userprofile', h);
@@ -55,7 +86,7 @@ function lookup(env: NodeJS.ProcessEnv, home: string): (name: string) => string 
   return (name) => m.get(name.toLowerCase());
 }
 
-/** Fills in the variables whose value is known. What is left unresolved stays in the text. */
+/** Fills in the known folder variables. What is left unresolved stays in the text. */
 function expand(text: string, get: (n: string) => string | undefined): string {
   const val = (n: string, whole: string): string => get(n) ?? whole;
   return text
@@ -66,41 +97,8 @@ function expand(text: string, get: (n: string) => string | undefined): string {
     .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (w, n: string) => val(n, w));
 }
 
-/** Splits a command line into words and operators, quote-aware. `$(...)` stays inside its word. Backslashes are path separators, not escapes. */
-function tokenize(cmd: string): Tok[] {
-  const out: Tok[] = [];
-  let cur = ''; let has = false; let quote = ''; let depth = 0;
-  const flush = (): void => { if (has) out.push({ text: cur }); cur = ''; has = false; };
-  const sep = (): void => { flush(); out.push({ text: ';', op: 'sep' }); };
-  for (let i = 0; i < cmd.length; i++) {
-    const c = cmd[i]!;
-    if (quote) { if (c === quote) quote = ''; else cur += c; continue; }
-    if (depth > 0) { cur += c; if (c === '(') depth++; else if (c === ')') depth--; continue; }
-    if (c === '"' || c === "'") { quote = c; has = true; continue; }
-    if (c === '$' && cmd[i + 1] === '(') { cur += '$('; has = true; depth = 1; i++; continue; }
-    if (c === '\r' || c === '\n' || c === ';' || c === '|' || c === '(' || c === ')') { sep(); if (c === '|' && cmd[i + 1] === '|') i++; continue; }
-    if (c === '&') {
-      // `2>&1` and `>&2` are not a separator; `&&` and a lone `&` are
-      if (cmd[i - 1] === '>' || cmd[i + 1] === '>') { cur += c; has = true; continue; }
-      sep(); if (cmd[i + 1] === '&') i++; continue;
-    }
-    if (c === '>' || c === '<') {
-      if (c === '>' && /^\d+$/.test(cur)) { cur = ''; has = false; } else flush();
-      let j = i + 1;
-      while (cmd[j] === '>' || cmd[j] === '|') j++;
-      if (c === '>' && cmd[j] === '&') { j++; while (/[0-9-]/.test(cmd[j] ?? '')) j++; i = j - 1; continue; }
-      out.push({ text: c, op: c });
-      i = j - 1; continue;
-    }
-    if (/\s/.test(c)) { flush(); continue; }
-    cur += c; has = true;
-  }
-  flush();
-  return out;
-}
-
 const hasHiddenVar = (t: string): boolean => {
-  if (/\$[({]/.test(t) || /%[A-Za-z_][A-Za-z0-9_]*%/.test(t) || t.includes('`')) return true;
+  if (/\$[({]/.test(t) || /%[A-Za-z_][A-Za-z0-9_]*%/.test(t) || /![A-Za-z_][A-Za-z0-9_]*!/.test(t)) return true;
   for (const m of t.matchAll(/\$(env:)?([A-Za-z_][A-Za-z0-9_]*)/gi)) {
     if (!m[1] && /^(_|true|false|null)$/i.test(m[2]!)) continue;
     return true;
@@ -108,18 +106,149 @@ const hasHiddenVar = (t: string): boolean => {
   return false;
 };
 
+/** The index of the `)` that closes a `(` opened just before `i`; quotes are skipped. */
+function closeParen(s: string, i: number): number {
+  let depth = 1; let q = '';
+  for (let j = i; j < s.length; j++) {
+    const c = s[j]!;
+    if (q) { if (c === q) q = ''; else if (c === '\\' && q === '"') j++; continue; }
+    if (c === '"' || c === "'") q = c;
+    else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return j;
+  }
+  return s.length;
+}
+
+/** The body of a bash `$'...'` string, decoded. */
+function ansiC(body: string): string {
+  const named: Record<string, string> = { n: '\n', t: '\t', r: '\r', a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', v: '\v' };
+  return body.replace(/\\(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|U[0-9a-fA-F]{1,8}|[0-7]{1,3}|c.|.)/g, (_w, e: string) => {
+    if (e[0] === 'x' || e[0] === 'u' || e[0] === 'U') return String.fromCodePoint(parseInt(e.slice(1), 16));
+    if (/^[0-7]/.test(e)) return String.fromCharCode(parseInt(e, 8));
+    if (e[0] === 'c' && e.length === 2) return String.fromCharCode(e.charCodeAt(1) & 31);
+    return named[e] ?? e;
+  }).replace(/\$/g, LIT);
+}
+
+/**
+ * Splits a command line into words and operators the way the shell reads it. `text` is the word as the shell sees it; for sh, `alt`
+ * keeps the backslashes (a Windows path typed without quotes). `$(...)`, backticks and process substitutions go to `subs`; a
+ * heredoc body is a `doc` word of the command it feeds.
+ */
+function tokenize(cmd: string, kind: ShellKindName): Tok[] & { broken?: boolean } {
+  const sh = kind === 'sh'; const ps = kind === 'pwsh'; const cm = kind === 'cmd';
+  const out: Tok[] & { broken?: boolean } = [];
+  // an unclosed quote, substitution or heredoc: the shell would not read the line the way it is cut here
+  const closed = (end: number, ch?: string): void => { if (end >= cmd.length || (ch !== undefined && cmd[end] !== ch)) out.broken = true; };
+  let cur = ''; let raw = ''; let has = false; let subs: string[] = [];
+  const docs: Array<{ delim: string; strip: boolean }> = [];
+  const flush = (): void => {
+    if (has) out.push({ text: cur, ...(raw !== cur ? { alt: raw } : {}), ...(subs.length ? { subs } : {}) });
+    cur = ''; raw = ''; has = false; subs = [];
+  };
+  const add = (t: string, r = t): void => { cur += t; raw += r; has = true; };
+  const op = (o: Op): void => { flush(); out.push({ text: o, op: o }); };
+  const sub = (inner: string): void => { subs.push(inner); add('$(sub)'); };
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i]!;
+    const n = cmd[i + 1];
+    if ((sh || ps) && c === '$' && n === '(') { const e = closeParen(cmd, i + 2); closed(e); sub(cmd.slice(i + 2, e)); i = e; continue; }
+    if (sh && (c === '<' || c === '>') && n === '(') { const e = closeParen(cmd, i + 2); closed(e); sub(cmd.slice(i + 2, e)); i = e; continue; }
+    if (sh && c === '`') { let j = i + 1; while (j < cmd.length && cmd[j] !== '`') { if (cmd[j] === '\\') j++; j++; } closed(j, '`'); sub(cmd.slice(i + 1, j)); i = j; continue; }
+    if (sh && c === '$' && n === "'") {
+      let j = i + 2; let body = '';
+      while (j < cmd.length && cmd[j] !== "'") { if (cmd[j] === '\\') { body += cmd[j]! + (cmd[j + 1] ?? ''); j += 2; } else body += cmd[j++]; }
+      closed(j, "'"); add(ansiC(body)); i = j; continue;
+    }
+    if (c === "'") {
+      let j = i + 1; let body = '';
+      for (; j < cmd.length; j++) {
+        if (cmd[j] === "'") { if (ps && cmd[j + 1] === "'") { body += "'"; j++; continue; } break; }
+        body += cmd[j];
+      }
+      if (!cm) closed(j, "'"); // in cmd an apostrophe is a plain letter (`echo it's done`)
+      add(cm ? body : body.replace(/\$/g, LIT)); i = j; continue;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      for (; j < cmd.length && cmd[j] !== '"'; j++) {
+        const d = cmd[j]!;
+        if (sh && d === '\\' && /[$`"\\\n]/.test(cmd[j + 1] ?? '')) { add(cmd[j + 1]!, `\\${cmd[j + 1]!}`); j++; continue; }
+        if (ps && d === '`' && j + 1 < cmd.length) { add(cmd[j + 1]!); j++; continue; }
+        if ((sh || ps) && d === '$' && cmd[j + 1] === '(') { const e = closeParen(cmd, j + 2); sub(cmd.slice(j + 2, e)); j = e; continue; }
+        if (sh && d === '`') { let k = j + 1; while (k < cmd.length && cmd[k] !== '`') k++; sub(cmd.slice(j + 1, k)); j = k; continue; }
+        add(d);
+      }
+      closed(j, '"'); has = true; i = j; continue;
+    }
+    if (sh && c === '\\') { if (n !== undefined && n !== '\n') add(n, `\\${n}`); i++; continue; }
+    if (ps && c === '`') { if (n !== undefined && n !== '\n') add(n); i++; continue; }
+    if (cm && c === '^') { if (n !== undefined && n !== '\n') add(n); i++; continue; }
+    if (sh && c === '<' && n === '<' && cmd[i + 2] !== '<') {
+      let j = i + 2; const strip = cmd[j] === '-'; if (strip) j++;
+      while (cmd[j] === ' ' || cmd[j] === '\t') j++;
+      let delim = '';
+      for (; j < cmd.length && !/[\s;&|<>()]/.test(cmd[j]!); j++) if (!`'"\\`.includes(cmd[j]!)) delim += cmd[j];
+      flush();
+      if (delim) docs.push({ delim, strip });
+      i = j - 1; continue;
+    }
+    if (c === '\n' && docs.length) {
+      flush();
+      let j = i + 1;
+      for (const d of docs.splice(0)) {
+        const lines: string[] = [];
+        let ended = false;
+        while (j < cmd.length) {
+          let e = cmd.indexOf('\n', j); if (e < 0) e = cmd.length;
+          const line = cmd.slice(j, e).replace(/\r$/, ''); j = e + 1;
+          if ((d.strip ? line.replace(/^\t+/, '') : line) === d.delim) { ended = true; break; }
+          lines.push(line);
+        }
+        if (!ended) out.broken = true;
+        out.push({ text: lines.join('\n'), doc: true });
+      }
+      out.push({ text: ';', op: ';' });
+      i = j - 1; continue;
+    }
+    if (c === '\r' || c === '\n' || c === ';') { op(';'); continue; }
+    if (c === '|') { if (n === '|') { op('||'); i++; } else op('|'); continue; }
+    if (c === '(' || c === ')') { op(c); continue; }
+    if (c === '&') {
+      // `2>&1` and `>&2` are not a separator; `&&` and a lone `&` are (in pwsh a leading `&` is the call operator)
+      if (cmd[i - 1] === '>' || n === '>') { add(c); continue; }
+      if (n === '&') { op('&&'); i++; continue; }
+      if (ps && !has && (out.length === 0 || out[out.length - 1]!.op)) continue;
+      op('&'); continue;
+    }
+    if (c === '>' || c === '<') {
+      if (/^\d+$/.test(cur) || cur === '*') { cur = ''; raw = ''; has = false; } else flush();
+      let j = i + 1;
+      while (cmd[j] === c || cmd[j] === '|') j++;
+      if (c === '>' && cmd[j] === '&') { j++; while (/[0-9-]/.test(cmd[j] ?? '')) j++; i = j - 1; continue; }
+      out.push({ text: c, op: c });
+      i = j - 1; continue;
+    }
+    if (/\s/.test(c)) { flush(); continue; }
+    add(c);
+  }
+  flush();
+  if (docs.length) out.broken = true; // a heredoc with no body
+  return out;
+}
+
 const globToRe = (seg: string): RegExp => new RegExp(`^${seg.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
 
 /** Does a path with wildcards match something under (or above) a protected root? Compared segment by segment. */
-function globHitsSet(raw: string, set: readonly string[], cwd: string): boolean {
+function globHitsSet(raw: string, canon: readonly string[], cwd: string): boolean {
   const norm = raw.replace(/\\/g, '/');
   const segs = norm.split('/');
   const g = segs.findIndex((s) => /[*?[]/.test(s));
   const prefix = segs.slice(0, g).join('/');
   const base = canonicalLocal(prefix === '' && norm.startsWith('/') ? '/' : prefix || '.', { cwd }).split(/[\\/]+/).filter(Boolean);
   const rest = segs.slice(g).filter(Boolean);
-  for (const t of set) {
-    const r = canonicalLocal(t).split(/[\\/]+/).filter(Boolean);
+  for (const t of canon) {
+    const r = t.split(/[\\/]+/).filter(Boolean);
     if (r.length < base.length || base.some((s, i) => s !== r[i])) continue;
     const tail = r.slice(base.length);
     const n = Math.min(tail.length, rest.length);
@@ -130,163 +259,319 @@ function globHitsSet(raw: string, set: readonly string[], cwd: string): boolean 
   return false;
 }
 
-/** Walks the tokens of one command line. */
+interface Ctx { set: readonly string[]; canon: string[]; get: (n: string) => string | undefined; home: string; ids: { ids?: Set<string> }; memo: Map<string, string> }
+
+const uniq = (a: string[]): string[] => [...new Set(a)].slice(0, 8);
+const merge = (a: Where, b: Where): Where => {
+  const cwds = uniq([...a.cwds, ...b.cwds]);
+  return { cwds, exact: a.exact && b.exact && cwds.length === 1 && a.cwds.length > 0 && b.cwds.length > 0 };
+};
+
+/** Walks the words of one command line (and of the commands hidden inside it). */
 class Reader {
   names = false;
   hidden = false;
-  private stack: string[] = [];
-  private cwd: string | undefined;
+  redir = false;
+  redirHidden = false;
+  allRead = true;
+  unknown = false;
+  where: Where;
+  private stack: Where[] = [];
+  private loops = new Map<string, string[]>();
 
-  constructor(private readonly set: readonly string[], cwd: string, private readonly kind: ShellKindName, private readonly get: (n: string) => string | undefined, private readonly home: string, private readonly depth: number) { this.cwd = cwd; }
+  constructor(private readonly ctx: Ctx, where: Where, private readonly kind: ShellKindName, private readonly depth: number) { this.where = where; }
 
-  /** One path token. `base` is the folder a relative path is read from (undefined: lost track of it). */
-  private path(raw: string, base: string | undefined): void {
-    if (this.names) return;
-    if (!raw) return;
-    let t = expand(raw, this.get);
-    if (hasHiddenVar(t) || (this.kind === 'cmd' && t.includes('^')) || (this.kind === 'pwsh' && (t.includes('+') || t.startsWith('[') || t.includes('::')))) { this.hidden = true; return; }
-    if (t === '~' || /^~[\\/]/.test(t)) t = this.home + t.slice(1);
-    else if (t.startsWith('~')) { this.hidden = true; return; }
-    if (/\{[^}]*,[^}]*\}|\{\d+\.\.\d+\}/.test(t)) { this.hidden = true; return; }
-    if (WIN) t = t.replace(/^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?=\/|$)/, (_w, d: string) => `${d}:`);
-    if (isOpaqueDevicePath(t)) { this.names = true; return; }
-    const rooted = P.isAbsolute(t) || /^[\\/]/.test(t);
-    if (!rooted && base === undefined) { this.hidden = true; return; }
-    const from = base ?? process.cwd();
-    try {
-      if (/[*?[]/.test(t)) { if (globHitsSet(t, this.set, from)) this.names = true; return; }
-      const c = canonicalLocal(t, { cwd: from });
-      if (/~\d(?:[\\/]|$)/.test(c)) { this.hidden = true; return; } // a short (8.3) name that did not resolve cannot be told apart
-      if (isProtected(t, this.set, from)) this.names = true;
-    } catch { this.hidden = true; }
+  text(cmd: string): void {
+    if (lineUnknown(cmd)) this.unknown = true;
+    const toks = tokenize(cmd, this.kind);
+    if (toks.broken) this.unknown = true; // cannot be parsed: not safe
+    this.run(toks);
   }
 
-  /** Moves the working folder for cd, pushd, popd, Set-Location. */
-  private chdir(args: string[]): void {
-    const word = args.filter((a) => !/^\/d$/i.test(a) && !/^-(path|literalpath|l|p)$/i.test(a))[0];
-    if (this.cwd === undefined) return;
-    let t = word === undefined ? '~' : expand(word, this.get);
-    if (word !== undefined && (hasHiddenVar(t) || t === '-' || (t.startsWith('~') && !/^~([\\/]|$)/.test(t)) || /[*?[{]/.test(t))) { this.cwd = undefined; return; }
-    if (t === '~' || /^~[\\/]/.test(t)) t = this.home + t.slice(1);
-    if (WIN) t = t.replace(/^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?=\/|$)/, (_w, d: string) => `${d}:`);
-    try { this.cwd = P.resolve(this.cwd, t); } catch { this.cwd = undefined; }
+  result(): FolderHit {
+    if (this.redir) return 'names';
+    if (!this.allRead && this.names) return 'names';
+    if (this.unknown || this.redirHidden || (!this.allRead && this.hidden)) return 'hidden';
+    return 'none';
+  }
+
+  /** A command inside this one (`$(...)`, a heredoc fed to a shell, `bash -c`, iex): read with its own reader, merged here. */
+  private child(text: string, kind: ShellKindName, subshell: boolean): void {
+    if (this.depth >= 4) { this.hidden = true; this.allRead = false; return; }
+    const r = new Reader(this.ctx, this.where, kind, this.depth + 1);
+    for (const [k, v] of this.loops) r.loops.set(k, v);
+    r.text(text);
+    this.names ||= r.names; this.hidden ||= r.hidden; this.redir ||= r.redir; this.redirHidden ||= r.redirHidden; this.unknown ||= r.unknown;
+    this.allRead &&= r.allRead;
+    if (!subshell && r.where !== this.where) this.where = merge(this.where, r.where);
   }
 
   run(toks: Tok[]): void {
     let seg: Tok[] = [];
-    const end = (): void => { if (seg.length) this.segment(seg); seg = []; };
-    for (const t of toks) { if (t.op === 'sep' || t.text === '{' || t.text === '}') end(); else seg.push(t); }
-    end();
+    const saved: Where[] = [];
+    for (const t of toks) {
+      const boundary = (t.op && t.op !== '>' && t.op !== '<') || t.text === '{' || t.text === '}';
+      if (!boundary) { seg.push(t); continue; }
+      if (seg.length) this.segment(seg, t.op);
+      seg = [];
+      if (t.op === '(') saved.push(this.where);
+      else if (t.op === ')') {
+        const s = saved.pop();
+        // a sh subshell's cd ends at `)`; pwsh and cmd parentheses only group, so the folder may have moved
+        if (s) this.where = this.kind === 'sh' ? s : this.where === s ? s : merge(s, this.where);
+      }
+    }
+    if (seg.length) this.segment(seg, undefined);
   }
 
-  private segment(seg: Tok[]): void {
-    // redirections: the target of > and >> is written; the target of < is only read
-    const words: string[] = [];
-    const targets: string[] = [];
+  /** The values a word can have: loop variables (`for f in *.ts`) are tried with each of their words. */
+  private variants(w: string): string[] {
+    let out = [w];
+    for (const [name, vals] of this.loops) {
+      const re = new RegExp(`\\$(?:\\{${name}\\}|${name}(?![A-Za-z0-9_]))`, 'g');
+      if (!out.some((o) => re.test(o))) continue;
+      out = out.flatMap((o) => vals.map((v) => o.replace(re, v))).slice(0, 16);
+    }
+    return out;
+  }
+
+  /** One word, every way it can be read. `namesOnly`: text that is not a path (echo words): only a protected name counts. */
+  private probe(tok: Pick<Tok, 'text' | 'alt'>, where: Where, namesOnly = false): FolderHit {
+    let best: FolderHit = 'none';
+    for (const spelling of tok.alt !== undefined ? [tok.text, tok.alt] : [tok.text]) {
+      for (const v of this.variants(spelling)) {
+        const t = expand(v, this.ctx.get);
+        const cands = namesOnly ? [] : [t];
+        const eq = /^-{0,2}[A-Za-z][\w.-]*[=:](.+)$/.exec(t);
+        if (eq && !/^[A-Za-z]:[\\/]/.test(t)) cands.push(eq[1]!);
+        for (const m of t.matchAll(EMBED)) if (m[0] !== t) cands.push(m[0]);
+        if (namesOnly) for (const m of t.matchAll(EMBED)) if (m[0] === t) cands.push(m[0]);
+        for (const c of cands) {
+          const h = this.one(c, where);
+          if (h === 'names') return 'names';
+          // the alternative backslash reading and text that is not a path only ever add a protected name
+          if (h === 'hidden' && !namesOnly && spelling === tok.text) best = 'hidden';
+        }
+      }
+    }
+    return best;
+  }
+
+  private one(t0: string, where: Where): FolderHit {
+    let t = t0;
+    if (!t) return 'none';
+    if (hasHiddenVar(t)) return 'hidden';
+    t = t.replace(new RegExp(LIT, 'g'), '$');
+    if (this.kind === 'pwsh' && t.includes('::')) return 'hidden'; // [IO.Path]::Combine(...) builds a path
+    if (t === '~' || /^~[\\/]/.test(t)) t = this.ctx.home + t.slice(1);
+    else if (t.startsWith('~') && this.kind === 'sh') return 'hidden';
+    if (this.kind === 'sh' && /\{[^}]*,[^}]*\}|\{\d+\.\.\d+\}/.test(t)) return 'hidden';
+    if (WIN && this.kind === 'sh') t = t.replace(/^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?=\/|$)/, (_w, d: string) => `${d}:/`);
+    if (isOpaqueDevicePath(t)) return 'names';
+    const rooted = P.isAbsolute(t) || /^[\\/]/.test(t);
+    if (!rooted && where.cwds.length === 0) return 'hidden';
+    let res: FolderHit = 'none';
+    for (const cwd of rooted ? [where.cwds[0] ?? process.cwd()] : where.cwds) {
+      const h = this.at(t, cwd);
+      if (h === 'names') return 'names';
+      if (h === 'hidden') res = 'hidden';
+    }
+    return !rooted && !where.exact ? 'hidden' : res;
+  }
+
+  private at(t: string, cwd: string): FolderHit {
+    try {
+      if (/[*?[]/.test(t)) return globHitsSet(t, this.ctx.canon, cwd) ? 'names' : 'none';
+      const key = `${cwd}\0${t}`;
+      let c = this.ctx.memo.get(key);
+      if (c === undefined) { c = canonicalLocal(t, { cwd }); this.ctx.memo.set(key, c); }
+      if (/~\d[\\/]/.test(c)) return 'hidden'; // a short (8.3) folder name that did not resolve cannot be told apart
+      if (hitsCanonical(c, this.ctx.canon, true)) return 'names';
+      if (isHardlinkToProtected(c, this.ctx.set, undefined, this.ctx.ids)) return 'names';
+      return 'none';
+    } catch { return 'hidden'; }
+  }
+
+  private note(h: FolderHit): void { if (h === 'names') this.names = true; else if (h === 'hidden') this.hidden = true; }
+
+  /** The folder after `cd <word>`. Undefined word: the home folder. An unknown word: no folder known. */
+  private moved(from: Where, word: string | undefined): Where {
+    let t = word === undefined ? '~' : expand(word, this.ctx.get).replace(new RegExp(LIT, 'g'), '$');
+    if (word !== undefined && (hasHiddenVar(t) || t === '-' || (t.startsWith('~') && !/^~([\\/]|$)/.test(t)) || /[*?[{]/.test(t))) return { cwds: [], exact: false };
+    if (t === '~' || /^~[\\/]/.test(t)) t = this.ctx.home + t.slice(1);
+    if (WIN && this.kind === 'sh') t = t.replace(/^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?=\/|$)/, (_w, d: string) => `${d}:/`);
+    if (P.isAbsolute(t)) return { cwds: [P.resolve(t)], exact: true };
+    if (!from.cwds.length) return { cwds: [], exact: false };
+    return { cwds: uniq(from.cwds.map((c) => P.resolve(c, t))), exact: from.exact };
+  }
+
+  /** cd, pushd, popd, Set-Location, Push-Location, Pop-Location. Only a move followed by `&&` is certain; after `;`, `||`, `&` it may not have happened. */
+  private nav(name: string, args: string[], next: Op | undefined): void {
+    const sure = next === '&&';
+    const before = this.where;
+    let after: Where;
+    if (name === 'popd' || name === 'pop-location') {
+      const prev = this.stack.pop();
+      if (!prev) return; // nothing to go back to: the folder stays
+      after = prev;
+    } else {
+      if (name === 'pushd' || name === 'push-location') this.stack.push(before);
+      if (this.kind === 'cmd' && name === 'cd' && args.length === 0) return;
+      const word = args.filter((a) => !/^\/d$/i.test(a) && !/^-(path|literalpath|l|p|passthru)$/i.test(a))[0];
+      after = this.moved(before, word);
+      // cmd's cd without /d to another drive changes that drive's folder, not this one
+      const drive = word && /^([a-z]):/i.exec(word);
+      if (this.kind === 'cmd' && name === 'cd' && drive && !args.some((a) => /^\/d$/i.test(a)) && before.cwds.some((c) => c[0]?.toLowerCase() !== drive[1]!.toLowerCase())) after = merge(before, after);
+    }
+    this.where = sure ? after : after.cwds.length ? merge(before, after) : { cwds: before.cwds, exact: false };
+  }
+
+  private segment(seg: Tok[], next: Op | undefined): void {
+    const words: Tok[] = [];
+    const outs: Tok[] = [];
+    const docs: Tok[] = [];
     for (let i = 0; i < seg.length; i++) {
       const t = seg[i]!;
-      if (t.op === '>') { const n = seg[i + 1]; if (n && !n.op) { targets.push(n.text); i++; } continue; }
-      if (t.op === '<') { if (seg[i + 1] && !seg[i + 1]!.op) i++; continue; }
-      words.push(t.text);
+      if (t.op === '>') { const n = seg[i + 1]; if (n && !n.op) { outs.push(n); i++; } continue; }
+      if (t.op === '<') continue; // what follows is read like any other word
+      if (t.doc) { docs.push(t); continue; }
+      words.push(t);
     }
-    for (const r of targets) if (!/^(\/dev\/null|nul|\$null)$/i.test(r)) this.path(r, this.cwd);
+    // substitutions run first (a subshell in sh)
+    for (const t of seg) for (const s of t.subs ?? []) this.child(s, this.kind, this.kind === 'sh');
+    for (const o of outs) {
+      if (/^(\/dev\/null|nul|\$null)$/i.test(o.text)) continue;
+      const h = this.probe(o, this.where);
+      if (h === 'names') this.redir = true; else if (h === 'hidden') this.redirHidden = true;
+    }
     let k = 0;
-    while (k < words.length && (SKIP_WORDS.has(words[k]!.toLowerCase()) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[k]!) || words[k] === '&' || words[k] === '.')) k++;
-    if (k >= words.length) return;
-    let head = words[k]!.replace(/^[{(]+/, '');
-    const name = head.split(/[\\/]/).pop()!.toLowerCase().replace(/\.(exe|cmd|bat|ps1|com)$/, '');
-    const args = words.slice(k + 1);
-    if (name === 'cd' || name === 'chdir' || name === 'pushd' || name === 'set-location' || name === 'sl' || name === 'popd') {
-      if (name === 'popd') { this.cwd = this.stack.pop() ?? this.cwd; return; }
-      if (name === 'pushd') this.stack.push(this.cwd ?? '');
-      if (this.kind === 'cmd' && name === 'cd' && args.length === 0) return;
-      this.chdir(args);
-      return;
-    }
-    if (name === 'git') { this.git(args); return; }
-    if (SHELLS.has(name)) { this.nested(name, args); return; }
-    if (ONELINERS.has(name)) {
-      const i = args.findIndex((a) => /^(-e|-c|-p|--eval|-pe)$/.test(a));
-      if (i >= 0 && args[i + 1] !== undefined) this.script(args[i + 1]!);
-      return;
-    }
-    if (name === 'sed' || name === 'perl') { if (!args.some((a) => /^-[a-z]*i/.test(a) || a === '--in-place')) return; }
-    else if (!WRITERS.has(name)) return;
-    this.writerArgs(name, args);
-  }
-
-  /** The paths a writing command names: every word that is not a switch, plus the value of `--opt=value`. */
-  private writerArgs(name: string, args: string[]): void {
-    const paths: string[] = [];
-    for (const a of args) {
-      if (/^\/[a-z?]{1,2}$/i.test(a) && this.kind === 'cmd') continue; // /s /q /y /d /J
-      if (/^-/.test(a)) {
-        const v = a.slice(a.search(/[=:]/) + 1);
-        if (/[=:]/.test(a) && v && a.search(/[=:]/) > 0) paths.push(v);
+    const assigns: Tok[] = [];
+    while (k < words.length) {
+      const w = words[k]!.text; const lw = w.toLowerCase();
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { assigns.push({ text: w.slice(w.indexOf('=') + 1) }); k++; continue; }
+      if ((SKIP_WORDS.has(lw) && !(this.kind === 'pwsh' && lw === 'start')) || w === '&' || w === '.') {
+        k++;
+        while (k < words.length && words[k]!.text.startsWith('-') && lw !== 'if' && lw !== '!') k++;
         continue;
       }
-      paths.push(a.includes('=') && /^[a-z]+=/i.test(a) ? a.slice(a.indexOf('=') + 1) : a);
+      break;
     }
-    for (const p of paths) this.path(p, this.cwd);
+    for (const a of assigns) this.note(this.probe(a, this.where));
+    const head = words[k]?.text.replace(/^[{(]+/, '') ?? '';
+    const name = head.split(/[\\/]/).pop()!.toLowerCase().replace(/\.(exe|cmd|bat|ps1|com)$/, '');
+    const args = words.slice(k + 1);
+    if (k >= words.length) { this.docs(docs, ''); return; } // only assignments: nothing runs
+    if (NAV.has(name)) { this.nav(name, args.map((a) => a.text), next); return; }
+    if (this.kind === 'sh' && name === 'for') {
+      const v = args[0]?.text; const i = args.findIndex((a) => a.text === 'in');
+      const vals = i >= 0 ? args.slice(i + 1).map((a) => a.text) : [];
+      if (v && /^[A-Za-z_]\w*$/.test(v) && vals.length && vals.every((x) => !hasHiddenVar(x)) && !args.some((a) => a.subs)) this.loops.set(v, vals);
+      return;
+    }
+    if (NEUTRAL.has(name)) return;
+
+    let ro = false;
+    let base = this.where;
+    const skip = new Set<number>();
+    const textOnly = new Set<number>();
+    if (name === 'git') {
+      let i = 0;
+      for (; i < args.length; i++) {
+        const a = args[i]!.text;
+        if (a === '-C') { const d = args[i + 1]; if (d) base = this.moved(base, d.text); i++; continue; }
+        if (a === '-c' || a === '--exec-path' || a === '--namespace') { skip.add(i + 1); i++; continue; }
+        if (a.startsWith('-')) continue;
+        break;
+      }
+      const sub = args[i]?.text.toLowerCase();
+      ro = sub !== undefined && GIT_READ.has(sub) && !args.some((a) => /^--output(=|$)/.test(a.text));
+      // a message is text, not a path
+      for (let j = i + 1; j < args.length; j++) {
+        const a = args[j]!.text;
+        if (/^-[A-Za-z]*m$/.test(a) || a === '--message') skip.add(j + 1);
+        else if (/^--message=/.test(a) || /^-m./.test(a)) skip.add(j);
+      }
+      // a writing git command works on its whole folder
+      if (!ro) this.note(this.probe({ text: '.' }, base));
+    } else if (SHELLS.has(name)) {
+      const t = this.shellText(name, args);
+      if (t === null) { this.unknown = true; }
+      else if (t) { this.child(t.text, t.kind, true); for (const i of t.used) skip.add(i); }
+    } else if (name === 'iex' || name === 'invoke-expression') {
+      const parts = args.filter((a) => !/^-command$/i.test(a.text));
+      this.child(parts.map((a) => a.text).join(' '), 'pwsh', false);
+    } else if (name === 'start-process' || name === 'saps' || (this.kind === 'pwsh' && name === 'start')) {
+      let prog = ''; const list: string[] = [];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i]!.text;
+        if (/^-(filepath|f)$/i.test(a)) { prog = args[i + 1]?.text ?? ''; i++; continue; }
+        if (/^-(argumentlist|args)$/i.test(a)) { for (let j = i + 1; j < args.length && !args[j]!.text.startsWith('-'); j++) list.push(...args[j]!.text.split(',')); continue; }
+        if (!a.startsWith('-') && !prog) prog = a;
+      }
+      if (prog) this.child(`${prog} ${list.join(' ')}`, 'pwsh', true);
+    } else if (ONELINERS.has(name)) {
+      for (let i = 0; i < args.length; i++) if (/^(-e|-c|-p|--eval|-pe|-ne|-le)$/.test(args[i]!.text) && args[i + 1]) { this.script(args[i + 1]!.text); skip.add(i + 1); }
+    } else if (ECHOS.has(name)) {
+      ro = outs.length === 0;
+      args.forEach((_a, i) => textOnly.add(i));
+    } else if (READERS.has(name)) {
+      ro = !(name === 'rg' && args.some((a) => a.text.startsWith('--pre')));
+    }
+    this.docs(docs, name);
+    if (!ro) this.allRead = false;
+    // every word (the command word too) is read against the protected set
+    this.note(this.probe(words[k]!, this.where));
+    args.forEach((a, i) => {
+      if (skip.has(i)) return;
+      if (this.kind === 'cmd' && /^\/[a-z?]{1,2}$/i.test(a.text)) return; // /s /q /y /d /J
+      this.note(this.probe(a, base, textOnly.has(i)));
+    });
     // a link's target may be relative to the link, not to the folder the command runs in
-    if (LINKERS.has(name) && this.cwd !== undefined) {
+    if (LINKERS.has(name) && base.cwds.length) {
+      const paths = args.filter((a) => !a.text.startsWith('-') && !/^\/[a-z]$/i.test(a.text));
       for (const link of paths) {
-        let at: string;
-        try { at = dirname(P.resolve(this.cwd, expand(link, this.get))); } catch { continue; }
-        for (const other of paths) if (other !== link && !P.isAbsolute(other)) this.path(other, at);
+        let at: string[];
+        try { at = base.cwds.map((c) => dirname(P.resolve(c, expand(link.text, this.ctx.get)))); } catch { continue; }
+        for (const other of paths) if (other !== link && !P.isAbsolute(other.text)) this.note(this.probe(other, { cwds: uniq(at), exact: base.exact }));
       }
     }
   }
 
-  private git(args: string[]): void {
-    let dir = this.cwd;
-    let i = 0;
-    for (; i < args.length; i++) {
-      const a = args[i]!;
-      if (a === '-C') { const d = args[++i]; if (d !== undefined && dir !== undefined) { const save = this.cwd; this.cwd = dir; this.chdir([d]); dir = this.cwd; this.cwd = save; } else dir = undefined; continue; }
-      if (a === '-c' || a === '--exec-path') { i++; continue; }
-      if (/^--(git-dir|work-tree)=/.test(a)) { this.path(a.slice(a.indexOf('=') + 1), dir); continue; }
-      if (a.startsWith('-')) continue;
-      break;
-    }
-    const sub = args[i]?.toLowerCase();
-    if (!sub || !GIT_WRITES.has(sub)) return;
-    // a writing git command works in the folder it runs in
-    if (dir === undefined) { this.hidden = true; return; }
-    this.path('.', dir);
-    if (!GIT_PATHS.has(sub)) return;
-    let afterDashes = false;
-    for (const a of args.slice(i + 1)) {
-      if (a === '--') { afterDashes = true; continue; }
-      if (a.startsWith('-') && !afterDashes) continue;
-      if (hasHiddenVar(expand(a, this.get)) && !afterDashes && !GIT_PATH_VARS.has(sub)) continue;
-      this.path(a, dir);
+  /** Heredoc bodies: commands for a shell, code for an interpreter, otherwise text (its `$(...)` still runs). */
+  private docs(docs: Tok[], name: string): void {
+    for (const d of docs) {
+      if (SHELLS.has(name)) { this.child(d.text, name === 'cmd' ? 'cmd' : name === 'powershell' || name === 'pwsh' ? 'pwsh' : 'sh', true); continue; }
+      if (ONELINERS.has(name)) { this.allRead = false; this.script(d.text); continue; }
+      for (const t of tokenize(d.text, 'sh')) for (const s of t.subs ?? []) this.child(s, 'sh', true);
+      this.note(this.probe(d, this.where, true));
     }
   }
 
-  private nested(name: string, args: string[]): void {
-    if (this.depth >= 3) { this.hidden = true; return; }
-    let text: string | undefined;
-    const kind: ShellKindName = name === 'cmd' ? 'cmd' : name === 'bash' || name === 'sh' || name === 'zsh' ? 'sh' : 'pwsh';
-    if (name === 'cmd') { const i = args.findIndex((a) => /^\/[ck]$/i.test(a)); if (i >= 0) text = args.slice(i + 1).join(' '); }
-    else if (kind === 'sh') { const i = args.findIndex((a) => /^-[a-z]*c$/.test(a)); if (i >= 0) text = args[i + 1]; }
-    else {
-      if (args.some((a) => /^-(e|ec|enc|encodedcommand)$/i.test(a))) { this.hidden = true; return; }
-      const i = args.findIndex((a) => /^-(c|command)$/i.test(a));
-      if (i >= 0) text = args.slice(i + 1).join(' ');
+  /** The command text a shell is given (`-c`, `/c`, `-Command`); null for an encoded command (it cannot be read). */
+  private shellText(name: string, args: Tok[]): { text: string; kind: ShellKindName; used: number[] } | null | undefined {
+    const idx = (from: number): number[] => args.map((_a, i) => i).filter((i) => i >= from);
+    if (name === 'cmd') {
+      const i = args.findIndex((a) => /^\/[ckr]$/i.test(a.text));
+      return i >= 0 ? { text: args.slice(i + 1).map((a) => a.text).join(' '), kind: 'cmd', used: idx(i + 1) } : undefined;
     }
-    if (text === undefined) return;
-    const inner = new Reader(this.set, this.cwd ?? '', kind, this.get, this.home, this.depth + 1);
-    if (this.cwd === undefined) inner.cwd = undefined;
-    inner.run(tokenize(text));
-    if (inner.names) this.names = true;
-    if (inner.hidden) this.hidden = true;
+    if (name === 'bash' || name === 'sh' || name === 'zsh') {
+      const i = args.findIndex((a) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a.text));
+      return i >= 0 && args[i + 1] ? { text: args[i + 1]!.text, kind: 'sh', used: [i + 1] } : undefined;
+    }
+    for (const a of args) {
+      const s = a.text.replace(/^[-/]/, '').toLowerCase();
+      if (/^[-/]/.test(a.text) && (s === 'e' || s === 'ec' || (s.length >= 2 && 'encodedcommand'.startsWith(s)))) return null;
+    }
+    const i = args.findIndex((a) => { const s = a.text.replace(/^[-/]/, '').toLowerCase(); return /^[-/]/.test(a.text) && (s === 'c' || (s.length >= 3 && 'command'.startsWith(s))); });
+    if (i >= 0) return { text: args.slice(i + 1).map((a) => a.text).join(' '), kind: 'pwsh', used: idx(i + 1) };
+    return undefined;
   }
 
-  /** A one-liner (`node -e`, `python -c`): look for protected paths in its text. */
+  /** A one-liner or here-doc for an interpreter (`node -e`, `python -c`): look for protected paths in its text. */
   private script(code: string): void {
+    this.allRead = false;
     const found = code.match(/[A-Za-z]:[\\/][^'"`\s)]*|(?:\.{1,2}|~)?[\\/][^'"`\s)]+|\.\.?[\\/]|~[^'"`\s)]*/g) ?? [];
-    for (const f of found) this.path(f.replace(/\\\\/g, '\\'), this.cwd);
+    for (const f of found) this.note(this.probe({ text: f.replace(/\\\\/g, '\\') }, this.where));
     if (!this.names && MARKERS.test(code) && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f))) this.hidden = true;
   }
 }
@@ -298,8 +583,8 @@ class Reader {
 export function dataFolderHit(command: string, kind: ShellKindName, protectedSet: readonly string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): FolderHit {
   const home = (() => { try { return homedir(); } catch { return ''; } })();
   const get = lookup(opts.env ?? process.env, home);
-  const userHome = get('userprofile') ?? home;
-  const r = new Reader(protectedSet, opts.cwd ?? process.cwd(), kind, get, userHome, 0);
-  r.run(tokenize(command));
-  return r.names ? 'names' : r.hidden ? 'hidden' : 'none';
+  const ctx: Ctx = { set: protectedSet, canon: canonicalSet(protectedSet), get, home: get('userprofile') ?? home, ids: {}, memo: new Map() };
+  const r = new Reader(ctx, { cwds: [opts.cwd ?? process.cwd()], exact: true }, kind, 0);
+  r.text(command);
+  return r.result();
 }

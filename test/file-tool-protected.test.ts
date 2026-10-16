@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { hostname } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { hostname, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { setup } from './away-rig.js';
 import { tempDir } from './tmp-cleanup.js';
@@ -52,4 +53,24 @@ test('Write and Edit refuse every spelling of a protected file; a workspace file
   for (const o of res) assert.equal(o.denied, true, `${o.tool} ${o.path}`);
   const ok = await refused([['Write', join(data, 'workspaces', 'builder', 'notes.md')], ['Edit', join(data, 'workspaces', 'builder', 'a', 'b.ts')], ['Write', join(root, 'elsewhere.txt')]], data);
   for (const o of ok) assert.equal(o.denied, false, `${o.tool} ${o.path}`);
+});
+
+test('N16b, N27, N31: own-address shares, a hardlink to a protected file and the connectors folder are refused', { skip: !win }, async () => {
+  const root = tempDir('legion-ftp2-');
+  const data = join(root, 'Fake Data');
+  const ws = join(data, 'workspaces', 'builder');
+  mkdirSync(join(data, 'connectors'), { recursive: true });
+  mkdirSync(ws, { recursive: true });
+  writeFileSync(join(data, 'config.json'), '{}');
+  const hard = join(ws, 'h.json');
+  execFileSync('cmd', ['/c', 'fsutil', 'hardlink', 'create', hard, join(data, 'config.json')], { stdio: 'ignore' });
+  const rest = data.slice(2);
+  const own = Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal)
+    .map((a) => (a!.family === 'IPv6' ? `${a!.address.replace(/:/g, '-').replace(/%/g, 's')}.ipv6-literal.net` : a!.address));
+  const bad = [...own, '127.0.0.2'].map((h) => `\\\\${h}\\${data.slice(0, 1)}$${rest}\\config.json`);
+  bad.push(hard, join(data, 'connectors', 'key.bin'), join(data, 'providers', 'keys.json'), join(data, 'providers', 'new.json'));
+  const res = await refused(bad.map((p) => ['Write', p] as [string, string]), data);
+  for (const o of res) assert.equal(o.denied, true, `${o.tool} ${o.path}`);
+  const ok = await refused([['Write', join(ws, 'plain.json')]], data);
+  assert.equal(ok[0]!.denied, false);
 });

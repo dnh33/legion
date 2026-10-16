@@ -24,7 +24,7 @@ import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderHit } from './exec/data-folder-guard.js';
-import { isProtected, protectedTargets } from './exec/canonical-path.js';
+import { isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
 /** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
@@ -1449,10 +1449,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /**
-   * Agents may not change Legion's own protected files (gate settings, the gates key, projects, config, state, armory, away: the same set
-   * the file tools use). A shell command that can write, move, delete, rename or link, and that names one of them (read from the run's
-   * working folder, following `cd` and `git -C`) or whose path is built when it runs, gets a card in Ask, Auto-edits and Smart with no
-   * Remember (no remembered rule may skip it). Reading stays free, and so do agents' workspaces. Full (Bypass) is the one mode that can
+   * Agents may not change Legion's own protected files (gate settings, the gates key, projects, config, state, connectors, providers, armory, away:
+   * the same set the file tools use). Default deny: a shell command that names one of them, a path inside one or a folder above one
+   * (read from the run's working folder, following `cd` and `git -C`, hidden commands included), or whose path is built when it runs,
+   * gets a card in Ask, Auto-edits and Smart with no Remember (no remembered rule may skip it), unless every part of it only reads.
+   * Reading stays free, and so do agents' workspaces. Full (Bypass) is the one mode that can
    * change anything. Undefined when nothing is due.
    */
   private dataFolderCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): Promise<{ allow: boolean; message?: string }> | undefined {
@@ -1549,6 +1550,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
+    // the protected files' identities, read once per run (only when a target has more than one link)
+    const linkIds: { ids?: Set<string> } = {};
     // the project (if any) adds text AFTER everything else and one extra folder: its own, and only its own
     const project = this.projectOf(job.taskId, agent.id);
     // in the project when it was queued, not any more when it starts (archived, deleted, member removed meanwhile)
@@ -1619,8 +1622,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
             const field = WRITE_FILE_TOOLS[input.tool_name];
             const target = field && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)[field] : undefined;
             if (typeof target !== 'string' || !target) return { continue: true };
-            // canonical path: admin-share, `\\?\`, short-name, junction and trailing-dot spellings reach the same file
-            return isProtected(target, this.protectedDirs(), cwd) ? preToolDeny("Legion's own settings files (the Armory, gates, keys, projects) can only be changed by the owner in Legion, not by an agent.") : { continue: true };
+            // canonical path: admin-share (also through this computer's own addresses), `\\?\`, short-name, junction and trailing-dot
+            // spellings reach the same file; a hardlink to a protected file is that file
+            const set = this.protectedDirs();
+            return isProtected(target, set, cwd) || isHardlinkToProtected(target, set, cwd, linkIds) ? preToolDeny("Legion's own settings files (the Armory, gates, keys, projects) can only be changed by the owner in Legion, not by an agent.") : { continue: true };
           }] },
         ],
       },

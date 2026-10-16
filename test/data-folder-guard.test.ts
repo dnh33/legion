@@ -37,7 +37,9 @@ test('a command that names the data folder is found, in every spelling', () => {
 });
 
 test('a path hidden behind a variable or a substitution could point there: hidden', () => {
-  for (const c of ['mv $D/gates/app.json x', 'mv "$(echo C:/Users/Fakeuser/AppData/Roaming)/legion/gates/app.json" x', 'mv `pwd`/app.json x', 'cp x %SOMETHING%\\app.json', 'mv ${DIR}app.json x']) assert.equal(hit(c), 'hidden', c);
+  // the substitution's own text names a folder above the data folder: a card either way
+  assert.notEqual(hit('mv "$(echo C:/Users/Fakeuser/AppData/Roaming)/legion/gates/app.json" x'), 'none');
+  for (const c of ['mv $D/gates/app.json x', 'mv `pwd`/app.json x', 'cp x %SOMETHING%\\app.json', 'mv ${DIR}app.json x']) assert.equal(hit(c), 'hidden', c);
   assert.equal(hit('Move-Item $dir\\app.json x', 'pwsh'), 'hidden');
   assert.equal(hit('mv C:/Users/FAKEUS~1/AppData/Roaming/legion/gates/app.json x'), 'hidden', 'a short (8.3) name cannot be told');
 });

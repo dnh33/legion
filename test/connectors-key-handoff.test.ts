@@ -140,7 +140,9 @@ test('shouldReEncrypt re-wraps the key; a file that does not unwrap is never ove
 test('main.ts: the keyless launch line is untouched; the key is a third line only when key.bin unwrapped; safeStorage is read, not created, at launch', () => {
   const main = readFileSync(join(repoRoot, 'src/electron/main.ts'), 'utf8');
   assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine\)/);
-  assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ keyLine\(connectorKey\)\);\n\s*else child\.stdin\?\.end/);
+  assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ keyLine\(connectorKey\)\);\r?\n\s*else child\.stdin\?\.end/);
+  // N14b: there is always a gates line; no key (missing and not made) is read as unreadable, never as "no key"
+  assert.match(main, /const gatesLine = gatesKey \? gatesKeyLine\(gatesKey, gatesState\) : gatesKeyLine\(undefined, 'unreadable'\);/);
   assert.match(main, /const connectorKey = await loadConnectorKey\(dataDir\(\), safeStorage\);/);
   // creation is the first Connect (slice 1b): ensureConnectorKey appears only inside the connector-connect handler, never at launch
   assert.equal((main.match(/ensureConnectorKey\(/g) ?? []).length, 1);
