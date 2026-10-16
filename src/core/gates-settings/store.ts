@@ -42,7 +42,8 @@ const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permiss
 const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
 /** "Per agent" (no preset) is the 0.3.0 behavior, which ranks the same as Ask for this comparison. */
 const rank = (p: Preset | undefined): number => (p ? RANK[p] : 0);
-export type GatesKeyState = 'new' | 'old' | 'lost';
+export type GatesKeyState = 'new' | 'old' | 'lost' | 'unreadable';
+const UNREADABLE_MESSAGE = "Legion's gate key exists but could not be opened (the keystore may be locked or damaged). Every project is Ask until it opens again.";
 const LOST_MESSAGE = "Legion's gate settings are missing or were changed. Every project is Ask until you choose. Choose Keep mine to set every project to Ask, then change what you want.";
 const KEY_MESSAGE = "Legion needs a key from your computer's keystore to sign gate settings, and none is available, so only Ask can be set here.";
 const blank = (): GateSettings => ({ version: 1 });
@@ -169,8 +170,8 @@ export class GatesStore {
   app(): GateSettings { return { ...this.appS }; }
   project(id: string): GateSettings { return { ...(this.projects.get(id) ?? (this.lost ? damaged() : blank())) }; }
 
-  view(ids: string[]): { app: GateSettings; projects: Record<string, GateSettings>; unreadable: string[]; changedOutside: string[]; canSign: boolean } {
-    return { app: this.app(), projects: Object.fromEntries(ids.map((id) => [id, this.project(id)])), unreadable: [...this.unreadable], changedOutside: this.lost ? [...new Set(['app', ...ids, ...this.outside])] : this.changedOutside(), canSign: this.canSign() };
+  view(ids: string[]): { app: GateSettings; projects: Record<string, GateSettings>; unreadable: string[]; changedOutside: string[]; canSign: boolean; keyUnreadable: boolean } {
+    return { app: this.app(), projects: Object.fromEntries(ids.map((id) => [id, this.project(id)])), unreadable: [...this.unreadable], changedOutside: this.lost ? [...new Set(['app', ...ids, ...this.outside])] : this.changedOutside(), canSign: this.canSign(), keyUnreadable: this.keyState === 'unreadable' };
   }
 
   /**
@@ -187,7 +188,7 @@ export class GatesStore {
   }
 
   patchApp(body: Record<string, unknown>): GateSettings {
-    if (this.lost) throw new GatesError(409, LOST_MESSAGE);
+    if (this.lost) throw new GatesError(409, this.keyState === 'unreadable' ? UNREADABLE_MESSAGE : LOST_MESSAGE);
     this.appS = this.merge(this.appS, body, true);
     this.settle('app');
     return this.app();
@@ -219,7 +220,7 @@ export class GatesStore {
       // Ask everywhere: every project (those with a file, those named by `ids`) gets an Ask file, signed. Nothing from disk is imported.
       for (const id of new Set([...this.projects.keys(), ...ids])) { this.projects.set(id, damaged()); this.settle(id); }
       this.appS = damaged();
-      this.lost = false;
+      if (this.keyState !== 'unreadable') this.lost = false; // an unopenable key cannot verify anything: Ask stays
     } else if (this.lost) this.projects.set(name, damaged());
     this.settle(name);
   }
@@ -255,6 +256,8 @@ export class GatesStore {
   private loadAll(): void {
     this.listGens.clear(); this.listIds.clear(); this.fileGens.clear();
     this.unreadable.clear();
+    // a key file that exists but does not open: nothing can be verified, so every project reads Ask and is listed
+    if (this.keyState === 'unreadable') this.lost = true;
     this.outside.clear();
     this.pending.clear();
     this.projects.clear();
@@ -417,7 +420,8 @@ export class GatesStore {
     // the app file lists the project files, so it is written after them (a crash between leaves a file newer than its list, which is fine)
     // a lost list is not rewritten except by the owner's Keep mine on app
     if (this.lost && names.includes('app')) names.splice(names.indexOf('app'), 1);
-    const order = names.includes('app') || (this.signer !== undefined && projects.length > 0) ? [...projects, 'app'] : projects;
+    // while the list is lost the app file is never written, not even for a project write: the next start must still find it missing
+    const order = !this.lost && (names.includes('app') || (this.signer !== undefined && projects.length > 0)) ? [...projects, 'app'] : projects;
     for (const name of order) {
       try {
         this.writeOne(name);

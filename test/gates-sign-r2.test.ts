@@ -14,7 +14,7 @@ import { gatesKeyFilePath, gatesKeyLine, gatesKeyState } from '../src/electron/c
 const key = Buffer.alloc(32, 7);
 const P = 'proj_aaaaaaaaaaaa';
 const Q = 'proj_bbbbbbbbbbbb';
-type KS = 'new' | 'old' | 'lost';
+type KS = 'new' | 'old' | 'lost' | 'unreadable';
 const signer = makeSigner(key)!;
 const open = (dir: string, o: { keyState?: KS; keyless?: boolean } = {}) =>
   new GatesStore(dir, { allowed: PRESETS, ...(o.keyless ? {} : { signer }), ...(o.keyState ? { keyState: o.keyState } : {}) });
@@ -152,4 +152,42 @@ test('key state: the launch line carries new, old or lost; electron decides it b
   assert.ok(main.indexOf('gatesKeyState(dataDir())') > -1 && main.indexOf('gatesKeyState(dataDir())') < main.indexOf('ensureGatesKey(dataDir()'), 'decided before the key file is made');
   assert.match(main, /gatesKeyLine\(gatesKey, gatesState\)/);
   assert.equal(existsSync(root), true);
+});
+
+// ---- fix round 3 ----
+const lostFolder = async () => { const a = await setup(); rmSync(join(a.dir, 'app.json')); rmSync(join(a.dir, `${P}.json`)); return a; };
+
+test('N13: a project write while the list is lost does not write app.json: after a restart P is still Ask and listed (tighten Q, Keep mine on Q, Accept on P)', async () => {
+  for (const how of ['tighten', 'keepQ', 'reload'] as const) {
+    const { root, dir } = await lostFolder();
+    const t = open(dir, { keyState: 'old' });
+    if (how === 'tighten') t.patchProject(Q, { preset: 'ask' });
+    else if (how === 'keepQ') t.keepMine(Q);
+    else { t.patchProject(Q, { preset: 'ask' }); t.reload(); }
+    await t.flush();
+    assert.equal(existsSync(join(dir, 'app.json')), false, `${how}: app.json was not rewritten from a partial list`);
+    const u = open(dir, { keyState: 'old' });
+    assert.equal(u.project(P).preset, 'ask', how);
+    assert.ok(u.view([P, Q]).changedOutside.includes(P), `${how}: P is still listed`);
+    assert.equal(modeFor(root, 'full', P), 'ask', how);
+  }
+});
+
+test('N14: a key file that does not open: every project reads Ask and is listed, even with app.json and P deleted or blanked', async () => {
+  const { root, dir } = await setup();
+  rmSync(join(dir, 'app.json')); writeFileSync(join(dir, `${P}.json`), '{"version":1}');
+  const t = open(dir, { keyless: true, keyState: 'unreadable' });
+  assert.equal(t.project(P).preset, 'ask');
+  assert.equal(t.project(Q).preset, 'ask');
+  const v = t.view([P, Q]);
+  assert.ok(v.changedOutside.includes('app') && v.changedOutside.includes(P) && v.keyUnreadable);
+  assert.equal(createGatesCore({ dataDir: root, keyring: { get: () => undefined, state: () => 'unreadable' } }).resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P }), 'ask');
+  t.keepMine('app', [P, Q]);
+  assert.equal(t.project(Q).preset, 'ask', 'Keep mine does not end it: nothing can be verified');
+});
+
+test('N14: the launch line GATESKEY - unreadable is its own state', () => {
+  const k = new GatesKeyring();
+  assert.equal(k.installLine(gatesKeyLine(undefined, 'unreadable')), true);
+  assert.equal(k.state(), 'unreadable'); assert.equal(k.has(), false);
 });
