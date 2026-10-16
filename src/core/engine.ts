@@ -99,6 +99,8 @@ export interface EngineDeps {
   providers?: ProviderRuntime;
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
   projects?: ProjectStore;
+  /** The gate presets' mode resolver (spec 4.2). Absent: the agent's own mode, as before. */
+  modes?: import('./gates-settings/index.js').ModeResolver;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
   background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number };
 }
@@ -366,6 +368,7 @@ export class Engine {
   private readonly providers?: ProviderRuntime;
   private readonly projects?: ProjectStore;
   private readonly away?: AwayHooks;
+  private readonly modes?: import('./gates-settings/index.js').ModeResolver;
   private readonly queue: Job[] = [];
   /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
   private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
@@ -396,6 +399,7 @@ export class Engine {
     this.providers = deps.providers;
     this.projects = deps.projects;
     this.away = deps.away;
+    this.modes = deps.modes;
     this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
@@ -1423,7 +1427,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       why = 'the safety check could not read it';
     }
     if (!why) return undefined;
-    const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+    const mode = this.modeNow(job, agent);
     if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
       return Promise.resolve({ allow: false, message: `Not run: Legion cannot read what this command will run (${why}), and with full access such a command is refused rather than asked about. Write it out plainly: name the program itself, not through a variable, a substitution or a pipe into a shell, and keep it under ${MAX_READABLE.toLocaleString('en-US')} characters. Then run it again. If it cannot be written plainly, do not look for another way around: tell the user what it was meant to do.` });
     }
@@ -1442,16 +1446,22 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     });
   }
 
+  /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
+  private modeNow(job: Job, agent: AgentProfile): ApprovalMode {
+    const live = this.store.getAgent(agent.id);
+    const own = live?.approval ?? agent.approval;
+    const ceiling = job.origin?.approvalCeiling;
+    if (!this.modes) return ceiling ? stricterMode(own, ceiling) : own;
+    // the cap comes from the project the run STARTED in (job.projectAtStart, set when the run began): a project archived or left mid-run keeps its cap
+    return this.modes.mode({ agentMode: own, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.projectAtStart ? { startProjectId: job.projectAtStart } : {}), ...(ceiling ? { ceiling } : {}) });
+  }
+
   /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
   private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; /** false: the floor's card is raised by a hook for this path; only its refusals apply here. */ floorCard?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
-    const ceiling = job.origin?.approvalCeiling;
-    const effective = (): ApprovalMode => {
-      const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
-      return ceiling ? stricterMode(mode, ceiling) : mode;
-    };
+    const effective = (): ApprovalMode => this.modeNow(job, agent);
     return async (toolName, input) => {
       // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
       // (no await when no card is due: the card of a normal tool must still be raised synchronously)
@@ -1586,14 +1596,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (this.config.claude.executablePath) options.pathToClaudeCodeExecutable = this.config.claude.executablePath;
     // A task woken by another bot can never be more permissive than the strictest sender on the chain
     // (confused-deputy guard): it never runs in bypass mode and its cards name who asked.
-    const ceiling = job.origin?.approvalCeiling;
-    const effective = (): ApprovalMode => {
-      const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
-      return ceiling ? stricterMode(mode, ceiling) : mode;
-    };
+    const effective = (): ApprovalMode => this.modeNow(job, agent);
     // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
     const cardHookSeconds = this.approvals.timeoutSeconds + 60;
-    if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
+    if (this.modeNow(job, agent) === 'full') {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
