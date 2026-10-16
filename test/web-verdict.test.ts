@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webVerdict, canonicalHost, type WebCtx } from '../src/shared/web-verdict.js';
 import { loadDocsHosts } from '../src/shared/docs-hosts.js';
-const ctx = (o: Partial<WebCtx> = {}): WebCtx => ({ trusted: (h) => h === 'docs.stripe.com' || h === 'trusted.com', pathsSeen: () => 0, builtIn: () => false, secretValues: [], secretRead: false, ...o });
+const ctx = (o: Partial<WebCtx> = {}): WebCtx => ({ trusted: (h) => h === 'docs.stripe.com' || h === 'trusted.com', pathsSeen: () => 0, builtIn: () => false, secretRead: false, ...o });
 const f = (url: string, o: Partial<WebCtx> = {}) => webVerdict({ tool: 'WebFetch', input: { url } }, ctx(o));
 const why = (v: unknown) => (v as { why: string }).why;
 const docs = loadDocsHosts();
@@ -57,18 +57,22 @@ test('path budget: more than 10 distinct paths on a non-built-in host asks; buil
   assert.equal(why(f('https://trusted.com/a', { pathsSeen: () => 11 })), 'budget');
   assert.equal(f('https://trusted.com/a', { pathsSeen: () => 11, builtIn: () => true }).kind, 'allow');
 });
-test('a secret value in the URL (plain, base64, hex, percent-encoded) is refused', () => {
-  const s = 'sk-live-abcDEF123456';
-  for (const u of [`https://trusted.com/${s}`, `https://trusted.com/${Buffer.from(s).toString('base64')}`, `https://trusted.com/${Buffer.from(s).toString('hex')}`, `https://trusted.com/${encodeURIComponent(s)}`]) assert.deepEqual(f(u, { secretValues: [s] }), { kind: 'refuse', why: 'secret-value' }, u);
-});
 test('after a run read a secret path every web call asks', () => {
   assert.equal(why(f('https://docs.stripe.com/a', { secretRead: true })), 'secret-read');
   assert.equal(why(webVerdict({ tool: 'WebSearch', input: { query: 'x' } }, ctx({ secretRead: true }))), 'secret-read');
 });
-test('WebSearch runs; over the cap asks; a secret value is refused', () => {
+test('a secret value in an address is NOT matched: only the shape and the host decide', () => {
+  assert.equal(f('https://docs.stripe.com/api/charges').kind, 'allow');
+  assert.equal(webVerdict({ tool: 'WebSearch', input: { query: 'sk-live-abcDEF123456 charge' } }, ctx()).kind, 'allow');
+});
+test('the context has no secret values and the verdict has no refuse', () => {
+  const c = ctx();
+  assert.deepEqual(Object.keys(c).sort(), ['builtIn', 'pathsSeen', 'secretRead', 'trusted']);
+  for (const u of ['https://trusted.com/a', 'https://evil.com/a', 'http://docs.stripe.com/', '::::']) assert.notEqual(f(u).kind, 'refuse' as never, u);
+});
+test('WebSearch runs; over the cap asks', () => {
   assert.equal(webVerdict({ tool: 'WebSearch', input: { query: 'react hooks' } }, ctx()).kind, 'allow');
   assert.equal(why(webVerdict({ tool: 'WebSearch', input: { query: 'a'.repeat(301) } }, ctx())), 'long-search');
-  assert.equal(webVerdict({ tool: 'WebSearch', input: { query: 'tok sk-live-abcDEF123456' } }, ctx({ secretValues: ['sk-live-abcDEF123456'] })).kind, 'refuse');
 });
 test('browser_open uses the same check', () => {
   assert.equal(webVerdict({ tool: 'browser_open', input: { url: 'https://docs.stripe.com/' } }, ctx()).kind, 'allow');
@@ -83,29 +87,6 @@ test('loadDocsHosts: built-in list has the doc hosts, and a test can pass its ow
 
 // Fix round for Task 15 review (I1, I2, I3, M2, M3).
 const SECRET = 'sk-live-abcDEF123456';
-const b64 = (s: string) => Buffer.from(s).toString('base64');
-const reencoded = (s: string): string[] => [
-  `/%73${s.slice(1)}`, // one char percent-encoded
-  `/${s.replace(/-/g, '%2D')}`, // separators percent-encoded
-  `/${s.toUpperCase()}`, // upper case
-  `/${s.replace(/-/g, '/')}`, // split across path segments
-  `/${Buffer.from(s).toString('hex').toUpperCase()}`, // upper-case hex
-  `/${b64('x' + s)}`, // base64 at byte alignment 1
-  `/${b64('xy' + s)}`, // base64 at byte alignment 2
-  `/${Buffer.from(s).toString('base64url')}`,
-  `/%2573${s.slice(1)}`, // double percent-encoded
-];
-test('I1: a re-encoded secret value is refused on WebFetch', () => {
-  for (const p of reencoded(SECRET)) assert.deepEqual(f('https://docs.stripe.com' + p, { secretValues: [SECRET] }), { kind: 'refuse', why: 'secret-value' }, p);
-});
-test('I1: a re-encoded secret value is refused on WebSearch', () => {
-  for (const p of reencoded(SECRET)) assert.equal(webVerdict({ tool: 'WebSearch', input: { query: 'find ' + decodeURIComponent(p.slice(1)).replace(/\//g, ' ') } }, ctx({ secretValues: [SECRET] })).kind, 'refuse', p);
-  for (const p of [`${b64('x' + SECRET)}`, SECRET.toUpperCase(), SECRET.replace(/-/g, ' ')]) assert.equal(webVerdict({ tool: 'WebSearch', input: { query: p } }, ctx({ secretValues: [SECRET] })).kind, 'refuse', p);
-});
-test('I1: unrelated URLs are not refused', () => {
-  assert.equal(f('https://docs.stripe.com/api/charges', { secretValues: [SECRET] }).kind, 'allow');
-  assert.equal(f('https://docs.stripe.com/a', { secretValues: ['short'] }).kind, 'allow');
-});
 test('I3: hosts that start with a digit are not IPs; real IP literals are', () => {
   for (const u of ['https://1password.com/x', 'https://3m.com/x']) assert.notEqual(why(f(u, { trusted: () => true })), 'ip', u);
   assert.equal(f('https://1password.com/x', { trusted: () => true }).kind, 'allow');
