@@ -1,6 +1,6 @@
 # Trailer v2: handoff for the next agent
 
-Read this first, then `BRIEF.md` (plan, fact table), `AUDIT.md` (state, known flaws), `claude/release-facts-0.2.0.md` (source of truth; re-read it before every render, it changes), `claude/skills/cinematic-trailer-pipeline/SKILL.md` (the method). Hard rules in `CLAUDE.md` apply (no keys, no real wallet port, mascot art untouchable, no invented claims).
+Read this first, then `BRIEF.md` (plan, fact table), `AUDIT.md` (state, known flaws), `claude/release-facts-0.2.0.md` (source of truth; re-read it before every render, it changes), the `cinematic-trailer-pipeline` skill (the method; kept in the owner's vault at `04-claude/legion-repo-skills/cinematic-trailer-pipeline/SKILL.md`). Hard rules in `CLAUDE.md` apply (no keys, no real wallet port, mascot art untouchable, no invented claims).
 
 ## 1. What exists
 | Path | What it is |
@@ -44,7 +44,6 @@ To re-capture screenshots: `PLAYWRIGHT_PATH=... PLAYWRIGHT_BROWSERS_PATH=/opt/pw
 - The real UI's own words show up in screenshots ("Log verified", the fake wallet's local port). Keep cameras off words the trailer must not claim ("verified", "safe"), and off temp paths (Folder card).
 - Hard cuts add a 2-frame scanline hit; dissolves overlap 0.5 s; both are double exposures on a still, which is by design.
 - `score.wav` is generated (38 to 40 MB), excluded locally through `.git/info/exclude`, never commit it.
-- Do not edit `docs/video/` (the first trailer).
 
 ## 5. Decisions and facts that must survive an edit
 - Beta wording is the owner's: "0.2.0 · BETA", dry and confident; never "young", "safe", "secure", "verified", "cannot be bypassed", no dates, no provider names, no "works with X", no Lightpanda, no repo URL, no "open source" claim until the owner says the repo is public (the facts file says it will be Apache-2.0).

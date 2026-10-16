@@ -49,5 +49,5 @@ starts, which is the point of the module.
 - A project that needs different rules gets them through the project's own block, which stays separate.
 - The layer is global, not per-project. Per-project scoping is deliberately **not** here.
 - Skills are served by two further tools, `house_skills` and `house_skill`, added by ADR 0012. The three tools above
-  never return a skill. `claude/skills` is not shipped (the owner's private workflow skills); Legion's own skills live
+  never return a skill. The owner's private workflow skills are not shipped and no longer live in this repo; Legion's own skills live
   in the top-level `skills/` folder, every one OFF until the owner switches it on.

@@ -29,11 +29,9 @@ function rig(): { mod: HouseModule; src: string; data: string; layer: string; ca
   const src = tempDir('legion-switch-src-');
   const staged = join(src, 'dist', 'context-layer');
   mkdirSync(join(staged, 'docs', 'adr'), { recursive: true });
-  mkdirSync(join(staged, 'context'), { recursive: true });
   writeFileSync(join(staged, 'AGENTS.md'), '# Working on Legion\n\nRule 1: the admin gate is default-deny.\n', 'utf8');
   writeFileSync(join(staged, 'CONTEXT.md'), '# Glossary\n\nPreamble: text appended to the system prompt.\n', 'utf8');
-  writeFileSync(join(staged, 'context', 'README.md'), '# Facts\n', 'utf8');
-  for (const f of ['SESSION-LOG.md', 'VERSIONING.md', 'RELEASE-NOTES.md', 'ARCHITECTURE.md']) {
+  for (const f of ['VERSIONING.md', 'RELEASE-NOTES.md', 'ARCHITECTURE.md']) {
     writeFileSync(join(staged, 'docs', f), `# ${f}\n\nLegion's own words.\n`, 'utf8');
   }
   writeFileSync(join(staged, 'docs', 'TESTING.md'), '# Testing\n\nAlways run the zebra harness first.\n', 'utf8');
@@ -348,8 +346,6 @@ describe('house switches: the routes', () => {
     assert.equal(testing.title, 'Testing');
     expect('docs/VERSIONING.md', 'built');
     expect('docs/RELEASE-NOTES.md', 'history');
-    expect('docs/SESSION-LOG.md', 'history');
-    expect('context/README.md', 'facts');
     const mine = expect('my-note.md', 'yours');
     assert.equal(mine.title, 'My own note');
     assert.equal(mine.on, true);

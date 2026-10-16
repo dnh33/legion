@@ -23,7 +23,7 @@ if (existsSync('src/core/kg/seeds')) {
 
 // The house context layer, staged into dist so a PACKAGED install has it.
 //
-// This exists because the layer's content lives in the repository root (AGENTS.md, docs/, context/), and CODE_SET --
+// This exists because the layer's content lives in the repository root (AGENTS.md, docs/, skills/), and CODE_SET --
 // the only list an update may replace, and the list release-package.mjs packs -- does not contain any of those paths.
 // So a packaged install shipped none of them: the house module started, synced nothing, and handed three tools to
 // every agent over an empty layer. Measured on the real v0.2.3-a app.zip: 397 entries, 0 of them under docs/, and
@@ -39,7 +39,6 @@ if (existsSync('src/core/kg/seeds')) {
 const LAYER_FILES = [
   'AGENTS.md',
   'CONTEXT.md',
-  'docs/SESSION-LOG.md',
   'docs/VERSIONING.md',
   'docs/RELEASE-NOTES.md',
   'docs/ARCHITECTURE.md',
@@ -50,7 +49,7 @@ const LAYER_FILES = [
  * Directories copied whole and RECURSIVELY (scripts/stage-layer.mjs): an ADR is useless without its neighbours, and a skill is
  * `skills/<group>/<name>/SKILL.md` plus its `references/`, which a flat copy would have left out of every packaged install.
  */
-const LAYER_DIRS = ['docs/adr', 'context', 'skills'];
+const LAYER_DIRS = ['docs/adr', 'skills'];
 
 const layerOut = 'dist/context-layer';
 const { staged, missing } = stageLayer({ files: LAYER_FILES, dirs: LAYER_DIRS, out: layerOut });

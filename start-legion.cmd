@@ -7,7 +7,7 @@ if exist "%~dp0runtime\electron\electron.exe" (
 )
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js 20+ is required. Install it with: winget install OpenJS.NodeJS.LTS
+  echo Node.js 22.12 or newer is required. Install it with: winget install OpenJS.NodeJS.LTS
   pause
   exit /b 1
 )

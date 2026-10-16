@@ -41,9 +41,6 @@ test('emu bsv: the window\'s admin secret, a guessed native secret, the admin se
 
 test('emu bsv: cancelling the native dialog changes nothing; confirming arms; the dialog is worded by main, Cancel is the default', { skip }, async () => {
   const r = await bsv();
-  // The enable route is registered by T2 (index.ts). Until then the core 404s it, mainnet stays off and main refuses to arm: assert that fail-closed
-  // behaviour, and the full flow as soon as the route exists (these assertions then switch on by themselves).
-  if (r.routeMissing) { assert.equal(r.cancelled.ok, false); assert.match(r.cancelled.error, /switched off/); assert.equal(r.armedAfterConfirm, false); return; }
   assert.deepEqual(r.cancelled, { ok: false, cancelled: true });
   assert.equal(r.armedAfterCancel, false);
   assert.equal(r.cancelDialog.length, 1);
@@ -100,8 +97,8 @@ test('emu bsv: a caps change shows before and after in the dialog and a value ab
 
 test('emu bsv: confirmation dialogs never stack, and every change is in the audit log, whose chain verifies', { skip }, async () => {
   const r = await bsv();
-  if (!r.routeMissing) { assert.equal(r.second.ok, false); assert.match(r.second.error, /already open/); }
-  if (!r.routeMissing) { assert.equal(r.firstDone.ok, true, 'the first dialog was answered after the second was refused'); assert.equal(r.dialogsStacked, 1); }
+  assert.equal(r.second.ok, false); assert.match(r.second.error, /already open/);
+  assert.equal(r.firstDone.ok, true, 'the first dialog was answered after the second was refused'); assert.equal(r.dialogsStacked, 1);
   for (const want of ['policy:frozen', 'policy:unfrozen', 'policy:caps-changed']) assert.ok(r.auditDecisions.includes(want), `${want} in ${r.auditDecisions.join(',')}`);
   assert.equal(r.auditOk, true);
 });
@@ -206,7 +203,6 @@ test('emu bsv: mainnet is off by default; arming is refused before any dialog wh
   assert.equal(d.defaultId, 0); assert.equal(d.cancelId, 0); assert.equal(d.type, 'warning');
   assert.equal(r.enableToken, 403);
   assert.equal(r.mainnetAfterNoNative, false);
-  if (r.routeMissing) return; // TODO until T2 registers the route: the rest needs the core's mainnet route
   assert.equal(r.enableAdminOnly, 403);
   assert.equal(r.enableOk.ok, true);
   assert.equal(r.mainnetAfterConfirm, true);
@@ -215,7 +211,6 @@ test('emu bsv: mainnet is off by default; arming is refused before any dialog wh
 
 test('emu bsv: the arm is recorded in the audit log (policy:armed), the switch changes are recorded, and switching mainnet off needs no dialog and disarms', { skip }, async () => {
   const r = await bsv();
-  if (r.routeMissing) return; // TODO until T2 registers the route
   for (const want of ['policy:armed', 'policy:mainnet-changed']) assert.ok(r.auditDecisions.includes(want), `${want} in ${r.auditDecisions.join(',')}`);
   assert.equal(r.disableOk.ok, true);
   assert.equal(r.dialogsForDisable, 0);
@@ -224,7 +219,6 @@ test('emu bsv: the arm is recorded in the audit log (policy:armed), the switch c
 
 test('emu bsv (ASSUMPTION T3-A4): a mainnet limits change is either applied to the main network and reported, or main reports that the core did not apply it; the confirmed network is never silently another one', { skip }, async () => {
   const r = await bsv();
-  if (r.routeMissing) return; // TODO until T2 registers the route (mainnet caps need a mainnet switch)
   assert.match(r.capsMainDialog, /MAINNET/);
   if (r.capsMain.ok) assert.equal(r.capsMainAfter, 400);
   else assert.match(r.capsMain.error, /did not apply the MAINNET|did not report the mainnet|refused/);

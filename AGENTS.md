@@ -19,7 +19,7 @@ Legion is a local, Claude-native multi-agent desktop app: an Electron shell arou
 6. `docs/TESTING.md` — before running anything. A fake-backed harness tests Legion end to end with no real Claude,
    no boat.dev, no wallet and no Blender.
 
-`CONTEXT.md` is the glossary only. `docs/SESSION-LOG.md` is how we got here, including the mistakes.
+`CONTEXT.md` is the glossary only.
 
 ## The area map
 

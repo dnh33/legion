@@ -25,7 +25,6 @@ export const CONTEXT_DIRNAME = 'context';
 export const SHIPPED_FILES = [
   'AGENTS.md',
   'CONTEXT.md',
-  'docs/SESSION-LOG.md',
   'docs/VERSIONING.md',
   'docs/RELEASE-NOTES.md',
   'docs/ARCHITECTURE.md',
@@ -34,7 +33,7 @@ export const SHIPPED_FILES = [
 ] as const;
 
 /** Directories copied whole, because the ADRs are useless without their neighbours. */
-export const SHIPPED_DIRS = ['docs/adr', 'context', 'skills'] as const;
+export const SHIPPED_DIRS = ['docs/adr', 'skills'] as const;
 
 /**
  * The owner's switches decide what an agent sees (see ./switches.ts). Skills never come through house_list, house_read
@@ -65,7 +64,7 @@ export function canonicalRel(root: string, abs: string): string | null {
  *
  * It was listed here until 2026-10-04 and no packaged install ever received it, because CODE_SET does not carry the
  * repository root (see sync.ts). Adding it back would ship the owner's personal workflow skills to every user, which
- * `scripts/export-public.mjs` already forbids for the public repo ("claude/skills/** excluded wholesale"). Those skills
+ * the public repo never carried either (the folder has since been removed from the repo). Those skills
  * belong to whoever wrote them; a user's own skills are their own files in their own context folder. If shippable skills
  * are wanted later they need a public path of their own, not this one. That path now exists: the top-level `skills/`
  * folder (Legion's own vendored skills, listed in SHIPPED_DIRS), served only through house_skills / house_skill and OFF
@@ -90,7 +89,7 @@ export const HOUSE_LIMITS = {
   maxSearchBytes: 4_000_000,
   /** Files one search will read, so a wide directory cannot spend the budget on file count alone. */
   maxSearchFiles: 200,
-  /** Directory depth walked from the context root. The layer is the docs, the ADRs, the facts and Legion's shipped skills, not a mirror. */
+  /** Directory depth walked from the context root. The layer is the docs, the ADRs and Legion's shipped skills, not a mirror. */
   maxDepth: 6,
 } as const;
 

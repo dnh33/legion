@@ -186,7 +186,6 @@ try {
     out.mainnetAfterNoNative = (await policy()).mainnetEnabled;
     globalThis.__dialogs.length = 0; globalThis.__dialogAnswer = 1;
     out.enableOk = await ipc({ kind: 'mainnet-enable' });
-    out.routeMissing = !out.enableOk.ok && /Not found/.test(String(out.enableOk.error)); // T2 registers mainnet-routes in index.ts; until that merges the core has no such route
     out.mainnetAfterConfirm = (await policy()).mainnetEnabled;
     out.armedAfterEnable = (await policy()).armed;
     // 1. the person cancels the arm: nothing changes, the dialog was worded by main, Cancel is the default

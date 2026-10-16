@@ -1,7 +1,7 @@
 # CONTEXT.md — the glossary
 
 Terms that mean something specific in this codebase, and nothing else. For house rules see
-`AGENTS.md`; for decisions see `docs/adr/`; for how we got here see `docs/SESSION-LOG.md`.
+`AGENTS.md`; for decisions see `docs/adr/`.
 
 ## The product
 
