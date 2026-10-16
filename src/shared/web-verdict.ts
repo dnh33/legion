@@ -15,13 +15,16 @@ const NEVER_ALWAYS = (h: string): boolean =>
   /^(bit\.ly|t\.co|tinyurl\.com|goo\.gl|is\.gd|ow\.ly)$/.test(h) || /\.(github\.io|vercel\.app|pages\.dev|notion\.site|herokuapp\.com|netlify\.app)$/.test(h);
 const forms = (v: string): string[] => [v, encodeURIComponent(v), Buffer.from(v).toString('base64'), Buffer.from(v).toString('base64url'), Buffer.from(v).toString('hex')];
 const hasSecret = (t: string, vals: readonly string[]): boolean => vals.some((v) => v.length >= 8 && forms(v).some((x) => t.includes(x)));
-// A path segment or host label that looks like encoded data: long hex, or a long base64/base64url run that mixes cases and digits.
-// Plain doc slugs (lowercase words joined by - or _) never match.
+// A path segment or host label that looks like encoded data: long hex, or a long base64/base64url run.
+// Base64 mixes cases about evenly (even base64 of plain text, which often has no digits); camelCase names have one
+// capital per word and doc slugs are lower case, so neither matches.
 const looksEncoded = (seg: string): boolean => {
   if (/^[0-9a-f]{24,}$/i.test(seg)) return true;
   if (!/^[A-Za-z0-9+_-]{24,}={0,2}$/.test(seg)) return false;
   const n = (re: RegExp) => (seg.match(re) ?? []).length;
-  return n(/[A-Z]/g) >= 2 && n(/[a-z]/g) >= 2 && n(/[0-9]/g) >= 2;
+  const upper = n(/[A-Z]/g), lower = n(/[a-z]/g), letters = upper + lower;
+  if (upper >= 2 && lower >= 2 && n(/[0-9]/g) >= 2) return true;
+  return letters > 0 && upper / letters >= 0.3 && lower / letters >= 0.3;
 };
 const encodedLooking = (s: string): boolean => s.split('/').some((seg) => { try { return looksEncoded(decodeURIComponent(seg)); } catch { return looksEncoded(seg); } });
 

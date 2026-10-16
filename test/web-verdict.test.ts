@@ -33,8 +33,10 @@ test('no subdomain matching; trailing dot matches the entry', () => {
 });
 test('long or encoded-looking path asks', () => {
   assert.equal(why(f('https://docs.stripe.com/' + 'a'.repeat(201))), 'odd-path');
-  // Digits are part of the encoded-looking rule (see CONTROLLER RULING); this run mixes cases and digits.
   assert.equal(why(f('https://docs.stripe.com/' + 'QWxhZGRpbjpvcGVuIHNlc2FtZQ01'.repeat(3))), 'odd-path');
+  // base64 of plain text ("user:password") often has no digits: the even case mix still marks it
+  assert.equal(why(f('https://docs.stripe.com/' + 'QWxhZGRpbjpvcGVuIHNlc2FtZQ')), 'odd-path');
+  assert.equal(why(f('https://docs.stripe.com/x/' + 'a3f9'.repeat(10))), 'odd-path', '40 hex characters');
 });
 test('real doc pages on built-in hosts stay allow', () => {
   for (const u of [
@@ -43,6 +45,8 @@ test('real doc pages on built-in hosts stay allow', () => {
     'https://nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback',
     'https://react.dev/reference/react-dom/client/createRoot',
     'https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file-and-path-names',
+    'https://learn.microsoft.com/en-us/dotnet/api/System.Collections.Generic.IEnumerableExtensions',
+    'https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/getContextAttributes',
   ]) assert.equal(webVerdict({ tool: 'WebFetch', input: { url: u } }, builtInCtx()).kind, 'allow', u);
 });
 test('a base64 token path or a 40-character hex segment on a built-in host asks', () => {
