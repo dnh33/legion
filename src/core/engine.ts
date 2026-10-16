@@ -24,6 +24,7 @@ import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderHit } from './exec/data-folder-guard.js';
+import { isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
 /** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
@@ -1262,11 +1263,7 @@ export class Engine {
 
   /** The folders Claude file tools may not change (the Armory's own files). */
   private protectedDirs(): string[] {
-    const out: string[] = [];
-    for (const m of this.modules) {
-      try { out.push(...(m.protectedPaths?.() ?? [])); } catch { /* none */ }
-    }
-    return out;
+    return protectedTargets(undefined, this.modules);
   }
 
   /** The `skills` list and plugin folders for a Claude run. Always an array: an omitted list would mean "every skill Claude Code can find". */
@@ -1632,8 +1629,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
             const field = WRITE_FILE_TOOLS[input.tool_name];
             const target = field && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)[field] : undefined;
             if (typeof target !== 'string' || !target) return { continue: true };
-            const abs = resolve(cwd, target);
-            return this.protectedDirs().some((d) => pathInside(d, abs)) ? preToolDeny("Legion's own settings files (the Armory, gates, keys, projects) can only be changed by the owner in Legion, not by an agent.") : { continue: true };
+            // canonical path: admin-share, `\\?\`, short-name, junction and trailing-dot spellings reach the same file
+            return isProtected(target, this.protectedDirs(), cwd) ? preToolDeny("Legion's own settings files (the Armory, gates, keys, projects) can only be changed by the owner in Legion, not by an agent.") : { continue: true };
           }] },
         ],
       },

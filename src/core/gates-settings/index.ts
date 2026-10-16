@@ -5,6 +5,7 @@
  * the key only Ask can be stored, so a core without a keystore behaves exactly as 0.3.0 does.
  */
 import { join } from 'node:path';
+import { dataFolderTargets } from '../exec/canonical-path.js';
 import type { ApprovalMode, LegionEvent } from '../../shared/types.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
@@ -78,7 +79,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
     id: 'gates', store,
     // The file tools may not touch the gates folder, the key file, the project list or the config. A shell command may not work on the whole data
     // folder without a card (the engine's data-folder guard); reading stays free.
-    protectedPaths: () => [store.folder, ...(opts.dataDir ? ['gates-key.bin', 'projects.json', 'config.json'].map((n) => join(opts.dataDir!, n)) : [])],
+    protectedPaths: () => [store.folder, ...(opts.dataDir ? dataFolderTargets(opts.dataDir) : [])],
     shellProtectedPaths: () => (opts.dataDir ? [opts.dataDir] : []),
     routes: (add) => {
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
