@@ -1,5 +1,7 @@
 # LinkedIn screenshots
 
+The finished images (`linkedin-00` to `linkedin-09`, 7.6 MB) are not kept in the repo. The owner has copies outside it; to get them back, run the rig below.
+
 Regenerate with the rig, never by hand:
 
 ```

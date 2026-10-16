@@ -151,7 +151,7 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
 
     // exclusions: operational files and dirs never ship; the design plans/PC-check lists do (tests pin their content)
     for (const d of ['CLAUDE.md', 'review', 'docs/video-v2/shots', 'node_modules', 'dist', 'dist-ui',
-      'claude/skills', 'claude/handoffs', 'claude/legion-release-tracker.md', 'claude/ORCHESTRATOR-HANDOFF.md',
+      'claude/legion-release-tracker.md', 'claude/ORCHESTRATOR-HANDOFF.md',
       'claude/ORCHESTRATOR-TAKEOVER-PROMPT.md', 'claude/tracker-public-audit.md', 'claude/release-facts-0.2.0.md',
       'claude/tracker-pc-checks-prebuilt.md', 'claude/plan-bsv-rung3.md']) {
       assert.ok(!existsSync(join(out, d)), `${d} must not ship`);

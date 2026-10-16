@@ -27,13 +27,11 @@ function rig(): Rig {
   const root = scratch();
   const staged = join(root, 'dist', 'context-layer');
   mkdirSync(join(staged, 'docs', 'adr'), { recursive: true });
-  mkdirSync(join(staged, 'context'), { recursive: true });
   // The whole shipped set, as scripts/copy-static.mjs stages it. A partial fixture would report files missing that a
   // real install has, and the test would be asserting the fixture's shape rather than the module's behaviour.
   writeFileSync(join(staged, 'AGENTS.md'), '# Working on Legion\n\nRule 1: the admin gate is default-deny.\n', 'utf8');
   writeFileSync(join(staged, 'CONTEXT.md'), '# Glossary\n', 'utf8');
-  writeFileSync(join(staged, 'context', 'README.md'), '# context\n', 'utf8');
-  for (const f of ['SESSION-LOG.md', 'VERSIONING.md', 'RELEASE-NOTES.md', 'ARCHITECTURE.md', 'TESTING.md']) {
+  for (const f of ['VERSIONING.md', 'RELEASE-NOTES.md', 'ARCHITECTURE.md', 'TESTING.md']) {
     writeFileSync(join(staged, 'docs', f), `# ${f}\n\nLegion's own words.\n`, 'utf8');
   }
   writeFileSync(join(staged, 'docs', 'adr', 'README.md'), '# ADRs\n\nIndex.\n', 'utf8');

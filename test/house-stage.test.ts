@@ -28,9 +28,7 @@ function tree(): string {
   put('docs/adr/README.md');
   put('docs/adr/0001-x.md');
   put('docs/adr/notes.txt');
-  put('context/glossary.md');
-  put('context/facts.json', '{}');
-  put('context/deep/more.md');
+  put('docs/adr/facts.json', '{}'); // not markdown: stays out
   put('skills/review/second-look/SKILL.md', '---\nname: second-look\ndescription: d\n---\n');
   put('skills/review/second-look/references/why.md');
   put('skills/review/second-look/scripts/run.sh', '#!/bin/sh\n');
@@ -48,10 +46,9 @@ describe('house layer staging', () => {
     const stage = await loadStage();
     const root = tree();
     const out = join(tempDir('legion-stage-out-'), 'context-layer'); // outside the tree, so the sync below reads the tree itself
-    const res = stage({ files: ['AGENTS.md'], dirs: ['docs/adr', 'context', 'skills'], from: root, out });
+    const res = stage({ files: ['AGENTS.md'], dirs: ['docs/adr', 'skills'], from: root, out });
     const want = [
       'AGENTS.md',
-      'context/deep/more.md', 'context/facts.json', 'context/glossary.md',
       'docs/adr/0001-x.md', 'docs/adr/README.md',
       'skills/SOURCES.md', 'skills/review/second-look/LICENSE-other.md', 'skills/review/second-look/LICENSE.md', 'skills/review/second-look/SKILL.md', 'skills/review/second-look/references/why.md',
     ];
@@ -64,7 +61,7 @@ describe('house layer staging', () => {
     const fromTree = listContext(join(data, 'context'), { all: true }).files.map((f) => f.path);
     const dirOnly = (list: string[]): string[] => list.filter((p) => SHIPPED_DIRS.some((d) => p.startsWith(`${d}/`)));
     assert.deepEqual(dirOnly(fromTree), dirOnly(staged), 'the sync and the staging disagree about what ships under the folders');
-    assert.ok(!staged.some((p) => p.endsWith('.sh') || p.endsWith('/NOTICE') || p.endsWith('.txt')), 'a non-markdown file was staged');
+    assert.ok(!staged.some((p) => p.endsWith('.sh') || p.endsWith('/NOTICE') || p.endsWith('.txt') || p.endsWith('.json')), 'a non-markdown file was staged');
     assert.ok(!staged.some((p) => p.startsWith('claude/') || p.includes('video-v2')), 'something that is not shipped was staged');
   });
 

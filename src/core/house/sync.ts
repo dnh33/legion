@@ -153,8 +153,6 @@ export function syncContext(repoRoot: string, dataDir: string): SyncResult {
   for (const dir of SHIPPED_DIRS) {
     for (const rel of walk(src, dir, ['.md'])) { shippedNow.add(normalisePath(rel)); copy(rel); }
   }
-  // context/*.json is machine-readable; house_recall does not read it but house_read can, and a future tool can.
-  for (const rel of walk(src, 'context', ['.json'])) { shippedNow.add(normalisePath(rel)); copy(rel); }
 
   // Record what this app shipped, so a read can tell the app's own words from something edited since.
   //

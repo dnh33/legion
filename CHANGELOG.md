@@ -38,7 +38,7 @@ This update installs by itself. It is a larger download than usual, about 285 MB
 - **Legion uses Claude Agent SDK 0.3.296**, which includes the Claude Code version that supports Haiku 5.5.
 - **Agents on OpenAI, Ollama, LM Studio or vLLM count tokens with a real tokenizer.** Claude agents are unchanged: Claude Code compacts their conversations itself. For the other providers, Legion's own compaction used to guess from the length of the text, so it started too early on some conversations and too late on others (code and non-English text most). It now counts the way OpenAI-family models do, which is exact for them and a close estimate for the rest. The package grows by about 1 MB.
 - **Approval keys wait a moment.** A and D on an approval card, and the keys on a question card, do nothing for about a second after the card appears or gets focus, so a key you were already pressing cannot answer it. The card says "Ready in a moment" and its key hints look dimmed until then. Clicks work at once.
-- **A command an agent leaves running in the background stops after 30 minutes.** This comes with the new Claude Code. Start a long-running server yourself if it must keep going.
+- **Programs an agent leaves running stop after 30 minutes.** If an agent starts something that keeps running, like a website on your computer, it stops after 30 minutes. Start it again, or run it yourself if you need it longer.
 - **An accepted board item says its runs still ask first.** Accepting a proposal does not lift the run limits; marking it as reviewed does.
 - **No more focus rings.** When you move with the keyboard, the item you are on gets a soft tint instead. If you need outlines, turn on Settings, Accessibility, Show focus rings. Windows high contrast always shows them.
 

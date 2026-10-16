@@ -27,7 +27,6 @@ after(() => { for (const r of roots) { try { rmSync(r, { recursive: true, force:
 function fixture(): string {
   const root = track(scratch());
   mkdirSync(join(root, 'docs', 'adr'), { recursive: true });
-  mkdirSync(join(root, 'context'), { recursive: true });
   writeFileSync(join(root, 'AGENTS.md'), [
     '# Working on Legion',
     '',

@@ -1,6 +1,6 @@
 # Legion trailer v2: brief (PHASE 1, plan only; nothing rendered yet)
 
-**What this is.** The trailer for the **beta launch of Legion 0.2.0**: what ships in 0.2.0 (the beta build), then a plainly separate **NEXT, planned for 0.2.1**. It succeeds `docs/video/` (the first trailer, left untouched). Source of truth for every claim: `claude/release-facts-0.2.0.md` (read on branch merge of `integration/v1` eec2384; it outranks the README, which is older: it still says "no spend tool" and "install from source only"). Re-read it before rendering; if it changed, the table below changes first.
+**What this is.** The trailer for the **beta launch of Legion 0.2.0**: what ships in 0.2.0 (the beta build), then a plainly separate **NEXT, planned for 0.2.1**. It succeeds the first trailer (removed from the repo; v2 does not use any of it). Source of truth for every claim: `claude/release-facts-0.2.0.md` (read on branch merge of `integration/v1` eec2384; it outranks the README, which is older: it still says "no spend tool" and "install from source only"). Re-read it before rendering; if it changed, the table below changes first.
 
 **Beta wording.** "Beta" is the owner's framing and is used as a label, not a quality claim. The end card says what the beta is: built and tested, with some parts not yet tried on real services. Never "young", "stable", "production-ready".
 
@@ -14,7 +14,7 @@
 
 ## 2. Length, tempo, grid
 - **100 s = 40 bars** at 96 BPM (beat 0.625 s, bar 2.5 s). It is at the top of the 75-100 s range because the brief asks for all of 0.2.0 plus a NEXT block; each shipped area gets 2 to 4 bars and none repeats. If the review finds it drags, the first things to cut are Rooms and the install card (the GIF and a 60 s cut-down would then reuse the same timeline).
-- Same method as the first trailer (`claude/skills/cinematic-trailer-pipeline`): `b(bar,beat)` for every time, scene changes on bar lines, reveals on beats, `CUTS` with kinds (hard on downbeat for UI montage, dissolve 0.5 s, match for the Relic), no black except first and last frames, one anchor (the Relic, three homes), one idea per shot, reading time at least 0.3 s per word + 0.8 s, title revealed once at the end. `window.render(t)` drives everything; CSS animations seeked per frame; seeded PRNG; never screen-recorded.
+- Same method as the first trailer (the `cinematic-trailer-pipeline` skill, kept in the owner's vault at `04-claude/legion-repo-skills/cinematic-trailer-pipeline`): `b(bar,beat)` for every time, scene changes on bar lines, reveals on beats, `CUTS` with kinds (hard on downbeat for UI montage, dissolve 0.5 s, match for the Relic), no black except first and last frames, one anchor (the Relic, three homes), one idea per shot, reading time at least 0.3 s per word + 0.8 s, title revealed once at the end. `window.render(t)` drives everything; CSS animations seeked per frame; seeded PRNG; never screen-recorded.
 - Pacing: long shots early, cuts tighten through BSV and Blender, one beat of silence before the NEXT block, a visibly different "weather" for NEXT (no screenshots, text cards, cooler tone, Relic stays), end card breathes.
 
 ## 3. Storyboard (bars of 2.5 s)

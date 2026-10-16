@@ -2,14 +2,11 @@
 // against a fixture tree; copy-static.mjs calls it with the real lists.
 //
 // The shipped folders are walked RECURSIVELY, with the same file filters as `walk()` in src/core/house/sync.ts: every
-// .md file under a shipped directory, plus every .json under `context/`. Nothing else is staged, so a skill's scripts and
+// .md file under a shipped directory. Nothing else is staged, so a skill's scripts and
 // licence files stay out of a packaged install (Legion never runs a skill's scripts), and the sync, which walks the same
 // way, finds exactly what was staged.
 import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-
-/** Directories whose .json files are staged too (machine-readable facts). Mirrors the `context` walk in sync.ts. */
-export const JSON_DIRS = ['context'];
 
 /**
  * @param {{ files: string[], dirs: string[], from?: string, out: string }} opts
@@ -48,7 +45,7 @@ export function stageLayer({ files, dirs, from = '.', out }) {
   for (const rel of files) stage(rel);
   for (const dir of dirs) {
     if (!existsSync(join(from, dir))) { missing++; continue; }
-    walk(dir, JSON_DIRS.includes(dir) ? ['.md', '.json'] : ['.md']);
+    walk(dir, ['.md']);
   }
   return { staged, missing, paths };
 }

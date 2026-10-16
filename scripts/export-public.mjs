@@ -6,8 +6,8 @@
  *
  * Policy (see tracker-public-audit.md and the tracker's OPEN-SOURCING PLAN):
  *  - Excluded wholesale: .git, node_modules, dist, dist-ui, review/**, CLAUDE.md (the private ops doc; the owner
- *    writes a contributor one), docs/video-v2/shots/ (playwright capture intermediates), claude/skills/** and
- *    claude/handoffs/**, plus the operational claude run-books (the release tracker, the orchestrator
+ *    writes a contributor one), docs/video-v2/shots/ (playwright capture intermediates), plus the operational
+ *    claude run-books (the release tracker, the orchestrator
  *    handoff/takeover prompts, the public-audit doc, release-facts, audit agent instructions). Secret-looking
  *    files FAIL the export. The design plans, PC-check lists and reports under claude/ ship, line-scrubbed.
  *  - Line-scrubbed in PROSE only (docs/**, the root docs, .github templates): local absolute paths, the owner's
@@ -51,7 +51,6 @@ mkdirSync(OUT, { recursive: true });
 const EXCLUDE = new Set([
   '.git', 'node_modules', 'dist', 'dist-ui', 'review',
   'CLAUDE.md', 'docs/video-v2/shots',
-  'claude/skills', 'claude/handoffs',
   'claude/legion-release-tracker.md',
   // Internal gap analysis against material we deliberately do not name in public. It is 13 references to an
   // unnamed counterpart, so line-scrubbing cannot make it public-safe - rewriting it would gut what it is for.

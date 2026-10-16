@@ -52,7 +52,7 @@ export const keyOf = (p: string): string => norm(p).toLowerCase();
 
 const CORE = new Set(['agents.md', 'context.md']);
 const BUILT = new Set(['docs/architecture.md', 'docs/testing.md', 'docs/versioning.md']);
-const HISTORY = new Set(['docs/release-notes.md', 'docs/session-log.md']);
+const HISTORY = new Set(['docs/release-notes.md']);
 
 /** The group a file belongs to in the owner's screen. By path alone, so it never needs the file to exist. */
 export function categoryOf(path: string): HouseCategory {
@@ -62,7 +62,6 @@ export function categoryOf(path: string): HouseCategory {
   if (k.startsWith('docs/adr/')) return 'decisions';
   if (BUILT.has(k)) return 'built';
   if (HISTORY.has(k)) return 'history';
-  if (k.startsWith('context/')) return 'facts';
   return 'yours';
 }
 

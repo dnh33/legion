@@ -68,8 +68,8 @@ bytes matching it. An agent's edit changes the hash, the entry stops matching, a
   owner's UI cannot disagree about it.
 - The two manifests are separate files on purpose: what the app shipped and what the owner approved are
   different decisions, and a future sync must not be able to rewrite an approval.
-- **Not shipped:** `claude/skills`. Those are one person's workflow skills, already excluded wholesale from the
-  public repo by `export-public.mjs`. Shippable skills need a public path of their own.
+- **Not shipped:** the owner's personal workflow skills (formerly `claude/skills`). Those are one person's skills and
+  are no longer kept in this repo. Shippable skills need a public path of their own.
 
 ## What this does not do
 

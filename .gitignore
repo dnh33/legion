@@ -5,15 +5,10 @@ ui/dev/shots
 *.log
 .env
 .env.*
-docs/video/*.mp4
-docs/video/frames/
-docs/video/score.wav
 __pycache__/
 test-perf/chat-ui/shots/
 /runtime/
 docs/video-v2/.tmp-render/
-docs/video/*.gif
-docs/video/*.png
 docs/video-v2/*.mp4
 docs/video-v2/*.gif
 docs/video-v2/*.png
@@ -31,3 +26,9 @@ docs/images/relic.png
 
 # test map (npm run test:map): local, rebuilt from a full run
 .testmap/
+
+# Local tool output
+.playwright-mcp/
+.superpowers/
+/.release-notes-*.txt
+docs/demo/muster-lab/index.html
