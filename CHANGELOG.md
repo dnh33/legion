@@ -17,7 +17,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Fixed
 
 - **A large update no longer goes quiet.** Legion prepares what the update needs while you work, so the update itself no longer spends half a minute with nothing on screen.
-- **Opening Legion while an update finishes** shows "Legion is finishing an update. It opens by itself." instead of starting the old version, which used to stop the update.
+- **From the next update on, opening Legion while an update finishes** shows "Legion is finishing an update. It opens by itself." instead of starting the old version, which used to stop the update. The update to 0.3.2 from 0.3.0 still runs on 0.3.0's updater: if you open Legion early, it says the update was not installed; press Update again.
 - **A failed update says why**, with Retry and Dismiss.
 - On a nearly full disk, Legion no longer starts copying its 370 MB runtime ahead of an update. It logs one plain line and the update still installs, the slower way. It tries again only when the next update is ready.
 - After a failed update, Retry now checks for the update first if it has not yet, and always answers: if the update cannot start right now it says "The update will try again when Legion is idle." and logs why. Dismiss and Retry clicks are logged.
