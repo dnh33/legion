@@ -39,6 +39,7 @@ const FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const READ_DEFAULT = 200;
 const READ_MAX = 1000;
 const COUNTS_MAX = 20_000;
+const STATUS_MAX = 20_000;
 
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 /** Redacts first on a bounded head, then cuts: a token must never be cut in half and slip past the rules. */
@@ -123,7 +124,7 @@ export function createActivityLog(o: { dataDir: string; now?: () => number }): A
     append,
     wouldHaveAsked(a) {
       append({
-        kind: 'would-have-asked', text: `Would have asked: ${a.action}, because ${a.label} is off`, taskId: a.taskId,
+        kind: 'would-have-asked', text: `Would have asked: ${clean(a.action, 300)}, because ${a.label} is off`, taskId: a.taskId,
         ...(a.projectId ? { projectId: a.projectId } : {}), ...(a.agentId ? { agentId: a.agentId } : {}), data: { gateId: a.gateId },
       });
     },
@@ -165,9 +166,10 @@ function watchBus(deps: Pick<ModuleDeps, 'bus'>, log: ActivityLog): () => void {
         const was = status.get(t.id);
         if (was === t.status) return;
         status.set(t.id, t.status);
+        if (status.size > STATUS_MAX) { let drop = STATUS_MAX / 4; for (const k of status.keys()) { if (drop-- <= 0) break; status.delete(k); } }
         if (t.status === 'running') log.append({ kind: 'run-start', text: 'Run started', taskId: t.id, agentId: t.agentId, ...(t.projectId ? { projectId: t.projectId } : {}) });
-        else if (t.status === 'done' || t.status === 'error' || t.status === 'cancelled') {
-          status.delete(t.id);
+        // a run ends once: only a task this process saw queued or running gets a run-end (a rename or archive of a finished task is not one)
+        else if ((t.status === 'done' || t.status === 'error' || t.status === 'cancelled') && (was === 'running' || was === 'queued')) {
           log.append({ kind: 'run-end', text: `Run ended: ${t.status}`, taskId: t.id, agentId: t.agentId, ...(t.projectId ? { projectId: t.projectId } : {}), data: { status: t.status } });
         }
       } else if (ev.type === 'approval.requested') {

@@ -1522,7 +1522,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const base = this.modes.baseline({ agentMode: live?.approval ?? agent.approval, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}) });
       if (!needsApproval(base, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return;
       const projectId = startProjectOf(job);
-      this.activity.wouldHaveAsked({ gateId, label: GATES.find((g) => g.id === gateId)?.label ?? gateId, action: `${toolName} ${summarizeToolInput(toolName, input)}`.slice(0, 300), taskId: job.taskId, ...(projectId ? { projectId } : {}), agentId: agent.id });
+      this.activity.wouldHaveAsked({ gateId, label: GATES.find((g) => g.id === gateId)?.label ?? gateId, action: `${toolName} ${summarizeToolInput(toolName, input)}`, taskId: job.taskId, ...(projectId ? { projectId } : {}), agentId: agent.id });
     } catch { /* advisory: a log line never changes a decision */ }
   }
 

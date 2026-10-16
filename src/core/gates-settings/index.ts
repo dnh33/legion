@@ -124,7 +124,8 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   const logChange = (name: string, headline: string, lines: string[] = []): void => {
     if (!opts.activity) return;
     const projectId = name === 'app' ? undefined : name;
-    for (const text of [headline, ...lines.slice(0, 8)]) opts.activity.append({ kind: 'gate-changed', text, ...(projectId ? { projectId } : {}), data: { scope: name === 'app' ? 'app' : 'project' } });
+    // the change is already applied: a log problem must never turn it into an error answer
+    try { for (const text of [headline, ...lines.slice(0, 8)]) opts.activity.append({ kind: 'gate-changed', text, ...(projectId ? { projectId } : {}), data: { scope: name === 'app' ? 'app' : 'project' } }); } catch { /* logged nothing */ }
   };
   const headlineOf = (name: string, b: Record<string, unknown>): string => {
     const scope = scopeOf(name);

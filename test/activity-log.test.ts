@@ -201,3 +201,22 @@ test('a successful gates change writes gate-changed lines; a refused one writes 
     assert.equal(lines[0]!.projectId, p.id);
   } finally { await mod.dispose?.(); await s.close(); }
 });
+
+test('run-end is written once: a rename or archive of a finished task adds nothing', () => {
+  const { log } = fresh();
+  let emit: (ev: unknown) => void = () => undefined;
+  createActivityModule({ bus: { on: (fn: (ev: unknown) => void) => { emit = fn; return () => undefined; } } } as never, log);
+  const task = (status: string, title = 'x') => ({ type: 'task.updated', task: { id: 't9', agentId: 'a1', status, title } });
+  emit(task('done', 'old run seen first after a restart'));
+  emit(task('running')); emit(task('done')); emit(task('done', 'renamed')); emit(task('done', 'archived'));
+  const lines = log.read({ taskId: 't9' });
+  assert.deepEqual(lines.map((l) => l.kind).reverse(), ['run-start', 'run-end']);
+});
+
+test('a token cut by the action length never leaves a prefix in the file', () => {
+  const { log } = fresh();
+  const token = 'sk-ant-api03-' + 'A1b2C3d4E5'.repeat(8);
+  log.wouldHaveAsked({ gateId: 'tool-cards', label: 'Ask before tools run', action: 'Bash ' + 'x'.repeat(290) + ' ' + token, taskId: 't1' });
+  const raw = readFileSync(join(log.folder, '2026-10-17.jsonl'), 'utf8');
+  assert.equal(raw.includes('sk-ant'), false);
+});
