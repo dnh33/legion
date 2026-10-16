@@ -142,8 +142,37 @@ jobs:
           Expand-Archive -LiteralPath $z -DestinationPath $x -Force
           Move-Item -LiteralPath (Join-Path $x 'legion-0.98.0') -Destination (Join-Path $env:RUNNER_TEMP 'legion-install')
           "BASELINE=0.98.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      # The published package comes from a cache keyed by version, so a rehearsal does not count as a download on the release page
+      # (459 rehearsal jobs had made the counts meaningless). A miss fetches it from GitHub once; install.ps1 then installs it over
+      # loopback (LEGION_INSTALL_BASE), checking the same SHA256SUMS.txt. The real github.com path is covered by install.yml and the live walk.
+      - name: Published package, from the cache
+        id: relcache
+        if: matrix.scenario != 'vanished' && matrix.scenario != 'stone-direct'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/site/dnh33/legion/releases/download/v${{ env.BASELINE }}
+          key: legion-release-win-x64-v${{ env.BASELINE }}
+      - name: Published package, fetched once on a cache miss
+        if: (matrix.scenario != 'vanished' && matrix.scenario != 'stone-direct') && steps.relcache.outputs.cache-hit != 'true'
+        run: |
+          $dl = Join-Path $env:RUNNER_TEMP "site\dnh33\legion\releases\download\v$($env:BASELINE)"
+          New-Item -ItemType Directory -Force -Path $dl | Out-Null
+          foreach ($n in "legion-$($env:BASELINE)-win-x64.zip", 'SHA256SUMS.txt') {
+            curl.exe -fsSL --retry 3 -o (Join-Path $dl $n) "https://github.com/dnh33/legion/releases/download/v$($env:BASELINE)/$n"
+            if ($LASTEXITCODE -ne 0) { throw "could not download $n of v$($env:BASELINE)" }
+          }
+      - name: Serve the published package on loopback
+        if: matrix.scenario != 'vanished' && matrix.scenario != 'stone-direct'
+        run: |
+          $site = Join-Path $env:RUNNER_TEMP 'site'
+          Start-Process python -ArgumentList '-m', 'http.server', '8099', '--bind', '127.0.0.1', '--directory', $site -WindowStyle Hidden
+          $up = $false
+          foreach ($i in 1..20) { Start-Sleep -Milliseconds 500; try { Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8099/dnh33/legion/releases/download/v$($env:BASELINE)/SHA256SUMS.txt" | Out-Null; $up = $true; break } catch { } }
+          if (-not $up) { throw 'the loopback release server did not start' }
       - name: Install the baseline with install.ps1, as a user does (no launch)
         if: matrix.scenario != 'vanished' && matrix.scenario != 'stone-direct'
+        env:
+          LEGION_INSTALL_BASE: http://127.0.0.1:8099
         run: |
           & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version $env:BASELINE -InstallDir "$env:RUNNER_TEMP\legion-install"
           if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
@@ -194,7 +223,32 @@ jobs:
         with:
           name: rehearsal-candidates
           path: ${{ runner.temp }}/prepared
+      # Same cache as the scenario jobs: the real published 0.3.0 bytes, fetched from GitHub once, installed over loopback.
+      - name: Published 0.3.0, from the cache
+        id: relcache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/site/dnh33/legion/releases/download/v0.3.0
+          key: legion-release-win-x64-v0.3.0
+      - name: Published 0.3.0, fetched once on a cache miss
+        if: steps.relcache.outputs.cache-hit != 'true'
+        run: |
+          $dl = Join-Path $env:RUNNER_TEMP 'site\dnh33\legion\releases\download\v0.3.0'
+          New-Item -ItemType Directory -Force -Path $dl | Out-Null
+          foreach ($n in 'legion-0.3.0-win-x64.zip', 'SHA256SUMS.txt') {
+            curl.exe -fsSL --retry 3 -o (Join-Path $dl $n) "https://github.com/dnh33/legion/releases/download/v0.3.0/$n"
+            if ($LASTEXITCODE -ne 0) { throw "could not download $n of v0.3.0" }
+          }
+      - name: Serve it on loopback
+        run: |
+          $site = Join-Path $env:RUNNER_TEMP 'site'
+          Start-Process python -ArgumentList '-m', 'http.server', '8099', '--bind', '127.0.0.1', '--directory', $site -WindowStyle Hidden
+          $up = $false
+          foreach ($i in 1..20) { Start-Sleep -Milliseconds 500; try { Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8099/dnh33/legion/releases/download/v0.3.0/SHA256SUMS.txt' | Out-Null; $up = $true; break } catch { } }
+          if (-not $up) { throw 'the loopback release server did not start' }
       - name: Install the real published 0.3.0 with install.ps1, as a user does (no launch)
+        env:
+          LEGION_INSTALL_BASE: http://127.0.0.1:8099
         run: |
           & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version 0.3.0 -InstallDir "$env:RUNNER_TEMP\legion-install"
           if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
