@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gatesChange, parseGatesChange } from '../src/electron/gates-ipc.js';
+import { gatesChange, parseGatesChange, resetGatesCancelForTests } from '../src/electron/gates-ipc.js';
 import type { GatesIpcDeps } from '../src/electron/gates-ipc.js';
 import { createGatesCore, createGatesModule } from '../src/core/gates-settings/index.js';
 import { ProjectStore } from '../src/core/projects/store.js';
@@ -22,6 +22,7 @@ interface Prep { data: string; pid: string; file: string }
 interface Opts { keyed?: boolean; keyring?: { get(): Buffer | undefined; state?(): 'new' | 'old' | 'lost' | 'unreadable' }; prepare?: (p: Prep) => void }
 
 async function boot(answers: boolean[], o: Opts = {}) {
+  resetGatesCancelForTests();
   const data = join(cleanupTemp('legion-gates-ipc-'), 'data');
   const projects = new ProjectStore(data, join(data, 'ws'));
   const f = makeFakes({ holdRuns: true });
@@ -93,7 +94,8 @@ test('a second change while a dialog is open is refused without a second dialog'
   assert.equal(second.ok, false); assert.equal(r.dialogs.length, 1);
   release(false); await first;
   r.deps.confirm = async (d) => { r.dialogs.push(d); return false; };
-  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps)).cancelled, true);
+  // the open flag is released (a different change is not held back by the pause after Cancel)
+  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'accept-edits' } }, r.deps)).cancelled, true);
 }));
 
 const PID = 'proj_0123456789ab';
@@ -209,6 +211,66 @@ test('a limit raise rides on Accept edits and is named', withHarness([true], {},
   assert.match(d, /File edits run without asking/);
   assert.match(d, /Limit retries on one item: the limit goes from 2 to 100/); assert.match(d, /Limit the size of a goal: the limit goes from 3 to 100/);
 }));
+
+test('N1 through the dialog: Accept edits that drops owner caps names the cap raises', withHarness([true], {}, async (r) => {
+  r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'goal-caps': { on: true, limit: 3 }, 'attempt-caps': { on: true, limit: 1 } } });
+  const res = await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'accept-edits', overrides: {} } }, r.deps);
+  assert.equal(res.ok, true, res.error);
+  assert.match(r.dialogs[0]!.detail, /Limit the size of a goal: the limit goes from 3 to 12/);
+  assert.match(r.dialogs[0]!.detail, /Limit retries on one item: the limit goes from 1 to 4/);
+}));
+
+test('N5: the dialog title says what is being loosened', async () => {
+  const cases: Array<[string, unknown, string]> = [
+    ['preset', { preset: 'smart' }, 'Let agents do more without asking?'],
+    ['sites', { allowedHosts: ['docs.python.org'] }, 'Allow these sites?'],
+    ['variables', { envKeep: ['AWS_PROFILE'] }, 'Keep these variables?'],
+  ];
+  for (const [, patch, title] of cases) {
+    const r = await boot([false], {});
+    try { await gatesChange({ kind: 'app', patch } as never, r.deps); assert.equal(r.dialogs[0]!.title, title); } finally { await r.close(); }
+  }
+  const r = await boot([false, false], {});
+  try {
+    await gatesChange({ kind: 'project', id: r.pid, patch: { overrides: { 'attempt-caps': { on: true, limit: 100 } } } }, r.deps);
+    assert.equal(r.dialogs[0]!.title, 'Raise these limits?');
+    await gatesChange({ kind: 'project', id: r.pid, patch: { overrides: { 'attempt-caps': { on: true, limit: 100 }, 'stall-ladder': false } } }, r.deps);
+    assert.equal(r.dialogs[1]!.title, 'Let agents do more without asking?', 'a mixed change gets the general title');
+  } finally { await r.close(); }
+});
+
+test('N5: a long list shows the first 10 lines and a count, and keeps the safety lines', withHarness([false], {}, async (r) => {
+  const hosts = Array.from({ length: 40 }, (_, i) => `site${i}.example.com`);
+  await gatesChange({ kind: 'app', patch: { allowedHosts: hosts } }, r.deps);
+  const lines = r.dialogs[0]!.detail.split('\n\n');
+  assert.equal(lines.filter((l) => /^Agents may read site/.test(l)).length, 10);
+  assert.ok(lines.includes('and 30 more (see the Gates page)'), lines.join('|'));
+  assert.ok(lines.some((l) => /deny rules/.test(l)), 'the safety line is still there');
+}));
+
+test('N5: a list that is not longer than 12 lines is shown whole', withHarness([false], {}, async (r) => {
+  await gatesChange({ kind: 'app', patch: { allowedHosts: Array.from({ length: 11 }, (_, i) => `s${i}.example.com`) } }, r.deps);
+  assert.doesNotMatch(r.dialogs[0]!.detail, /more \(see the Gates page\)/);
+  assert.equal(r.dialogs[0]!.detail.split('\n\n').length, 12);
+}));
+
+test('M4: after Cancel the same change cannot raise another dialog for 3 seconds', async () => {
+  const r = await boot([false, false, false], {});
+  try {
+    let t = 1_000_000; (r.deps as { now?: () => number }).now = () => t;
+    assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps)).cancelled, true);
+    t += 1000;
+    const again = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps);
+    assert.equal(again.ok, false); assert.notEqual(again.cancelled, true); assert.match(again.error ?? '', /cancelled this change a moment ago/);
+    assert.equal(r.dialogs.length, 1, 'no second dialog');
+    // a different change is not held back
+    assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, r.deps)).cancelled, true);
+    assert.equal(r.dialogs.length, 2);
+    t += 3100;
+    assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps)).cancelled, true);
+    assert.equal(r.dialogs.length, 3);
+  } finally { await r.close(); }
+});
 
 test('a change that differs from what the dialog showed is refused by the core, and nothing is applied', withHarness([true], {}, async (r) => {
   // while the dialog is open, another edit lands

@@ -6,7 +6,7 @@
  * was shown. The core refuses the change if what it would apply now differs from that digest. The window never has the secret.
  * A tightening needs no dialog and no native secret. Kept free of electron imports so it can be tested with fakes.
  */
-import { GATES_DIGEST_HEADER, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
+import { DENY_LINE, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply } from './provider-ipc.js';
@@ -23,6 +23,8 @@ export interface GatesIpcDeps {
   call(method: 'GET' | 'POST' | 'PATCH', route: string, body?: unknown, native?: boolean, extraHeaders?: Record<string, string>): Promise<CoreReply | undefined>;
   /** A native dialog (Cancel is the default button). Resolves true only for the confirm button. */
   confirm(opts: { title: string; message: string; detail: string; confirmLabel: string }): Promise<boolean>;
+  /** The clock, for the pause after Cancel. Defaults to Date.now. */
+  now?(): number;
 }
 
 const PROJECT_ID_RE = /^proj_[a-f0-9]{12}$/;
@@ -65,7 +67,7 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
       for (const [id, val] of Object.entries(x)) {
         if (!PERMISSION_GATE_IDS.includes(id)) return undefined;
         if (typeof val === 'boolean') ov[id] = val;
-        else if (isObj(val) && val.on === true && typeof val.limit === 'number' && Number.isInteger(val.limit) && val.limit >= 1 && val.limit <= 100 && Object.keys(val).length === 2) ov[id] = { on: true, limit: val.limit };
+        else if (LIMIT_GATE_IDS.includes(id) && isObj(val) && val.on === true && typeof val.limit === 'number' && Number.isInteger(val.limit) && val.limit >= 1 && val.limit <= 100 && Object.keys(val).length === 2) ov[id] = { on: true, limit: val.limit };
         else return undefined;
       }
       out.overrides = ov;
@@ -78,6 +80,35 @@ interface GateView { changedOutside?: string[]; canSign?: boolean; keyUnreadable
 interface Preview { loosening: string[]; loosens: boolean; digest: string }
 
 let open = false;
+/** The change the owner just cancelled, so the same change cannot raise another dialog at once (a stuck or scripted caller cannot nag). */
+let lastCancel: { key: string; at: number } | undefined;
+const CANCEL_PAUSE_MS = 3000;
+export function resetGatesCancelForTests(): void { lastCancel = undefined; }
+
+const MAX_LINES = 12;
+const SHOWN_LINES = 10;
+/** More than 12 change lines: the first 10 and a count. The closing safety lines are not counted and never cut. */
+function shortList(lines: string[]): string[] {
+  let tail = lines.length;
+  while (tail > 0 && (lines[tail - 1] === DENY_LINE || lines[tail - 1] === NO_SANDBOX_LINE)) tail--;
+  if (tail <= MAX_LINES) return lines;
+  return [...lines.slice(0, SHOWN_LINES), `and ${tail - SHOWN_LINES} more (see the Gates page)`, ...lines.slice(tail)];
+}
+
+const GENERAL_TITLE = 'Let agents do more without asking?';
+const LIMIT_LABELS = GATES.filter((g) => LIMIT_GATE_IDS.includes(g.id)).map((g) => g.label);
+/** A title that fits what is being loosened: one kind of change gets its own, anything mixed gets the general one. */
+function titleFor(ch: GatesChange, lines: string[]): string {
+  if (ch.kind === 'accept') return 'Use the settings found in the file?';
+  if (ch.kind === 'keep') return GENERAL_TITLE;
+  const keys = Object.keys(ch.patch);
+  if (keys.length !== 1) return GENERAL_TITLE;
+  if (keys[0] === 'allowedHosts') return 'Allow these sites?';
+  if (keys[0] === 'envKeep') return 'Keep these variables?';
+  const own = lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE);
+  if (keys[0] === 'overrides' && own.length > 0 && own.every((l) => LIMIT_LABELS.some((lb) => l.startsWith(`${lb}:`)))) return 'Raise these limits?';
+  return GENERAL_TITLE;
+}
 
 export async function gatesChange(raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> {
   const ch = parseGatesChange(raw);
@@ -135,11 +166,15 @@ async function run(ch: GatesChange, deps: GatesIpcDeps): Promise<GatesChangeResu
   // Only Ask can be stored without a key to sign with, so a loosening is refused before any dialog.
   if (view.canSign === false) return noKey(view);
   if (pv.loosening.length === 0 && ch.kind !== 'accept') return cannotDescribe;
-  const detail = pv.loosening.length ? pv.loosening.join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  const clock = deps.now ?? Date.now;
+  const key = `${name}\n${pv.digest}`;
+  if (lastCancel && lastCancel.key === key && clock() - lastCancel.at < CANCEL_PAUSE_MS) return { ok: false, error: 'You cancelled this change a moment ago. Wait a few seconds before you try it again.' };
+  const detail = pv.loosening.length ? shortList(pv.loosening).join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  const title = titleFor(ch, pv.loosening);
   const ok = await deps.confirm(ch.kind === 'accept'
-    ? { title: 'Use the settings found in the file?', message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings' }
-    : { title: 'Let agents ask less?', message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change' });
-  if (!ok) return { ok: false, cancelled: true };
+    ? { title, message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings' }
+    : { title, message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change' });
+  if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true }; }
 
   const res = await deps.call(method, route, body, true, digest);
   if (!res) return noCore;

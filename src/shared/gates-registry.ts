@@ -88,6 +88,9 @@ export function gateValue(id: string, ctx: { project?: GateSettings; app: GateSe
 /** The permission gates (the ones a preset or an override can switch): the only ids a change from the window may name. */
 export const PERMISSION_GATE_IDS: readonly string[] = GATES.filter((g) => g.family === 'permission').map((g) => g.id);
 
+/** The permission gates that have a limit (a number), not only on or off: the only ones a limit value may be set on. */
+export const LIMIT_GATE_IDS: readonly string[] = GATES.filter((g) => g.family === 'permission' && g.defaults !== 'always' && Object.values(g.defaults).some((v) => typeof v === 'object')).map((g) => g.id);
+
 /** One line per preset: the single copy source for the confirm dialogs and the Gates page. */
 export const PRESET_LINES: Record<Preset, string> = {
   ask: 'Every action asks, as now.',
@@ -98,6 +101,9 @@ export const PRESET_LINES: Record<Preset, string> = {
 
 /** Said in every confirm that loosens a preset, and on the Gates page: Legion does not confine the commands it runs. */
 export const NO_SANDBOX_LINE = 'Legion has no sandbox for commands on your computer. A command you allow runs with your own rights.';
+
+/** Said in every confirm that loosens: what a loosening never changes. */
+export const DENY_LINE = "Your deny rules and Legion's safety rails still apply.";
 
 /** The header main sends with a confirmed loosening: the digest of the settings the owner saw in the dialog. The core refuses the change if what it would apply differs. */
 export const GATES_DIGEST_HEADER = 'x-legion-gates-digest';

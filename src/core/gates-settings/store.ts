@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { GATES, NO_SANDBOX_LINE, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { DENY_LINE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { canonicalize } from './sign.js';
@@ -71,7 +71,11 @@ function parseOverrides(v: unknown, strict: boolean): Record<string, GateValue> 
       continue; // a file written by a newer Legion may name a gate this one does not know: it is left out
     }
     if (typeof x === 'boolean') ov[k] = x;
-    else if (isObj(x) && x.on === true && typeof x.limit === 'number' && Number.isInteger(x.limit) && x.limit >= 1 && x.limit <= 100 && Object.keys(x).length === 2) ov[k] = { on: true, limit: x.limit };
+    else if (isObj(x) && !LIMIT_GATE_IDS.includes(k)) {
+      // only the retry and goal gates have a limit; a file from elsewhere that gives another gate one reads as plain "on"
+      if (strict) throw new GatesError(400, `"${k}" has no limit. Set it on or off.`);
+      ov[k] = x.on === true;
+    } else if (isObj(x) && x.on === true && typeof x.limit === 'number' && Number.isInteger(x.limit) && x.limit >= 1 && x.limit <= 100 && Object.keys(x).length === 2) ov[k] = { on: true, limit: x.limit };
     else throw new GatesError(400, `The value for "${k}" must be on, off, or on with a limit from 1 to 100.`);
   }
   return ov;
@@ -126,7 +130,6 @@ const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
   smart: "Legion decides when to ask. It asks only before an action that sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
   bypass: 'No permission cards. Agents run commands, change files and write to GitHub without asking. Everything is logged.',
 };
-const DENY_LINE = "Your deny rules and Legion's safety rails still apply.";
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
 const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
 const gateDef = (id: string) => GATES.find((g) => g.id === id);
@@ -155,35 +158,37 @@ function describeChange(before: GateSettings, next: GateSettings, isApp: boolean
   const capPreset = (x: GateSettings): Preset | undefined => (x.limit !== false ? x.preset : undefined);
   if (!isApp && unordered(capPreset(before), capPreset(next)) && !presetLoosened) { out.loosen.push(LIMIT_OFF_LINE); out.sandbox = true; }
   const ctxOf = (x: GateSettings) => (isApp ? { app: x } : { project: x, app: appCtx });
-  const { overrides: _dropped, ...bare } = next;
+  // Every gate whose value gets looser has its own line, whether the preset, an override or a dropped override did it. The preset line
+  // is a headline; it is never taken as saying what a gate does.
   for (const id of PERMISSION_IDS) {
     const g = gateDef(id); if (!g) continue;
     const was = gateValue(id, ctxOf(before)); const now = gateValue(id, ctxOf(next));
     if (valueLooser(was, now)) {
-      // a gate the new preset itself sets is already said by the preset line
-      if (presetLoosened && JSON.stringify(now) === JSON.stringify(gateValue(id, ctxOf(bare as GateSettings)))) continue;
       if (now === false) out.loosen.push(`${g.label}: off. ${g.ifOff}`);
-      else if (typeof now === 'object' && typeof was === 'object') out.loosen.push(`${g.label}: the limit goes from ${was.limit} to ${now.limit}.`);
+      else if (typeof now === 'object') out.loosen.push(`${g.label}: the limit goes from ${(was as { limit: number }).limit} to ${now.limit}.`);
       else out.loosen.push(`${g.label}: the limit is removed. ${g.ifOff}`);
       if (id === 'tool-cards' || id === 'module-cards') out.sandbox = true;
     } else if (valueLooser(now, was)) out.tighten.push(`${g.label}: on again.`);
   }
   const added = (a: string[] | undefined, b: string[] | undefined): string[] => (b ?? []).filter((x) => !(a ?? []).includes(x));
-  for (const h of added(before.allowedHosts, next.allowedHosts)) out.loosen.push(`Agents may read ${h} without asking.`);
+  // kept variables first: they can hold a secret, and a long list of sites is cut short in the dialog
   for (const v of added(before.envKeep, next.envKeep)) out.loosen.push(`Commands keep the variable ${v}, which can hold a secret.`);
+  for (const h of added(before.allowedHosts, next.allowedHosts)) out.loosen.push(`Agents may read ${h} without asking.`);
   for (const h of added(next.allowedHosts, before.allowedHosts)) out.tighten.push(`Agents ask before reading ${h} again.`);
   for (const v of added(next.envKeep, before.envKeep)) out.tighten.push(`The variable ${v} is hidden from commands again.`);
   return out;
 }
 
-export interface GatePreview { lines: string[]; /** The loosening lines only: what the app's dialog shows. */ loosening: string[]; loosens: boolean; /** sha256 of the settings the change would give. */ digest: string }
+export interface GatePreview { lines: string[]; /** The loosening lines only: what the app's dialog shows. */ loosening: string[]; loosens: boolean; /** sha256 of the name, the settings before, the settings the change would give and, for a project, the app settings. */ digest: string }
 
-const digestOf = (name: string, s: GateSettings): string => createHash('sha256').update(`${name}\n${canonicalize(s)}`).digest('hex');
+/** Binds the name, where the change starts, where it ends and, for a project, the app settings it is judged under. */
+const digestOf = (name: string, before: GateSettings, next: GateSettings, appCtx: GateSettings | undefined): string =>
+  createHash('sha256').update(`${name}\n${canonicalize(before)}\n${canonicalize(next)}\n${appCtx ? canonicalize(appCtx) : '-'}`).digest('hex');
 
 function previewOf(name: string, before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, always: boolean): GatePreview {
   const d = describeChange(before, next, isApp, appCtx);
   const loosening = d.loosen.length ? [...d.loosen, DENY_LINE, ...(d.sandbox ? [NO_SANDBOX_LINE] : [])] : [];
-  return { lines: [...loosening, ...d.tighten], loosening, loosens: always || d.loosen.length > 0, digest: digestOf(name, next) };
+  return { lines: [...loosening, ...d.tighten], loosening, loosens: always || d.loosen.length > 0, digest: digestOf(name, before, next, isApp ? undefined : appCtx) };
 }
 
 export class GatesStore {
