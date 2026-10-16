@@ -278,6 +278,8 @@ try {
     check(/\] window pid=\d+ id=\w+ opened /.test(log2), 'H2: the "Updating Legion" window opened (a log line from the window process)');
     check(await reopen === true, 'H2: the window took the single-instance lock, so there was something to reopen into');
     check(/a reopen of Legion landed here: no second core was started/.test(readApplyLog()), 'H2: a reopen 2 s later landed in the window (second-instance seen by the window)');
+    // the new build writes Done once it has confirmed itself, a moment after /health first answers
+    await waitFor('the new build to write step 10 (Done)', async () => (readApplyLog().split('\n').some((l) => l.includes('journey step=done state=done ') && l.includes(` to=${good} proc=new-app`)) ? true : null), 120000);
     const steps = readApplyLog().split('\n').map((l) => /journey step=(\S+) state=(\S+) id=(\S+) from=(\S+) to=(\S+) proc=(\S+)/.exec(l)).filter((m) => m && m[5] === good);
     const ids = new Set(steps.map((m) => m[3]));
     check(ids.size === 1, `H2: every journey line of hop 2 carries one update id (${[...ids].join(', ')})`);
