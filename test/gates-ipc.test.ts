@@ -1,179 +1,302 @@
-/** The app's native confirmation for gate changes: the window names a change, main words the dialog, the core is called with the native secret only after Confirm. */
+/**
+ * The app's native confirmation for gate changes. These tests run the REAL core (store and routes), not a fake store: the dialog must list
+ * exactly what the core says the change loosens, and the core must refuse a change that differs from what was confirmed.
+ */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bypassDetail, gatesChange, parseGatesChange } from '../src/electron/gates-ipc.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { gatesChange, parseGatesChange } from '../src/electron/gates-ipc.js';
 import type { GatesIpcDeps } from '../src/electron/gates-ipc.js';
+import { createGatesCore, createGatesModule } from '../src/core/gates-settings/index.js';
+import { ProjectStore } from '../src/core/projects/store.js';
 import { NO_SANDBOX_LINE } from '../src/shared/gates-registry.js';
+import { AUTH, makeFakes, start } from './helpers-c.js';
+
+const NATIVE = 'native-secret';
+const J = { 'Content-Type': 'application/json' };
+type Dialog = { title: string; message: string; detail: string; confirmLabel: string };
+interface Prep { data: string; pid: string; file: string }
+interface Opts { keyed?: boolean; keyring?: { get(): Buffer | undefined; state?(): 'new' | 'old' | 'lost' | 'unreadable' }; prepare?: (p: Prep) => void }
+
+async function boot(answers: boolean[], o: Opts = {}) {
+  const data = join(cleanupTemp('legion-gates-ipc-'), 'data');
+  const projects = new ProjectStore(data, join(data, 'ws'));
+  const f = makeFakes({ holdRuns: true });
+  const p = projects.create({ name: 'Shop‮' });
+  const keyring = o.keyring ?? (o.keyed === false ? undefined : { get: () => Buffer.alloc(32, 9) });
+  o.prepare?.({ data, pid: p.id, file: join(data, 'gates', `${p.id}.json`) });
+  const core = createGatesCore({ dataDir: data, projects, ...(keyring ? { keyring } : {}) });
+  const mod = createGatesModule({ config: f.ctx.config, store: f.ctx.store, bus: f.ctx.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir: data, bsvEnabled: () => false }, { projects, core, nativeSecret: NATIVE });
+  (f.ctx as { modules?: unknown }).modules = [mod];
+  const s = await start(f.ctx);
+  const dialogs: Dialog[] = [];
+  const calls: Array<{ method: string; route: string; native: boolean; headers: Record<string, string>; body?: unknown }> = [];
+  const state = { down: false, onConfirm: undefined as undefined | (() => Promise<void> | void) };
+  const real = async (method: string, route: string, body?: unknown, native?: boolean, extra?: Record<string, string>) => {
+    // the project's name comes from the projects module in the app; the gates-only test core has none, so it is read from the same store
+    if (route.startsWith('/api/projects/')) return { status: 200, json: { name: projects.get(route.split('/').pop()!)?.name } };
+    const headers = { ...AUTH, ...J, ...(native ? { 'X-Legion-Native': NATIVE } : {}), ...(extra ?? {}) };
+    calls.push({ method, route, native: native === true, headers: extra ?? {}, ...(body !== undefined ? { body } : {}) });
+    if (state.down) return undefined;
+    const r = await fetch(s.base + route, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, json: await r.json().catch(() => ({})) };
+  };
+  const deps: GatesIpcDeps = {
+    call: real as GatesIpcDeps['call'],
+    async confirm(d) { dialogs.push(d); if (state.onConfirm) await state.onConfirm(); return answers.shift() ?? false; },
+  };
+  const preview = async (name: string, patch: unknown) => (await real('POST', '/api/gates/preview', { name, patch }))!.json as { loosening: string[]; loosens: boolean; digest: string };
+  return { core, pid: p.id, deps, dialogs, calls, state, preview, base: s.base, file: join(data, 'gates', `${p.id}.json`), close: async () => { await mod.dispose?.(); await s.close(); } };
+}
+type R = Awaited<ReturnType<typeof boot>>;
+const writes = (r: R) => r.calls.filter((x) => x.method !== 'GET' && x.route !== '/api/gates/preview');
+const withHarness = (answers: boolean[], o: Opts, fn: (r: R) => Promise<void>) => async () => { const r = await boot(answers, o); try { await fn(r); } finally { await r.close(); } };
+
+test('a bypass change shows one dialog and calls the core with native and the shown digest only after Confirm', withHarness([true], {}, async (r) => {
+  const shown = await r.preview('app', { preset: 'bypass' });
+  const res = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, r.deps);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(r.dialogs.length, 1);
+  const w = writes(r);
+  assert.equal(w.length, 1);
+  assert.deepEqual([w[0]!.method, w[0]!.route, w[0]!.native, w[0]!.headers['x-legion-gates-digest'], w[0]!.body], ['PATCH', '/api/gates/app', true, shown.digest, { preset: 'bypass' }]);
+  assert.equal(r.core.store.app().preset, 'bypass');
+}));
+
+test('cancel changes nothing and makes no write', withHarness([false], {}, async (r) => {
+  const res = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps);
+  assert.deepEqual([res.ok, res.cancelled], [false, true]);
+  assert.equal(writes(r).length, 0);
+  assert.equal(r.core.store.app().preset, undefined);
+}));
+
+test('a tightening shows no dialog and sends no native header; Smart to Accept edits is not ordered, so it asks', withHarness([true], {}, async (r) => {
+  r.core.store.patchApp({ preset: 'bypass' });
+  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps)).ok, true);
+  assert.equal(r.dialogs.length, 0); assert.equal(writes(r)[0]!.native, false);
+  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'ask' } }, r.deps)).ok, true); assert.equal(r.dialogs.length, 0);
+  r.core.store.patchApp({ preset: 'smart' });
+  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'accept-edits' } }, r.deps)).ok, true);
+  assert.equal(r.dialogs.length, 1);
+  assert.equal(r.core.store.app().preset, 'accept-edits');
+}));
+
+test('a second change while a dialog is open is refused without a second dialog', withHarness([], {}, async (r) => {
+  let release!: (b: boolean) => void;
+  r.deps.confirm = (d) => { r.dialogs.push(d); return new Promise<boolean>((res) => { release = res; }); };
+  const first = gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps);
+  await new Promise((res) => setTimeout(res, 100));
+  const second = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, r.deps);
+  assert.equal(second.ok, false); assert.equal(r.dialogs.length, 1);
+  release(false); await first;
+  r.deps.confirm = async (d) => { r.dialogs.push(d); return false; };
+  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps)).cancelled, true);
+}));
 
 const PID = 'proj_0123456789ab';
-const view = (o: Record<string, unknown> = {}) => ({ app: { version: 1 }, projects: {}, unreadable: [], changedOutside: [], canSign: true, keyUnreadable: false, ...o });
-
-interface Opts { view?: unknown; patchStatus?: number; patchError?: string; probe403?: boolean; coreDown?: boolean }
-function mkDeps(answers: boolean[], o: Opts = {}) {
-  const dialogs: Array<{ title: string; message: string; detail: string; confirmLabel: string }> = [];
-  const calls: Array<{ method: string; route: string; native: boolean; body?: unknown }> = [];
-  const deps: GatesIpcDeps = {
-    async call(method, route, body, native) {
-      calls.push({ method, route, native: native === true, ...(body !== undefined ? { body } : {}) });
-      if (o.coreDown) return undefined;
-      if (route === '/api/gates/settings') return { status: 200, json: o.view ?? view() };
-      if (route.startsWith('/api/projects/')) return { status: 200, json: { id: PID, name: 'Shop\u202e' } };
-      if (o.probe403 && native !== true) return { status: 403, json: { error: 'native_confirmation_required: a change that loosens a gate comes only from the app after its confirmation dialog' } };
-      if (o.patchStatus && o.patchStatus !== 200) return { status: o.patchStatus, json: { error: o.patchError ?? 'refused by core' } };
-      return { status: 200, json: { version: 1 } };
-    },
-    async confirm(d) { dialogs.push(d); return answers.shift() ?? false; },
-  };
-  return { dialogs, calls, deps };
-}
-const writes = (c: ReturnType<typeof mkDeps>['calls']) => c.filter((x) => x.method !== 'GET');
-
-test('a bypass change shows one dialog and calls the core with native only after Confirm', async () => {
-  const m = mkDeps([true]);
-  const res = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, m.deps);
-  assert.equal(res.ok, true);
-  assert.equal(m.dialogs.length, 1);
-  const w = writes(m.calls);
-  assert.equal(w.length, 1);
-  assert.deepEqual([w[0]!.method, w[0]!.route, w[0]!.native, w[0]!.body], ['PATCH', '/api/gates/app', true, { preset: 'bypass' }]);
-});
-
-test('cancel changes nothing and makes no write', async () => {
-  const m = mkDeps([false]);
-  const res = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, m.deps);
-  assert.deepEqual([res.ok, res.cancelled], [false, true]);
-  assert.equal(writes(m.calls).length, 0);
-});
-
-test('a tightening change shows no dialog and sends no native header', async () => {
-  const m = mkDeps([], { view: view({ app: { version: 1, preset: 'bypass' } }) });
-  const res = await gatesChange({ kind: 'app', patch: { preset: 'ask' } }, m.deps);
-  assert.equal(res.ok, true); assert.equal(m.dialogs.length, 0);
-  assert.equal(writes(m.calls)[0]!.native, false);
-});
-
-test('Bypass to Smart is a tightening: no dialog; Smart to Accept edits is not ordered, so it asks', async () => {
-  const down = mkDeps([], { view: view({ app: { version: 1, preset: 'bypass' } }) });
-  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, down.deps)).ok, true); assert.equal(down.dialogs.length, 0);
-  const side = mkDeps([true], { view: view({ app: { version: 1, preset: 'smart' } }) });
-  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'accept-edits' } }, side.deps)).ok, true); assert.equal(side.dialogs.length, 1);
-});
-
-test('the core stays the authority: a change the dialog logic took for a tightening but the core calls a loosening asks, then retries with native', async () => {
-  const m = mkDeps([true], { probe403: true });
-  const res = await gatesChange({ kind: 'project', id: PID, patch: { preset: null } }, m.deps);
-  assert.equal(res.ok, true); assert.equal(m.dialogs.length, 1);
-  assert.deepEqual(writes(m.calls).map((c) => c.native), [false, true]);
-  const no = mkDeps([false], { probe403: true });
-  const r2 = await gatesChange({ kind: 'project', id: PID, patch: { preset: null } }, no.deps);
-  assert.equal(r2.cancelled, true); assert.deepEqual(writes(no.calls).map((c) => c.native), [false]);
-});
-
-test('a second change while a dialog is open is refused without a second dialog', async () => {
-  const m = mkDeps([]);
-  let release!: (b: boolean) => void;
-  m.deps.confirm = (d) => { m.dialogs.push(d); return new Promise<boolean>((r) => { release = r; }); };
-  const first = gatesChange({ kind: 'app', patch: { preset: 'smart' } }, m.deps);
-  await new Promise((r) => setTimeout(r, 10));
-  const second = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, m.deps);
-  assert.equal(second.ok, false); assert.equal(m.dialogs.length, 1);
-  release(false); await first;
-  // the flag is released afterwards
-  const again = mkDeps([false]);
-  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, again.deps)).cancelled, true);
-});
-
-test('a malformed request is refused before any dialog or call', async () => {
-  const m = mkDeps([true]);
+test('a malformed request is refused before any dialog or call', withHarness([true], {}, async (r) => {
   const bad: unknown[] = [
     null, 'x', { kind: 'app' }, { kind: 'app', patch: { preset: 'wild' } }, { kind: 'app', patch: { overrides: { nope: false } } },
+    { kind: 'app', patch: { allowedHosts: 'docs.python.org' } }, { kind: 'app', patch: { envKeep: [1] } }, { kind: 'app', patch: { allowedHosts: new Array(201).fill('a.com') } },
+    { kind: 'project', id: PID, patch: { allowedHosts: ['a.com'] } },
     { kind: 'project', id: PID, patch: { overrides: { 'rail-shell-floor': false } } },
     { kind: 'project', id: PID, patch: { overrides: { 'attempt-caps': { on: true, limit: 500 } } } },
     { kind: 'project', id: PID, patch: { overrides: { 'attempt-caps': { on: true, limit: 1.5 } } } },
     { kind: 'project', id: PID, patch: { limit: 'no' } },
     { kind: 'project', patch: {} }, { kind: 'project', id: 'x', patch: {} }, { kind: 'accept' }, { kind: 'accept', name: '../app' }, { kind: 'delete', name: 'app' },
   ];
-  for (const b of bad) assert.equal((await gatesChange(b, m.deps)).ok, false, JSON.stringify(b));
-  assert.equal(m.dialogs.length, 0); assert.equal(m.calls.length, 0);
-});
+  for (const b of bad) assert.equal((await gatesChange(b, r.deps)).ok, false, JSON.stringify(b));
+  assert.equal(r.dialogs.length, 0); assert.equal(r.calls.length, 0);
+}));
 
-test('there is no shell-floor switch: a patch that names it is refused, no dialog, no call', async () => {
-  const m = mkDeps([true]);
-  const res = await gatesChange({ kind: 'app', patch: { shellFloorOff: true } } as never, m.deps);
-  assert.equal(res.ok, false); assert.equal(m.dialogs.length, 0); assert.equal(m.calls.length, 0);
+test('there is no shell-floor switch: a patch that names it is refused, no dialog, no call', withHarness([true], {}, async (r) => {
+  const res = await gatesChange({ kind: 'app', patch: { shellFloorOff: true } } as never, r.deps);
+  assert.equal(res.ok, false); assert.equal(r.dialogs.length, 0); assert.equal(r.calls.length, 0);
   assert.equal(parseGatesChange({ kind: 'app', patch: { preset: 'ask', shellFloorOff: true } }), undefined);
-});
+}));
 
-test('the window cannot send an extra field: the call to the core carries only the parsed patch', async () => {
+test('the window cannot send an extra field: the parsed change carries only known keys', () => {
   assert.deepEqual(parseGatesChange({ kind: 'project', id: PID, patch: { preset: 'ask', limit: true }, native: true, extra: 1 }), { kind: 'project', id: PID, patch: { preset: 'ask', limit: true } });
   assert.deepEqual(parseGatesChange({ kind: 'project', id: PID, patch: { overrides: { 'attempt-caps': { on: true, limit: 8 }, 'tool-cards': false } } }), { kind: 'project', id: PID, patch: { overrides: { 'attempt-caps': { on: true, limit: 8 }, 'tool-cards': false } } });
+  assert.deepEqual(parseGatesChange({ kind: 'app', patch: { allowedHosts: ['docs.python.org'], envKeep: ['AWS_PROFILE'] } }), { kind: 'app', patch: { allowedHosts: ['docs.python.org'], envKeep: ['AWS_PROFILE'] } });
 });
 
 test('with no keystore key a loosening is refused with the plain reason, and Ask still works', async () => {
-  const m = mkDeps([true], { view: view({ canSign: false }) });
-  const res = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, m.deps);
-  assert.equal(res.ok, false); assert.match(res.error ?? '', /no safe keystore, so only Ask can be used/);
-  assert.equal(m.dialogs.length, 0); assert.equal(writes(m.calls).length, 0);
-  assert.doesNotMatch(res.error ?? '', /this computer/i);
-  const ask = mkDeps([], { view: view({ canSign: false }) });
-  assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'ask' } }, ask.deps)).ok, true);
-  const unreadable = mkDeps([true], { view: view({ canSign: false, keyUnreadable: true }) });
-  assert.match((await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, unreadable.deps)).error ?? '', /could not open its settings key/);
+  const r = await boot([true], { keyed: false });
+  try {
+    const res = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps);
+    assert.equal(res.ok, false); assert.match(res.error ?? '', /no safe keystore, so only Ask can be used/);
+    assert.equal(r.dialogs.length, 0); assert.equal(writes(r).length, 0);
+    assert.doesNotMatch(res.error ?? '', /this computer/i);
+    assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'ask' } }, r.deps)).ok, true);
+  } finally { await r.close(); }
+  const u = await boot([true], { keyring: { get: () => undefined, state: () => 'unreadable' } });
+  try {
+    assert.match((await gatesChange({ kind: 'project', id: u.pid, patch: { preset: 'smart' } }, u.deps)).error ?? '', /could not open its settings key/);
+    assert.equal(u.dialogs.length, 0);
+  } finally { await u.close(); }
 });
 
-test('the dialog names the scope from the core, the limit and each gate switched off, and strips control characters', async () => {
-  const m = mkDeps([false]);
-  await gatesChange({ kind: 'project', id: PID, patch: { preset: 'smart', limit: false, overrides: { 'github-write-card': false, 'tool-cards': true } } }, m.deps);
-  const d = m.dialogs[0]!;
-  assert.match(d.message, /Shop/); assert.doesNotMatch(d.message, /\u202e/);
-  assert.match(d.detail, /Agents with their own mode can go beyond this project's setting\./);
-  assert.match(d.detail, /Agents write to GitHub without asking/);
-  assert.doesNotMatch(d.detail, /Agents run commands and change files without asking/);
-});
-
-for (const preset of ['accept-edits', 'smart', 'bypass'] as const) {
-  test(`the ${preset} confirm says deny rules and safety rails stay, that Legion has no sandbox for commands, and has no em dash`, async () => {
-    const m = mkDeps([false]);
-    await gatesChange({ kind: 'app', patch: { preset } }, m.deps);
-    assert.equal(m.dialogs.length, 1);
-    const d = m.dialogs[0]!;
-    assert.match(d.detail, /deny rules/i); assert.match(d.detail, /safety rails/i);
-    assert.ok(d.detail.includes(NO_SANDBOX_LINE), 'no-sandbox line');
-    for (const s of [d.title, d.message, d.detail, d.confirmLabel]) { assert.ok(!s.includes('\u2014'), preset); assert.doesNotMatch(s, /this computer|this machine/i); }
+// ---- the dialog is the core's own list ----
+const KINDS: Array<[string, 'app' | 'project', unknown, RegExp]> = [
+  ['Accept edits', 'app', { preset: 'accept-edits' }, /File edits run without asking/],
+  ['Smart', 'project', { preset: 'smart' }, /Legion decides when to ask/],
+  ['Bypass', 'project', { preset: 'bypass' }, /No permission cards/],
+  ['limit off', 'project', { limit: false }, /go beyond this project's setting/],
+  ['a gate off', 'project', { overrides: { 'github-write-card': false } }, /Agents write to GitHub without asking/],
+  ['Per agent', 'project', { preset: null }, /Each agent's own mode applies, Bypass included/],
+  ['an approved site', 'app', { allowedHosts: ['docs.python.org'] }, /Agents may read docs\.python\.org without asking/],
+  ['a kept variable', 'app', { envKeep: ['AWS_PROFILE'] }, /Commands keep the variable AWS_PROFILE/],
+];
+for (const [label, kind, patch, re] of KINDS) {
+  test(`the dialog for ${label} lists exactly the lines the core returns, and nothing is sent until Confirm`, async () => {
+    const r = await boot([false], {});
+    try {
+      const before = JSON.stringify([r.core.store.app(), r.core.store.project(r.pid)]);
+      const name = kind === 'app' ? 'app' : r.pid;
+      // Per agent only loosens a project that has a preset
+      if (label === 'Per agent') r.core.store.patchProject(r.pid, { preset: 'ask' });
+      const core = await r.preview(name, patch);
+      assert.equal(core.loosens, true);
+      const res = await gatesChange(kind === 'app' ? { kind: 'app', patch } : { kind: 'project', id: r.pid, patch }, r.deps);
+      assert.equal(res.cancelled, true);
+      assert.equal(r.dialogs.length, 1);
+      const d = r.dialogs[0]!;
+      assert.equal(d.detail, core.loosening.join('\n\n'), 'the dialog shows exactly the core lines');
+      assert.match(d.detail, re);
+      assert.ok(d.message.includes(kind === 'app' ? 'all projects' : 'the project "Shop"'), d.message);
+      assert.doesNotMatch(d.message, /‮/);
+      for (const s of [d.title, d.message, d.detail, d.confirmLabel]) { assert.ok(!s.includes('—'), s); assert.doesNotMatch(s, /this computer|this machine/i); }
+      assert.equal(writes(r).length, 0);
+      if (label !== 'Per agent') assert.equal(JSON.stringify([r.core.store.app(), r.core.store.project(r.pid)]), before);
+    } finally { await r.close(); }
   });
 }
-test('the Accept edits and Bypass texts match the plan', () => {
-  assert.match(bypassDetail(), /No permission cards/);
-  assert.ok(bypassDetail().includes(NO_SANDBOX_LINE));
+
+for (const preset of ['accept-edits', 'smart', 'bypass'] as const) {
+  test(`the ${preset} confirm says deny rules and safety rails stay and that Legion has no sandbox for commands`, withHarness([false], {}, async (r) => {
+    await gatesChange({ kind: 'app', patch: { preset } }, r.deps);
+    const d = r.dialogs[0]!;
+    assert.match(d.detail, /deny rules/i); assert.match(d.detail, /safety rails/i);
+    assert.ok(d.detail.includes(NO_SANDBOX_LINE), 'no-sandbox line');
+  }));
+}
+
+test('the no-sandbox line also appears when command cards go off or the limit goes off, and not for a GitHub-only change', withHarness([false, false, false], {}, async (r) => {
+  await gatesChange({ kind: 'project', id: r.pid, patch: { overrides: { 'tool-cards': false } } }, r.deps);
+  await gatesChange({ kind: 'project', id: r.pid, patch: { limit: false } }, r.deps);
+  await gatesChange({ kind: 'project', id: r.pid, patch: { overrides: { 'github-write-card': false } } }, r.deps);
+  assert.ok(r.dialogs[0]!.detail.includes(NO_SANDBOX_LINE)); assert.ok(r.dialogs[1]!.detail.includes(NO_SANDBOX_LINE)); assert.ok(!r.dialogs[2]!.detail.includes(NO_SANDBOX_LINE));
+}));
+
+test('C1: dropping an override that rides on another change is named in the dialog and the digest binds it', withHarness([true], {}, async (r) => {
+  r.core.store.patchProject(r.pid, { preset: 'bypass', overrides: { 'tool-cards': true } });
+  const res = await gatesChange({ kind: 'project', id: r.pid, patch: { overrides: { 'stall-ladder': false } } }, r.deps);
+  assert.equal(res.ok, true, res.error);
+  const d = r.dialogs[0]!.detail;
+  assert.match(d, /Stop runs that stall: off/);
+  assert.match(d, /Ask before tools run: off\. Agents run commands and change files without asking/, 'the dropped tool-cards override is named');
+  assert.equal(r.core.store.project(r.pid).overrides?.['tool-cards'], undefined);
+}));
+
+test('a limit raise rides on Accept edits and is named', withHarness([true], {}, async (r) => {
+  r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 2 }, 'goal-caps': { on: true, limit: 3 } } });
+  await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'accept-edits', overrides: { 'attempt-caps': { on: true, limit: 100 }, 'goal-caps': { on: true, limit: 100 } } } }, r.deps);
+  const d = r.dialogs[0]!.detail;
+  assert.match(d, /File edits run without asking/);
+  assert.match(d, /Limit retries on one item: the limit goes from 2 to 100/); assert.match(d, /Limit the size of a goal: the limit goes from 3 to 100/);
+}));
+
+test('a change that differs from what the dialog showed is refused by the core, and nothing is applied', withHarness([true], {}, async (r) => {
+  // while the dialog is open, another edit lands
+  r.state.onConfirm = () => { r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'digest-hold': false } }); };
+  const res = await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'smart' } }, r.deps);
+  assert.equal(res.ok, false); assert.match(res.error ?? '', /differs from what you confirmed/);
+  assert.equal(r.core.store.project(r.pid).preset, 'ask');
+}));
+
+test('a tightening whose result changes while it is checked is refused, not applied', withHarness([], {}, async (r) => {
+  r.core.store.patchProject(r.pid, { preset: 'bypass' });
+  const real = r.deps.call;
+  r.deps.call = async (m, route, body, native, extra) => {
+    if (m === 'PATCH') r.core.store.patchProject(r.pid, { overrides: { 'digest-hold': false } });
+    return real(m, route, body, native, extra);
+  };
+  const res = await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'ask' } }, r.deps);
+  assert.equal(res.ok, false); assert.match(res.error ?? '', /differs from what you confirmed/);
+  assert.equal(r.core.store.project(r.pid).preset, 'bypass');
+}));
+
+// ---- Accept and Keep ----
+function outsideFile(preset: string) {
+  return ({ data, pid, file }: Prep) => {
+    const first = createGatesCore({ dataDir: data, keyring: { get: () => Buffer.alloc(32, 9) } });
+    first.store.patchProject(pid, { preset: 'ask' });
+    void first.store.flush();
+    const j = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; j.preset = preset; writeFileSync(file, JSON.stringify(j));
+  };
+}
+
+test('accept asks with what the file sets, only for a name the core lists as changed outside; keep needs no dialog', async () => {
+  const r = await boot([true], { prepare: outsideFile('smart') });
+  try {
+    const res = await gatesChange({ kind: 'accept', name: r.pid }, r.deps);
+    assert.equal(res.ok, true, res.error);
+    assert.equal(r.dialogs.length, 1);
+    assert.match(r.dialogs[0]!.detail, /Legion decides when to ask/); assert.ok(r.dialogs[0]!.detail.includes(NO_SANDBOX_LINE));
+    assert.match(r.dialogs[0]!.message, /the project "Shop"/);
+    assert.deepEqual([writes(r)[0]!.method, writes(r)[0]!.route, writes(r)[0]!.native], ['POST', `/api/gates/accept/${r.pid}`, true]);
+    assert.equal(r.core.store.project(r.pid).preset, 'smart');
+    assert.equal((await gatesChange({ kind: 'accept', name: r.pid }, r.deps)).ok, false, 'nothing left to accept');
+  } finally { await r.close(); }
+  const c = await boot([false], { prepare: outsideFile('bypass') });
+  try {
+    assert.equal((await gatesChange({ kind: 'accept', name: c.pid }, c.deps)).cancelled, true); assert.equal(writes(c).length, 0);
+    assert.equal(c.core.store.project(c.pid).preset, 'ask');
+    const k = await gatesChange({ kind: 'keep', name: c.pid }, c.deps);
+    assert.equal(k.ok, true); assert.equal(c.dialogs.length, 1);
+    assert.deepEqual([writes(c)[0]!.route, writes(c)[0]!.native], [`/api/gates/keep/${c.pid}`, false]);
+  } finally { await c.close(); }
+  const none = await boot([true], {});
+  try { assert.equal((await gatesChange({ kind: 'accept', name: none.pid }, none.deps)).ok, false); assert.equal(none.dialogs.length, 0); assert.equal(writes(none).length, 0); } finally { await none.close(); }
 });
 
-test('the Ask choice (a tightening) shows no dialog and so no sandbox line', async () => {
-  const m = mkDeps([], { view: view({ app: { version: 1, preset: 'smart' } }) });
-  await gatesChange({ kind: 'app', patch: { preset: 'ask' } }, m.deps);
-  assert.equal(m.dialogs.length, 0);
-});
-
-test('accept always asks, and only for a name the core lists as changed outside; keep needs no dialog', async () => {
-  const m = mkDeps([true], { view: view({ changedOutside: [PID] }) });
-  const res = await gatesChange({ kind: 'accept', name: PID }, m.deps);
-  assert.equal(res.ok, true); assert.equal(m.dialogs.length, 1);
-  assert.deepEqual([writes(m.calls)[0]!.method, writes(m.calls)[0]!.route, writes(m.calls)[0]!.native], ['POST', `/api/gates/accept/${PID}`, true]);
-  assert.ok(!m.dialogs[0]!.detail.includes('\u2014'));
-  const cancel = mkDeps([false], { view: view({ changedOutside: [PID] }) });
-  assert.equal((await gatesChange({ kind: 'accept', name: PID }, cancel.deps)).cancelled, true); assert.equal(writes(cancel.calls).length, 0);
-  const none = mkDeps([true]);
-  assert.equal((await gatesChange({ kind: 'accept', name: PID }, none.deps)).ok, false); assert.equal(none.dialogs.length, 0); assert.equal(writes(none.calls).length, 0);
-  const keep = mkDeps([], { view: view({ changedOutside: ['app'] }) });
-  const k = await gatesChange({ kind: 'keep', name: 'app' }, keep.deps);
-  assert.equal(k.ok, true); assert.equal(keep.dialogs.length, 0);
-  assert.deepEqual([writes(keep.calls)[0]!.route, writes(keep.calls)[0]!.native], ['/api/gates/keep/app', false]);
+test('Accept: a file swapped while the dialog is open is refused', async () => {
+  const r = await boot([true], { prepare: outsideFile('smart') });
+  try {
+    r.state.onConfirm = async () => {
+      const j = JSON.parse(readFileSync(r.file, 'utf8')) as Record<string, unknown>; j.preset = 'bypass'; writeFileSync(r.file, JSON.stringify(j));
+      await fetch(r.base + '/api/gates/reload', { method: 'POST', headers: { ...AUTH, ...J }, body: '{}' });
+    };
+    const res = await gatesChange({ kind: 'accept', name: r.pid }, r.deps);
+    assert.equal(res.ok, false); assert.match(res.error ?? '', /differs from what you confirmed/);
+    assert.equal(r.core.store.project(r.pid).preset, 'ask');
+  } finally { await r.close(); }
 });
 
 test('a refusing or unreachable core is reported in plain words', async () => {
-  const bad = mkDeps([true], { patchStatus: 400, patchError: 'The bypass preset is not available.' });
-  const r = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, bad.deps);
-  assert.equal(r.ok, false); assert.match(r.error ?? '', /not available/);
-  const down = mkDeps([true], { coreDown: true });
-  const r2 = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, down.deps);
-  assert.equal(r2.ok, false); assert.match(r2.error ?? '', /could not reach/);
+  const r = await boot([true], {});
+  try {
+    const bad = await gatesChange({ kind: 'app', patch: { allowedHosts: ['not a site'] } }, r.deps);
+    assert.equal(bad.ok, false); assert.match(bad.error ?? '', /not a site name/); assert.equal(r.dialogs.length, 0);
+    r.state.down = true;
+    const down = await gatesChange({ kind: 'app', patch: { preset: 'smart' } }, r.deps);
+    assert.equal(down.ok, false); assert.match(down.error ?? '', /could not reach/);
+  } finally { await r.close(); }
+});
+
+test('M3: the window reaches the handler only through main, which checks the sender; the preload only forwards', () => {
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const main = readFileSync(root + 'src/electron/main.ts', 'utf8').replace(/\r\n/g, '\n');
+  const i = main.indexOf("'legion:gates-change'");
+  assert.ok(i > 0);
+  const block = main.slice(i, i + 700);
+  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /gatesChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(dialog/);
+  assert.match(main, /extraHeaders\?: Record<string, string>/); assert.match(main, /Object\.assign\(headers, extraHeaders\)/);
+  const pre = readFileSync(root + 'src/electron/preload.cjs', 'utf8').replace(/\r\n/g, '\n');
+  assert.match(pre, /gatesChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:gates-change', change\);/);
+  assert.doesNotMatch(pre, /nativeSecret|X-Legion-Native/i);
 });

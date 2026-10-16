@@ -98,3 +98,6 @@ export const PRESET_LINES: Record<Preset, string> = {
 
 /** Said in every confirm that loosens a preset, and on the Gates page: Legion does not confine the commands it runs. */
 export const NO_SANDBOX_LINE = 'Legion has no sandbox for commands on your computer. A command you allow runs with your own rights.';
+
+/** The header main sends with a confirmed loosening: the digest of the settings the owner saw in the dialog. The core refuses the change if what it would apply differs. */
+export const GATES_DIGEST_HEADER = 'x-legion-gates-digest';

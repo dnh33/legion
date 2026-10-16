@@ -1,17 +1,17 @@
 /**
- * Native confirmation for gate changes that loosen anything (a looser preset, a project's limit off, a gate switched off, applying a
- * settings file that changed outside Legion). The window names a change; this code words a native dialog from facts it reads from the
- * core itself and the registry (never from the window), and only after "Confirm" calls the core with the native secret, which the
- * window never has. A tightening needs no dialog and no native secret. The core stays the authority on what is a loosening: if it
- * refuses a change this code took for a tightening, the same dialog is shown and the change is retried with the secret.
- * Kept free of electron imports so it can be tested with fakes.
+ * Native confirmation for gate changes that loosen anything (a looser preset, a project's limit off, a gate switched off, an approved
+ * site or kept variable, applying a settings file that changed outside Legion). The window names a change; this code asks the core
+ * what that change would do (`POST /api/gates/preview`, the only place that decides what a loosening is), shows a native dialog that
+ * lists exactly the lines the core returned, and only after "Confirm" sends the change with the native secret and the digest of what
+ * was shown. The core refuses the change if what it would apply now differs from that digest. The window never has the secret.
+ * A tightening needs no dialog and no native secret. Kept free of electron imports so it can be tested with fakes.
  */
-import { GATES, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
+import { GATES_DIGEST_HEADER, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue> }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[] }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -19,8 +19,8 @@ export type GatesChange =
   | { kind: 'keep'; name: string };
 export interface GatesChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
 export interface GatesIpcDeps {
-  /** A request to our own core with the admin secret, and the native secret when `native` is true. undefined = no proven core. */
-  call(method: 'GET' | 'POST' | 'PATCH', route: string, body?: unknown, native?: boolean): Promise<CoreReply | undefined>;
+  /** A request to our own core with the admin secret, the native secret when `native` is true, and `extraHeaders` (the digest). undefined = no proven core. */
+  call(method: 'GET' | 'POST' | 'PATCH', route: string, body?: unknown, native?: boolean, extraHeaders?: Record<string, string>): Promise<CoreReply | undefined>;
   /** A native dialog (Cancel is the default button). Resolves true only for the confirm button. */
   confirm(opts: { title: string; message: string; detail: string; confirmLabel: string }): Promise<boolean>;
 }
@@ -49,6 +49,13 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
     if (k === 'preset') {
       if (x !== null && !(typeof x === 'string' && (PRESETS as readonly string[]).includes(x))) return undefined;
       out.preset = x as Preset | null;
+    } else if (k === 'allowedHosts' && isApp) {
+      // the core checks the names themselves; here only the shape and the size
+      if (!Array.isArray(x) || x.length > 200 || x.some((h) => typeof h !== 'string' || h.length > 253)) return undefined;
+      out.allowedHosts = x as string[];
+    } else if (k === 'envKeep' && isApp) {
+      if (!Array.isArray(x) || x.length > 50 || x.some((n) => typeof n !== 'string' || n.length > 100)) return undefined;
+      out.envKeep = x as string[];
     } else if (k === 'limit' && !isApp) {
       if (typeof x !== 'boolean') return undefined;
       out.limit = x;
@@ -67,53 +74,8 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-/** The Bypass text, exported so the tests and the Gates page share one copy. */
-export function bypassDetail(): string {
-  return `No permission cards. Agents run commands, change files and write to GitHub without asking. Your deny rules and Legion's safety rails still apply, and everything is logged. ${NO_SANDBOX_LINE}`;
-}
-
-const PRESET_DIALOG: Record<'accept-edits' | 'smart' | 'bypass', { title: string; name: string; detail: () => string }> = {
-  'accept-edits': { title: 'Let file edits run?', name: 'Accept edits', detail: () => `File edits run without asking. Everything else still asks. Your deny rules and Legion's safety rails still apply. ${NO_SANDBOX_LINE}` },
-  smart: { title: 'Let Legion decide when to ask?', name: 'Smart', detail: () => `Asks only before an action that sends data out, deletes, spends, can't be undone, or that Legion can't classify. Everything else runs. Your deny rules and safety rails still apply. Everything is logged. ${NO_SANDBOX_LINE}` },
-  bypass: { title: 'Turn off permission cards?', name: 'Bypass', detail: bypassDetail },
-};
-const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
-/** The same order the core uses: Smart and Accept edits are not ordered, so a switch either way counts as a loosening. */
-const looser = (to: Preset, from: Preset | undefined): boolean => {
-  const f = from ?? 'ask';
-  return to !== f && (RANK[to] > RANK[f] || (to === 'accept-edits' && f === 'smart') || (to === 'smart' && f === 'accept-edits'));
-};
-
-interface GateView { app?: { preset?: Preset }; projects?: Record<string, { preset?: Preset; limit?: boolean; overrides?: Record<string, GateValue> }>; changedOutside?: string[]; canSign?: boolean; keyUnreadable?: boolean }
-
-interface Ask { title: string; message: string; detail: string; confirmLabel: string }
-
-/** The dialog for a patch, or undefined when nothing in it looks like a loosening. */
-function askForPatch(patch: GatePatch, scopeName: string, current: { preset?: Preset; limit?: boolean; overrides?: Record<string, GateValue> }): Ask | undefined {
-  const parts: string[] = [];
-  let title = ''; let message = '';
-  if (typeof patch.preset === 'string' && patch.preset !== 'ask' && looser(patch.preset, current.preset)) {
-    const d = PRESET_DIALOG[patch.preset];
-    title = d.title; message = `Set "${scopeName}" to ${d.name}?`; parts.push(d.detail());
-  }
-  if (patch.limit === false && current.limit !== false) {
-    if (!title) { title = 'Let agents go beyond this setting?'; message = `Turn off the limit for "${scopeName}"?`; }
-    parts.push("Agents with their own mode can go beyond this project's setting.");
-  }
-  for (const [id, v] of Object.entries(patch.overrides ?? {})) {
-    if (v !== false || current.overrides?.[id] === false) continue;
-    const g = GATES.find((x) => x.id === id);
-    if (!g) continue;
-    if (!title) { title = 'Switch a safeguard off?'; message = `Change the safeguards for "${scopeName}"?`; }
-    parts.push(`${g.label}: ${g.ifOff}`);
-  }
-  return title ? { title, message, detail: parts.join('\n\n'), confirmLabel: 'Confirm change' } : undefined;
-}
-
-const genericAsk = (scopeName: string): Ask => ({
-  title: 'Change this setting?', message: `Change the permission settings for "${scopeName}"?`, confirmLabel: 'Confirm change',
-  detail: `This lets agents work with fewer questions than before. Your deny rules and Legion's safety rails still apply. ${NO_SANDBOX_LINE}`,
-});
+interface GateView { changedOutside?: string[]; canSign?: boolean; keyUnreadable?: boolean }
+interface Preview { loosening: string[]; loosens: boolean; digest: string }
 
 let open = false;
 
@@ -126,7 +88,16 @@ export async function gatesChange(raw: unknown, deps: GatesIpcDeps): Promise<Gat
 }
 
 const noCore = { ok: false, error: 'Legion could not reach its own core. Restart Legion.' } as const;
+const cannotDescribe = { ok: false, error: 'Legion could not describe this change, so it was not made.' } as const;
 const refused = (res: CoreReply): GatesChangeResult => ({ ok: false, error: dialogLine(res.json?.error, 300) || `The core refused the change (${res.status}).` });
+const noKey = (view: GateView): GatesChangeResult => ({ ok: false, error: view.keyUnreadable ? 'Legion could not open its settings key, so only Ask can be used until that is fixed.' : 'Your computer has no safe keystore, so only Ask can be used.' });
+
+/** The core's answer, checked: a digest and plain lines, nothing else is trusted. */
+function parsePreview(j: unknown): Preview | undefined {
+  if (!isObj(j) || typeof j.loosens !== 'boolean' || typeof j.digest !== 'string' || !/^[0-9a-f]{64}$/.test(j.digest)) return undefined;
+  if (!Array.isArray(j.loosening) || j.loosening.some((l) => typeof l !== 'string')) return undefined;
+  return { loosens: j.loosens, digest: j.digest, loosening: (j.loosening as string[]).map((l) => dialogLine(l, 400)).filter(Boolean) };
+}
 
 async function run(ch: GatesChange, deps: GatesIpcDeps): Promise<GatesChangeResult> {
   const cur = await deps.call('GET', '/api/gates/settings');
@@ -139,40 +110,39 @@ async function run(ch: GatesChange, deps: GatesIpcDeps): Promise<GatesChangeResu
     return res.status === 200 ? { ok: true, view: res.json } : refused(res);
   }
 
-  const isApp = ch.kind === 'app';
   const name = ch.kind === 'app' ? 'app' : ch.kind === 'project' ? ch.id : ch.name;
-  const scopeName = name === 'app' ? 'All projects' : await projectName(deps, name);
-  let route: string; let method: 'PATCH' | 'POST'; let body: unknown; let ask: Ask | undefined;
+  const scope = name === 'app' ? 'all projects' : `the project "${await projectName(deps, name)}"`;
+  if (ch.kind === 'accept' && !(view.changedOutside ?? []).includes(ch.name)) return { ok: false, error: 'That settings file has not changed outside Legion.' };
+  const route = ch.kind === 'app' ? '/api/gates/app' : ch.kind === 'project' ? `/api/gates/projects/${ch.id}` : `/api/gates/accept/${ch.name}`;
+  const method = ch.kind === 'accept' ? 'POST' : 'PATCH';
+  const body = ch.kind === 'accept' ? undefined : ch.patch;
 
-  if (ch.kind === 'accept') {
-    if (!(view.changedOutside ?? []).includes(ch.name)) return { ok: false, error: 'That settings file has not changed outside Legion.' };
-    route = `/api/gates/accept/${ch.name}`; method = 'POST'; body = undefined;
-    ask = {
-      title: 'Use the settings found in the file?', message: `Use the changed settings file for "${scopeName}"?`, confirmLabel: 'Use these settings',
-      detail: `Another program changed this settings file. Using it can let agents ask less often. If you did not change it yourself, choose Cancel and keep the settings Legion holds. ${NO_SANDBOX_LINE}`,
-    };
-  } else {
-    const patch = ch.patch;
-    route = ch.kind === 'app' ? '/api/gates/app' : `/api/gates/projects/${ch.id}`; method = 'PATCH'; body = patch;
-    const now = ch.kind === 'app' ? view.app ?? {} : view.projects?.[ch.id] ?? {};
-    ask = askForPatch(patch, scopeName, now);
+  // The core says what this change does. Nothing below guesses.
+  const pr = await deps.call('POST', '/api/gates/preview', ch.kind === 'accept' ? { name, accept: true } : { name, patch: ch.patch });
+  if (!pr) return noCore;
+  if (pr.status !== 200) return refused(pr);
+  const pv = parsePreview(pr.json);
+  if (!pv) return cannotDescribe;
+  const digest = { [GATES_DIGEST_HEADER]: pv.digest };
+
+  if (!pv.loosens) {
+    const res = await deps.call(method, route, body, false, digest);
+    if (!res) return noCore;
+    if (res.status === 403 && /native_/.test(String(res.json?.error ?? ''))) return { ok: false, error: 'The settings changed while this was being checked. Try again.' };
+    return res.status === 200 ? { ok: true, view: res.json } : refused(res);
   }
 
   // Only Ask can be stored without a key to sign with, so a loosening is refused before any dialog.
-  if (ask && view.canSign === false) {
-    return { ok: false, error: view.keyUnreadable ? 'Legion could not open its settings key, so only Ask can be used until that is fixed.' : 'Your computer has no safe keystore, so only Ask can be used.' };
-  }
-  if (ask && !(await deps.confirm(ask))) return { ok: false, cancelled: true };
+  if (view.canSign === false) return noKey(view);
+  if (pv.loosening.length === 0 && ch.kind !== 'accept') return cannotDescribe;
+  const detail = pv.loosening.length ? pv.loosening.join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  const ok = await deps.confirm(ch.kind === 'accept'
+    ? { title: 'Use the settings found in the file?', message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings' }
+    : { title: 'Let agents ask less?', message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change' });
+  if (!ok) return { ok: false, cancelled: true };
 
-  let res = await deps.call(method, route, body, ask !== undefined);
+  const res = await deps.call(method, route, body, true, digest);
   if (!res) return noCore;
-  if (!ask && res.status === 403 && /native_confirmation_required/.test(String(res.json?.error ?? ''))) {
-    // The core calls this a loosening although the wording logic did not: ask the same way, then send it with the secret.
-    if (view.canSign === false) return { ok: false, error: 'Your computer has no safe keystore, so only Ask can be used.' };
-    if (!(await deps.confirm(genericAsk(scopeName)))) return { ok: false, cancelled: true };
-    res = await deps.call(method, route, body, true);
-    if (!res) return noCore;
-  }
   return res.status === 200 ? { ok: true, view: res.json } : refused(res);
 }
 

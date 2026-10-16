@@ -13,6 +13,20 @@ const J = { 'Content-Type': 'application/json' };
 const NATIVE = 'native-secret';
 const KEYRING = { get: () => Buffer.alloc(32, 9) };
 
+const DIGEST = 'x-legion-gates-digest';
+/** What the app does for a confirmed change: ask the core to preview it, then send the change with the native header and that digest. */
+function confirmed(base: string, headers: Record<string, string>) {
+  return async (m: string, path: string, body?: unknown, digest?: string) => {
+    const target = path.startsWith('/api/gates/accept/') ? { name: path.split('/').pop(), accept: true } : m === 'PATCH' ? { name: path === '/api/gates/app' ? 'app' : path.split('/').pop(), patch: body } : undefined;
+    let d = digest;
+    if (d === undefined && target) {
+      const pv = await fetch(base + '/api/gates/preview', { method: 'POST', headers: { ...AUTH, ...J }, body: JSON.stringify(target) });
+      if (pv.status === 200) d = ((await pv.json()) as { digest: string }).digest;
+    }
+    return fetch(base + path, { method: m, headers: { ...headers, ...J, ...(d ? { [DIGEST]: d } : {}) }, body: body === undefined ? (m === 'GET' ? undefined : '{}') : JSON.stringify(body) });
+  };
+}
+
 async function boot(o: { keyed?: boolean; nativeSecret?: string | undefined } = {}) {
   const root = cleanupTemp('legion-gates-routes-');
   const data = join(root, 'data');
@@ -26,8 +40,13 @@ async function boot(o: { keyed?: boolean; nativeSecret?: string | undefined } = 
   const s = await start(f.ctx);
   const req = (headers: Record<string, string>) => (m: string, path: string, body?: unknown) =>
     fetch(s.base + path, { method: m, headers: { ...headers, ...J }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return { mod, core, base: s.base, pid: p.id, call: req(AUTH), native: req({ ...AUTH, 'X-Legion-Native': NATIVE }), wrongNative: req({ ...AUTH, 'X-Legion-Native': 'not-the-secret' }), client: req(asClient), anon: req({}), close: async () => { await mod.dispose?.(); await s.close(); } };
+  return { mod, core, base: s.base, pid: p.id, call: req(AUTH), native: confirmed(s.base, { ...AUTH, 'X-Legion-Native': NATIVE }), nativeNoDigest: req({ ...AUTH, 'X-Legion-Native': NATIVE }), preview: (body: unknown) => req(AUTH)('POST', '/api/gates/preview', body), wrongNative: req({ ...AUTH, 'X-Legion-Native': 'not-the-secret' }), client: req(asClient), anon: req({}), close: async () => { await mod.dispose?.(); await s.close(); } };
 }
+
+test('the preview route is admin-only', async () => {
+  const r = await boot();
+  try { assert.equal((await r.client('POST', '/api/gates/preview', { name: 'app', patch: { preset: 'ask' } })).status, 403); assert.equal((await r.anon('POST', '/api/gates/preview', {})).status, 401); } finally { await r.close(); }
+});
 
 test('every gates route is admin-only', async () => {
   const r = await boot();
@@ -201,7 +220,7 @@ test('a file changed outside shows in the settings view; Accept needs the native
   (f.ctx as { modules?: unknown }).modules = [mod];
   const s = await start(f.ctx);
   const call = (h: Record<string, string>) => (m: string, path: string) => fetch(s.base + path, { method: m, headers: { ...h, ...J }, ...(m === 'GET' ? {} : { body: '{}' }) });
-  const admin = call(AUTH); const native = call({ ...AUTH, 'X-Legion-Native': NATIVE });
+  const admin = call(AUTH); const native = confirmed(s.base, { ...AUTH, 'X-Legion-Native': NATIVE });
   try {
     const v = await (await admin('GET', '/api/gates/settings')).json() as { changedOutside: string[]; canSign: boolean; projects: Record<string, { preset?: string }> };
     assert.deepEqual(v.changedOutside, [p.id]);
@@ -238,4 +257,103 @@ test('a signed loosening reaches the file: the native PATCH is stored with a sig
     assert.match(readFileSync(join(r.core.store.folder, 'app.json'), 'utf8'), /"sig": "[0-9a-f]{64}"/);
     assert.equal(((await (await r.call('GET', '/api/gates/settings')).json()) as { app: { preset?: string } }).app.preset, 'smart');
   } finally { await r.close(); }
+});
+
+// ---- the preview and the digest: one source of truth for what a change loosens ----
+interface Pv { lines: string[]; loosening: string[]; loosens: boolean; digest: string }
+const pv = async (r: Awaited<ReturnType<typeof boot>>, name: string, patch: unknown): Promise<Pv> => {
+  const res = await r.preview({ name, patch });
+  assert.equal(res.status, 200, await res.clone().text());
+  return await res.json() as Pv;
+};
+
+test('the preview words each kind of loosening from the core itself, and says nothing for a tightening', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    const P = r.pid;
+    assert.match((await pv(r, P, { preset: 'accept-edits' })).loosening.join('\n'), /File edits run without asking/);
+    assert.match((await pv(r, P, { preset: 'smart' })).loosening.join('\n'), /Legion decides when to ask/);
+    const bypass = await pv(r, P, { preset: 'bypass' });
+    assert.match(bypass.loosening.join('\n'), /No permission cards/);
+    assert.ok(bypass.loosening.some((l) => /deny rules/.test(l)) && bypass.loosening.some((l) => /no sandbox/i.test(l)));
+    assert.match((await pv(r, P, { limit: false })).loosening.join('\n'), /go beyond this project's setting/);
+    const off = await pv(r, P, { overrides: { 'github-write-card': false } });
+    assert.equal(off.loosens, true);
+    assert.match(off.loosening[0]!, /Ask before every GitHub write: off\. Agents write to GitHub without asking/);
+    assert.ok(!off.loosening.some((l) => /no sandbox/i.test(l)), 'a GitHub gate alone does not need the sandbox line');
+    assert.ok((await pv(r, P, { overrides: { 'tool-cards': false } })).loosening.some((l) => /no sandbox/i.test(l)));
+    assert.match((await pv(r, 'app', { allowedHosts: ['docs.python.org'] })).loosening[0]!, /Agents may read docs\.python\.org without asking/);
+    assert.match((await pv(r, 'app', { envKeep: ['AWS_PROFILE'] })).loosening[0]!, /Commands keep the variable AWS_PROFILE, which can hold a secret/);
+    const same = await pv(r, P, { preset: 'ask' });
+    assert.deepEqual([same.loosens, same.loosening], [false, []]);
+    assert.equal((await r.native('PATCH', `/api/gates/projects/${P}`, { preset: 'ask' })).status, 200);
+    assert.match((await pv(r, P, { preset: null })).loosening.join('\n'), /Each agent's own mode applies, Bypass included/);
+    // a limit raise and a limited gate going unlimited
+    assert.equal((await r.native('PATCH', `/api/gates/projects/${P}`, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 2 }, 'goal-caps': { on: true, limit: 3 } } })).status, 200);
+    const raise = await pv(r, P, { overrides: { 'attempt-caps': { on: true, limit: 100 }, 'goal-caps': true } });
+    assert.ok(raise.loosening.some((l) => /Limit retries on one item: the limit goes from 2 to 100/.test(l)), raise.loosening.join('|'));
+    assert.ok(raise.loosening.some((l) => /Limit the size of a goal: the limit is removed/.test(l)));
+    const lower = await pv(r, P, { overrides: { 'attempt-caps': { on: true, limit: 1 }, 'goal-caps': { on: true, limit: 3 } } });
+    assert.equal(lower.loosens, false);
+  } finally { await r.close(); }
+});
+
+test('C1: a patch that drops an owner override names it, even when another change in the same patch is worded', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    assert.equal((await r.native('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'bypass', overrides: { 'tool-cards': true } })).status, 200);
+    const p = await pv(r, r.pid, { overrides: { 'stall-ladder': false } });
+    assert.equal(p.loosens, true);
+    assert.ok(p.loosening.some((l) => /Stop runs that stall: off/.test(l)));
+    assert.ok(p.loosening.some((l) => /Ask before tools run: off\. Agents run commands and change files without asking/.test(l)), 'the dropped tool-cards override is named: ' + p.loosening.join('|'));
+    assert.ok(p.loosening.some((l) => /no sandbox/i.test(l)));
+    const drop = await pv(r, r.pid, { overrides: {} });
+    assert.ok(drop.loosening.some((l) => /Ask before tools run: off/.test(l)));
+  } finally { await r.close(); }
+});
+
+test('the core refuses a native change whose digest is missing or differs from what the owner confirmed (409)', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    const path = `/api/gates/projects/${r.pid}`;
+    const shown = await pv(r, r.pid, { preset: 'smart' });
+    assert.equal((await r.nativeNoDigest('PATCH', path, { preset: 'smart' })).status, 409, 'no digest');
+    const other = await r.native('PATCH', path, { preset: 'bypass' }, shown.digest);
+    assert.equal(other.status, 409); assert.match(await other.text(), /differs from what you confirmed/);
+    assert.equal(r.core.store.project(r.pid).preset, undefined, 'nothing changed');
+    assert.equal((await r.native('PATCH', path, { limit: false })).status, 200);
+    assert.equal((await r.native('PATCH', path, { preset: 'smart' }, shown.digest)).status, 409, 'smart on top of a limit that is now off is not the result that was shown');
+    assert.equal((await r.native('PATCH', path, { preset: 'smart' })).status, 200);
+    assert.equal((await r.call('PATCH', path, { preset: 'ask' })).status, 200, 'a tightening needs neither');
+  } finally { await r.close(); }
+});
+
+test('Accept: the preview lists what the file sets and the digest binds that content, so a swapped file is refused', async () => {
+  const data = join(cleanupTemp('legion-gates-swap-'), 'data');
+  const projects = new ProjectStore(data, join(data, 'ws'));
+  const f = makeFakes({ holdRuns: true });
+  const p = projects.create({ name: 'Shop' });
+  const deps = { config: f.ctx.config, store: f.ctx.store, bus: f.ctx.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir: data, bsvEnabled: () => false };
+  const first = createGatesCore({ dataDir: data, projects, keyring: KEYRING });
+  first.store.patchProject(p.id, { preset: 'ask' });
+  await first.store.flush();
+  const file = join(data, 'gates', `${p.id}.json`);
+  const edit = (patch: Record<string, unknown>) => { const j = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; writeFileSync(file, JSON.stringify({ ...j, ...patch })); };
+  edit({ preset: 'smart' });
+  const core = createGatesCore({ dataDir: data, projects, keyring: KEYRING });
+  const mod = createGatesModule(deps, { projects, core, nativeSecret: NATIVE });
+  (f.ctx as { modules?: unknown }).modules = [mod];
+  const s = await start(f.ctx);
+  const native = confirmed(s.base, { ...AUTH, 'X-Legion-Native': NATIVE });
+  try {
+    const shown = await (await fetch(s.base + '/api/gates/preview', { method: 'POST', headers: { ...AUTH, ...J }, body: JSON.stringify({ name: p.id, accept: true }) })).json() as Pv;
+    assert.equal(shown.loosens, true); assert.match(shown.loosening.join('\n'), /Legion decides when to ask/);
+    edit({ preset: 'bypass' });
+    assert.equal((await fetch(s.base + '/api/gates/reload', { method: 'POST', headers: { ...AUTH, ...J }, body: '{}' })).status, 200);
+    const res = await native('POST', `/api/gates/accept/${p.id}`, undefined, shown.digest);
+    assert.equal(res.status, 409); assert.match(await res.text(), /differs from what you confirmed/);
+    assert.equal(core.store.project(p.id).preset, 'ask');
+    assert.equal((await native('POST', `/api/gates/accept/${p.id}`)).status, 200, 'with the digest of the file now on disk it applies');
+    assert.equal(core.store.project(p.id).preset, 'bypass');
+  } finally { await mod.dispose?.(); await s.close(); }
 });

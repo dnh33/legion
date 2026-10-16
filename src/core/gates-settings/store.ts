@@ -20,8 +20,9 @@
  * the verified list names it. Nothing here deletes a cap file or a list entry for a project missing from projects.json.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { GATES, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { GATES, NO_SANDBOX_LINE, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { canonicalize } from './sign.js';
@@ -116,17 +117,73 @@ function parseEnvKeep(v: unknown): string[] {
  * what every permission gate would be, and any approved site or kept variable that is new.
  */
 function looserThan(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings): boolean {
-  if (rank(next.preset) > rank(before.preset) || unordered(before.preset, next.preset)) return true;
-  if (next.limit === false && before.limit !== false) return true;
+  return describeChange(before, next, isApp, appCtx).loosen.length > 0;
+}
+
+const PRESET_NAME: Record<Preset, string> = { ask: 'Ask', 'accept-edits': 'Accept edits', smart: 'Smart', bypass: 'Bypass' };
+const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
+  'accept-edits': 'File edits run without asking. Everything else still asks.',
+  smart: "Legion decides when to ask. It asks only before an action that sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
+  bypass: 'No permission cards. Agents run commands, change files and write to GitHub without asking. Everything is logged.',
+};
+const DENY_LINE = "Your deny rules and Legion's safety rails still apply.";
+const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
+const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
+const gateDef = (id: string) => GATES.find((g) => g.id === id);
+
+export interface ChangeLines { loosen: string[]; tighten: string[]; /** True when a loosening lets commands run with fewer questions: the dialog then says Legion has no sandbox. */ sandbox: boolean }
+
+/**
+ * What a change does, in plain sentences: one for each thing it loosens and each thing it tightens. This is the one place that decides
+ * what counts as a loosening: `looserThan` is "has a loosening line", the preview shows these lines, and the app's dialog shows the
+ * preview, so a change can never loosen anything the dialog did not say. Compared: the preset, the limit, the cap an agent works under,
+ * what every permission gate would be (an override dropped from the list counts), and approved sites and kept variables.
+ */
+function describeChange(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings): ChangeLines {
+  const out: ChangeLines = { loosen: [], tighten: [], sandbox: false };
+  let presetLoosened = false;
+  if (rank(next.preset) > rank(before.preset) || unordered(before.preset, next.preset)) {
+    out.loosen.push(PRESET_LOOSEN[next.preset as Exclude<Preset, 'ask'>] ?? DENY_LINE); presetLoosened = true; out.sandbox = true;
+  } else if (rank(next.preset) < rank(before.preset)) out.tighten.push(`The preset is now ${next.preset ? PRESET_NAME[next.preset] : 'Per agent'}.`);
+  if (next.limit === false && before.limit !== false) { out.loosen.push(LIMIT_OFF_LINE); out.sandbox = true; }
+  else if (before.limit === false && next.limit !== false) out.tighten.push("Agents are limited to this project's setting again.");
   // No cap at all (a project with no preset, or with its limit off) is looser than any cap, Bypass included.
   const cap = (x: GateSettings): number => (x.preset && x.limit !== false ? RANK[x.preset] : 4);
-  if (!isApp && cap(next) > cap(before)) return true;
+  if (!isApp && cap(next) > cap(before) && !presetLoosened && !out.loosen.includes(LIMIT_OFF_LINE)) {
+    out.loosen.push(next.preset ? LIMIT_OFF_LINE : PER_AGENT_LINE); out.sandbox = true;
+  }
   const capPreset = (x: GateSettings): Preset | undefined => (x.limit !== false ? x.preset : undefined);
-  if (!isApp && unordered(capPreset(before), capPreset(next))) return true;
+  if (!isApp && unordered(capPreset(before), capPreset(next)) && !presetLoosened) { out.loosen.push(LIMIT_OFF_LINE); out.sandbox = true; }
   const ctxOf = (x: GateSettings) => (isApp ? { app: x } : { project: x, app: appCtx });
-  for (const id of PERMISSION_IDS) if (valueLooser(gateValue(id, ctxOf(before)), gateValue(id, ctxOf(next)))) return true;
-  const added = (a: string[] | undefined, b: string[] | undefined): boolean => (b ?? []).some((x) => !(a ?? []).includes(x));
-  return added(before.allowedHosts, next.allowedHosts) || added(before.envKeep, next.envKeep);
+  const { overrides: _dropped, ...bare } = next;
+  for (const id of PERMISSION_IDS) {
+    const g = gateDef(id); if (!g) continue;
+    const was = gateValue(id, ctxOf(before)); const now = gateValue(id, ctxOf(next));
+    if (valueLooser(was, now)) {
+      // a gate the new preset itself sets is already said by the preset line
+      if (presetLoosened && JSON.stringify(now) === JSON.stringify(gateValue(id, ctxOf(bare as GateSettings)))) continue;
+      if (now === false) out.loosen.push(`${g.label}: off. ${g.ifOff}`);
+      else if (typeof now === 'object' && typeof was === 'object') out.loosen.push(`${g.label}: the limit goes from ${was.limit} to ${now.limit}.`);
+      else out.loosen.push(`${g.label}: the limit is removed. ${g.ifOff}`);
+      if (id === 'tool-cards' || id === 'module-cards') out.sandbox = true;
+    } else if (valueLooser(now, was)) out.tighten.push(`${g.label}: on again.`);
+  }
+  const added = (a: string[] | undefined, b: string[] | undefined): string[] => (b ?? []).filter((x) => !(a ?? []).includes(x));
+  for (const h of added(before.allowedHosts, next.allowedHosts)) out.loosen.push(`Agents may read ${h} without asking.`);
+  for (const v of added(before.envKeep, next.envKeep)) out.loosen.push(`Commands keep the variable ${v}, which can hold a secret.`);
+  for (const h of added(next.allowedHosts, before.allowedHosts)) out.tighten.push(`Agents ask before reading ${h} again.`);
+  for (const v of added(next.envKeep, before.envKeep)) out.tighten.push(`The variable ${v} is hidden from commands again.`);
+  return out;
+}
+
+export interface GatePreview { lines: string[]; /** The loosening lines only: what the app's dialog shows. */ loosening: string[]; loosens: boolean; /** sha256 of the settings the change would give. */ digest: string }
+
+const digestOf = (name: string, s: GateSettings): string => createHash('sha256').update(`${name}\n${canonicalize(s)}`).digest('hex');
+
+function previewOf(name: string, before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, always: boolean): GatePreview {
+  const d = describeChange(before, next, isApp, appCtx);
+  const loosening = d.loosen.length ? [...d.loosen, DENY_LINE, ...(d.sandbox ? [NO_SANDBOX_LINE] : [])] : [];
+  return { lines: [...loosening, ...d.tighten], loosening, loosens: always || d.loosen.length > 0, digest: digestOf(name, next) };
 }
 
 export class GatesStore {
@@ -191,6 +248,35 @@ export class GatesStore {
     } catch { return true; }
   }
 
+  /**
+   * What a patch would do, without doing it: the sentences for each loosening and tightening, whether it loosens, and the digest of the
+   * settings it would give. The app shows the loosening lines in its dialog and sends the digest back with the change.
+   */
+  preview(name: string, body: Record<string, unknown>): GatePreview {
+    const isApp = name === 'app';
+    if (!isApp && !PROJECT_ID_RE.test(name)) throw new GatesError(400, 'That is not a project id.');
+    if (isApp && this.lost) throw new GatesError(409, this.keyState === 'unreadable' ? UNREADABLE_MESSAGE : LOST_MESSAGE);
+    const cur = isApp ? this.appS : this.project(name);
+    return previewOf(name, cur, this.build(cur, body, isApp), isApp, this.appS, false);
+  }
+
+  /** What Accept would apply: the file's settings against what the core holds now. Accept always needs the app's confirm. */
+  previewAccept(name: string): GatePreview {
+    const p = this.acceptable(name);
+    const isApp = name === 'app';
+    return previewOf(name, isApp ? this.appS : this.project(name), p, isApp, this.appS, true);
+  }
+
+  /** The pending file content for a name Accept may apply, or the error Accept would give. */
+  private acceptable(name: string): GateSettings {
+    const p = this.pending.get(name);
+    if (!this.outside.has(name) && !this.lost) throw new GatesError(404, 'That file has not changed outside Legion.');
+    if (!p) throw new GatesError(404, 'There is no file to apply. Choose Keep mine.');
+    if (!this.signer) throw new GatesError(400, KEY_MESSAGE);
+    if (name === 'app' && this.lost) throw new GatesError(400, LOST_MESSAGE);
+    return p;
+  }
+
   patchApp(body: Record<string, unknown>): GateSettings {
     if (this.lost) throw new GatesError(409, this.keyState === 'unreadable' ? UNREADABLE_MESSAGE : LOST_MESSAGE);
     this.appS = this.merge(this.appS, body, true);
@@ -207,11 +293,7 @@ export class GatesStore {
 
   /** The owner chose to apply what is on disk. It is re-signed, written, and applies from now on. */
   accept(name: string): GateSettings {
-    const p = this.pending.get(name);
-    if (!this.outside.has(name) && !this.lost) throw new GatesError(404, 'That file has not changed outside Legion.');
-    if (!p) throw new GatesError(404, 'There is no file to apply. Choose Keep mine.');
-    if (!this.signer) throw new GatesError(400, KEY_MESSAGE);
-    if (name === 'app' && this.lost) throw new GatesError(400, LOST_MESSAGE);
+    const p = this.acceptable(name);
     if (name === 'app') this.appS = { ...p }; else this.projects.set(name, { ...p });
     this.settle(name);
     return name === 'app' ? this.app() : this.project(name);

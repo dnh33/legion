@@ -14,7 +14,7 @@ import type { GoalAutonomy, RunMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
-import { PRESETS, gateValue } from '../../shared/gates-registry.js';
+import { GATES_DIGEST_HEADER, PRESETS, gateValue } from '../../shared/gates-registry.js';
 import type { GateValue, Preset } from '../../shared/gates-registry.js';
 import { makeSigner } from './sign.js';
 import { GatesError, GatesStore } from './store.js';
@@ -77,6 +77,17 @@ export function requireNative(c: Ctx, o: { nativeSecret?: string }): void {
   if (typeof given !== 'string' || !safeEqual(given, o.nativeSecret)) throw new HttpError(403, 'native_confirmation_required: a change that loosens a gate comes only from the app after its confirmation dialog');
 }
 
+/**
+ * The app confirmed one exact change: its digest rides with the request, and the core refuses a change that would give different settings
+ * (a file swapped, or another edit landed, while the dialog was open). A loosening must carry it; a change that does not loosen needs it only if sent.
+ */
+export function requireDigest(c: Ctx, expected: () => string, required: boolean): void {
+  const given = (c.req.headers as Record<string, string | string[] | undefined>)[GATES_DIGEST_HEADER];
+  const want = expected(); // first, so a body that is not valid gets its own 400
+  if (typeof given !== 'string') { if (required) throw new HttpError(409, 'The change differs from what you confirmed'); return; }
+  if (!safeEqual(given, want)) throw new HttpError(409, 'The change differs from what you confirmed');
+}
+
 export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string }): GatesModule {
   const { store } = opts.core;
   const wrap = <T>(fn: () => T): T => {
@@ -96,17 +107,32 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
       add('PATCH', '/api/gates/app', (c) => {
         const b = body(c);
-        if (store.isLoosening('app', b)) requireNative(c, opts);
+        const loosens = store.isLoosening('app', b);
+        if (loosens) requireNative(c, opts);
+        requireDigest(c, () => wrap(() => store.preview('app', b)).digest, loosens);
         const r = wrap(() => store.patchApp(b)); emit(); return r;
       });
       add('PATCH', '/api/gates/projects/:id', (c) => {
         const id = must(c.params[0]); const b = body(c);
-        if (store.isLoosening(id, b)) requireNative(c, opts);
+        const loosens = store.isLoosening(id, b);
+        if (loosens) requireNative(c, opts);
+        requireDigest(c, () => wrap(() => store.preview(id, b)).digest, loosens);
         const r = wrap(() => store.patchProject(id, b)); emit(); return r;
       });
       // A file changed outside Legion: Accept applies what is on disk (a loosening, so native only); Keep mine rewrites what the core holds.
-      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); const r = wrap(() => store.accept(c.params[0] ?? '')); emit(); return r; });
+      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); requireDigest(c, () => wrap(() => store.previewAccept(c.params[0] ?? '')).digest, true); const r = wrap(() => store.accept(c.params[0] ?? '')); emit(); return r; });
       add('POST', '/api/gates/keep/:name', (c) => { wrap(() => store.keepMine(c.params[0] ?? '', opts.projects.list().map((p) => p.id))); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
+      // What a change would do, in plain sentences, and the digest of the result. The app words its dialog from this and nothing else.
+      add('POST', '/api/gates/preview', (c) => {
+        const b = body(c);
+        if (Object.keys(b).some((k) => k !== 'name' && k !== 'patch' && k !== 'accept')) throw new HttpError(400, 'Only name, patch and accept can be sent.');
+        const name = b.name;
+        if (typeof name !== 'string') throw new HttpError(400, 'name is required.');
+        if (name !== 'app') must(name);
+        if (b.accept === true) return wrap(() => store.previewAccept(name));
+        if (!isObj(b.patch)) throw new HttpError(400, 'patch must be an object.');
+        return wrap(() => store.preview(name, b.patch as Record<string, unknown>));
+      });
       add('POST', '/api/gates/reload', () => { wrap(() => store.reload()); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
     },
     dispose: async () => { await store.flush(); },
