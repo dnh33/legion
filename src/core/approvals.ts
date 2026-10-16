@@ -1,11 +1,13 @@
 /** Human-in-the-loop tool approvals. */
 import { BLENDER_EXEC_TOOL } from '../shared/blender.js';
 import { BROWSER_SERVER_NAME, BROWSER_TOOLS } from '../shared/browser.js';
-import { classifySafe } from '../shared/consequence.js';
+import { classifySafe, unknownConsequence } from '../shared/consequence.js';
 import type { Consequence } from '../shared/consequence.js';
 import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
+import { stricterMode } from './permission-mode.js';
+import type { RunMode } from './permission-mode.js';
 import { longestWaitSeconds, startAskTimer } from './away/policy.js';
 import type { AskPolicy, AskTimer } from './away/policy.js';
 
@@ -37,11 +39,8 @@ export function isLegionTool(toolName: string): boolean {
  */
 const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set(BROWSER_TOOLS.map((t) => `mcp__${BROWSER_SERVER_NAME}__${t}`));
 
-const MODE_RANK: Record<ApprovalMode, number> = { ask: 0, 'auto-edits': 1, full: 2 };
-/** The stricter (less permissive) of two approval modes. */
-export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
-  return MODE_RANK[a] <= MODE_RANK[b] ? a : b;
-}
+// One rank table for every mode comparison: it lives in permission-mode.ts.
+export { stricterMode };
 
 /** VM tools that burn billing or hand a whole task to another Claude inside the VM. A run capped by another party (an MCP client, or a bot woken by one) needs a card for these. */
 const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop']);
@@ -71,11 +70,11 @@ export interface GuardDecision {
   /** False when the run is `full` and uncapped: the caller must NOT ask, and must go straight to the action. */
   needsCard: boolean;
   /** The mode actually in force, for the reason a card was or was not shown. */
-  mode: ApprovalMode;
+  mode: RunMode;
 }
 
-/** Reads the agent's live approval mode from the store. Returns undefined when the agent is gone. */
-export type ModeOf = (agentId: string) => ApprovalMode | undefined;
+/** Reads the agent's live mode (for that task, when given) from the store. Returns undefined when the agent is gone. */
+export type ModeOf = (agentId: string, taskId?: string) => RunMode | undefined;
 
 /**
  * The one function a guard calls instead of asking on its own. `ask` is called only when a card is genuinely
@@ -89,33 +88,40 @@ export async function guardAsk(
     /** The live store read. Omit only where no store is reachable; the agent's own setting is then used. */
     modeOf?: ModeOf;
     agentId: string;
+    /** The task the guarded call belongs to, so a task-level mode (a goal's autonomy) is read, not only the agent's own. */
+    taskId?: string;
     /** The agent's setting as it stood when the run started. Used only if `modeOf` cannot answer. */
-    fallbackMode: ApprovalMode;
+    fallbackMode: RunMode;
+    /** What the guarded call does. Smart asks only at level 3; with none given it asks (fails closed). */
+    consequence?: Consequence;
     /** Shows the card and resolves with the owner's answer. Never called in `full`. */
     ask: () => Promise<boolean>;
   },
 ): Promise<boolean> {
-  const live = opts.modeOf?.(opts.agentId);
+  const live = opts.modeOf?.(opts.agentId, opts.taskId);
   const base = live ?? opts.fallbackMode;
   const effective = opts.ceiling ? stricterMode(base, opts.ceiling) : base;
-  if (decideGuard(effective).needsCard) return opts.ask();
+  if (decideGuard(effective, opts.consequence).needsCard) return opts.ask();
   return true;
 }
 
-/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards. */
-export function decideGuard(mode: ApprovalMode): GuardDecision {
-  return { needsCard: mode !== 'full', mode };
+/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards; Smart cards level 3 or unknown. */
+export function decideGuard(mode: RunMode, consequence?: Consequence): GuardDecision {
+  if (mode === 'full') return { needsCard: false, mode };
+  if (mode === 'smart') return { needsCard: (consequence ?? unknownConsequence()).level >= 3, mode };
+  return { needsCard: true, mode };
 }
 
 /**
  * `capped`: the run has an approval ceiling from someone else (it came from an MCP client or was woken by another bot). Then vm_exec,
  * vm_claude and vm_desktop need a card even though they are Legion's own tools; everything else follows the mode as before.
  */
-export function needsApproval(mode: ApprovalMode, toolName: string, opts: { capped?: boolean } = {}): boolean {
+export function needsApproval(mode: RunMode, toolName: string, opts: { capped?: boolean; consequence?: Consequence } = {}): boolean {
   if (opts.capped && CAPPED_CARDED.has(toolName)) return true;
   if (BROWSER_TOOL_NAMES.has(toolName)) return false;
   if (mode === 'full') return false;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
+  if (mode === 'smart') return (opts.consequence ?? unknownConsequence()).level >= 3;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
   // Bash, other mcp__*, and unknown tools
   return true;

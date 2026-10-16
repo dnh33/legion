@@ -21,7 +21,8 @@
  * of a deny. Within one class every matching rule agrees on the verdict, so `ruleIds` lists every rule whose
  * `when` matched (config order) for the "why am I asking?" popover.
  */
-import type { ApprovalMode, GateRule, GateVerdict, GateWhen } from '../shared/types.js';
+import type { GateRule, GateVerdict, GateWhen } from '../shared/types.js';
+import type { RunMode } from './permission-mode.js';
 
 /**
  * Tool groups a rule's `when.tools` may name (the UI writes these; nobody types raw tool names). A group is
@@ -395,7 +396,7 @@ export function whenMatches(when: GateWhen, c: GateCall): boolean {
  * No I/O, no store, no config: the caller passes the rules it read (the engine re-reads config.gates on every
  * call, so a mid-task change applies on the next tool call — no restart, no prompt-cache break).
  */
-export function decideGate(input: GateCall, rules: readonly GateRule[], mode: ApprovalMode, capped: boolean): GateDecision {
+export function decideGate(input: GateCall, rules: readonly GateRule[], mode: RunMode, capped: boolean): GateDecision {
   const cmd = typeof input.input?.command === 'string' ? input.input.command : undefined;
   const subs = cmd && cmd.trim() ? splitCommand(cmd) : undefined;
   const allowSubs = cmd && cmd.trim() ? allowSubcommands(cmd) : undefined;

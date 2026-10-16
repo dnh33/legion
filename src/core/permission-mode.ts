@@ -22,8 +22,12 @@ export interface ModeInputs {
 const RANK: Record<RunMode, number> = { ask: 0, 'auto-edits': 1, smart: 2, full: 3 };
 const isRunMode = (m: unknown): m is RunMode => typeof m === 'string' && Object.hasOwn(RANK, m);
 // Unknown values (they can come from disk) rank strictest and resolve to 'ask'.
+/** The stricter of two modes. An unknown value ranks strictest and is returned as is (callers that need a valid mode normalise). */
+export function stricterMode<A extends RunMode, B extends RunMode>(a: A, b: B): A | B {
+  return (RANK[a] ?? -1) <= (RANK[b] ?? -1) ? a : b;
+}
 const stricter = (a: RunMode, b: RunMode): RunMode => {
-  const pick = (RANK[a] ?? -1) <= (RANK[b] ?? -1) ? a : b;
+  const pick = stricterMode(a, b);
   return isRunMode(pick) ? pick : 'ask';
 };
 
@@ -49,4 +53,9 @@ export function effectiveMode(a: ModeInputs): RunMode {
   if (preset && a.project?.limit) out = stricter(out, presetMode(a.goal?.lease ?? preset));
   if (a.ceiling) out = stricter(out, a.ceiling);
   return isRunMode(out) ? out : 'ask';
+}
+
+/** What a run would be judged by with no presets at all: the agent's own mode, or ask for an agent that follows its project, under the ceiling. */
+export function baselineMode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; ceiling?: ApprovalMode }): RunMode {
+  return effectiveMode({ agentMode: a.agentMode, source: a.source ?? 'own', appPreset: 'ask', ...(a.ceiling ? { ceiling: a.ceiling } : {}) });
 }
