@@ -1448,31 +1448,21 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     });
   }
 
-  /** The folders a shell command may not work on without a card (a CoreModule `shellProtectedPaths()` entry: the data folder). */
-  private shellProtectedDirs(): string[] {
-    const out: string[] = [];
-    for (const m of this.modules) {
-      try { out.push(...(m.shellProtectedPaths?.() ?? [])); } catch { /* none */ }
-    }
-    return out;
-  }
-
   /**
-   * Agents may not change Legion's own data folder (gate settings, the gates key, projects, config, armory, away). A shell command that
-   * names it, or whose path is built when it runs, and that does more than read, gets a card in Ask, Auto-edits and Smart with no Remember
-   * (no remembered rule may skip it). Reading stays free. Full (Bypass) is the one mode that can change anything. Undefined when nothing is due.
+   * Agents may not change Legion's own protected files (gate settings, the gates key, projects, config, state, armory, away: the same set
+   * the file tools use). A shell command that can write, move, delete, rename or link, and that names one of them (read from the run's
+   * working folder, following `cd` and `git -C`) or whose path is built when it runs, gets a card in Ask, Auto-edits and Smart with no
+   * Remember (no remembered rule may skip it). Reading stays free, and so do agents' workspaces. Full (Bypass) is the one mode that can
+   * change anything. Undefined when nothing is due.
    */
   private dataFolderCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): Promise<{ allow: boolean; message?: string }> | undefined {
-    const folders = this.shellProtectedDirs();
+    const folders = this.protectedDirs();
     if (!folders.length) return undefined;
     const mode = this.modeNow(job, agent);
     if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') return undefined;
     let hit: 'none' | 'names' | 'hidden';
-    try { hit = dataFolderHit(command, kind, folders); } catch { hit = 'hidden'; }
+    try { hit = dataFolderHit(command, kind, folders, { cwd: this.gateCwd(agent, toolName, input) }); } catch { hit = 'hidden'; }
     if (hit === 'none') return undefined;
-    const c = classifySafe({ kind: 'approval', toolName, input });
-    const readsOnly = c.level <= 1 || (c.tags.length > 0 && c.tags.every((t) => t === 'reads'));
-    if (readsOnly) return undefined;
     const o = job.origin;
     let timedOut = false; let waited: number | undefined;
     const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;

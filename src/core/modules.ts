@@ -87,7 +87,7 @@ export interface CoreModule {
    */
   skillGate?(agent: AgentProfile, id: string): string | undefined;
   /** Folders a shell command may not work on without the owner's card (Legion's whole data folder). Reading stays free. */
-  shellProtectedPaths?(): string[];
+
   /** Folders that Claude file tools (Write, Edit, MultiEdit, NotebookEdit) must not change in an agent run. */
   protectedPaths?(): string[];
   /** Register HTTP routes under /api/... (bearer auth is already enforced by the dispatcher). */

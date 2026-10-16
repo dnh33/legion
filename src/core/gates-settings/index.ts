@@ -77,10 +77,8 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   const body = (c: Ctx): Record<string, unknown> => { if (!isObj(c.body)) throw new HttpError(400, 'JSON object body required'); return c.body; };
   return {
     id: 'gates', store,
-    // The file tools may not touch the gates folder, the key file, the project list or the config. A shell command may not work on the whole data
-    // folder without a card (the engine's data-folder guard); reading stays free.
+    // One protected set for the file tools and the shell guard: the gates folder, the key file, config, state and the project list (not agents' workspaces).
     protectedPaths: () => [store.folder, ...(opts.dataDir ? dataFolderTargets(opts.dataDir) : [])],
-    shellProtectedPaths: () => (opts.dataDir ? [opts.dataDir] : []),
     routes: (add) => {
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
       add('PATCH', '/api/gates/app', (c) => {

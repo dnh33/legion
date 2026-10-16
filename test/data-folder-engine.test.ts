@@ -4,13 +4,14 @@ import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setup } from './away-rig.js';
+import { dataFolderTargets } from '../src/core/exec/canonical-path.js';
 import type { ModeResolver } from '../src/core/gates-settings/index.js';
 
 type Hook = (i: Record<string, unknown>) => Promise<{ hookSpecificOutput?: { permissionDecision?: string } } | undefined>;
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DATA = join(homedir(), '.legion-guardtest');
 const fwd = DATA.replace(/\\/g, '/');
-const guardModule = { id: 'dataguard', shellProtectedPaths: () => [DATA] } as never;
+const guardModule = { id: 'dataguard', protectedPaths: () => dataFolderTargets(DATA) } as never;
 
 /** Runs commands through the PreToolUse hook that owns the shell floor's card for Claude's shell tools. A card is answered "no". */
 async function viaHook(mode: 'ask' | 'auto-edits' | 'full', commands: Array<[string, string]>) {
@@ -53,7 +54,7 @@ test('Ask and Auto-edits: mv, cp, rm and redirects on the data folder get a card
 });
 
 test('reading the data folder and plain work raise no folder card', async () => {
-  const out = await viaHook('ask', [['Bash', `cat ${fwd}/projects.json`], ['Bash', 'mv a.txt b.txt'], ['Bash', `ls ${fwd}/gates`]]);
+  const out = await viaHook('ask', [['Bash', `cat ${fwd}/projects.json`], ['Bash', 'mv a.txt b.txt'], ['Bash', `ls ${fwd}/gates`], ['PowerShell', `Get-Content ${DATA}\\state.json`], ['Bash', `cd ${fwd}/workspaces/builder && npm install`], ['Bash', `mkdir -p ${fwd}/workspaces/builder/notes && echo hi > ${fwd}/workspaces/builder/notes/a.md`]]);
   for (const o of out) assert.equal(o.card, false, o.command);
 });
 
