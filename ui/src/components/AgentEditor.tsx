@@ -70,7 +70,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const { models, fallback } = modelList(catalog);
   const grouped = groupModels(catalog);
   const opts = models.some((m) => m.value === model) || model === 'auto' ? models : [...models, { value: model, displayName: model, description: '' }];
-  const known = [...grouped.current, ...grouped.more].some((m) => m.value === model) || model === 'auto' || provGroups.some((g) => g.models.some((m) => `${g.id}:${m}` === model));
+  const known = [...grouped.current, ...grouped.older].some((m) => m.value === model) || model === 'auto' || provGroups.some((g) => g.models.some((m) => `${g.id}:${m}` === model));
   const desc = model === 'auto' ? AUTO_INFO : opts.find((m) => m.value === model)?.description;
   const trial = useStore((s) => s.boatHealth?.trial.limited === true);
   const sizeNote = size === 'default'
@@ -122,8 +122,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <select value={model} onChange={(e) => setModel(e.target.value as ModelChoice)}>
               <option value="auto">Auto {'\u00b7'} Sonnet or Opus per task</option>
               {!known && <option value={model}>{model}</option>}
-              <optgroup label={grouped.more.length ? 'Current models' : 'Models'}>{grouped.current.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>
-              {grouped.more.length > 0 && <optgroup label="More models">{grouped.more.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>}
+              <optgroup label={grouped.older.length ? 'Current models' : 'Models'}>{grouped.current.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>
+              {grouped.older.length > 0 && <optgroup label="Older models">{grouped.older.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>}
               {provGroups.map((g) => <optgroup key={g.id} label={`${g.label} (not Claude)`}>{g.models.map((m) => <option key={`${g.id}:${m}`} value={`${g.id}:${m}`}>{m}</option>)}</optgroup>)}
             </select>
             {onProvider && <span className="field-note">Runs outside Claude, on {provView?.providers.find((x) => model.startsWith(x.id + ':'))?.label ?? 'a provider'}: Legion's tools and your MCP servers only, no built-in file, shell or web tools. See Settings, Providers.</span>}

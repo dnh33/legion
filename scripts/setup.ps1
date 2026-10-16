@@ -19,7 +19,7 @@
 A PREBUILT PACKAGE (a folder with build-info.json of kind package and runtime\electron\electron.exe, or a zip of one) needs no Node.js, no npm and no build:
 setup copies it with the package's own scripts\package-install.mjs (run on the package's own electron.exe). A source folder works as before.
 
-Node.js: needs 20.10 or newer (package.json engines). If there is none, setup asks once and then downloads the pinned Node 24 LTS
+Node.js: needs 22.12 or newer (package.json engines). If there is none, setup asks once and then downloads the pinned Node 24 LTS
 from nodejs.org into <install>\runtime\node (no admin, no system PATH change). -Yes is the go-ahead for that download.
 #>
 param(
@@ -100,7 +100,7 @@ try {
   Say "  install dir check: $(if ($verdict.Ok) { 'OK' } else { 'REFUSED' }) - $($verdict.Reason)" $(if ($verdict.Ok) { 'DarkGray' } else { 'Red' })
   if (-not $verdict.Ok) { Fail "Refusing to install into '$($verdict.Path)': $($verdict.Reason)." }
 
-  # 1) Node.js (20.10+ by package.json engines): a good system Node, else Legion's own pinned copy (asked once, downloaded from nodejs.org).
+  # 1) Node.js (22.12+ by package.json engines): a good system Node, else Legion's own pinned copy (asked once, downloaded from nodejs.org).
   if ($kind -eq 'package' -or $wantZip) {
     Step 'Checking Node.js'
     Say 'Not needed: this is a prebuilt package, it brings its own runtime.' 'Green'

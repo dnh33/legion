@@ -9,13 +9,18 @@ name: Full-install rehearsal
 #   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
 #   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
 #   vanished-live  the same from the live release, whose own helper does the swap (reported, does not gate)
-#   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered a code-only stone under the OLD manifest name, applies it, then reaches the
+#   stone-walk    the stepping stone (docs/SHIPPING.md): the live release is offered the REAL published v0.3.0 package (manifest re-signed) under the OLD manifest name, applies it, then reaches the
 #             full candidate through the second name. stone-direct: a build with the new updater goes straight to the full candidate by the second name.
 #   stone-later   a code-only release published after the full one: the old name still carries the stone, the second name the newer release; the live
 #             release reaches the stone, then the newest release.
+#   stone-stranded   the stone-era gap: 0.2.7 -> the REAL published v0.3.0 package -> a code-only release whose lock differs from the stone's and that carries its own
+#             full package (release-manifest --carry-full): the frozen 0.3.0 updater must fall back to it; the next code-only release (same lock) takes the code route
+#   stone-stranded-nofull   the same release WITHOUT the carried package (the old rule): the stone install ends on a notice, still running the stone
 #   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 #             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
+#   reopen (separate job): the REAL published 0.3.0 is updated to the full candidate and Legion is reopened while its frozen helper prepares the swap
+#             (scripts/rehearsal/run-reopen.mjs: clicked path at +2/+10/+30 s, auto-install at +5/+20/+40/+70 s and never); the results table is in the job summary
 # How the installed app is steered without any production switch: it is started with NODE_OPTIONS="--import scripts/rehearsal/preload.mjs"
 # (runner only), which in memory sends the app's GitHub requests to loopback and trusts the throwaway key. No source file reads those
 # variables (test/rehearsal-preload.test.ts pins that). The real signing key is not used, read or reachable here: no secrets, a
@@ -38,6 +43,8 @@ on:
       - scripts/lib/release-lib.mjs
       - scripts/lib/full-asset-check.mjs
       - scripts/lib/stepping-stone.mjs
+      - scripts/lib/stone-carry.mjs
+      - scripts/lib/frozen-parser.mjs
       - scripts/stepping-stones.json
       - scripts/rehearsal/**
       - .github/workflows/full-install-rehearsal.yml
@@ -100,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later]
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain, stone-walk, stone-direct, stone-later, stone-stranded, stone-stranded-nofull]
     defaults:
       run:
         shell: pwsh
@@ -124,7 +131,7 @@ jobs:
           $base = $Matches[1]
           # The stone walks start from the last release BEFORE the stone (0.3.0): a 0.3.0 install is the stone itself and goes
           # straight to a full package by the second name, which chain and the full update above already cover from the live release.
-          if ('${{ matrix.scenario }}' -in 'stone-walk', 'stone-later') { $base = '0.2.7' }
+          if ('${{ matrix.scenario }}' -in 'stone-walk', 'stone-later', 'stone-stranded', 'stone-stranded-nofull') { $base = '0.2.7' }
           "BASELINE=$base" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "baseline is $base"
       - name: Baseline built from this checkout (scenarios that must run the new swap helper)
@@ -150,3 +157,74 @@ jobs:
           path: ${{ runner.temp }}/work/artifacts
           if-no-files-found: ignore
           retention-days: 7
+
+  # The reopen race (frozen 0.3.0 helper): the REAL published 0.3.0 is installed as a user installs it, offered the full candidate through the second
+  # manifest name, and Legion is reopened while the helper is preparing the swap. The first attempt and any self-recovery are reported, not gated
+  # (the findings); the gate is that the install stays whole, the data survives, one Legion is left, and (clicked) the retry lands.
+  reopen:
+    name: reopen ${{ matrix.scenario }} ${{ matrix.reopen }}
+    needs: prepare
+    if: github.repository == 'dnh33/legion'
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { scenario: reopen-reexec, reopen: '2' }
+          - { scenario: reopen-reexec, reopen: '10' }
+          - { scenario: reopen-reexec, reopen: '30' }
+          - { scenario: auto-away, reopen: '5' }
+          - { scenario: auto-away, reopen: '20' }
+          - { scenario: auto-away, reopen: '40' }
+          - { scenario: auto-away, reopen: '70' }
+          - { scenario: auto-away, reopen: 'never' }
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.13.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rehearsal-candidates
+          path: ${{ runner.temp }}/prepared
+      - name: Install the real published 0.3.0 with install.ps1, as a user does (no launch)
+        run: |
+          & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version 0.3.0 -InstallDir "$env:RUNNER_TEMP\legion-install"
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+      - name: Run the scenario
+        run: node scripts/rehearsal/run-reopen.mjs --scenario ${{ matrix.scenario }} --reopen-at ${{ matrix.reopen }} --install "$env:RUNNER_TEMP\legion-install" --prepared "$env:RUNNER_TEMP\prepared" --work "$env:RUNNER_TEMP\work" --baseline 0.3.0 --pad-mb 4000
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reopen-logs-${{ matrix.scenario }}-${{ matrix.reopen }}
+          path: ${{ runner.temp }}/work/artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  reopen-table:
+    name: reopen results table
+    needs: reopen
+    if: always() && github.repository == 'dnh33/legion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.13.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: reopen-logs-*
+          path: ${{ runner.temp }}/reopen-results
+      - run: node scripts/rehearsal/reopen-table.mjs "$RUNNER_TEMP/reopen-results"

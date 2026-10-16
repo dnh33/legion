@@ -4,6 +4,53 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-16
+
+0.3.1 was held back after an update problem, so for most people this update also brings everything listed under 0.3.1. It installs by itself. From 0.3.0 it is a larger download, about 285 MB: Legion closes for about a minute and reopens by itself. If you open it early, press Update again.
+
+### Added
+
+- **See every update through.** During a large update, a small "Updating Legion" window shows each step, from closing Legion to the new version running. If something goes wrong it says what happened, with Retry and Close, and Legion starts again either way. Opening Legion during the update brings this window forward instead of starting a second Legion. You will see it from the next large update on. Settings, About can turn it off.
+- **Your last update, step by step.** Settings, About lists the steps of the last update with their times and the result. After an update, "Updated to" and the version show once, with What's new.
+- **Every update step is logged** with one update id, in the update log and in Legion's own log, so a problem can be traced from start to finish.
+
+### Fixed
+
+- **A large update no longer goes quiet.** Legion prepares what the update needs while you work, so the update itself no longer spends half a minute with nothing on screen.
+- **From the next update on, opening Legion while an update finishes** shows "Legion is finishing an update. It opens by itself." instead of starting the old version, which used to stop the update. The update to 0.3.2 from 0.3.0 still runs on 0.3.0's updater: if you open Legion early, it says the update was not installed; press Update again.
+- **A failed update says why**, with Retry and Dismiss.
+- On a nearly full disk, Legion no longer starts copying its 370 MB runtime ahead of an update. It logs one plain line and the update still installs, the slower way. It tries again only when the next update is ready.
+- After a failed update, Retry now checks for the update first if it has not yet, and always answers: if the update cannot start right now it says "The update will try again when Legion is idle." and logs why. Dismiss and Retry clicks are logged.
+- A restart after an update waits up to 5 seconds for the one-window lock instead of quitting at once, so an update no longer rolls back when another launch holds it for a moment.
+
+## [0.3.1] - 2026-10-15
+
+This update installs by itself. It is a larger download than usual, about 285 MB, because it changes the parts Legion is built on. Later small updates stay small.
+
+### Added
+
+- **Keep your knowledge fresh.** The Lattice's Lint tab now lists stale notes with their age, sources and confidence. Each one has Refresh, where the Archivist re-checks its sources and proposes an update you accept in the Inbox, and Still current, for a note you checked yourself. Notes Legion ships with are grouped as Built-in notes. A refresh that fails says so, with a link to the run.
+- **The model picker shows every model.** Current models come first, older ones sit under Older models, and search finds both. With OpenRouter or another provider on, its models are listed under their maker, and each list refreshes once a day. Fable can now be picked for a single task.
+
+### Changed
+
+- **Legion needs Node 22.12 or newer.** Older Node 20 no longer works. If you start Legion from source, update Node first. The prebuilt package and the installer bring their own, so nothing changes for them.
+- **Legion uses Claude Agent SDK 0.3.296**, which includes the Claude Code version that supports Haiku 5.5.
+- **Agents on OpenAI, Ollama, LM Studio or vLLM count tokens with a real tokenizer.** Claude agents are unchanged: Claude Code compacts their conversations itself. For the other providers, Legion's own compaction used to guess from the length of the text, so it started too early on some conversations and too late on others (code and non-English text most). It now counts the way OpenAI-family models do, which is exact for them and a close estimate for the rest. The package grows by about 1 MB.
+- **Approval keys wait a moment.** A and D on an approval card, and the keys on a question card, do nothing for about a second after the card appears or gets focus, so a key you were already pressing cannot answer it. The card says "Ready in a moment" and its key hints look dimmed until then. Clicks work at once.
+- **A command an agent leaves running in the background stops after 30 minutes.** This comes with the new Claude Code. Start a long-running server yourself if it must keep going.
+- **An accepted board item says its runs still ask first.** Accepting a proposal does not lift the run limits; marking it as reviewed does.
+- **No more focus rings.** When you move with the keyboard, the item you are on gets a soft tint instead. If you need outlines, turn on Settings, Accessibility, Show focus rings. Windows high contrast always shows them.
+
+### Fixed
+
+- **"Needs you" opens what needs you.** Clicking an agent that needs you, a row under Needs you in other projects, a notification or the tray opens that agent's chat with the item on top, with Accept, Reject and Open on board. A notice about a project opens the project page. Rows read "Project: title".
+- **Work items on the Board open fully in view.** No dialog sits under the title bar any more, the Save, Run and Delete buttons stay visible in a small window, and Esc closes one thing at a time.
+- **The Lattice no longer goes blank when one note has many links.** A note linked from dozens of others pulled the layout apart until nothing was on screen. Busy notes now move less, and no note can jump far in one step.
+- **A question with several steps keeps your place.** After each answer, focus moves to the next step instead of getting lost.
+- **Long notes on approval cards and welcome steps no longer spill out of their card** in a small or zoomed window.
+- **Updates keep everyone moving.** A release that changes Legion's parts also works for computers still on an older version, and the updater writes down why it falls back to the full package.
+
 ## [0.3.0] - 2026-10-14
 
 ### Projects: what needs you comes first

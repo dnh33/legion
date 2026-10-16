@@ -72,7 +72,7 @@ test('C24: release notes are untrusted text: only the updater, the Electron side
     }
   };
   walk('src'); walk('ui/src');
-  assert.deepEqual(importers.sort(), ['src/bin/legion-core.ts', 'src/electron/updater-main.ts']);
+  assert.deepEqual(importers.sort(), ['src/bin/legion-core.ts', 'src/electron/update-window-main.ts', 'src/electron/updater-main.ts']);
   assert.match(read('src/electron/main.ts'), /from '\.\/updater-main\.js'/);
   const panel = read('ui/src/components/UpdatePanel.tsx');
   assert.equal(/dangerouslySetInnerHTML|innerHTML/.test(panel), false);
@@ -112,7 +112,7 @@ test('Electron side: only the two known name sets may be swapped; a reordered or
 test('Electron side: the job relaunches the same command as the shortcut; the restart-now text names what stops and what does not', () => {
   const inst = resolve('/tmp/legion-inst');
   const j = buildJob({ installDir: inst, stagedDir: join(inst, 's'), from: '1.0.0', to: '1.1.0' }, { parentPid: 77, port: 4747, execPath: 'C:\\electron.exe' });
-  assert.deepEqual(j.relaunch, { cmd: 'C:\\electron.exe', args: [inst], cwd: inst });
+  assert.deepEqual(j.relaunch, { cmd: 'C:\\electron.exe', args: [inst], cwd: inst, env: { LEGION_UPDATE_HANDOFF: '1' } }); // the handoff variable keeps the helper's own marker from holding the new build
   assert.equal(j.parentPid, 77); assert.equal(j.port, 4747);
   const t = restartNowText(['2 tasks running or waiting', '1 approval waiting for you'], '1.1.0');
   assert.match(t.detail, /- 2 tasks running or waiting/); assert.match(t.detail, /not resumed automatically/); assert.match(t.detail, /Cloud VMs are not touched/); assert.match(t.detail, /previous one/);

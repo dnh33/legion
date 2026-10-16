@@ -86,9 +86,21 @@ export function parseAssignee(v: string): BoardAssignee | null {
 }
 export const assigneeLabel = (a: BoardAssignee | null, name: (id: string) => string): string => (a === null ? 'Unassigned' : a.kind === 'owner' ? 'You' : name(a.id));
 
+/**
+ * The review note on a card or a list row; null once the owner has reviewed the text. "Accepted" is the owner's Inbox
+ * decision. It does not lift the run limits (only "Mark as reviewed" does), so the dialog keeps explaining that.
+ */
+export function reviewBadge(i: Pick<WorkItem, 'trust' | 'createdBy' | 'acceptedAt'>): { tone: 'taint' | 'warn' | 'accepted'; text: string } | null {
+  if (i.trust === 'human') return null;
+  const tainted = i.createdBy.kind === 'agent' && i.createdBy.tainted === true;
+  if (tainted) return i.acceptedAt ? { tone: 'taint', text: 'Accepted, outside content' } : { tone: 'taint', text: 'Outside content, not reviewed' };
+  return i.acceptedAt ? { tone: 'accepted', text: 'Accepted, runs ask first' } : { tone: 'warn', text: 'Not reviewed' };
+}
+
 /** Card name for screen readers: everything the eye sees, in one sentence. */
 export function cardLabel(i: WorkItem, name: (id: string) => string, today?: string): string {
-  return [i.title, columnLabel(i.status), `${PRIORITY_LABEL[i.priority]} priority`, assigneeLabel(i.assignee, name), dueText(i.due, today), i.labels.length ? `labels ${i.labels.join(', ')}` : '', i.trust === 'untrusted' ? 'written by an agent, not reviewed' : '']
+  const review = i.trust !== 'untrusted' ? '' : i.acceptedAt ? 'accepted from the Inbox, written by an agent' : 'written by an agent, not reviewed';
+  return [i.title, columnLabel(i.status), `${PRIORITY_LABEL[i.priority]} priority`, assigneeLabel(i.assignee, name), dueText(i.due, today), i.labels.length ? `labels ${i.labels.join(', ')}` : '', review]
     .filter(Boolean).join(', ');
 }
 

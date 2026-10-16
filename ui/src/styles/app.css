@@ -5,10 +5,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 code, pre, kbd { font-family: var(--font-mono); }
 ::selection { background: var(--accent-soft); }
-:where(:root[data-kbd-nav]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
-input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
-/* Rings are for people who navigate by keyboard (ui/src/a11y/kbdNav.ts sets data-kbd-nav on <html>). Under forced colours the ring is a system-colour outline. */
+:where(:root[data-kbd-nav][data-focus-rings]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
+input:is(:not([type]), [type=text], [type=search], [type=password], [type=number], [type=email], [type=url], [type=tel]):focus-visible, textarea:focus-visible { outline: none; }
+/* Rings off: no browser default focus outline either (it is a ring too). The tint below is the keyboard cue. Not under forced colours, where the outline below must show. */
+@media not all and (forced-colors: active) { :root[data-kbd-nav]:not([data-focus-rings]) :focus-visible { outline: none; } }
+/* Rings are off by default. Settings > Accessibility ("Show focus rings") sets data-focus-rings on <html>; with it, the rings below show for keyboard focus (ui/src/a11y/kbdNav.ts sets data-kbd-nav). */
+/* Windows high contrast (forced colours) strips the tint, so keyboard focus gets a system-colour outline whatever the setting. The one ring that is not behind it. */
 @media (forced-colors: active) { :root[data-kbd-nav] :focus-visible { outline: 2px solid Highlight; outline-offset: 2px; } }
+/* Rings off: keyboard focus shows a tint over the control's own background, like its hover. An overlay, so a coloured button keeps its colour. */
+:root[data-kbd-nav]:not([data-focus-rings]) :is(button, a, summary, [role=option], [role=tab], [role=menuitem], [role=treeitem], [role=row], select, input[type=range], input[type=date], input[type=file], li[tabindex="-1"], [tabindex]:not([tabindex="-1"])):focus-visible { background-image: linear-gradient(var(--focus-tint), var(--focus-tint)); }
+/* Rings off: a checkbox or radio is too small to show a tint, so the row that holds it takes the tint (its label, or the row wrapper). */
+:root[data-kbd-nav]:not([data-focus-rings]) :is(label, .arm-pickhead, .gh-pk-cell):has(> input:is([type=checkbox], [type=radio]):focus-visible) { background-image: linear-gradient(var(--focus-tint), var(--focus-tint)); }
+/* Rings off: a filled accent button is already bright, so the light tint barely shows on it. It takes a stronger overlay of the opposite tone. Same specificity as the shared tint, so it comes after it. */
+:root[data-kbd-nav]:not([data-focus-rings]) :is(.btn.primary, .pg-btn.primary):focus-visible { background-image: linear-gradient(var(--focus-tint-on-accent), var(--focus-tint-on-accent)); }
+/* Rings off: a card with its own gradient (approval, question, blender) keeps it under the tint. The tint alone would replace the gradient and leave the card flat. */
+:root[data-kbd-nav]:not([data-focus-rings]) .approval[tabindex]:focus-visible { background-image: linear-gradient(var(--focus-tint), var(--focus-tint)), linear-gradient(var(--warn-soft), transparent 70%); }
+:root[data-kbd-nav]:not([data-focus-rings]) .approval.blender.is-live[tabindex]:focus-visible { background-image: linear-gradient(var(--focus-tint), var(--focus-tint)), linear-gradient(var(--danger-soft), transparent 70%); }
 .icon { flex: none; }
 .spacer { flex: 1; }
 .muted-s { color: var(--muted); font-size: 12px; }
@@ -42,7 +54,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .icon-btn.on { color: var(--accent-text); }
 
 /* ---------- shell ---------- */
-.app { height: 100vh; display: grid; grid-template-rows: 40px minmax(0, 1fr); grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--ops-w); transition: grid-template-columns 180ms var(--ease); }
+.app { height: 100vh; display: grid; grid-template-rows: var(--titlebar-h) minmax(0, 1fr); grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--ops-w); transition: grid-template-columns 180ms var(--ease); }
 .app { --rail-w: 240px; --ops-w: 320px; }
 .app.ops-closed { grid-template-columns: var(--rail-w) minmax(0, 1fr) 0px; }
 .titlebar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; background: var(--bg); border-bottom: 1px solid var(--line); -webkit-app-region: drag; user-select: none; }
@@ -139,6 +151,25 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .banner.offline .icon { color: var(--danger); }
 .banner.offline span { margin-left: 0; color: var(--text-2); opacity: 1; }
 .banner.offline .icon { flex: none; }
+/* board proposals waiting on you, above the thread (components/ProposalCards.tsx): several stack and scroll. A card is at most half the window high.
+   Its body scrolls when the text is long; its action row is a sibling below the body, never under it, so Accept, Reject, Open on board and More are
+   all reachable at rest and at any scroll. */
+.proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 50vh; overflow-y: auto; }
+.proposal-cards { --card-tint: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.proposal-cards .approval { margin: 0; background: var(--card-tint); display: flex; flex-direction: column; max-height: 50vh; }
+.proposal-cards .approval-actions { flex-wrap: wrap; }
+.proposal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+/* the fade over the body's last line: transparent into the card tint. It overlaps only the body's bottom padding, so More is not dimmed at rest. */
+.proposal-fade { flex: none; height: 10px; margin-top: -10px; position: relative; pointer-events: none; background: linear-gradient(transparent, var(--card-tint)); }
+.proposal-actions { flex: none; margin: 0 -14px; padding: 0 14px; background: var(--card-tint); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); }
+@media (max-height: 500px) { .proposal-desc:not(.open) { -webkit-line-clamp: 2; } }
+/* The entry or card a rail click brought into view holds focus. Its ring is keyboard-only like every other ring (the owner, 2026-10-15:
+   no focus rings for mouse users). Inset, so the ring is not clipped by the region that scrolls the card. */
+:root[data-kbd-nav][data-focus-rings] [data-inbox-id]:focus, :root[data-kbd-nav][data-focus-rings] [data-proposal-id]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-kbd-nav][data-focus-rings] .approval[data-proposal-id]:focus-visible { outline-offset: -2px; }
+.proposal-title { margin: 8px 0 4px; overflow-wrap: anywhere; }
+.proposal-desc { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
+.proposal-desc.open { display: block; -webkit-line-clamp: unset; max-height: 160px; overflow: auto; }
 
 .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: auto; scroll-behavior: auto; }
 .thread-inner { max-width: 780px; margin: 0 auto; padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 14px; }
@@ -186,7 +217,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .md-link { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--faint); transition: border-color var(--t) var(--ease); }
 .md-link:hover { border-bottom-color: var(--text); }
 .md-table-wrap { max-width: 100%; overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--code-bg); }
-:root[data-kbd-nav] .md-table-wrap:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .md-table-wrap:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
 .md-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
 .md-table th, .md-table td { padding: 5px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; word-break: normal; max-width: 46ch; }
 .md-table th + th, .md-table td + td { border-left: 1px solid var(--line); }
@@ -234,12 +265,14 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 
 /* approval */
 .approval { border: 1px solid rgba(255, 204, 102, .4); background: linear-gradient(var(--warn-soft), transparent 70%), var(--surface); border-radius: var(--r-lg); padding: 12px 14px; animation: msg-in 200ms var(--ease) both; }
-:root[data-kbd-nav] .approval:focus-visible { outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .approval:focus-visible { outline-offset: 2px; }
 .approval-head { display: flex; align-items: center; gap: 8px; color: var(--warn); font-weight: 600; font-size: 12.5px; }
 .approval-tool { font-family: var(--font-mono); font-weight: 500; color: var(--text-2); background: var(--surface-3); padding: 1px 7px; border-radius: 6px; font-size: 11.5px; }
 .approval-sum { margin: 8px 0 10px; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
-.approval-actions { display: flex; align-items: center; gap: 8px; }
-.approval-note { margin-left: auto; color: var(--faint); font-size: 11.5px; }
+.approval-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.approval-note { margin-left: auto; min-width: 0; max-width: 100%; color: var(--faint); font-size: 11.5px; }
+/* Until a card is armed its key hints look inactive: a key pressed now answers nothing, and the card says so (the "Ready in a moment" note) */
+.approval[data-armed='false'] kbd { opacity: .45; }
 /* the one-click "Remember" choices: each button carries the full rule sentence, so they stack and wrap */
 .approval-remember { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .approval-remember .btn { white-space: normal; text-align: left; }
@@ -258,7 +291,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .question-opts { display: flex; flex-direction: column; gap: 6px; }
 .qopt { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--text); transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
 .qopt:hover { border-color: var(--line-strong); background: var(--surface-2); }
-.qopt:focus { outline: 2px solid var(--accent); outline-offset: -2px; border-color: var(--accent-line); }
+:root[data-kbd-nav][data-focus-rings] .qopt:focus { outline: 2px solid var(--accent); outline-offset: -2px; border-color: var(--accent-line); }
 .qopt.on { border-color: var(--accent-line); background: var(--accent-soft); }
 .qopt-label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .qopt-desc { color: var(--muted); font-size: 12px; }
@@ -266,7 +299,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .question-preview { margin: 0; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
 .question-other { display: flex; gap: 8px; margin-top: 8px; }
 .qother-input { flex: 1; height: 30px; padding: 0 10px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font-size: 12.5px; }
-:root[data-kbd-nav] .qother-input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-kbd-nav][data-focus-rings] .qother-input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 .question-review { display: flex; flex-direction: column; gap: 6px; }
 .qrow { display: flex; gap: 10px; padding: 7px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); }
 .qrow-h { flex: none; min-width: 96px; color: var(--muted); font-size: 12px; }
@@ -280,7 +313,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .empty .btn { margin-top: 14px; }
 .hints { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 12px; flex-wrap: wrap; justify-content: center; }
 .hints kbd { margin-left: 6px; } .hints kbd:first-child { margin-left: 0; }
-.firstrun { margin: 12px auto; width: 100%; max-width: 600px; padding: 22px 24px; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface); animation: msg-in 240ms var(--ease) both; }
+.firstrun { margin: 12px auto; width: 100%; max-width: 600px; padding: 22px 24px; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface); animation: msg-in 240ms var(--ease) both; container-type: inline-size; }
 .firstrun h3 { margin: 0 0 4px; font: 700 28px/1.1 var(--font-display); letter-spacing: .02em; }
 .firstrun .lead { margin: 0 0 16px; color: var(--muted); }
 .steps { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -288,6 +321,12 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .steps li > div { flex: 1; min-width: 0; }
 .steps p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
 .steps code { font-size: 11.5px; color: var(--text-2); }
+/* a narrow card (the thread at 1.5x zoom): the title takes the full row and the button drops under it, in the text column */
+@container (max-width: 300px) {
+  .steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: start; }
+  .steps li > div { grid-column: 2; min-width: 0; }
+  .steps li > .btn { grid-column: 2; justify-self: start; }
+}
 .step-n { width: 22px; height: 22px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; font-weight: 700; background: var(--surface-3); border: 1px solid var(--line-strong); color: var(--muted); margin-top: 1px; }
 .step-n.ok { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-line); }
 .cmd { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 6px 8px 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); }
@@ -298,7 +337,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 /* ---------- composer ---------- */
 .composer-wrap { flex: none; padding: 8px 24px 16px; width: 100%; max-width: 780px; margin: 0 auto; }
 .composer { max-width: 780px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease); }
-.composer:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav] .composer:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) .composer:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .composer:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .composer textarea { display: block; width: 100%; resize: none; border: 0; background: transparent; padding: 12px 14px 4px; line-height: 1.5; max-height: 180px; min-height: 40px; outline: none; }
 .composer textarea::placeholder { color: var(--faint); }
 .composer-bar { display: flex; align-items: center; gap: 10px; padding: 4px 8px 8px 10px; }
@@ -355,7 +394,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .vm-usage em { color: var(--faint); font-style: normal; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
 .computer-meta { margin: 6px 0 0; display: flex; justify-content: space-between; color: var(--faint); font-size: 11.5px; }
 .exec { display: flex; align-items: center; gap: 8px; margin-top: 6px; height: 32px; padding: 0 10px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); transition: border-color var(--t); }
-.exec:focus-within { border-color: var(--accent-line); }
+:where(:root[data-kbd-nav][data-focus-rings]) .exec:focus-within { border-color: var(--accent-line); }
 .exec .prompt { color: var(--faint); font-family: var(--font-mono); }
 .exec input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; font-family: var(--font-mono); font-size: 12px; }
 .exec input::placeholder { color: var(--faint); }
@@ -372,10 +411,11 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .r-meta { grid-column: 2; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- overlays ---------- */
-.scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); display: grid; place-items: center; padding: 24px; animation: fade 140ms ease-out; }
+.scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: calc(var(--titlebar-h) + 16px) 24px 24px; animation: fade 140ms ease-out; }
 .scrim.top { place-items: start center; padding-top: 12vh; }
-.modal { max-width: 100%; max-height: calc(100vh - 64px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, .45); animation: modal-in 160ms var(--ease); }
+.modal { max-width: 100%; max-height: calc(100vh - var(--titlebar-h) - 48px); min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, .45); animation: modal-in 160ms var(--ease); }
 @keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+.modal > :last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 10px 20px; }
 .modal-head h2 { margin: 0; font-size: 15px; }
 .modal-body { padding: 0 20px 16px; overflow-y: auto; }
@@ -408,7 +448,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .form input:not([type='checkbox']), .form textarea, .form select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 7px 10px; color: var(--text); font-weight: 400; font-size: 13.5px; transition: border-color var(--t), box-shadow var(--t); }
 .form textarea { resize: vertical; min-height: 84px; font-family: var(--font-mono); font-size: 12.5px; }
-.form input:focus, .form textarea:focus, .form select:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .form input:focus, :root[data-kbd-nav] .form textarea:focus, :root[data-kbd-nav] .form select:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) :is(.form input:focus, .form textarea:focus, .form select:focus) { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .form input:focus, :root[data-kbd-nav][data-focus-rings] .form textarea:focus, :root[data-kbd-nav][data-focus-rings] .form select:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .form .row { display: flex; gap: 12px; } .form .grow { flex: 1; min-width: 0; }
 .f-emoji { width: 72px; } .f-emoji input { text-align: center; font-size: 16px; }
 .form fieldset { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; margin: 0; }
@@ -466,31 +506,34 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .model-pill .mp-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .model-pill .icon { flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
 .model-pill.open { border-color: var(--accent-line); } .model-pill.open .icon { transform: rotate(180deg); }
-.model-pop { right: auto; width: min(380px, 100%); left: 8px; }
-.pop-head { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; font-weight: 600; font-size: 12.5px; }
-.pop-list { padding: 0 4px 4px; max-height: 320px; overflow-y: auto; }
-.pop-listwrap { position: relative; }
+.model-pop { right: auto; width: min(380px, 100%); left: 8px; display: flex; flex-direction: column; max-height: min(480px, 80vh); }
+.pop-head { display: flex; flex: none; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; font-weight: 600; font-size: 12.5px; }
+/* The body holds the one scrolling list, which takes the free height and carries the pinned Older head. Overflow is clipped here, never drawn over the footer. */
+.pop-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* the pinned Older head is 27.75px tall (border-box, measured at 960x600) and sits above the list's 4px bottom padding: a row scrolled into view clears both */
+.pop-list { padding: 0 4px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; scroll-padding-bottom: 32px; }
+.pop-listwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; }
+/* four full rows with their descriptions (label included), at 960x600: Auto and the first current models stay in view */
+/* the floor gives way on a short window (the popover cap is 80vh), so the list never runs under the footer */
+.pop-listwrap.is-tall { min-height: min(252px, 45vh); }
 .pop-listwrap::before, .pop-listwrap::after { content: ''; position: absolute; left: 0; right: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity var(--t) ease-out; z-index: 1; }
 .pop-listwrap::before { top: 0; background: linear-gradient(var(--surface), transparent); }
 .pop-listwrap::after { bottom: 0; background: linear-gradient(transparent, var(--surface)); }
 .pop-listwrap.sh-top::before, .pop-listwrap.sh-bot::after { opacity: 1; }
 .mp-group { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.pop-search { padding: 6px 4px 2px; }
+.pop-search { padding: 6px 4px 2px; flex: none; }
 .mp-search { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 10px; color: var(--text); font-size: 13px; }
 .mp-search::placeholder { color: var(--faint); }
-.mp-search:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .mp-search:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) .mp-search:focus { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .mp-search:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .mp-empty { padding: 10px 10px; color: var(--muted); font-size: 12.5px; }
-.mp-more { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px; margin-top: 2px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: 12.5px; }
-.mp-more:hover { background: var(--surface-3); }
-.mp-more .icon { transform: rotate(90deg); }
-.mp-more[aria-expanded='true'] .icon { transform: rotate(-90deg); }
 .mp-item { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; }
 .mp-item.hl { background: var(--surface-3); }
 .mp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.mp-text b { font-weight: 600; }
+/* a long model id is cut with an ellipsis; the row's title (tooltip) carries the whole id */
+.mp-text b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-text span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
 .mp-check { width: 16px; flex: none; color: var(--accent-text); padding-top: 2px; }
-.pop-foot { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.pop-foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .pop-foot kbd { margin-left: auto; }
 .field-note { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.4; }
 
@@ -580,7 +623,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-hint { color: var(--muted); font-size: 12.5px; line-height: 1.45; } .set-hint b { color: var(--text-2); font-weight: 500; }
 .set-field input:not([type]), .set-field input[type='text'], .set-field input[type='password'], .set-field textarea { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; outline: 0; transition: border-color var(--t), box-shadow var(--t); }
 .set-field textarea { font-family: var(--font-mono); font-size: 12px; resize: vertical; min-height: 44px; }
-.set-field input:focus, .set-field textarea:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .set-field input:focus, :root[data-kbd-nav] .set-field textarea:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) :is(.set-field input:focus, .set-field textarea:focus) { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .set-field input:focus, :root[data-kbd-nav][data-focus-rings] .set-field textarea:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .set-field input:disabled { opacity: .55; }
 .set-field input.narrow { width: 120px; }
 .set-inline { display: flex; align-items: center; gap: 8px; } .set-inline input { flex: 1; min-width: 0; }
@@ -614,7 +657,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-rates .set-inline { flex-wrap: wrap; align-items: flex-end; }
 .set-rate { display: flex; flex-direction: column; gap: 4px; flex: 1 1 100px; min-width: 90px; font-size: 12px; color: var(--muted); }
 .set-rate input { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; outline: 0; transition: border-color var(--t), box-shadow var(--t); }
-.set-rate input:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .set-rate input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(:root[data-kbd-nav][data-focus-rings]) .set-rate input:focus { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .set-rate input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .set-rate input::placeholder { color: var(--faint); }
 .set-adv summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
 .set-empty { display: flex; flex-direction: column; gap: 2px; padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-lg); color: var(--muted); }
@@ -668,7 +711,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .kv-row { display: flex; gap: 6px; align-items: center; } .kv-row input { min-width: 0; flex: 1; } .kv-row input:first-child { flex: 0 0 38%; }
 .kv-row input.is-masked::placeholder, .kv-row input.is-masked { color: var(--muted); font-family: var(--font-mono); }
 .kv-add { align-self: flex-start; }
-.set-field .kv-row input { padding: 7px 9px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; font-size: 12.5px; outline: 0; } .kv-row input:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .kv-row input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+.set-field .kv-row input { padding: 7px 9px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; font-size: 12.5px; outline: 0; } :where(:root[data-kbd-nav][data-focus-rings]) .kv-row input:focus { border-color: var(--accent-line); } :root[data-kbd-nav][data-focus-rings] .kv-row input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .tabs-scroll { mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 24px), transparent); }
 .chip-detail.bridge-detail { max-height: none; }
 .bridge-detail .bridge-result { max-height: 220px; overflow: auto; white-space: pre-wrap; padding-right: 4px; }
@@ -737,7 +780,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .thread-search .flip { display: inline-flex; transform: rotate(180deg); }
 .firstrun .later { margin: 4px 0 12px; }
 .firstrun .later > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 4px 0; }
-:root[data-kbd-nav] .firstrun .later > summary:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: var(--r-sm); }
+:root[data-kbd-nav][data-focus-rings] .firstrun .later > summary:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: var(--r-sm); }
 .firstrun .later[open] > summary { margin-bottom: 10px; }
 /* the project a task belongs to (council A7): quiet, so it reads as context, not as a control */
 .chip-pill.project-pill { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
@@ -760,3 +803,17 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .arm-notice::before, .bd-offer::before { background: var(--accent-text); }
 .proj-note::before { background: var(--muted); }
 .proj-note.needs::before { background: var(--warn); -webkit-mask-image: var(--ico-warn); mask-image: var(--ico-warn); }
+
+/* Model picker: collapsible heads (Older models, creator groups). Theme tokens only; focus rings keyboard-only. */
+/* A head wears the group-label size (.mp-group above); only the family is reset, so it is not the button's 13px. */
+.mp-head { width: 100%; display: flex; align-items: center; gap: 8px; background: none; border: 0; font-family: inherit; text-align: left; cursor: pointer; color: var(--muted); }
+.mp-head .mp-head-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-head .mp-count { font-variant-numeric: tabular-nums; opacity: 0.7; }
+/* Closed: the chevron points right. Open: it points down. */
+.mp-head svg { transition: transform 120ms ease; }
+.mp-head.is-open svg { transform: rotate(90deg); }
+/* The Older models head is the list's last row, pinned to its bottom edge: the rows scroll under it, and when it opens its rows follow it. */
+.mp-head.mp-older-head { position: sticky; bottom: 0; z-index: 2; background: var(--surface-2); border-top: 1px solid var(--line); }
+.mp-quiet { opacity: 0.75; flex-basis: 100%; }
+/* The highlighted row is a tint, never a ring: the same background as hover, with or without keyboard navigation. */
+.mp-head.hl { background: var(--surface-3); border-radius: var(--r-sm); }

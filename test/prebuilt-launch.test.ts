@@ -1,7 +1,7 @@
 /** How the core, the stdio proxy and the wrapper commands start in a package install: Electron's own Node, env on the child only. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { coreChildEnv, coreStartHint, isPackageInstall, resolveCoreLaunch } from '../src/electron/resolve-node.js';
@@ -108,4 +108,15 @@ test('a core that cannot start leaves its whole message in core.log too, on one 
   const line = startFailureLine(`${hint}\nsecond line`, new Date('2026-10-06T02:00:00.000Z'));
   assert.equal(line, `[2026-10-06T02:00:00.000Z] Legion could not start the core: ${hint} second line\n`);
   assert.match(line, /Protection history/, 'the advice is in the log, not only on the splash');
+});
+
+test('legion-claude.cmd hands every argument to claude.exe untouched, including the --flag=value form SDK 0.3.295 sends', { skip: process.platform !== 'win32' }, () => {
+  const root = tmp('legion-claude-cmd-');
+  put(root, 'scripts/legion-claude.cmd', readFileSync(join(REPO, 'scripts', 'legion-claude.cmd'), 'utf8'));
+  const exeDir = join(root, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-win32-x64');
+  mkdirSync(exeDir, { recursive: true });
+  copyFileSync(process.execPath, join(exeDir, 'claude.exe')); // node stands in for claude.exe: it prints the args it was given; '--' ends node's own options
+  const r = spawnSync(join(root, 'scripts', 'legion-claude.cmd'), ['-e', 'console.log(process.argv.slice(1).join(String.fromCharCode(35)))', '--', '--model=sonnet', '--permission-mode=default', '--max-turns=3'], { encoding: 'utf8', shell: true });
+  assert.equal(r.stdout.trim(), '--model=sonnet#--permission-mode=default#--max-turns=3', r.stderr);
+  assert.equal(r.status, 0);
 });

@@ -68,14 +68,11 @@ test('a small window compacts LATER than a large one, and never below the floor'
 });
 
 test('the estimator over-counts rather than under-counts, because only one of those errors is survivable', () => {
-  // 4 chars/token, counted as UTF-8 bytes. Over-counting is the deliberate side of the trade: an over-count wastes
-  // context, an under-count gets a request rejected. The /3 constant this used to assert is gone - but the PROPERTY
-  // is what matters, so that is what is asserted.
-  assert.equal(estimateTokens('a'.repeat(400)), 100, '400 ASCII chars is 100 tokens at 4 chars per token');
+  // Counted with the o200k_base vocabulary. An over-count wastes context, an under-count gets a request rejected.
   assert.equal(estimateTokens(''), 0);
-  assert.equal(estimateTokens('x'.repeat(300)), 75);
-  // Never under-count prose, which is the failure that costs a turn.
-  assert.ok(estimateTokens('the quick brown fox '.repeat(100)) >= 450);
+  assert.ok(estimateTokens('x'.repeat(300)) > 0);
+  // Never under-count prose by more than a token a word: that is the failure that costs a turn.
+  assert.ok(estimateTokens('the quick brown fox '.repeat(100)) >= 400);
 });
 
 // ---------------------------------------------------------------- boundary alignment
@@ -360,15 +357,11 @@ test('tools count against the window, since they travel in the same request', ()
   // The window is sized so the conversation alone sits just under the threshold and the tools alone push it over — that
   // makes this a test of the tools, not of the conversation length.
   const WINDOW = 20_000;
-  // 40_000, not 20_000: at 20_000 the tool definitions are 5_022 tokens against a 2_240-token conversation and an
-  // 11_928 trigger, so the tools do NOT move the verdict and the test proved nothing. Measured, not guessed - the
-  // smallest description that flips it is 40_000. The point is the flip, so the fixture is sized to produce one.
-  const bigTool = { type: 'function' as const, function: { name: 'mcp__legion__vm_exec', description: 'x'.repeat(40_000), parameters: { type: 'object', properties: {} } } };
+  // Sized so the tool definitions alone are a few thousand tokens against a small conversation and the window's
+  // trigger: big enough to flip the verdict, not big enough to decide it by themselves. The point is the flip.
+  const bigTool = { type: 'function' as const, function: { name: 'mcp__legion__vm_exec', description: 'search the files and report every match '.repeat(1100), parameters: { type: 'object', properties: {} } } };
   const convo = longConversation(20);
-  // Sized against the byte-based estimator: the conversation is 2240 tokens against a 11 928 trigger, and the tool
-  // definitions add 5022 - enough to matter, not enough on their own to decide the outcome. The point of the test is
-  // that the SAME conversation changes verdict when tools are counted, so both sides must sit on the right side of
-  // the line. The old /3 estimator made these numbers roughly a third larger.
+  // The SAME conversation changes verdict when tools are counted, so both sides must sit on the right side of the line.
   assert.equal(needsCompaction(convo, WINDOW, 0), false, 'the conversation alone fits');
   assert.equal(needsCompaction(convo, WINDOW, toolsTokens([bigTool])), true, 'and stops fitting once the tools are counted');
   // The tools shrink the threshold as well as adding to the request: both effects point the same way, which is the

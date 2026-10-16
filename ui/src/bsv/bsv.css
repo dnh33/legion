@@ -17,12 +17,12 @@
 .tb-bsv.on:hover:not(:disabled) { color: var(--chain); border-color: var(--chain); background: var(--chain-soft); }
 .tb-bsv.on .tb-bsv-track { background: var(--chain-soft); border-color: color-mix(in srgb, var(--chain) 60%, transparent); }
 .tb-bsv.on .tb-bsv-track::after { transform: translateX(10px); background: var(--chain); }
-:root[data-kbd-nav] .tb-bsv:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .tb-bsv:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 /* panel button beside the switch (shown while the mode is on, wide windows only; the pill and the command palette reach the panel everywhere) */
 .tb-bsv-panel { height: 26px; padding: 0 9px; margin-right: 2px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--chain); font: 600 11px/1 var(--font-mono); letter-spacing: .06em; cursor: pointer; }
 .tb-bsv-panel:hover { background: var(--chain-soft); border-color: var(--chain); }
 .tb-bsv-panel[data-live='1'] { color: var(--live); border-color: var(--live); }
-:root[data-kbd-nav] .tb-bsv-panel:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .tb-bsv-panel:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 @media (max-width: 1279px) { .tb-bsv-panel { display: none; } }
 /*
  * Wide windows (>= 1280px): the chip is a normal item of .tb-right and the header's left side does not move.
@@ -40,7 +40,7 @@
 }
 
 /* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer. STATIC. ---- */
-.chain-overlay { position: fixed; left: 0; right: 0; top: 0; height: 40px; z-index: 10; pointer-events: none; overflow: hidden; }
+.chain-overlay { position: fixed; left: 0; right: 0; top: 0; height: var(--titlebar-h); z-index: 10; pointer-events: none; overflow: hidden; }
 .chain-line { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--chain) 70%, transparent); }
 .chain-ticker { position: absolute; top: 0; height: 39px; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2px; overflow: hidden; white-space: nowrap; font: 500 9.5px/1 var(--font-mono); letter-spacing: .04em; color: var(--chain); opacity: .95; }
 .chain-ticker span { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: center; } /* backstop: if a measurement is ever a frame late the text is clipped inside its slot, it never spills over the controls */
@@ -55,7 +55,7 @@
 .live-border { position: fixed; inset: 0; z-index: 9000; pointer-events: none; box-shadow: inset 0 0 0 3px var(--live); }
 
 /* ---- the pill: armed / pending / frozen / wallet on mainnet. Static. Buttons are the only part that takes the pointer. ---- */
-.bsv-pill { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); z-index: 9001; max-width: min(92vw, 760px); display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px 10px; padding: 6px 8px 6px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); font-size: 12.5px; line-height: 1.3; box-shadow: 0 2px 10px rgba(0, 0, 0, .28); }
+.bsv-pill { position: fixed; top: calc(var(--titlebar-h) + 8px); left: 50%; transform: translateX(-50%); z-index: 9001; max-width: min(92vw, 760px); display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px 10px; padding: 6px 8px 6px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); font-size: 12.5px; line-height: 1.3; box-shadow: 0 2px 10px rgba(0, 0, 0, .28); }
 .bsv-pill.armed { border: 2px solid var(--live); background: color-mix(in srgb, var(--live) 12%, var(--surface)); }
 .bsv-pill.armed .bsv-pill-text b { color: var(--live); letter-spacing: .06em; }
 .bsv-pill.mainnet { border-color: var(--live); background: color-mix(in srgb, var(--live) 10%, var(--surface)); }
@@ -68,7 +68,7 @@
 .bsv-pill-btn { background: transparent; color: var(--text-2); border: 1px solid var(--line-strong); }
 .bsv-pill-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .bsv-pill button:disabled { opacity: .55; cursor: progress; }
-:root[data-kbd-nav] .bsv-pill button:focus-visible, :root[data-kbd-nav] .bsv-panel button:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+:root[data-kbd-nav][data-focus-rings] .bsv-pill button:focus-visible, :root[data-kbd-nav][data-focus-rings] .bsv-panel button:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 
 /* ---- the panel ---- */
 .bsv-panel { display: grid; gap: 14px; }

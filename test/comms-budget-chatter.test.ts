@@ -321,7 +321,7 @@ test('B: a model that is not sonnet, opus, haiku or auto is refused in rooms too
   const h = makeHarness();
   const room = h.room(['zealot', 'scout']);
   h.agents.get('scout')!.model = 'opus';
-  assert.throws(() => h.hub.roomPost('zealot', room.id, '@scout hi', undefined, SENDER, { model: 'gpt-5' }), /model must be one of: sonnet, opus, haiku, auto/);
+  assert.throws(() => h.hub.roomPost('zealot', room.id, '@scout hi', undefined, SENDER, { model: 'gpt-5' }), /model must be one of: sonnet, opus, haiku, fable, auto/);
   assert.equal(h.engine.starts.length, 0);
   h.hub.roomPost('zealot', room.id, '@scout hi', undefined, { ceiling: 'ask' }, { model: 'opus' });
   assert.equal(h.engine.last('scout').origin?.approvalCeiling, 'ask');

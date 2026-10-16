@@ -1,23 +1,32 @@
 /** Projects UI actions on top of the main store (state lives in ../store.ts: `projects`, `projectFilter`, view 'project'). */
 import type { Project } from '../../../src/shared/projects';
 import { api, ApiError } from '../api';
-import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
+import { getState, selectAgent, selectTask, setState, setView, subscribeStore, toast } from '../store';
 import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
-import { resolveAsk } from './openAsk';
+import { ASK_QUEUE_MS, fallsToOldest, queuedAskStep, resolveAsk } from './openAsk';
+import { askTarget, failBoardLoad, markBoardSettled, navigationCount, requestAsk, requestInbox, withoutNavigation } from './railRoute';
+import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
+import { closeSheet, closeSheetKeepFocus } from './page/sheetState';
+import { currentProposals, ensureBoards, missingBoards, refreshBoard } from './board/boardStore';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
 
 /** The window without the admin key (a browser tab) is refused: the list just stays empty and the switcher shows "All". */
+let projectsSettled = false;
 export async function loadProjects(): Promise<void> {
   try {
     const projects = await api.projects();
     setState((s) => ({ projects, projectFilter: resolveFilter(projects, s.projectFilter) }));
-  } catch { /* no admin access: no projects */ }
+  } catch { /* no admin access: no projects */ } finally {
+    projectsSettled = true;
+    setState({ projectsLoaded: true });
+    pumpQueuedAsk();
+  }
 }
 export const initProjects = (): void => { void loadProjects(); initAway(); };
 
@@ -36,19 +45,91 @@ export function openProject(id: string): void {
   setProjectFilter(id);
   setView('project');
 }
-/** Opens a project's page on its Board tab (where its proposals wait). */
+/** Opens a project's page on its Board tab (where its proposals wait). An open side sheet closes first, so focus is not left on an inert panel. The caller focuses its own target, so the sheet hands no focus back. */
 export function openProjectBoard(id: string): void {
+  closeSheetKeepFocus();
   enterProject(id);
   setTab('board');
   openProject(id);
 }
-/** The one way to open an ask: the rail row, a notification click and the tray item all end here (the choice is `resolveAsk`). */
+/** The window can route an ask once its tasks, agents and projects have loaded (a failed load counts: nothing more is coming). */
+const askReady = (): boolean => getState().loaded && projectsSettled;
+let queued: { ref: AskRef; at: number; nav: number } | null = null;
+let queueTimer: ReturnType<typeof setTimeout> | undefined;
+let queueUnsub: (() => void) | undefined;
+function stopQueue(): void { queued = null; clearTimeout(queueTimer); queueUnsub?.(); queueUnsub = undefined; }
+function pumpQueuedAsk(): void {
+  const step = queuedAskStep(queued?.at ?? null, askReady(), Date.now(), queued?.nav, navigationCount());
+  if (step === 'run' && queued) { const { ref, at } = queued; stopQueue(); void routeAsk(ref, at); }
+  else if (step === 'cancelled') stopQueue(); // the owner went somewhere by hand while the window loaded: this click is stale
+  else if (step === 'expired') { stopQueue(); toast('Could not open that. Open the project and look in its Inbox.', 'error'); }
+}
+/** The one way to open an ask: a notification click and the tray item end here (the choice is `resolveAsk`, the destination `askTarget`). Before the window has loaded it waits, at most ASK_QUEUE_MS. */
 export function openAsk(ref: AskRef): void {
+  if (askReady()) { void routeAsk(ref, Date.now()); return; }
+  stopQueue();
+  queued = { ref, at: Date.now(), nav: navigationCount() };
+  queueUnsub = subscribeStore(() => { if (askReady()) setTimeout(pumpQueuedAsk, 0); });
+  queueTimer = setTimeout(pumpQueuedAsk, ASK_QUEUE_MS + 50);
+}
+async function routeAsk(ref: AskRef, startedAt: number): Promise<void> {
+  // "The oldest anywhere" (the tray) needs the boards to see the oldest proposal: load the ones missing, for no longer than the queue allows
+  if (fallsToOldest(ref, getState().projects.map((p) => p.id))) {
+    const missing = missingBoards(getState().projects);
+    if (missing.length) {
+      const nav = navigationCount();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([ensureBoards(missing), new Promise<void>((r) => { timer = setTimeout(r, Math.max(0, ASK_QUEUE_MS - (Date.now() - startedAt))); })]);
+      clearTimeout(timer);
+      if (navigationCount() !== nav) return; // the owner moved on while the boards loaded
+    }
+  }
+  withoutNavigation(() => applyAsk(ref));
+}
+function applyAsk(ref: AskRef): void {
   const s = getState();
   const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
-  const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id));
-  if (act.kind === 'thread') { setView('chat'); selectTask(act.taskId); } else if (act.kind === 'project') openProject(act.projectId);
+  const proposals = currentProposals().map((i) => ({ id: i.id, projectId: i.projectId, agentId: i.createdBy.kind === 'agent' ? i.createdBy.id : '', createdAt: i.createdAt }));
+  const act = resolveAsk(ref, waiting, s.projects.map((p) => p.id), proposals);
+  if (act.kind === 'thread') openAskTarget({ kind: 'thread', taskId: act.taskId, askId: '' });
+  else if (act.kind === 'proposal') openAskTarget(askTarget({ kind: 'proposal', id: act.itemId, agentId: act.agentId, projectId: act.projectId }, s.tasks));
+  else if (act.kind === 'project') openProject(act.projectId);
 }
+/** A rail row (agent or "other projects") opens what waits on you. */
+export function openRailRow(row: RouteRow): boolean {
+  const t = askTarget(row, getState().tasks);
+  if (t.kind === 'none') return false;
+  openAskTarget(t); // a click is the owner's own move: it counts as navigation, so a click still queued from cold start is dropped
+  return true;
+}
+/** A fresh board load for the request made at `at`: when it lands the request's TTL starts; when it fails the request is dropped and the owner told. */
+function settleBoard(projectId: string, at: number): void {
+  void refreshBoard(projectId).then((r) => {
+    if (r.ok) markBoardSettled(at);
+    else if (failBoardLoad(at) && !r.told) toast('Could not load the board for that project.', 'error'); // one message per failed flight: if the load already showed its own, this adds none
+  });
+}
+/** Applies the answer of `askTarget`. */
+export function openAskTarget(t: RailTarget): void {
+  if (t.kind === 'inbox') { const at = Date.now(); requestInbox(t.projectId, t.itemId, at); settleBoard(t.projectId, at); openProjectBoard(t.projectId); }
+  else if (t.kind === 'thread') {
+    const at = Date.now();
+    requestAsk(t.taskId, t.askId, at, t.proposalProject);
+    if (t.proposalProject) settleBoard(t.proposalProject, at);
+    setView('chat'); selectTask(t.taskId);
+  }
+  else if (t.kind === 'newChat') {
+    const at = Date.now();
+    requestAsk(null, t.askId, at, t.proposalProject);
+    settleBoard(t.proposalProject, at);
+    setProjectFilter(t.projectId);
+    selectAgent(t.agentId);
+    selectTask(null);
+    setView('chat');
+  } else if (t.kind === 'project') openProject(t.projectId);
+}
+/** The proposal in its project's Inbox, entry in view (the card's "Open on board"). */
+export const openInboxItem = (projectId: string, itemId: string): void => openAskTarget({ kind: 'inbox', projectId, itemId });
 export const closeProjectPage = (): void => setView('chat');
 
 export async function createProject(name: string, instructions: string): Promise<Project> {

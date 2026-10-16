@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
+import { openRun } from './openRun';
+import { buildAuditView, refreshAnnouncement, refreshButtonFor } from '../../../src/shared/kg-audit';
+import type { AuditRow } from '../../../src/shared/kg-audit';
 import { useMatch } from './CanvasPane';
 import {
   clearPath, findPath, focusNode, openDialog, resolveTitles, runSearch, seedBsv, setHover, setPathEnd, setPathOpen, setSearch, setTab,
-  showHitsOnGraph, startPick, swapPath, titleOf, loadLint, useG,
+  markCurrent, refreshNote, showHitsOnGraph, startPick, swapPath, titleOf, loadLint, useG,
 } from './graphStore';
 import { GIcon } from './icons';
 import { NODE_TYPES } from './palette';
@@ -20,7 +23,7 @@ export function LeftColumn() {
   const bsv = useG((s) => s.bsv);
   const bsvMsg = useG((s) => s.bsvMsg);
   const bsvLoaded = (stats?.byScope.bsv ?? 0) > 0;
-  const lintCount = lint ? lint.orphans.length + lint.danglingEdges.length + lint.duplicateTitles.length + lint.stale.length + lint.contradictions.length + lint.untrustedWithoutReview.length : 0;
+  const lintCount = lint ? lint.orphans.length + lint.danglingEdges.length + lint.duplicateTitles.length + lint.stale.filter((r) => r.createdBy !== 'system').length + lint.contradictions.length + lint.untrustedWithoutReview.length : 0;
   return (
     <aside className="lt-left" aria-label="Lattice search and tools">
       <div className="lt-tabs" role="tablist" aria-label="Lattice panels">
@@ -210,6 +213,81 @@ function Capped<T>({ items, render, max = 40 }: { items: T[]; render: (t: T, i: 
   return <>{shown.map(render)}{items.length > max && !all && <button className="lt-link" onClick={() => { setAll(true); void resolveTitles((items as unknown as Array<string | { id: string }>).map((x) => (typeof x === 'string' ? x : x.id))); }}>Show all {items.length}</button>}</>;
 }
 
+const STALE_SHOWN = 40;
+
+function StaleRow({ r }: { r: AuditRow }) {
+  const busy = useG((s) => s.refreshBusy.includes(r.id));
+  const btn = refreshButtonFor(r, busy);
+  return (
+    <div className="lt-stale-row">
+      <div className="lt-stale-top">
+        <button className="lt-lint-row" onClick={() => void focusNode(r.id)} title={`Jump to ${r.title}`}>
+          <TypeDot type={r.type ?? 'note'} />
+          <span className="lt-row-title">{r.title}</span>
+        </button>
+        {/* One button for Refresh and Refreshing: swapping two elements remounts and drops keyboard focus. aria-disabled, not disabled, keeps it focusable. */}
+        {btn && <button className={`btn-ghost sm${btn.inert ? ' lt-refreshing' : ''}`} aria-disabled={btn.inert || undefined} aria-label={`${btn.label} ${r.title}`}
+          onClick={btn.inert ? undefined : () => void refreshNote(r.id)} title={btn.inert ? undefined : "Ask the Archivist to re-check this note's sources"}>{btn.label}</button>}
+      </div>
+      <span className="lt-sr" role="status" aria-live="polite">{refreshAnnouncement(r.title, btn)}</span>
+      <div className="lt-stale-meta">
+        <span>{r.age}</span>
+        {r.noSource ? <b className="lt-tag warn">No source</b> : <span>{r.sources}</span>}
+        <span>{r.confidence}</span>
+        {!btn?.inert && r.note && <span className="lt-faint">{r.note}</span>}
+        {r.failedTaskId && !btn?.inert && <span className="lt-failed">Last refresh failed <button className="lt-link" onClick={() => void openRun(r.failedTaskId!)}>Open the run</button></span>}
+        {r.refreshTaskId && <button className="lt-link" onClick={() => void openRun(r.refreshTaskId!)}>Open the run</button>}
+        {r.canMarkCurrent && !btn?.inert && <button className="lt-link" onClick={() => void markCurrent(r.id)} aria-label={`Mark ${r.title} as still current`} title="You checked it and it holds">Still current</button>}
+      </div>
+    </div>
+  );
+}
+
+function StaleList({ rows }: { rows: AuditRow[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, STALE_SHOWN);
+  return <>{shown.map((r) => <StaleRow key={r.id} r={r} />)}{rows.length > STALE_SHOWN && !all && <button className="lt-link" onClick={() => setAll(true)}>Show all {rows.length}</button>}</>;
+}
+
+/** The audit: every stale note with its age, sources and confidence, oldest first, and a Refresh for the ones that are yours. */
+function StaleSection({ stale, others }: { stale: Parameters<typeof buildAuditView>[0]; others: number }) {
+  const archivist = useStore((s) => s.agents.some((a) => a.id === 'archivist'));
+  const failed = useG((s) => s.refreshFailed);
+  const view = useMemo(() => buildAuditView(stale, { archivist, failed }), [stale, archivist, failed]);
+  const [open, setOpen] = useState(true);
+  const [builtInOpen, setBuiltInOpen] = useState(false);
+  // with nothing else on the list the "All clear" block already says it; the line below is for when other problems are listed
+  if (view.empty) return others > 0 ? <section className="lt-lint-sec"><p className="lt-lint-hint lt-stale-empty">{view.emptyText}</p></section> : null;
+  return (
+    <section className="lt-lint-sec">
+      <button className="lt-sec-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <GIcon name="chevron" size={12} /> Stale{view.count > 0 && <> <b className="lt-count">{view.count}</b></>}
+      </button>
+      {open && (
+        <>
+          <p className="lt-lint-hint">Not touched for a long time. Refresh asks the Archivist to re-check a note's sources. What it finds waits in your Inbox until you accept it.</p>
+          <div className="lt-lint-items">
+            {view.mine.length > 0 ? <StaleList rows={view.mine} /> : <p className="lt-lint-hint lt-stale-empty">Only built-in notes are stale.</p>}
+            {view.builtIn.length > 0 && (
+              <div className="lt-stale-builtin">
+                <button className="lt-sec-head flat" onClick={() => setBuiltInOpen(!builtInOpen)} aria-expanded={builtInOpen}>
+                  <GIcon name="chevron" size={12} /> Built-in notes <b className="lt-count">{view.builtIn.length}</b>
+                </button>
+                {builtInOpen && (
+                  <>
+                    <p className="lt-lint-hint">These ship with Legion and update with it, so there is nothing for you to refresh.</p>
+                    <StaleList rows={view.builtIn} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function LintPane() {
   const lint = useG((s) => s.lint), loading = useG((s) => s.lintLoading), err = useG((s) => s.lintError);
   useG((s) => s.kv);
@@ -242,9 +320,7 @@ function LintPane() {
         <Section title="Orphans" count={lint.orphans.length} hint="No links in or out. Link them to what they belong to, or delete them.">
           <Capped items={lint.orphans} render={(id) => <Row key={id} id={id} />} />
         </Section>
-        <Section title="Stale" count={lint.stale.length} hint="Not touched for over 90 days. Check they still hold.">
-          <Capped items={lint.stale} render={(s) => <Row key={s.id} id={s.id} extra={`${s.daysOld} d`} />} />
-        </Section>
+        <StaleSection stale={lint.stale} others={total - lint.stale.length} />
       </div>
     </div>
   );

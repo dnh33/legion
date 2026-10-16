@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { openExternal } from '../api';
+import { useStore } from '../store';
 import { Markdown } from '../components/Markdown';
 import { ago } from '../util';
 import {
-  deleteEdge, expand, focusNode, loadDetail, openDialog, patchNode, select, setPathEnd, setPathOpen, setSearch, startPick, titleOf, updateEdge, useG, type Detail,
+  deleteEdge, expand, focusNode, loadDetail, openDialog, patchNode, select, setPathEnd, setPathOpen, setSearch, markCurrent, refreshNote, startPick, titleOf, updateEdge, useG, type Detail,
 } from './graphStore';
 import { GIcon } from './icons';
+import { openRun } from './openRun';
+import { refreshAvailability } from '../../../src/shared/kg-audit';
 import { fmtDate, isUntrusted, NODE_TYPES, statusOf } from './palette';
 import { Creator, ScopeTag, TypeDot } from './shared';
 import { parseTags } from '../../../src/shared/kg-library';
@@ -22,6 +25,27 @@ function prep(src: string): string {
     if (fence) return line;
     return line.replace(/^>\s?/, '').replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, t: string, a?: string) => `**${(a ?? t).trim()}**`);
   }).join('\n');
+}
+
+/** Refresh, Still current and Open the run for a note the Lint tab lists as stale (the same routes and the same rule as the buttons there). Nothing shows for other notes or before the list was read. */
+function RefreshAction({ id }: { id: string }) {
+  const row = useG((s) => s.lint?.stale.find((r) => r.id === id));
+  const busy = useG((s) => s.refreshBusy.includes(id));
+  const failedTaskId = useG((s) => s.refreshFailed[id]);
+  const archivist = useStore((s) => s.agents.some((a) => a.id === 'archivist'));
+  if (!row || row.createdBy === 'system') return null;
+  const a = refreshAvailability(row, archivist);
+  const live = busy || !!row.refreshTaskId;
+  return (
+    <>
+      {live && <span className="lt-faint">Refreshing</span>}
+      {row.refreshTaskId && <> <button className="lt-link" type="button" onClick={() => void openRun(row.refreshTaskId!)}>Open the run</button></>}
+      {!live && a.canRefresh && <button className="lt-link" type="button" onClick={() => void refreshNote(id)} title="Ask the Archivist to re-check this note's sources">Refresh</button>}
+      {!live && a.note && <span className="lt-faint">{a.note}</span>}
+      {!live && failedTaskId && <> <span className="lt-faint">Last refresh failed.</span> <button className="lt-link" type="button" onClick={() => void openRun(failedTaskId)}>Open the run</button></>}
+      {!live && a.canMarkCurrent && <>{' '}<button className="lt-link" type="button" onClick={() => void markCurrent(id)} title="You checked it and it holds">Still current</button></>}
+    </>
+  );
 }
 
 export function DetailPanel({ width }: { width: number }) {
@@ -111,7 +135,7 @@ function Body({ d }: { d: Detail }) {
         <div><dt>Creator</dt><dd><Creator id={node.createdBy} /></dd></div>
         <div><dt>Confidence</dt><dd>{node.confidence === undefined ? <span className="lt-faint">not stated</span> : (
           <span className="lt-conf" title={`${Math.round(node.confidence * 100)}% sure`}><i><b style={{ width: `${Math.round(node.confidence * 100)}%` }} /></i>{Math.round(node.confidence * 100)}%</span>)}</dd></div>
-        <div><dt>Updated</dt><dd title={node.updatedAt}>{fmtDate(node.updatedAt)} <span className="lt-faint">({ago(node.updatedAt)})</span></dd></div>
+        <div><dt>Updated</dt><dd title={node.updatedAt}>{fmtDate(node.updatedAt)} <span className="lt-faint">({ago(node.updatedAt)})</span> <RefreshAction id={node.id} /></dd></div>
         <div><dt>Id</dt><dd><code className="lt-code">{node.id}</code></dd></div>
       </dl>
 

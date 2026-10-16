@@ -170,9 +170,12 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /Needs you in other projects/);
   // the project switch lives in selectTask (one function for every way to open a task), not in the row
   assert.doesNotMatch(rail, /setProjectFilter/);
-  // and every way to open an ask (this row, a notification, the tray) is the one openAsk
-  assert.match(rail, /openAsk\(\{ taskId: row\.taskId \}\)/);
-  assert.match(rail, /aria-live="polite"/);
+  // where a row goes is behavior now, tested in rail-route.test.ts and open-ask.test.ts (not by reading this source)
+  // the list itself is not a live region (a change re-read the whole list); one short line is announced instead
+  assert.doesNotMatch(rail, /aria-live=/);
+  assert.match(rail, /waitingLiveStep\(/);
+  assert.match(rail, /useProposalsSettled\(\)/);
+  assert.match(rail, /announce\(step\.line\)/);
 });
 
 test('B2 liveElsewhere and alsoWorkingLabel: the agent\'s live runs outside the project in view or the thread\'s project', async () => {

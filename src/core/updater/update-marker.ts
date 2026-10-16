@@ -9,6 +9,8 @@
  *
  * Pure core with injected I/O (MarkerDeps) so every verdict is decided without touching a disk; the real deps live with the caller.
  */
+import { MARKER_FILE_NAME as FILE_NAME, markerLeaseState } from './apply.js';
+
 export interface UpdateMarker {
   /** The process running the update. */
   pid: number;
@@ -18,6 +20,11 @@ export interface UpdateMarker {
   toVersion: string;
   /** When the update began (epoch ms). */
   startedAt: number;
+  /**
+   * The helper's lease: refreshed while it works, by whichever process owns the update now (the first helper exits at the re-exec,
+   * so the pid alone cannot tell a live update from a dead one). Absent in markers written by tryBeginUpdate.
+   */
+  heartbeat?: number;
 }
 
 export interface MarkerDeps {
@@ -48,9 +55,9 @@ export type MarkerProcState = { pidAlive: boolean; pidStartTimeMs: number | null
 export type MarkerVerdict =
   | { status: 'none' }
   | { status: 'active'; marker: UpdateMarker }
-  | { status: 'stale'; marker: UpdateMarker; reason: 'dead-pid' | 'pid-reuse' };
+  | { status: 'stale'; marker: UpdateMarker; reason: 'dead-pid' | 'pid-reuse' | 'expired' };
 
-export const MARKER_FILE_NAME = 'update-in-progress.json';
+export const MARKER_FILE_NAME = FILE_NAME;
 
 const isPid = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 const isMs = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
@@ -65,7 +72,7 @@ export function parseMarker(raw: string | null): UpdateMarker | null {
   const m = v as Record<string, unknown>;
   if (!isPid(m.pid) || !isMs(m.startTimeMs) || !isMs(m.startedAt)) return null;
   if (typeof m.fromVersion !== 'string' || typeof m.toVersion !== 'string') return null;
-  return { pid: m.pid, startTimeMs: m.startTimeMs, fromVersion: m.fromVersion, toVersion: m.toVersion, startedAt: m.startedAt };
+  return { pid: m.pid, startTimeMs: m.startTimeMs, fromVersion: m.fromVersion, toVersion: m.toVersion, startedAt: m.startedAt, ...(isMs(m.heartbeat) ? { heartbeat: m.heartbeat } : {}) };
 }
 
 /**
@@ -73,8 +80,16 @@ export function parseMarker(raw: string | null): UpdateMarker | null {
  * alive but whose start time cannot be read stays ACTIVE on purpose: a wrong refusal is recoverable, a wrong reclaim runs two updates
  * over one install.
  */
-export function judgeMarker(marker: UpdateMarker | null, proc: MarkerProcState): MarkerVerdict {
+export function judgeMarker(marker: UpdateMarker | null, proc: MarkerProcState, clock?: { nowMs: number }): MarkerVerdict {
   if (!marker) return { status: 'none' };
+  // A marker with a heartbeat is a lease (see UpdateMarker.heartbeat): live while it is beaten, whoever beats it. A marker past the hard cap
+  // blocks nothing, so an orphan can never stop Legion from starting. Without a clock or a heartbeat the pid rule below applies unchanged.
+  if (clock && marker.heartbeat !== undefined) {
+    const lease = markerLeaseState({ startedAt: marker.startedAt, heartbeat: marker.heartbeat }, clock.nowMs);
+    if (lease === 'capped') return { status: 'stale', marker, reason: 'expired' };
+    if (lease === 'leased' || proc.pidAlive) return { status: 'active', marker };
+    return { status: 'stale', marker, reason: 'dead-pid' };
+  }
   if (!proc.pidAlive) return { status: 'stale', marker, reason: 'dead-pid' };
   if (proc.pidStartTimeMs !== null && proc.pidStartTimeMs !== marker.startTimeMs) return { status: 'stale', marker, reason: 'pid-reuse' };
   return { status: 'active', marker };
@@ -84,7 +99,7 @@ function readAndJudge(deps: MarkerDeps): MarkerVerdict {
   const marker = parseMarker(deps.read(deps.markerPath));
   if (!marker) return { status: 'none' };
   const pidAlive = deps.isPidAlive(marker.pid);
-  return judgeMarker(marker, { pidAlive, pidStartTimeMs: pidAlive ? deps.getPidStartTime(marker.pid) : null });
+  return judgeMarker(marker, { pidAlive, pidStartTimeMs: pidAlive ? deps.getPidStartTime(marker.pid) : null }, { nowMs: deps.now() });
 }
 
 /**
@@ -134,7 +149,7 @@ export function isUpdateInProgress(deps: MarkerDeps): UpdateProgress {
   const marker = parseMarker(raw);
   if (!marker) return { inProgress: false, stale: true }; // a file that is not a marker: nothing running, safe to reclaim
   const pidAlive = deps.isPidAlive(marker.pid);
-  const v = judgeMarker(marker, { pidAlive, pidStartTimeMs: pidAlive ? deps.getPidStartTime(marker.pid) : null });
+  const v = judgeMarker(marker, { pidAlive, pidStartTimeMs: pidAlive ? deps.getPidStartTime(marker.pid) : null }, { nowMs: deps.now() });
   if (v.status === 'active') return { inProgress: true, marker };
   return { inProgress: false, marker, stale: true };
 }

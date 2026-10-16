@@ -6,7 +6,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { confirmAfterBoot, initUpdater, recoverAtStart } from './updater-main.js';
+import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
@@ -16,13 +16,18 @@ import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
-import { decideSingleInstance } from './instance-logic.js';
+import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
 import { projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
 import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
+
+// Legion's main must never run as the "Updating Legion" window: the window is started by the update helper, and a runtime that ignores
+// the window's entry would boot a second Legion in the middle of the swap. Write nothing, take no lock, touch no path.
+// process.exit, not app.exit: app.exit returns and the rest of this module (the lock, the paths) would still run.
+if (process.env.LEGION_UPDATE_WINDOW === '1') process.exit(0);
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -392,6 +397,7 @@ function createWindow(showOnReady: boolean): void {
     title: 'Legion',
     icon: existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    // height 40 = --titlebar-h in ui/src/styles/tokens.css: change both together
     ...(isWin ? { titleBarOverlay: { color: '#0b0d10', symbolColor: '#e6e9ef', height: 40 } } : {}),
     webPreferences: {
       preload: join(here, 'preload.cjs'),
@@ -545,7 +551,7 @@ function setTrayState(tooltip: string, hasAsks: boolean): void {
   if (menuChanged) tray.setContextMenu(trayMenu());
 }
 /** A notification or the tray asks the window to open an ask; the window routes it (ui `openAsk`). Empty ref: the first one waiting. */
-function sendOpenAsk(ref: { projectId?: string; taskId?: string }): void {
+function sendOpenAsk(ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }): void {
   const send = (): void => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:open-ask', ref); } catch { /* the window is gone */ } };
   if (win && !win.isDestroyed() && !win.webContents.isLoading()) send(); else setTimeout(send, 800);
 }
@@ -581,7 +587,16 @@ function shortcutsShareId(): void {
 // windows stack over one core. The decision is a pure function (instance-logic.ts) so the quit branch is tested, not
 // merely read. `second-instance` fires in the surviving first process and brings its window forward.
 const isUpdateRelaunch = process.env.LEGION_UPDATE_RELAUNCH === '1';
-const instance = decideSingleInstance(isUpdateRelaunch ? true : app.requestSingleInstanceLock());
+// Lock hand-over race: a third launch can hold the lock for a few milliseconds while the start gate lets it go, and the updater's relaunch
+// (LEGION_UPDATE_HANDOFF) that asks in that window would quit and the update would roll back. A handoff therefore retries for up to 5 s.
+// H2 (the updating window) replaces this hand-over; until then this retry is the guard.
+// Read once and clear: the new build's own later relaunches (app.relaunch) must not inherit it and skip the start gate.
+const updateHandoff = process.env.LEGION_UPDATE_HANDOFF === '1';
+delete process.env.LEGION_UPDATE_HANDOFF;
+const instance = decideSingleInstance(isUpdateRelaunch ? true : await acquireStartLock({
+  request: () => app.requestSingleInstanceLock(), handoff: updateHandoff,
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(),
+}));
 if (instance.quit) {
   app.quit();
 } else {
@@ -662,10 +677,15 @@ if (instance.quit) {
   app.on('activate', () => showWindow());
 
   void app.whenReady().then(async () => {
-    await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
+    // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
+    if ((await holdStartIfUpdating(root, dataDir(), updateHandoff)) === 'exit') { quitting = true; app.exit(0); return; }
+    await recoverAtStart(root, dataDir()); // finish or undo an update that was cut off, before the core starts
+    logStartOutcome(root, dataDir()); // after recovery, so a rollback it just wrote is logged too
     await boot();
-    if (coreBooted) void confirmAfterBoot(root, () => getHealth((pinned ?? readConfig()).port));
+    if (coreBooted) void confirmAfterBoot(root, dataDir(), () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
-    initUpdater({ installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } });
+    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
+    initUpdater(updaterHost);
+    if (coreBooted) void showOutcomeNotice(updaterHost, dataDir()); // an update that did not finish says so once, with Retry and Dismiss
   });
 }

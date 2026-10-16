@@ -14,10 +14,12 @@ const read = (rel: string): string => readFileSync(join(process.cwd(), rel), 'ut
 
 test('Esc: the global handler leaves the agent editor to its own modal, which asks before dropping unsaved edits', () => {
   const app = read('ui/src/App.tsx');
-  const esc = /else if \(e\.key === 'Escape'\) \{([^\n]*)\}/.exec(app)?.[1] ?? '';
+  const esc = /else if \(e\.key === 'Escape'\) \{([\s\S]*?)\n      \}/.exec(app)?.[1] ?? '';
   assert.ok(esc, 'the Escape clause is found');
-  assert.doesNotMatch(esc, /s\.editor/, 'App must not close the agent editor on Escape');
-  assert.match(esc, /s\.palette \|\| s\.doctorOpen/);
+  assert.doesNotMatch(esc, /s\.editor|editor/, 'App must not close the agent editor on Escape');
+  assert.match(esc, /escapeAction\(/, 'Escape goes through the shared escapeAction rule');
+  const rule = read('ui/src/escapeLogic.ts');
+  assert.doesNotMatch(rule, /editor/, 'the Escape rule has no path that closes the agent editor');
   const editor = read('ui/src/components/AgentEditor.tsx');
   assert.match(editor, /onClose=\{requestClose\}/, 'the editor modal closes through requestClose, which checks for unsaved edits');
   assert.match(editor, /if \(dirty\) setLeaving\(\{ to: 'close' \}\); else closeOverlays\(\);/);

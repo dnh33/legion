@@ -26,6 +26,8 @@ test('doctor reports signed-in account', async () => {
     queryFn: fakeQuery(async () => ({ email: 'a@b.c', subscriptionType: 'max' }), seen),
   });
   const claude = checks.find((c) => c.id === 'claude')!;
+  assert.equal(seen.opts.permissionMode, 'default');
+  assert.equal(seen.opts.persistSession, false);
   assert.equal(claude.ok, true);
   assert.match(claude.detail, /a@b\.c/);
   assert.match(claude.detail, /max/);
@@ -72,4 +74,19 @@ test('doctor: boat failure is reported, not thrown', async () => {
   const boat = checks.find((c) => c.id === 'boat')!;
   assert.equal(boat.ok, false);
   assert.match(boat.detail, /401/);
+});
+
+test('doctor shows the bundled Claude Code version from the initialize response, and still passes without it', async () => {
+  const mk = (init?: () => Promise<unknown>): QueryFn => ((_p: any) => ({
+    accountInfo: async () => ({ email: 'a@b.c' }), ...(init ? { initializationResult: init } : {}),
+    interrupt: async () => undefined, close: () => undefined,
+  })) as unknown as QueryFn;
+  const detail = async (q: QueryFn) => (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: q })).find((c) => c.id === 'claude')!;
+  const withV = await detail(mk(async () => ({ claude_code_version: '2.1.296' })));
+  assert.equal(withV.ok, true);
+  assert.match(withV.detail, /a@b\.c, Claude Code 2\.1\.296/);
+  assert.equal((await detail(mk())).detail, 'a@b.c');
+  const broken = await detail(mk(async () => { throw new Error('closed'); }));
+  assert.equal(broken.ok, true);
+  assert.equal(broken.detail, 'a@b.c');
 });

@@ -7,7 +7,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { DEFAULTS } from './config.js';
 
-export interface UpdateSettings { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number }
+export interface UpdateSettings { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number; /** Show the "Updating Legion" window while the update is applied. On by default; off keeps the plain start-up notice only. */ updateWindow: boolean }
 export interface StoppedTask { id: string; agentId: string }
 export interface UpdaterState {
   failedVersions: string[];
@@ -19,6 +19,8 @@ export interface UpdaterState {
    */
   failedAt?: Record<string, string>;
   lastCheckedAt?: string; lastResult?: string; stoppedForUpdate: StoppedTask[]; stoppedAt?: string;
+  /** The update id whose "Updated to X" notice was shown and dismissed: it shows once. */
+  updatedAckId?: string;
 }
 
 /** How long a rolled-back version stays blocked before it may be retried without the owner asking. */
@@ -53,6 +55,7 @@ export function normalizeSettings(raw: unknown): UpdateSettings {
     checkEnabled: typeof r.checkEnabled === 'boolean' ? r.checkEnabled : DEFAULTS.checkEnabled,
     autoInstallWhenIdle: r.autoInstallWhenIdle === true, // anything but a real true is OFF
     intervalHours: Math.min(168, Math.max(1, h)),
+    updateWindow: r.updateWindow !== false, // only a real false turns the window off
   };
 }
 function readJson(file: string): unknown { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return undefined; } }
@@ -81,6 +84,7 @@ export class UpdaterFiles {
       ...(typeof r.lastResult === 'string' ? { lastResult: r.lastResult.slice(0, 300) } : {}),
       stoppedForUpdate: Array.isArray(r.stoppedForUpdate) ? r.stoppedForUpdate.filter((t) => t && typeof t.id === 'string' && typeof t.agentId === 'string').slice(0, 50) : [],
       ...(typeof r.stoppedAt === 'string' ? { stoppedAt: r.stoppedAt } : {}),
+      ...(typeof r.updatedAckId === 'string' ? { updatedAckId: r.updatedAckId.slice(0, 64) } : {}),
     };
   }
   saveState(patch: Partial<UpdaterState>): UpdaterState { const next = { ...this.state(), ...patch }; writeAtomic(join(this.dir, 'state.json'), next); return next; }

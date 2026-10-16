@@ -112,7 +112,7 @@ interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolea
 export interface PostOpts { model?: string }
 interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tainted?: boolean; viaMcpClient?: boolean }
 
-/** The model alias a bot asked for, checked (the tool layer also checks it against the catalog). */
+/** The model alias a bot asked for, checked (the rooms path takes aliases only; ask and tell also take a catalog model id). */
 function cleanModel(v: unknown): string | undefined {
   if (v === undefined || v === null) return undefined;
   const m = typeof v === 'string' ? v.trim().toLowerCase() : '';

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
-import { ARM_MS, threadKey } from '../../../src/shared/approval-keys';
+import { isArmed, threadKey } from '../../../src/shared/approval-keys';
+import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
+import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
@@ -17,8 +19,10 @@ import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
 import { WorkingRow } from './WorkingRow';
+import { ProposalCards } from './ProposalCards';
 import { TodoList } from './TodoList';
 import { taskProjectChip } from '../projects/projectsLogic';
+import { clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -144,6 +148,22 @@ export function Thread() {
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
   const taskQuestions = questions.filter((q) => q.taskId === taskId);
   const otherQuestions = questions.filter((q) => q.agentId === agentId && q.taskId !== taskId);
+  // opened from a rail row: bring the waiting card into view (once; the request is dropped when it is used or its card is gone). It is not focused:
+  // a focused approval card answers A at once (ApprovalCard's own key), so a card that just appeared must not take focus (the ARM_MS rule)
+  const askReq = useSyncExternalStore(subscribeFocus, getAskRequest);
+  useEffect(() => {
+    if (!askReq || !taskId || askReq.taskId !== taskId) return;
+    const pick = pickAskCard(taskId, askReq.askId, taskApprovals, taskQuestions);
+    // a request that names a proposal is the proposal card's to focus (ProposalCards); an unnamed one takes the first card
+    const named = askReq.askId === '' || taskApprovals.some((a) => a.id === askReq.askId) || taskQuestions.some((q) => q.id === askReq.askId);
+    if (!named) return;
+    if (pick) {
+      const el = scroller.current?.querySelector<HTMLElement>(pick.kind === 'approval' ? `[data-approval-id="${CSS.escape(pick.id)}"]` : `[data-question-id="${CSS.escape(pick.id)}"]`);
+      if (!el) return; // not drawn yet: this effect runs again after the next render
+      el.scrollIntoView?.({ block: 'nearest' });
+    }
+    clearAskRequest();
+  });
   useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskQuestions.length, running, toBottom, tick, meta]);
 
   // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card, and
@@ -152,11 +172,13 @@ export function Thread() {
   // ARM_MS (every key restarts that clock); otherwise it scrolls to the card without focusing it. Stray typing on the page, a word or
   // a sentence, never allows anything: only a lone, deliberate A does.
   const cardEl = (id: string) => scroller.current?.querySelector<HTMLElement>(`[data-approval-id="${CSS.escape(id)}"]`) ?? null;
-  const shownAt = useRef(new Map<string, number>());
-  const lastKeyAt = useRef(0);
-  useEffect(() => { for (const a of taskApprovals) if (!shownAt.current.has(a.id)) shownAt.current.set(a.id, performance.now()); });
+  // a card's appearance is one shared source (the card reads the same one); an approval that is gone is forgotten
+  useEffect(() => {
+    for (const a of taskApprovals) appearedAt('approval:' + a.id, performance.now());
+    pruneAppearances('approval:', new Set(approvals.map((x) => 'approval:' + x.id)));
+  });
   const armedFor = (a: { id: string } | undefined, now: number, quietSince: number): boolean =>
-    !!a && now - Math.max(shownAt.current.get(a.id) ?? now, quietSince) >= ARM_MS;
+    !!a && isArmed(appearedAt('approval:' + a.id, now), quietSince, now);
   const cardInView = (a: { id: string } | undefined): boolean => {
     const el = a && cardEl(a.id); const sc = scroller.current;
     if (!el || !sc) return false;
@@ -165,17 +187,17 @@ export function Thread() {
   };
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const now = performance.now(), quietSince = lastKeyAt.current;
-      lastKeyAt.current = now;
+      const now = performance.now(), quietSince = quietBefore(e, now, e.key);
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;
       // the same rule as the card's own keys: a Blender script or a download is allowed by clicking only
       const first = taskApprovals[0];
-      const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince)); if (!k) return;
+      const k = threadKey(first, e.key, cardInView(first), armedFor(first, now, quietSince));
+      if (!k) { if (shortcutRefused(first, e.key, e.repeat, armedFor(first, now, quietSince), cardInView(first))) notices.notify('approval:' + first.id); return; }
       e.preventDefault();
       if ('reveal' in k) {
-        shownAt.current.set(k.id, performance.now());
+        restartAppearance('approval:' + k.id, performance.now());
         const el = cardEl(k.id);
         if (el) el.scrollIntoView({ block: 'nearest' }); else toBottom();
         return;
@@ -242,6 +264,7 @@ export function Thread() {
       {loaded && conn === 'offline' && agents.length > 0 && (
         <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
       )}
+      <ProposalCards agentId={agentId} taskId={taskId ?? null} />
       {otherApprovals.length > 0 && (
         <button className="banner" onClick={() => selectTask(otherApprovals[0].taskId)}>
           <Icon name="shield" size={13} /> {otherApprovals.length} approval{otherApprovals.length > 1 ? 's' : ''} waiting in another task <span>Open {'→'}</span>

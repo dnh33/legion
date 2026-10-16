@@ -331,13 +331,16 @@ export interface RailLine { text: string; full: string; tone: 'attn' | 'work' | 
  * The member row's one sub-line, one priority (spec 3.5, Option A): this project's asks, then work here (with where else), then work in
  * another project, then the role. `projectId` null is "All projects": the asks of any project count.
  */
+/** The asks of one agent (in one project, or any under null), riskiest first. The rail's sub-line and its click read the same list. */
+export function agentAsks(f: Pick<PageFacts, 'tasks' | 'approvals' | 'questions' | 'board'>, agentId: string, projectId: string | null): Ask[] {
+  return sortAsks(deriveAsks({ approvals: f.approvals, questions: f.questions, tasks: f.tasks, proposals: f.board?.inbox ?? [] }).filter((a) => a.agentId === agentId && (projectId === null || a.projectId === projectId)));
+}
 export function railLine(f: Pick<PageFacts, 'tasks' | 'projects' | 'agents' | 'approvals' | 'questions' | 'board'> & { project?: PageFacts['project'] }, agentId: string, projectId: string | null, role: string): RailLine {
   const runs = liveRuns(agentId, f.tasks);
-  const all = deriveAsks({ approvals: f.approvals, questions: f.questions, tasks: f.tasks, proposals: f.board?.inbox ?? [] }).filter((a) => a.agentId === agentId && (projectId === null || a.projectId === projectId));
+  const mine = agentAsks(f, agentId, projectId);
   const facts = { ...f, nowMs: 0, queue: null } as unknown as PageFacts;
   const short = (t: Pick<Task, 'title'>): string => clip(t.title, 28);
   const projName = (id: string | undefined): string => (id ? shortProjectName(f.projects.find((p) => p.id === id)?.name ?? 'a removed project') : 'no project');
-  const mine = sortAsks(all);
   if (mine.length) {
     const first = `Needs you: ${askShort(facts, mine[0]!)}`;
     const text = mine.length === 1 ? first : `${mine.length} things need you`;

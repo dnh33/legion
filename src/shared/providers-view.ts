@@ -6,6 +6,11 @@ export interface ProviderView {
   /** How the models here call tools: 'auto' (native, prompted when a model has none), 'native' or 'prompted'. */
   toolCalls: 'auto' | 'native' | 'prompted';
   loopback: boolean; models: string[]; hasPrices: boolean;
+  /** The models the owner wrote into this provider's entry (the picker opens its group when one is selected or configured). */
+  configuredModels: string[];
+  /** When the listed ids were last fetched from the provider (ISO), and the last failed fetch's message. */
+  modelsFetchedAt?: string;
+  modelsError?: string;
   status: string;
   lastTest?: { at: string; ok: boolean; detail: string };
 }

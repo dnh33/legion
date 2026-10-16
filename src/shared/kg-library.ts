@@ -195,3 +195,12 @@ export const idsIn = (text: string): string[] => [...new Set(text.match(NODE_ID_
 export function humanizeIds(text: string, titleOf: (id: string) => string | undefined): string {
   return text.replace(NODE_ID_IN_TEXT, (id) => { const t = titleOf(id); return t && t !== id ? `“${t}”` : id; });
 }
+
+/**
+ * Where keyboard focus should go in the Inbox when rows leave the list (an Accept or Reject removes the focused button, so focus would
+ * fall to the page body). 'empty' = the "Nothing waiting" heading, 'list' = the list of what remains, null = leave focus alone.
+ */
+export function inboxFocusTarget(prevCount: number, nextCount: number, focusLost: boolean): 'empty' | 'list' | null {
+  if (!focusLost || nextCount >= prevCount) return null;
+  return nextCount === 0 ? 'empty' : 'list';
+}

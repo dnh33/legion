@@ -131,6 +131,7 @@ export function createAwayModule(deps: ModuleDeps, opts: AwayModuleOpts): AwayMo
     ...(opts.questions ? { questions: opts.questions } : {}),
     working: () => deps.engine.running().length,
     ...(opts.inbox ? { inbox: opts.inbox } : {}), parked: () => service.parked(), ...(opts.agentOk ? { agentOk: opts.agentOk } : {}),
+    projectActive: (id) => opts.projects.get(id)?.status !== 'archived',
   });
   const now = (): number => (opts.now ?? Date.now)();
   const wrap = <T>(fn: () => T): T => {

@@ -23,8 +23,9 @@
  *     user message is never stranded from its reply. Get this wrong and the provider rejects the whole request
  *     mid-stream, which looks like a network fault rather than a bad conversation.
  *
- * No store rewrite, no knowledge-graph writes, no tokenizer dependency. Pure functions plus one small stateful guard.
+ * No store rewrite, no knowledge-graph writes. Pure functions plus one small stateful guard.
  */
+import { createRequire } from 'node:module';
 import { scrubSecrets } from '../comms/scrub.js';
 import type { ChatMessage, ChatToolSpec } from './types.js';
 import type { CompactionSettings } from '../../shared/types.js';
@@ -74,37 +75,76 @@ export const FAILURE_COOLDOWN_MS = [60_000, 300_000, 900_000] as const;
 export const INEFFECTIVE_LIMIT = 2;
 
 /**
- * Tokens for a piece of text.
+ * Tokens for a piece of text, counted with the o200k_base vocabulary.
  *
- * A rough estimator at 4 characters per token:
- * CJK/Hangul/Kana codepoints cost ~1 token each; everything else costs ceil(UTF-8 BYTES / 4). Bytes, not characters,
- * is the load-bearing part: a Cyrillic/Greek/Arabic character is 2 bytes (≈2.5 chars/token), and a CJK ideograph is 3
- * bytes — the old rule counted UTF-16 code units and divided by 3, calling an ideograph a THIRD of a token. Measured:
- * 100 ideographs estimated at 34 (old) vs 100 (new), ~2.9x; ~4.4x against a real tokenizer's ~1.5 tokens/ideograph.
- * Ceiling keeps short text from estimating 0.
+ * Exact for OpenAI-family models and a close estimate for the rest (it was bytes / 4, which called a run of 400 letters
+ * 100 tokens and mis-sized code and CJK in both directions). Only the o200k_base entry point is imported: the package
+ * holds five vocabularies, 27 MB in all, and the app package ships just this one (see pruneTokenizer in
+ * scripts/lib/package-lib.mjs, which keeps the cjs entry used here). Provider-reported usage still decides cost; this only decides WHEN to compact.
+ *
+ * Two bounds keep it cheap. Byte-pair merging is quadratic in the length of one unbroken run (100,000 "x" took 12 s),
+ * so text goes in pieces of at most PIECE_CHARS, cut at a space or newline when one is near. Compaction asks about
+ * every message every turn, so a block over EXACT_CHARS is measured from its head and tail and scaled; nothing that
+ * large needs an exact figure to decide a threshold.
  */
-export const CHARS_PER_TOKEN = 4;
-/** ASCII cannot contain token-dense CJK, and an all-ASCII string is the common case, so it stays a single pass. */
-const ASCII_RE = /^[\x00-\x7f]*$/;
-/** CJK/Hangul/Kana/fullwidth codepoints (~1 token each), matching the reference's `_CJK_DENSE_RE`. */
-const CJK_DENSE_RE = /[\u1100-\u11ff\u2e80-\u9fff\ua960-\ua97f\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/g;
-const utf8 = new TextEncoder();
+let countOnce: ((text: string) => number) | undefined;
+/** The vocabulary is a 2.4 MB module that takes about half a second to load, so it loads at the first count, not at start-up. */
+function countTokens(text: string): number {
+  countOnce ??= (createRequire(import.meta.url)('gpt-tokenizer/cjs/encoding/o200k_base') as typeof import('gpt-tokenizer/encoding/o200k_base')).countTokens;
+  return countOnce(text);
+}
+
+const PIECE_CHARS = 1024;
+const EXACT_CHARS = 32_768;
+const SAMPLE_CHARS = 16_384;
+
+function countPieces(text: string): number {
+  let n = 0;
+  for (let i = 0; i < text.length;) {
+    let end = Math.min(i + PIECE_CHARS, text.length);
+    if (end < text.length) {
+      // a cut inside a word would split a token; look back a little for a space or newline to cut at instead
+      const floor = end - 128;
+      for (let j = end; j > floor && j > i; j--) {
+        const c = text.charCodeAt(j - 1);
+        if (c === 32 || c === 10) { end = j; break; }
+      }
+      // never end between the two halves of a surrogate pair
+      const last = text.charCodeAt(end - 1);
+      if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+    }
+    n += countTokens(text.slice(i, end));
+    i = end;
+  }
+  return n;
+}
 
 export function estimateTokens(text: string): number {
   if (!text) return 0;
-  if (ASCII_RE.test(text)) return (text.length + 3) >>> 2;
-  const stripped = text.replace(CJK_DENSE_RE, '');
-  const dense = text.length - stripped.length;
-  return dense + ((utf8.encode(stripped).length + 3) >>> 2);
+  if (text.length <= EXACT_CHARS) return countPieces(text);
+  const head = countPieces(text.slice(0, SAMPLE_CHARS));
+  const tail = countPieces(text.slice(text.length - SAMPLE_CHARS));
+  return Math.ceil(((head + tail) / (2 * SAMPLE_CHARS)) * text.length);
 }
 
 /** Per-message overhead every chat dialect adds for the role and its delimiters. */
 const MESSAGE_OVERHEAD_TOKENS = 4;
 
+/**
+ * Compaction sizes the whole conversation every turn, and almost all of it is unchanged since the last turn. The
+ * figure is kept per message object and used again while its text is the same string. Messages with tool calls are
+ * counted every time: their arguments can still be edited in place while a reply streams in, and they are small.
+ */
+const messageCost = new WeakMap<ChatMessage, { content: string | null; n: number }>();
+
 /** What one message costs to send, tool-call arguments included. */
 export function messageTokens(m: ChatMessage): number {
+  const plain = !m.tool_calls?.length;
+  const hit = plain ? messageCost.get(m) : undefined;
+  if (hit && hit.content === m.content) return hit.n;
   let n = MESSAGE_OVERHEAD_TOKENS + estimateTokens(m.content ?? '');
   for (const c of m.tool_calls ?? []) n += estimateTokens(c.function.name) + estimateTokens(c.function.arguments) + 8;
+  if (plain) messageCost.set(m, { content: m.content, n });
   return n;
 }
 

@@ -32,6 +32,8 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
       cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), ...connectorSettings(config, { probe: true }), abortController: ac,
+      // Pinned: an omitted mode starts auto mode on third-party providers (SDK 0.3.286). A probe leaves no session file.
+      permissionMode: 'default', persistSession: false,
     };
     if (config.claude.executablePath) options.pathToClaudeCodeExecutable = config.claude.executablePath;
     q = queryFn({ prompt: input(), options });
@@ -43,7 +45,15 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
     if (config.claude.auth === 'claude-login' && !info?.email && !info?.subscriptionType && (!info?.apiProvider || info.apiProvider === 'firstParty')) {
       return { ok: false, detail: 'No signed-in Claude account found', fix: SIGN_IN_FIX };
     }
-    return { ok: true, detail: who || `provider: ${info?.apiProvider ?? 'unknown'}` };
+    // Which Claude Code is bundled (SDK 0.3.296 reports it in the initialize response). Best effort: never fails the check.
+    let version = '';
+    let vt: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const init = await Promise.race([q.initializationResult?.(), new Promise<undefined>((res) => { vt = setTimeout(() => res(undefined), 2000); })]);
+      if (typeof init?.claude_code_version === 'string' && init.claude_code_version) version = `Claude Code ${init.claude_code_version}`;
+    } catch { /* an older CLI or a closed query: the version is simply not shown */ }
+    clearTimeout(vt);
+    return { ok: true, detail: [who || `provider: ${info?.apiProvider ?? 'unknown'}`, version].filter(Boolean).join(', ') };
   } catch (e) {
     return { ok: false, detail: `Claude probe failed: ${e instanceof Error ? e.message : String(e)}`, fix: SIGN_IN_FIX };
   } finally {
@@ -61,10 +71,11 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
   const checks: DoctorCheck[] = [];
 
   checks.push(await safe('node', 'Node.js version', () => {
-    const major = Number(process.versions.node.split('.')[0]);
-    return major >= 20
+    // the floor of package.json engines.node (Electron and the build tools need 22.12)
+    const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+    return major > 22 || (major === 22 && minor >= 12)
       ? { ok: true, detail: `v${process.versions.node}` }
-      : { ok: false, detail: `v${process.versions.node}`, fix: 'Install Node.js 20 or newer' };
+      : { ok: false, detail: `v${process.versions.node}`, fix: 'Install Node.js 22.12 or newer' };
   }));
 
   checks.push(await safe('config', 'Config file', () => {

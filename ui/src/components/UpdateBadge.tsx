@@ -47,8 +47,25 @@ export function useUpdateStatus(): UpdateBadgeStatus | null {
  */
 export function UpdateBadge() {
   const status = useUpdateStatus();
+  // a dismissed "Updated" notice stays gone at once, before the next poll says so
+  const [gone, setGone] = useState<string | null>(null);
   const b = pureBadgeState(status ?? {});
   if (!b.visible) return null;
+  if (b.kind === 'updated' && b.updated) {
+    const u = b.updated;
+    if (gone === u.id) return null;
+    const dismiss = () => { setGone(u.id); void request('POST', '/api/update/ack-updated', { id: u.id }).catch(() => undefined); };
+    return (
+      <span className="upd-badge upd-badge-updated tone-done" role="status" title={b.title}>
+        <i className="upd-badge-dot" aria-hidden="true" />
+        <span className="upd-badge-label">{b.label}</span>
+        <a className="upd-badge-link" href={`https://github.com/dnh33/legion/releases/tag/v${u.version}`} target="_blank" rel="noreferrer noopener" onClick={dismiss}>What&apos;s new</a>
+        <button type="button" className="upd-badge-x" aria-label="Dismiss" title="Dismiss" onClick={dismiss}>
+          <svg viewBox="0 0 24 24" width="10" height="10" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
+        </button>
+      </span>
+    );
+  }
   return (
     <button
       type="button"

@@ -22,6 +22,11 @@ export const clickOnly = (a: Card): boolean => a.toolName === BLENDER_EXEC_TOOL 
  * not the card in view.
  */
 export const ARM_MS = 1000;
+/**
+ * The arm: a card (or the window shortcut) answers a key once ARM_MS have passed since the card appeared or took focus, and since the last key
+ * on the page. `since` is when the card appeared or took focus; `quietSince` the time of the last key before this one.
+ */
+export const isArmed = (since: number, quietSince: number, now: number): boolean => now - Math.max(since, quietSince) >= ARM_MS;
 export function threadKey(
   first: (Card & Pick<ApprovalRequest, 'id'>) | undefined,
   key: string,
