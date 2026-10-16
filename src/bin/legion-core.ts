@@ -102,7 +102,7 @@ async function main() {
   questions.setPolicy(awayCore.service.policy());
   // gate presets (spec 2026-10-14 goals and gates): signed files, a key of their own (gates-key.bin), no looser preset without the key
   const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring });
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};

@@ -97,6 +97,6 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
   const mode: RunMode = ctx.runMode ?? (ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval);
   const smartNote = mode === 'smart' ? " (asks only for actions that leave your computer, delete, spend, can't be undone, or that Legion can't classify)"
     : mode === 'smart-edits' ? " (file edits inside your project run; edits outside it, every command and every tool Legion can't classify ask)" : '';
-  lines.push(`- Approvals: your mode is ${mode}${smartNote}${mode !== agent.approval && mode !== 'smart' && mode !== 'smart-edits' ? (ctx.ceiling && stricterMode(agent.approval, ctx.ceiling) === mode ? ` (capped from ${agent.approval} by whoever woke you)` : ` (set by your project, not ${agent.approval})`) : ''}. A denied action stays denied; do not reroute it.`);
+  lines.push(`- Approvals: your mode is ${mode === 'smart-edits' ? 'Accept edits with Smart checks' : mode}${smartNote}${mode !== agent.approval && mode !== 'smart' ? (ctx.ceiling && stricterMode(agent.approval, ctx.ceiling) === mode ? ` (capped from ${agent.approval} by whoever woke you)` : ` (set by your project, not ${agent.approval})`) : ''}. A denied action stays denied; do not reroute it.`);
   return `${FACTS_HEADER}\n${lines.join('\n')}`;
 }

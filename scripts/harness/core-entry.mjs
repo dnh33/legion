@@ -48,7 +48,7 @@ approvals.setPolicy(awayCore.service.policy());
 questions.setPolicy(awayCore.service.policy());
 // gate presets, exactly as in legion-core.ts (part 1: Ask only, so every run keeps its agent's own mode)
 const gatesCore = createGatesCore({ dataDir: dataDir(), projects });
-const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
+const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });
 engine.bridge.catalog = fakeCatalog;
 let stopReaper = () => {};

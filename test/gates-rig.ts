@@ -10,6 +10,7 @@ import type { GatesCore } from '../src/core/gates-settings/index.js';
 import type { Preset } from '../src/shared/gates-registry.js';
 import type { ApprovalMode, GateRule } from '../src/shared/types.js';
 import type { TaskOrigin } from '../src/shared/comms.js';
+import type { RunMode } from '../src/shared/types.js';
 import type { ModeResolver } from '../src/core/gates-settings/index.js';
 import { ProjectStore } from '../src/core/projects/store.js';
 
@@ -38,7 +39,7 @@ export interface RigOptions {
   /** Gate overrides on the project, signed with the test key. */
   overrides?: Record<string, boolean>;
   /** The run is a helper woken by an outside app or another bot: the ceiling it carries. */
-  ceiling?: 'ask';
+  ceiling?: RunMode;
   approvalTimeoutMs?: number;
 }
 

@@ -107,3 +107,15 @@ describe('agent instructions: aligned, and not bloated', () => {
       'the KG policy line is gone from agent-facts');
   });
 });
+
+describe('agent facts: the Accept edits with Smart checks mode', () => {
+  it('is named in plain words and says where the cap came from', () => {
+    const facts = renderCapabilities(
+      { id: 'zealot', name: 'Zealot', approval: 'auto-edits' } as never,
+      { servers: {}, vmEnabledForAgent: false, runMode: 'smart-edits', ceiling: 'smart' } as never,
+    );
+    assert.match(facts, /your mode is Accept edits with Smart checks/);
+    assert.doesNotMatch(facts, /your mode is smart-edits/);
+    assert.match(facts, /\((capped from auto-edits by whoever woke you|set by your project, not auto-edits)\)/);
+  });
+});

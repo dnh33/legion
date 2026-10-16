@@ -60,3 +60,12 @@ test('the skills setting of an agent is validated and stored: inherit, or a list
   assert.deepEqual(created.json.skills, ['deep-research']);
   assert.equal((await m.http('PATCH', '/api/agents/worker', { skills: ['x'] })).status, 403, 'the MCP bearer token alone cannot change it');
 });
+
+test('the real core and the harness core both hand the gates core to the Engine (tool cards and ask rules read it)', () => {
+  for (const p of ['src/bin/legion-core.ts', 'scripts/harness/core-entry.mjs']) {
+    const m = /new Engine\(\{([^\n]+)\}\);/.exec(read(p));
+    assert.ok(m, `${p}: no new Engine({...}) line`);
+    assert.match(m![1], /\bmodes: gatesCore\.resolver\b/, `${p}: modes`);
+    assert.match(m![1], /\bgates: gatesCore\b/, `${p}: gates reaches the Engine`);
+  }
+});

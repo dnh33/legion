@@ -1504,9 +1504,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     });
   }
 
-  /** A gate's value for the project the run started in. Absent `gates` dep: every gate is on, as before. */
-  private gateOn(job: Job, id: string): boolean {
-    return this.gates?.gate(id, startProjectOf(job)) !== false;
+  /** The owner switched "Your ask rules" off (an explicit override only: a preset alone never does), and the run carries no outside ceiling. */
+  private asksSkipped(job: Job): boolean {
+    return !job.origin?.approvalCeiling && this.gates?.switchedOff('gate-rules-ask', startProjectOf(job)) === true;
   }
 
   /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
@@ -1552,14 +1552,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
       // With "Your ask rules" off, an ask rule is skipped by judging as full (deny still wins there).
-      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, this.gateOn(job, 'gate-rules-ask') ? mode : 'full', capped);
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, this.asksSkipped(job) ? 'full' : mode, capped);
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
       // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
       // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
-      if (!job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return { allow: true };
+      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return { allow: true };
       if (gate.verdict === 'allow') return { allow: true };
       // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
       if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };

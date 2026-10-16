@@ -140,3 +140,34 @@ test('a gates file edited to Bypass outside Legion does not apply: the next call
     assert.equal((await r.run('Bash', { command: 'echo hi' })).card, true);
   });
 });
+
+test('tool-cards off by the owner never skips the owner\'s ask rules', async () => {
+  await using({ preset: 'ask', overrides: { 'tool-cards': false } }, async (r) => {
+    r.setRules([rule('gr_ask_read', 'ask', { tools: ['Read'] }), rule('gr_ask_bash', 'ask', { tools: ['Bash'] })]);
+    assert.equal((await r.run('Read', { file_path: inside(r) })).card, true, 'an ask rule on Read still cards');
+    assert.equal((await r.run('Bash', { command: 'echo hi' })).card, true, 'an ask rule on Bash still cards');
+    assert.equal((await r.run('Glob', { pattern: '*' })).card, false, 'a call with no ask rule runs: the cards are off');
+  });
+});
+
+test('a Bypass preset alone keeps the ask rules of an agent that keeps its own Ask; only an explicit override turns them off', async () => {
+  await using({ preset: 'bypass', own: 'ask', follow: false }, async (r) => {
+    r.setRules([rule('gr_ask', 'ask', { tools: ['Read'] })]);
+    assert.equal((await r.run('Read', { file_path: inside(r) })).card, true, 'its own Ask keeps its ask rule');
+  });
+  await using({ preset: 'bypass', own: 'auto-edits', follow: false }, async (r) => {
+    r.setRules([rule('gr_ask', 'ask', { tools: ['Write'] })]);
+    assert.equal((await r.run('Write', { file_path: inside(r), content: 'x' })).card, true, 'its own Accept edits keeps its ask rule');
+  });
+  await using({ preset: 'ask', own: 'ask', follow: false, overrides: { 'gate-rules-ask': false } }, async (r) => {
+    r.setRules([rule('gr_ask', 'ask', { tools: ['Read'] })]);
+    assert.equal((await r.run('Read', { file_path: inside(r) })).card, false, 'an explicit override turns the ask rule off');
+  });
+});
+
+test('gate-rules-ask off does not skip an ask rule on a run that carries an outside ceiling', async () => {
+  await using({ preset: 'ask', overrides: { 'gate-rules-ask': false }, ceiling: 'ask' }, async (r) => {
+    r.setRules([rule('gr_ask', 'ask', { tools: ['Read'] })]);
+    assert.equal((await r.run('Read', { file_path: inside(r) })).card, true);
+  });
+});
