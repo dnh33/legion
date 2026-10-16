@@ -97,9 +97,9 @@ const env = {
   ELECTRON_ENABLE_LOGGING: '1', ELECTRON_DISABLE_GPU: '1',
 };
 delete env.ELECTRON_RUN_AS_NODE;
-// chain: the new helper holds 8 s before the lock hand-over, so the reopen 2 s after the window takes the lock really happens during the swap.
-// The baseline's helper (hop 1) does not know this switch; the app itself never reads it.
-if (a.scenario === 'chain') Object.assign(env, { LEGION_REHEARSAL: '1', LEGION_REHEARSAL_HOLD_SWAP_MS: '8000' });
+// chain: the preload holds the helper 8 s before it asks the window for the lock (preload.mjs, item 4), so the reopen 2 s after the window
+// takes the lock really happens during the swap. Nothing under src/ reads it.
+if (a.scenario === 'chain') { const holdFile = join(work, 'hold-ms.txt'); writeFileSync(holdFile, '8000'); env.REHEARSAL_HOLD_FILE = holdFile; }
 
 /** Lines worth a look in the installed copy's own logs. Printed in the run output; each one must be fixed, explained or listed by the reviewer. */
 function scanLogs() {
