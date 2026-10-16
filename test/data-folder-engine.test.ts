@@ -76,3 +76,14 @@ test('N29: a run that only did cd into a folder outside the protected set keeps 
   const out = await viaHook('ask', [['Bash', 'cd C:/work/projB/sub'], ['Bash', 'rm build/x'], ['Bash', 'mv a.txt b.txt']]);
   for (const o of out) assert.equal(o.card, false, o.command);
 });
+
+test('shell folder carried: after a provable cd the next call is read from there', async () => {
+  // <home>/guardtest-proj/sub: two levels up is the home folder, which holds the fake data folder
+  const sub = `${homedir().replace(/\\/g, '/')}/guardtest-proj/sub`;
+  const out = await viaHook('ask', [['Bash', `cd ${sub}`], ['Bash', 'rm ../../.legion-guardtest/gates/app.json']]);
+  assert.equal(out[0]!.card, false);
+  assert.equal(out[1]!.card, true, out[1]!.command);
+  assert.equal(out[1]!.noRemember, true);
+  const free = await viaHook('ask', [['Bash', `cd ${sub}`], ['Bash', 'rm build/x']]);
+  for (const o of free) assert.equal(o.card, false, o.command);
+});

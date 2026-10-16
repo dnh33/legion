@@ -601,14 +601,15 @@ export function dataFolderHit(command: string, kind: ShellKindName, protectedSet
 /**
  * Like `dataFolderHit`, and says whether the line ran a `cd` the guard cannot prove ends outside the protected set (`moved`).
  * Claude Code's shell keeps its folder between calls, so the engine remembers `moved` for the rest of the run and passes it back as
- * `opts.cwdUnknown`: a relative word in a command that writes is then unknown (`hidden`).
+ * `opts.cwdUnknown`: a relative word in a command that writes is then unknown (`hidden`). `cwds` is the folder (or folders) the shell may be in
+ * after the line; the engine passes it back as `opts.cwds`, so the next call is read from where the shell now is.
  */
-export function dataFolderRead(command: string, kind: ShellKindName, protectedSet: readonly string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; cwdUnknown?: boolean } = {}): { hit: FolderHit; moved: boolean } {
+export function dataFolderRead(command: string, kind: ShellKindName, protectedSet: readonly string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; cwdUnknown?: boolean; cwds?: string[] } = {}): { hit: FolderHit; moved: boolean; cwds: string[] } {
   const home = (() => { try { return homedir(); } catch { return ''; } })();
   const get = lookup(opts.env ?? process.env, home);
   const start = opts.cwd ?? process.cwd();
   const ctx: Ctx = { start, cwdUnknown: opts.cwdUnknown === true, set: protectedSet, canon: canonicalSet(protectedSet), get, home: get('userprofile') ?? home, ids: {}, memo: new Map() };
-  const r = new Reader(ctx, { cwds: [start], exact: true }, kind, 0);
+  const r = new Reader(ctx, { cwds: opts.cwds?.length ? uniq([...opts.cwds]) : [start], exact: !opts.cwds || opts.cwds.length <= 1 }, kind, 0);
   r.text(command);
-  return { hit: r.result(), moved: r.navUnproven };
+  return { hit: r.result(), moved: r.navUnproven, cwds: r.where.cwds };
 }

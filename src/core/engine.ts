@@ -328,6 +328,8 @@ interface Active {
   tainted: boolean;
   /** Claude Code's shell keeps its folder between calls: set once a call ran a `cd` the data-folder guard could not prove stays outside the protected set. */
   shellMoved?: boolean;
+  /** The folder(s) the run's Claude shell may be in after its last call, when the guard could follow them. */
+  shellCwds?: string[];
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
   projectAtStart?: string;
   /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
@@ -1468,9 +1470,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const keeps = !toolName.startsWith('mcp__host__');
     const act = this.active.get(job.taskId);
     try {
-      const r = dataFolderRead(command, kind, folders, { cwd: this.gateCwd(agent, toolName, input), cwdUnknown: keeps && act?.shellMoved === true });
+      const r = dataFolderRead(command, kind, folders, { cwd: this.gateCwd(agent, toolName, input), cwdUnknown: keeps && act?.shellMoved === true, ...(keeps && act?.shellCwds?.length ? { cwds: act.shellCwds } : {}) });
       hit = r.hit;
       if (keeps && r.moved && act) act.shellMoved = true;
+      if (keeps && act) act.shellCwds = r.cwds.length ? r.cwds : undefined;
     } catch { hit = 'hidden'; if (keeps && act) act.shellMoved = true; }
     if (hit === 'none') return undefined;
     const o = job.origin;
