@@ -27,7 +27,7 @@ const PAGES: Record<string, FakePage> = {
   'https://c.test/': { title: 'C', text: 'C page' },
 };
 
-async function rig(mode: ApprovalMode = 'ask', over: { ceiling?: ApprovalMode; answer?: (a: ApprovalRequest) => boolean; live?: { mode: ApprovalMode } } = {}) {
+async function rig(mode: ApprovalMode = 'ask', over: { ceiling?: ApprovalMode; answer?: (a: ApprovalRequest) => boolean; live?: { mode: ApprovalMode; asked?: Array<string | undefined> } } = {}) {
   const fake = await startFakeCdp({ pages: PAGES });
   const bus = new EventBus();
   const approvals = new ApprovalBroker(bus);
@@ -52,7 +52,7 @@ async function rig(mode: ApprovalMode = 'ask', over: { ceiling?: ApprovalMode; a
   }));
   const job: ModuleJob = { taskId: 'task_1', taint: () => tainted.n > 0, markTainted: () => { tainted.n++; }, ...(over.ceiling ? { ceiling: over.ceiling } : {}) };
   const cfg = buildBrowserServer(agent('worker', { approval: mode }), job, {
-    manager, guard: () => ({}), resolve: DNS, approvals, secrets: () => [], statusLine: () => 'status', ...(over.live ? { modeOf: () => over.live!.mode } : {}),
+    manager, guard: () => ({}), resolve: DNS, approvals, secrets: () => [], statusLine: () => 'status', ...(over.live ? { modeOf: (_id: string, taskId?: string) => { over.live!.asked?.push(taskId); return over.live!.mode; } } : {}),
   });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await cfg.instance.connect(st);
@@ -247,6 +247,16 @@ test('C9: the approval mode is read live: an agent switched from full to ask mid
     // the FIRST page of this task already happened in full, so it is not re-asked; a NEW site is
     await r.call('browser_open', { url: 'https://c.test/' });
     assert.equal(r.cards.length, 2, 'and a new site cards again once demoted');
+  } finally { await r.done(); }
+});
+
+test('the browser asks the resolver for the mode of THIS task (a dropped task id would lose the project cap)', async () => {
+  const live = { mode: 'ask' as ApprovalMode, asked: [] as Array<string | undefined> };
+  const r = await rig('full', { live });
+  try {
+    await r.call('browser_open', { url: 'https://a.test/' });
+    assert.equal(r.cards.length, 1, 'the resolver (ask) wins over the stored full');
+    assert.ok(live.asked.length > 0 && live.asked.every((t) => t === 'task_1'), `every read named the task: ${JSON.stringify(live.asked)}`);
   } finally { await r.done(); }
 });
 

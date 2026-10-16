@@ -3,7 +3,7 @@
  * Owned by the integration lead. The comms module, HTTP routes and UI all speak these types.
  * See docs/COMMS-BRIDGE.md.
  */
-import type { ApprovalMode } from './types.js';
+import type { RunMode } from './types.js';
 
 /** How a room decides who answers a message that has no @mention. */
 export type RoomStrategy =
@@ -92,7 +92,7 @@ export interface TaskOrigin {
   fromAgentId: string;
   hop: number;
   /** Strictest approval mode along the chain of senders. The receiver can never exceed it. */
-  approvalCeiling: ApprovalMode;
+  approvalCeiling: RunMode;
   /** True when anything on the chain of senders touched outside content (web, shell, external tools). ORed along the chain, never cleared. */
   tainted?: boolean;
   /**

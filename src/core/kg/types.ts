@@ -2,7 +2,7 @@
 import { NODE_TYPES } from '../../shared/kg.js';
 import type { KgNode, KgNodeType, KgScope, KgSource, KgEdge } from '../../shared/kg.js';
 import type { TaskOrigin } from '../../shared/comms.js';
-import type { ApprovalMode } from '../../shared/types.js';
+import type { RunMode } from '../../shared/types.js';
 import type { TaskQuota } from './quota.js';
 
 /**
@@ -14,7 +14,7 @@ export interface RunContext {
   /** Set when another bot woke this run. */
   origin?: TaskOrigin;
   /** The approval ceiling inherited from the waking bot (undefined for a human-started run). */
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
   /** True once the run touched outside content. Sticky; read at every write. */
   taint?: () => boolean;
   quota?: TaskQuota;

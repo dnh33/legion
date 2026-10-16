@@ -6,9 +6,9 @@
  * A project with no preset ("Per agent") and an agent with its own mode give exactly 0.3.0.
  */
 import type { Preset } from '../shared/gates-registry.js';
-import type { ApprovalMode } from '../shared/types.js';
+import type { ApprovalMode, RunMode } from '../shared/types.js';
 
-export type RunMode = 'ask' | 'auto-edits' | 'smart' | 'full';
+export type { RunMode };
 export type GoalAutonomy = 'track' | 'suggest' | 'check-once' | 'own' | 'full';
 export interface ModeInputs {
   agentMode: ApprovalMode;
@@ -16,15 +16,20 @@ export interface ModeInputs {
   project?: { preset?: Preset; limit: boolean };
   appPreset: Preset;
   goal?: { autonomy: GoalAutonomy; lease?: Preset };
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
 }
 
 const RANK: Record<RunMode, number> = { ask: 0, 'auto-edits': 1, smart: 2, full: 3 };
 const isRunMode = (m: unknown): m is RunMode => typeof m === 'string' && Object.hasOwn(RANK, m);
 // Unknown values (they can come from disk) rank strictest and resolve to 'ask'.
-/** The stricter of two modes. An unknown value on either side (it can come from disk) fails closed to 'ask'. */
+/**
+ * The stricter of two modes. An unknown value on either side (it can come from disk) fails closed to 'ask'. Smart and Accept edits are not
+ * ordered (Smart cards a risky Bash that Accept edits waves through; Accept edits cards an edit Smart allows), so the stricter of the two is
+ * 'ask', the one mode that is never looser than both. A ceiling can therefore only remove freedom, never a card.
+ */
 export function stricterMode<A extends RunMode, B extends RunMode>(a: A, b: B): A | B {
   if (!isRunMode(a) || !isRunMode(b)) return 'ask' as A | B;
+  if ((a === 'smart' && b === 'auto-edits') || (a === 'auto-edits' && b === 'smart')) return 'ask' as A | B;
   return RANK[a] <= RANK[b] ? a : b;
 }
 const stricter = (a: RunMode, b: RunMode): RunMode => stricterMode(a, b);
@@ -54,6 +59,6 @@ export function effectiveMode(a: ModeInputs): RunMode {
 }
 
 /** What a run would be judged by with no presets at all: the agent's own mode, or ask for an agent that follows its project, under the ceiling. */
-export function baselineMode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; ceiling?: ApprovalMode }): RunMode {
+export function baselineMode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; ceiling?: RunMode }): RunMode {
   return effectiveMode({ agentMode: a.agentMode, source: a.source ?? 'own', appPreset: 'ask', ...(a.ceiling ? { ceiling: a.ceiling } : {}) });
 }

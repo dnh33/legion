@@ -28,9 +28,9 @@ export interface ModeResolver {
    * `startProjectId` is the project the run started in (`job.projectAtStart`, or the helped project for an outside helper), never the live membership: fail closed.
    * `source` is read from disk, so it is not trusted: anything but 'own' or 'project' (absent counts as 'own') gives Ask.
    */
-  mode(a: { agentMode: ApprovalMode; source?: unknown; startProjectId?: string; ceiling?: ApprovalMode; goal?: { autonomy: GoalAutonomy; lease?: Preset } }): RunMode;
+  mode(a: { agentMode: ApprovalMode; source?: unknown; startProjectId?: string; ceiling?: RunMode; goal?: { autonomy: GoalAutonomy; lease?: Preset } }): RunMode;
   /** What the run would be judged by with no presets at all (the would-have-asked comparison). Optional so a bare `{ mode }` stays a resolver. */
-  baseline?(a: { agentMode: ApprovalMode; source?: unknown; ceiling?: ApprovalMode }): RunMode;
+  baseline?(a: { agentMode: ApprovalMode; source?: unknown; ceiling?: RunMode }): RunMode;
 }
 export interface GatesCore { store: GatesStore; resolver: ModeResolver; /** The value of a gate for a run that started in `startProjectId` (the project's override, else the app's, else the preset's). */ gate(id: string, startProjectId?: string): GateValue }
 

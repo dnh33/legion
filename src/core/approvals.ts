@@ -84,7 +84,7 @@ export type ModeOf = (agentId: string, taskId?: string) => RunMode | undefined;
  */
 export async function guardAsk(
   opts: {
-    ceiling?: ApprovalMode;
+    ceiling?: RunMode;
     /** The live store read. Omit only where no store is reachable; the agent's own setting is then used. */
     modeOf?: ModeOf;
     agentId: string;

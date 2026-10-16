@@ -39,7 +39,7 @@ export interface FactsContext {
   /** The servers this run really gets (the engine's buildMcpServers result). */
   servers: Record<string, McpServerConfig>;
   /** A ceiling from whoever woke this run (an MCP client, or a bot). */
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
   /** The mode this run is judged by now (the resolver's answer: agent mode, project preset, ceiling). Absent: the agent's own mode under the ceiling. */
   runMode?: RunMode;
   /** Whether this run's agent has VM tools registered is read from `servers`; this only explains a missing one. */

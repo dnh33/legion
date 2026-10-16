@@ -41,9 +41,10 @@ test('decideGuard: Smart cards a guard unless a level below 3 is given; full nev
   assert.equal(decideGuard('auto-edits').needsCard, true);
   assert.equal(decideGuard('smart').mode, 'smart');
 });
-test('stricterMode orders ask < auto-edits < smart < full and fails closed on junk', () => {
+test('stricterMode: full is loosest, ask strictest, Smart and Accept edits are unordered (their meet is ask), junk fails closed', () => {
   assert.equal(stricterMode('full', 'smart'), 'smart');
-  assert.equal(stricterMode('smart', 'auto-edits'), 'auto-edits');
+  assert.equal(stricterMode('smart', 'auto-edits'), 'ask');
+  assert.equal(stricterMode('auto-edits', 'smart'), 'ask');
   assert.equal(stricterMode('full', 'bogus' as never), 'ask');
   assert.equal(stricterMode('bogus' as never, 'full'), 'ask');
 });
