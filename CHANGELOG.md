@@ -4,8 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-16
+
+0.3.1 was held back after an update problem, so for most people this update also brings everything listed under 0.3.1. It installs by itself. From 0.3.0 it is a larger download, about 285 MB: Legion closes for about a minute and reopens by itself. If you open it early, press Update again.
+
+### Added
+
+- **See every update through.** During a large update, a small "Updating Legion" window shows each step, from closing Legion to the new version running. If something goes wrong it says what happened, with Retry and Close, and Legion starts again either way. Opening Legion during the update brings this window forward instead of starting a second Legion. You will see it from the next large update on. Settings, About can turn it off.
+- **Your last update, step by step.** Settings, About lists the steps of the last update with their times and the result. After an update, "Updated to" and the version show once, with What's new.
+- **Every update step is logged** with one update id, in the update log and in Legion's own log, so a problem can be traced from start to finish.
+
 ### Fixed
 
+- **A large update no longer goes quiet.** Legion prepares what the update needs while you work, so the update itself no longer spends half a minute with nothing on screen.
+- **Opening Legion while an update finishes** shows "Legion is finishing an update. It opens by itself." instead of starting the old version, which used to stop the update.
+- **A failed update says why**, with Retry and Dismiss.
 - On a nearly full disk, Legion no longer starts copying its 370 MB runtime ahead of an update. It logs one plain line and the update still installs, the slower way. It tries again only when the next update is ready.
 - After a failed update, Retry now checks for the update first if it has not yet, and always answers: if the update cannot start right now it says "The update will try again when Legion is idle." and logs why. Dismiss and Retry clicks are logged.
 - A restart after an update waits up to 5 seconds for the one-window lock instead of quitting at once, so an update no longer rolls back when another launch holds it for a moment.
