@@ -41,10 +41,16 @@ test('decideGuard: Smart cards a guard unless a level below 3 is given; full nev
   assert.equal(decideGuard('auto-edits').needsCard, true);
   assert.equal(decideGuard('smart').mode, 'smart');
 });
-test('stricterMode: full is loosest, ask strictest, Smart and Accept edits are unordered (their meet is ask), junk fails closed', () => {
+test('stricterMode: full is loosest, ask strictest, Smart and Accept edits are unordered (their meet is smart-edits), junk fails closed', () => {
   assert.equal(stricterMode('full', 'smart'), 'smart');
-  assert.equal(stricterMode('smart', 'auto-edits'), 'ask');
-  assert.equal(stricterMode('auto-edits', 'smart'), 'ask');
+  assert.equal(stricterMode('smart', 'auto-edits'), 'smart-edits');
+  assert.equal(stricterMode('auto-edits', 'smart'), 'smart-edits');
+  assert.equal(stricterMode('smart-edits', 'smart'), 'smart-edits');
+  assert.equal(stricterMode('auto-edits', 'smart-edits'), 'smart-edits');
+  assert.equal(stricterMode('smart-edits', 'full'), 'smart-edits');
+  assert.equal(stricterMode('ask', 'smart-edits'), 'ask');
+  assert.equal(stricterMode('smart-edits', 'ask'), 'ask');
+  assert.equal(stricterMode('auto-edits', 'ask'), 'ask');
   assert.equal(stricterMode('full', 'bogus' as never), 'ask');
   assert.equal(stricterMode('bogus' as never, 'full'), 'ask');
 });
@@ -65,4 +71,20 @@ test('guardAsk: live mode, ceiling and consequence decide whether the card shows
   assert.equal(asked, 1, 'live full via taskId runs');
   await guardAsk({ agentId: 'a', fallbackMode: 'full', ceiling: 'ask', ask });
   assert.equal(asked, 2, 'ceiling wins');
+});
+
+test('smart-edits cards exactly what Smart or Accept edits would card, per call', () => {
+  const low = { level: 2 as const, tags: [], chip: '', certain: true };
+  const high = { level: 3 as const, tags: [], chip: '', certain: true };
+  const calls: Array<[string, typeof low | typeof high | undefined]> = [
+    ['Write', low], ['Write', high], ['Write', undefined], ['Bash', low], ['Bash', high], ['mcp__acme__thing', undefined], ['Read', undefined], ['mcp__legion__vm_exec', low],
+  ];
+  for (const [tool, consequence] of calls) {
+    const opts = consequence ? { consequence } : {};
+    const either = needsApproval('smart', tool, opts) || needsApproval('auto-edits', tool, opts);
+    assert.equal(needsApproval('smart-edits', tool, opts), either, `${tool} level ${consequence?.level}`);
+  }
+  assert.equal(needsApproval('smart-edits', 'Write', { consequence: low }), false, 'an edit inside the project still runs');
+  assert.equal(decideGuard('smart-edits', low).needsCard, true, 'a module guard always cards');
+  assert.equal(decideGuard('smart-edits').mode, 'smart-edits');
 });

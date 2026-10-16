@@ -104,6 +104,8 @@ export interface EngineDeps {
   projects?: ProjectStore;
   /** The gate presets' mode resolver (spec 4.2). Absent: the agent's own mode, as before. */
   modes?: import('./gates-settings/index.js').ModeResolver;
+  /** The gate values (spec 4): the permission gates the engine owns are read per call, for the project the run started in. Absent: every gate is on, as before. */
+  gates?: Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'>;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
   background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number };
 }
@@ -381,6 +383,7 @@ export class Engine {
   private readonly projects?: ProjectStore;
   private readonly away?: AwayHooks;
   private readonly modes?: import('./gates-settings/index.js').ModeResolver;
+  private readonly gates?: Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'>;
   private readonly queue: Job[] = [];
   /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
   private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
@@ -412,6 +415,7 @@ export class Engine {
     this.projects = deps.projects;
     this.away = deps.away;
     this.modes = deps.modes;
+    this.gates = deps.gates;
     this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
@@ -1500,6 +1504,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     });
   }
 
+  /** A gate's value for the project the run started in. Absent `gates` dep: every gate is on, as before. */
+  private gateOn(job: Job, id: string): boolean {
+    return this.gates?.gate(id, startProjectOf(job)) !== false;
+  }
+
   /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
   private modeNow(job: Job, agent: AgentProfile): RunMode {
     const live = this.store.getAgent(agent.id);
@@ -1539,17 +1548,24 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
       if (egress) return egress;
       const mode = effective();
+      const capped = job.origin?.approvalCeiling === 'ask';
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
-      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      // With "Your ask rules" off, an ask rule is skipped by judging as full (deny still wins there).
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, this.gateOn(job, 'gate-rules-ask') ? mode : 'full', capped);
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
+      // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
+      // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
+      if (!job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return { allow: true };
       if (gate.verdict === 'allow') return { allow: true };
       // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
       if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
-      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
+      // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
+      const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
+      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}) })) return { allow: true };
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(

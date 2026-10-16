@@ -109,6 +109,7 @@ export async function guardAsk(
 export function decideGuard(mode: RunMode, consequence?: Consequence): GuardDecision {
   if (mode === 'full') return { needsCard: false, mode };
   if (mode === 'smart') return { needsCard: (consequence ?? unknownConsequence()).level >= 3, mode };
+  // Ask, Accept edits and smart-edits: a module guard always cards (Accept edits already does)
   return { needsCard: true, mode };
 }
 
@@ -122,6 +123,8 @@ export function needsApproval(mode: RunMode, toolName: string, opts: { capped?: 
   if (mode === 'full') return false;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
   if (mode === 'smart') return (opts.consequence ?? unknownConsequence()).level >= 3;
+  // smart-edits (held by Smart and by Accept edits): an edit cards where Smart would (level 3), every other call cards where Accept edits would
+  if (mode === 'smart-edits') return EDIT_TOOLS.has(toolName) ? (opts.consequence ?? unknownConsequence()).level >= 3 : true;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
   // Bash, other mcp__*, and unknown tools
   return true;

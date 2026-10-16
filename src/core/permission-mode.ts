@@ -19,18 +19,25 @@ export interface ModeInputs {
   ceiling?: RunMode;
 }
 
-const RANK: Record<RunMode, number> = { ask: 0, 'auto-edits': 1, smart: 2, full: 3 };
+// ask < smart-edits < { auto-edits, smart } < full. Smart and Accept edits are not ordered with each other; `smart-edits` sits under both.
+const RANK: Record<RunMode, number> = { ask: 0, 'smart-edits': 1, 'auto-edits': 2, smart: 2, full: 3 };
 const isRunMode = (m: unknown): m is RunMode => typeof m === 'string' && Object.hasOwn(RANK, m);
 // Unknown values (they can come from disk) rank strictest and resolve to 'ask'.
 /**
- * The stricter of two modes. An unknown value on either side (it can come from disk) fails closed to 'ask'. Smart and Accept edits are not
- * ordered (Smart cards a risky Bash that Accept edits waves through; Accept edits cards an edit Smart allows), so the stricter of the two is
- * 'ask', the one mode that is never looser than both. A ceiling can therefore only remove freedom, never a card.
+ * The stricter of two modes: a call needs a card if EITHER mode would card it. An unknown value on either side (it can come from disk) fails
+ * closed to 'ask'. Smart and Accept edits are not ordered (Smart cards a risky Bash that Accept edits waves through; Accept edits cards a Bash
+ * that Smart allows; Smart cards an edit outside the project that Accept edits allows), so a run held by both is judged by `smart-edits`, which
+ * cards exactly what either would. It is never looser than either mode, and never as strict as Ask: an edit inside the project still runs.
  */
 export function stricterMode<A extends RunMode, B extends RunMode>(a: A, b: B): A | B {
   if (!isRunMode(a) || !isRunMode(b)) return 'ask' as A | B;
-  if ((a === 'smart' && b === 'auto-edits') || (a === 'auto-edits' && b === 'smart')) return 'ask' as A | B;
-  return RANK[a] <= RANK[b] ? a : b;
+  const x: RunMode = a; const y: RunMode = b;
+  if (x === y) return a;
+  if (x === 'ask' || y === 'ask') return 'ask' as A | B;
+  if (x === 'full') return b;
+  if (y === 'full') return a;
+  // any other pair is two of smart, auto-edits, smart-edits; the meet of two different ones is smart-edits
+  return 'smart-edits' as A | B;
 }
 const stricter = (a: RunMode, b: RunMode): RunMode => stricterMode(a, b);
 

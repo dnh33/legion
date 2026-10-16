@@ -38,8 +38,8 @@ test('resolver: a smart project gives smart to an agent that follows it, and lim
   r.core!.store.patchProject(r.project.id, { preset: 'smart' });
   assert.equal(r.core!.resolver.mode({ agentMode: 'ask', source: 'project', startProjectId: r.project.id }), 'smart');
   assert.equal(r.core!.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: r.project.id }), 'smart');
-  // Smart and Accept edits are not ordered: a cap that is neither looser than the agent's mode nor the other way round is Ask
-  assert.equal(r.core!.resolver.mode({ agentMode: 'auto-edits', source: 'own', startProjectId: r.project.id }), 'ask');
+  // Smart and Accept edits are not ordered: a cap that is neither looser than the agent's mode nor the other way round gives smart-edits (a card when either would)
+  assert.equal(r.core!.resolver.mode({ agentMode: 'auto-edits', source: 'own', startProjectId: r.project.id }), 'smart-edits');
 });
 test('resolver: a bypass project gives full to an agent that follows it (the old mapping handed back the agent mode)', () => {
   const r = setup({ gatesCore: true });
@@ -129,12 +129,12 @@ const writeOn = (file: string) => (params: { prompt: unknown; options: Record<st
   await new Promise<void>(() => undefined);
 })();
 
-test('stricterMode: Smart and Accept edits are not ordered, so the stricter of the two is Ask', () => {
-  assert.equal(stricterMode('smart', 'auto-edits'), 'ask');
-  assert.equal(stricterMode('auto-edits', 'smart'), 'ask');
+test('stricterMode: Smart and Accept edits are not ordered, so the stricter of the two is smart-edits (a card when either would)', () => {
+  assert.equal(stricterMode('smart', 'auto-edits'), 'smart-edits');
+  assert.equal(stricterMode('auto-edits', 'smart'), 'smart-edits');
   assert.equal(stricterMode('smart', 'full'), 'smart');
   assert.equal(stricterMode('smart', 'smart'), 'smart');
-  assert.equal(effectiveMode({ agentMode: 'ask', source: 'project', appPreset: 'ask', project: { preset: 'smart', limit: true }, ceiling: 'auto-edits' }), 'ask');
+  assert.equal(effectiveMode({ agentMode: 'ask', source: 'project', appPreset: 'ask', project: { preset: 'smart', limit: true }, ceiling: 'auto-edits' }), 'smart-edits');
 });
 
 test('C1: a caller that follows an Ask app preset (stale stored full) starts a Full helper capped at Ask', async () => {

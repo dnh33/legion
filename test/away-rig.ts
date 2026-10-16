@@ -72,7 +72,7 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
     store: store as never, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as never, approvals, questions, config, queryFn,
     boatConfigured: () => false, projects, taintedPaths: new TaintedPaths(join(root, 'tp.json')), maxConcurrent: opts.maxConcurrent,
     ...(opts.withAway === false ? {} : { away }),
-    ...(core ? { modes: core.resolver } : opts.modes ? { modes: opts.modes } : {}),
+    ...(core ? { modes: core.resolver, gates: core } : opts.modes ? { modes: opts.modes } : {}),
   });
   const project = projects.setMembers(projects.create({ name: 'Shop', instructions: '' }).id, ['a1', 'a2', 'a3']);
   const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));

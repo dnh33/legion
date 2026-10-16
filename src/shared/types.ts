@@ -19,8 +19,12 @@ export type ConcreteModel = string;
 
 export type ApprovalMode = 'ask' | 'auto-edits' | 'full';
 
-/** A mode a run is judged by: the three stored agent modes plus Smart, which only a preset can give. An approval ceiling is a RunMode, so a Smart cap stays Smart. */
-export type RunMode = ApprovalMode | 'smart';
+/**
+ * A mode a run is judged by: the three stored agent modes plus Smart, which only a preset can give, plus `smart-edits`, which is never stored
+ * and never a preset: it is what a run held by both Smart and Accept edits is judged by (a card whenever EITHER would card). An approval
+ * ceiling is a RunMode, so a Smart cap stays Smart.
+ */
+export type RunMode = ApprovalMode | 'smart' | 'smart-edits';
 
 /** What a gate rule says happens to a matching tool call. */
 export type GateVerdict = 'allow' | 'ask' | 'deny';

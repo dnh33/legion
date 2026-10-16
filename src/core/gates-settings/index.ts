@@ -14,7 +14,7 @@ import type { GoalAutonomy, RunMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
-import { GATES_DIGEST_HEADER, PRESETS, gateValue } from '../../shared/gates-registry.js';
+import { GATES, GATES_DIGEST_HEADER, PRESETS, gateValue } from '../../shared/gates-registry.js';
 import type { GateValue, Preset } from '../../shared/gates-registry.js';
 import { makeSigner } from './sign.js';
 import { GatesError, GatesStore } from './store.js';
@@ -32,7 +32,17 @@ export interface ModeResolver {
   /** What the run would be judged by with no presets at all (the would-have-asked comparison). Optional so a bare `{ mode }` stays a resolver. */
   baseline?(a: { agentMode: ApprovalMode; source?: unknown; ceiling?: RunMode }): RunMode;
 }
-export interface GatesCore { store: GatesStore; resolver: ModeResolver; /** The value of a gate for a run that started in `startProjectId` (the project's override, else the app's, else the preset's). */ gate(id: string, startProjectId?: string): GateValue }
+export interface GatesCore {
+  store: GatesStore; resolver: ModeResolver;
+  /** The value of a gate for a run that started in `startProjectId` (the project's override, else the app's, else the preset's). */
+  gate(id: string, startProjectId?: string): GateValue;
+  /**
+   * True when the owner switched this gate off beyond what the preset already does: its value is off while the preset's own value is on.
+   * Bypass has `tool-cards` off by preset, and an agent set to Ask still asks there (the preset moves agents that follow it); an override
+   * that turns the cards off is the owner's explicit word for every agent of the project.
+   */
+  switchedOff(id: string, startProjectId?: string): boolean;
+}
 
 /**
  * `keyring` is the gates key (its own key file; the per-launch secrets change on every start, so they cannot sign files that must
@@ -63,7 +73,14 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
     },
   };
   const gate = (id: string, startProjectId?: string): GateValue => gateValue(id, { app: store.app(), ...(startProjectId ? { project: store.project(startProjectId) } : {}) });
-  return { store, resolver, gate };
+  const switchedOff = (id: string, startProjectId?: string): boolean => {
+    if (gate(id, startProjectId) !== false) return false;
+    const def = GATES.find((g) => g.id === id)?.defaults;
+    if (!def || def === 'always') return false;
+    const preset: Preset = (startProjectId ? store.project(startProjectId).preset : undefined) ?? store.app().preset ?? 'ask';
+    return def[preset] !== false;
+  };
+  return { store, resolver, gate, switchedOff };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore }
