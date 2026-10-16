@@ -37,6 +37,7 @@ import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
 import { createAwayCore, createAwayModule } from '../core/away/index.js';
 import { createGatesCore, createGatesModule } from '../core/gates-settings/index.js';
+import { createActivityLog, createActivityModule } from '../core/activity/index.js';
 import { GatesKeyring } from '../core/gates-settings/keyring.js';
 import { agentIdVisible } from '../core/visibility.js';
 import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
@@ -102,7 +103,9 @@ async function main() {
   questions.setPolicy(awayCore.service.policy());
   // gate presets (spec 2026-10-14 goals and gates): signed files, a key of their own (gates-key.bin), no looser preset without the key
   const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring });
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
+  const activity = createActivityLog({ dataDir: dataDir() });
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -147,8 +150,8 @@ async function main() {
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
-  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, dataDir: dataDir(), ...(nativeSecret ? { nativeSecret } : {}) });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
+  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, activity, dataDir: dataDir(), ...(nativeSecret ? { nativeSecret } : {}) });
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, createActivityModule(moduleDeps, activity), bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,

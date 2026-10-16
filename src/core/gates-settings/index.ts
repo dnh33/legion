@@ -14,10 +14,11 @@ import type { GoalAutonomy, RunMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
-import { GATES, GATES_DIGEST_HEADER, PRESETS, gateValue } from '../../shared/gates-registry.js';
+import { DENY_LINE, GATES, GATES_DIGEST_HEADER, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../shared/gates-registry.js';
 import type { GateValue, Preset } from '../../shared/gates-registry.js';
 import { makeSigner } from './sign.js';
-import { GatesError, GatesStore } from './store.js';
+import { GatesError, GatesStore, PRESET_NAME } from './store.js';
+import type { ActivityLog } from '../activity/index.js';
 import type { GatesKeyState } from './store.js';
 
 export { GatesStore, GatesError } from './store.js';
@@ -105,7 +106,7 @@ export function requireDigest(c: Ctx, expected: () => string, required: boolean)
   if (!safeEqual(given, want)) throw new HttpError(409, 'The change differs from what you confirmed');
 }
 
-export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string }): GatesModule {
+export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string; /** Every successful change writes `gate-changed` lines here. */ activity?: ActivityLog }): GatesModule {
   const { store } = opts.core;
   const wrap = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof GatesError) throw new HttpError(e.status, e.message); throw e; }
@@ -114,6 +115,22 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   const must = (id: string | undefined): string => {
     if (!id || !opts.projects.get(id)) throw new HttpError(404, `Unknown project "${String(id).slice(0, 40)}"`);
     return id;
+  };
+  /** The sentences of a patch, read before it is applied (the store's own wording, so the log says what the dialog said). Empty when it cannot be previewed. */
+  const linesOf = (name: string, b: Record<string, unknown>): string[] => {
+    try { return store.preview(name, b).lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE && !l.startsWith('The preset is now ')); } catch { return []; }
+  };
+  const scopeOf = (name: string): string => (name === 'app' ? 'all projects' : `project ${opts.projects.get(name)?.name ?? name}`);
+  const logChange = (name: string, headline: string, lines: string[] = []): void => {
+    if (!opts.activity) return;
+    const projectId = name === 'app' ? undefined : name;
+    for (const text of [headline, ...lines.slice(0, 8)]) opts.activity.append({ kind: 'gate-changed', text, ...(projectId ? { projectId } : {}), data: { scope: name === 'app' ? 'app' : 'project' } });
+  };
+  const headlineOf = (name: string, b: Record<string, unknown>): string => {
+    const scope = scopeOf(name);
+    if ('preset' in b) return `Preset set to ${typeof b.preset === 'string' && b.preset in PRESET_NAME ? PRESET_NAME[b.preset as keyof typeof PRESET_NAME] : 'Per agent'} for ${scope}`;
+    if ('limit' in b) return `Agent limit turned ${b.limit === false ? 'off' : 'on'} for ${scope}`;
+    return `Gate settings changed for ${scope}`;
   };
   const body = (c: Ctx): Record<string, unknown> => { if (!isObj(c.body)) throw new HttpError(400, 'JSON object body required'); return c.body; };
   return {
@@ -127,18 +144,20 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
         const loosens = store.isLoosening('app', b);
         if (loosens) requireNative(c, opts);
         requireDigest(c, () => wrap(() => store.preview('app', b)).digest, loosens);
-        const r = wrap(() => store.patchApp(b)); emit(); return r;
+        const lines = linesOf('app', b);
+        const r = wrap(() => store.patchApp(b)); logChange('app', headlineOf('app', b), lines); emit(); return r;
       });
       add('PATCH', '/api/gates/projects/:id', (c) => {
         const id = must(c.params[0]); const b = body(c);
         const loosens = store.isLoosening(id, b);
         if (loosens) requireNative(c, opts);
         requireDigest(c, () => wrap(() => store.preview(id, b)).digest, loosens);
-        const r = wrap(() => store.patchProject(id, b)); emit(); return r;
+        const lines = linesOf(id, b);
+        const r = wrap(() => store.patchProject(id, b)); logChange(id, headlineOf(id, b), lines); emit(); return r;
       });
       // A file changed outside Legion: Accept applies what is on disk (a loosening, so native only); Keep mine rewrites what the core holds.
-      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); requireDigest(c, () => wrap(() => store.previewAccept(c.params[0] ?? '')).digest, true); const r = wrap(() => store.accept(c.params[0] ?? '')); emit(); return r; });
-      add('POST', '/api/gates/keep/:name', (c) => { wrap(() => store.keepMine(c.params[0] ?? '', opts.projects.list().map((p) => p.id))); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
+      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); requireDigest(c, () => wrap(() => store.previewAccept(c.params[0] ?? '')).digest, true); const name = c.params[0] ?? ''; const r = wrap(() => store.accept(name)); logChange(name, `Applied the settings file that changed outside Legion for ${scopeOf(name)}`); emit(); return r; });
+      add('POST', '/api/gates/keep/:name', (c) => { const name = c.params[0] ?? ''; wrap(() => store.keepMine(name, opts.projects.list().map((p) => p.id))); logChange(name, `Kept the settings Legion holds for ${scopeOf(name)}`); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
       // What a change would do, in plain sentences, and the digest of the result. The app words its dialog from this and nothing else.
       add('POST', '/api/gates/preview', (c) => {
         const b = body(c);

@@ -16,7 +16,9 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { describeWaited, isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
+import { describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, LEGION_SERVER_NAMES } from './approvals.js';
+import { GATES } from '../shared/gates-registry.js';
+import type { ActivityLog } from './activity/index.js';
 import type { RunMode } from './permission-mode.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
@@ -106,6 +108,8 @@ export interface EngineDeps {
   modes?: import('./gates-settings/index.js').ModeResolver;
   /** The gate values (spec 4): the permission gates the engine owns are read per call, for the project the run started in. Absent: every gate is on, as before. */
   gates?: Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'>;
+  /** The activity log: what a gate that is off let through is written here as a "would have asked" line. Absent: no lines. */
+  activity?: ActivityLog;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
   background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number };
 }
@@ -384,6 +388,7 @@ export class Engine {
   private readonly away?: AwayHooks;
   private readonly modes?: import('./gates-settings/index.js').ModeResolver;
   private readonly gates?: Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'>;
+  private readonly activity?: ActivityLog;
   private readonly queue: Job[] = [];
   /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
   private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
@@ -416,6 +421,7 @@ export class Engine {
     this.away = deps.away;
     this.modes = deps.modes;
     this.gates = deps.gates;
+    this.activity = deps.activity;
     this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
@@ -1504,6 +1510,22 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     });
   }
 
+  /**
+   * A tool call went through with no card because a gate is off (the preset or an owner override), and the agent's own setting, with no preset at all,
+   * would have asked: one "would have asked" line in the activity log. Called only where a call is decided, never per stream event; a call that
+   * needed no card anyway (a plain Read, an agent that is Full on its own, Ask with the gate on) writes nothing.
+   */
+  private noteWouldAsk(job: Job, agent: AgentProfile, gateId: string, toolName: string, input: Record<string, unknown>): void {
+    try {
+      if (!this.activity || !this.modes?.baseline || this.gates?.gate(gateId, startProjectOf(job)) !== false) return;
+      const live = this.store.getAgent(agent.id);
+      const base = this.modes.baseline({ agentMode: live?.approval ?? agent.approval, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}) });
+      if (!needsApproval(base, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return;
+      const projectId = startProjectOf(job);
+      this.activity.wouldHaveAsked({ gateId, label: GATES.find((g) => g.id === gateId)?.label ?? gateId, action: `${toolName} ${summarizeToolInput(toolName, input)}`.slice(0, 300), taskId: job.taskId, ...(projectId ? { projectId } : {}), agentId: agent.id });
+    } catch { /* advisory: a log line never changes a decision */ }
+  }
+
   /** The owner switched "Your ask rules" off (an explicit override only: a preset alone never does), and the run carries no outside ceiling. */
   private asksSkipped(job: Job): boolean {
     return !job.origin?.approvalCeiling && this.gates?.switchedOff('gate-rules-ask', startProjectOf(job)) === true;
@@ -1559,13 +1581,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (floor) return floor;
       // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
       // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
-      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return { allow: true };
+      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
       if (gate.verdict === 'allow') return { allow: true };
       // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
       if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
       // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
       const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
-      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}) })) return { allow: true };
+      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}) })) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(
@@ -1714,7 +1736,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
         const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
-        if (floor) { const d = await floor; return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.'); }
+        if (floor) { const d = await floor; if (!d.allow) return preToolDeny(d.message ?? 'The user denied this action.'); }
+        // the run goes through with no card: when the owner's own setting would have asked, the activity log says so
+        this.noteWouldAsk(job, agent, 'tool-cards', input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return { continue: true };
       }] });
     } else {

@@ -12,6 +12,7 @@ import type { ApprovalMode, GateRule } from '../src/shared/types.js';
 import type { TaskOrigin } from '../src/shared/comms.js';
 import type { RunMode } from '../src/shared/types.js';
 import type { ModeResolver } from '../src/core/gates-settings/index.js';
+import type { ActivityLog } from '../src/core/activity/index.js';
 import { ProjectStore } from '../src/core/projects/store.js';
 
 export const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -44,7 +45,7 @@ export interface RigOptions {
 }
 
 export async function gatesRig(o: RigOptions = {}) {
-  const r = setup({ gatesCore: true, approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
+  const r = setup({ gatesCore: true, activity: true, approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
   const core = r.core as GatesCore;
   if (o.app) core.store.patchApp({ preset: o.app });
   const body: Record<string, unknown> = {};
@@ -106,7 +107,9 @@ export async function gatesRig(o: RigOptions = {}) {
   };
   /** Lets an open card run out its time. Build the rig with `approvalTimeoutMs`. */
   const advanceApprovalTimeout = async (): Promise<void> => { await pause((o.approvalTimeoutMs ?? 0) + 40); };
-  return { ...r, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
+  /** The activity log's lines for this rig, newest first. */
+  const activityRead = (q?: Parameters<ActivityLog['read']>[0]) => r.activity!.read(q);
+  return { ...r, activityRead, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
 }
 export type GatesRig = Awaited<ReturnType<typeof gatesRig>>;
 
