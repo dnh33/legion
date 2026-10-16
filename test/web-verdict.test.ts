@@ -80,3 +80,54 @@ test('loadDocsHosts: built-in list has the doc hosts, and a test can pass its ow
   assert.equal(docs.has('example.com'), false);
   assert.deepEqual([...loadDocsHosts(['Example.com.'])], ['example.com']);
 });
+
+// Fix round for Task 15 review (I1, I2, I3, M2, M3).
+const SECRET = 'sk-live-abcDEF123456';
+const b64 = (s: string) => Buffer.from(s).toString('base64');
+const reencoded = (s: string): string[] => [
+  `/%73${s.slice(1)}`, // one char percent-encoded
+  `/${s.replace(/-/g, '%2D')}`, // separators percent-encoded
+  `/${s.toUpperCase()}`, // upper case
+  `/${s.replace(/-/g, '/')}`, // split across path segments
+  `/${Buffer.from(s).toString('hex').toUpperCase()}`, // upper-case hex
+  `/${b64('x' + s)}`, // base64 at byte alignment 1
+  `/${b64('xy' + s)}`, // base64 at byte alignment 2
+  `/${Buffer.from(s).toString('base64url')}`,
+  `/%2573${s.slice(1)}`, // double percent-encoded
+];
+test('I1: a re-encoded secret value is refused on WebFetch', () => {
+  for (const p of reencoded(SECRET)) assert.deepEqual(f('https://docs.stripe.com' + p, { secretValues: [SECRET] }), { kind: 'refuse', why: 'secret-value' }, p);
+});
+test('I1: a re-encoded secret value is refused on WebSearch', () => {
+  for (const p of reencoded(SECRET)) assert.equal(webVerdict({ tool: 'WebSearch', input: { query: 'find ' + decodeURIComponent(p.slice(1)).replace(/\//g, ' ') } }, ctx({ secretValues: [SECRET] })).kind, 'refuse', p);
+  for (const p of [`${b64('x' + SECRET)}`, SECRET.toUpperCase(), SECRET.replace(/-/g, ' ')]) assert.equal(webVerdict({ tool: 'WebSearch', input: { query: p } }, ctx({ secretValues: [SECRET] })).kind, 'refuse', p);
+});
+test('I1: unrelated URLs are not refused', () => {
+  assert.equal(f('https://docs.stripe.com/api/charges', { secretValues: [SECRET] }).kind, 'allow');
+  assert.equal(f('https://docs.stripe.com/a', { secretValues: ['short'] }).kind, 'allow');
+});
+test('I3: hosts that start with a digit are not IPs; real IP literals are', () => {
+  for (const u of ['https://1password.com/x', 'https://3m.com/x']) assert.notEqual(why(f(u, { trusted: () => true })), 'ip', u);
+  assert.equal(f('https://1password.com/x', { trusted: () => true }).kind, 'allow');
+  assert.equal((f('https://3m.com/x') as { canAlways: boolean }).canAlways, true);
+  for (const u of ['https://127.0.0.1/', 'https://[::1]/', 'https://2130706433/', 'https://0x7f000001/']) {
+    const v = f(u) as { why: string; canAlways: boolean };
+    assert.equal(v.why, 'ip', u); assert.equal(v.canAlways, false, u);
+  }
+});
+test('I2: dashed or dotted hex segments ask; real doc slugs still allow', () => {
+  const hex = Buffer.from(SECRET).toString('hex');
+  assert.equal(why(webVerdict({ tool: 'WebFetch', input: { url: 'https://react.dev/' + hex.match(/.{1,8}/g)!.join('-') } }, builtInCtx())), 'odd-path');
+  assert.equal(why(webVerdict({ tool: 'WebFetch', input: { url: 'https://react.dev/' + hex.match(/.{1,8}/g)!.join('.') } }, builtInCtx())), 'odd-path');
+  assert.equal(webVerdict({ tool: 'WebFetch', input: { url: 'https://docs.python.org/3/library/getting_started_with_asyncio_streams.html' } }, builtInCtx()).kind, 'allow');
+});
+test('M2: non-web schemes ask and never offer Always allow', () => {
+  for (const u of ['file:///C:/Users/x/.env', 'data:text/plain,hi', 'javascript:alert(1)', 'ftp://docs.stripe.com/']) {
+    const v = f(u, { trusted: () => true }) as { kind: string; canAlways: boolean };
+    assert.equal(v.kind, 'ask', u); assert.equal(v.canAlways, false, u);
+  }
+});
+test('M3: user-content hosting suffixes never offer Always allow', () => {
+  for (const s of ['workers.dev', 'web.app', 'firebaseapp.com', 'appspot.com', 'blogspot.com', 'gitlab.io', 'glitch.me', 'repl.co', 'onrender.com', 'fly.dev', 'surge.sh', 'ngrok.io', 'ngrok-free.app', 'trycloudflare.com', 'azurewebsites.net', 'github.io', 'vercel.app', 'pages.dev', 'netlify.app', 's3.amazonaws.com', 'cloudfront.net'])
+    assert.equal((f(`https://x.${s}/`) as { canAlways: boolean }).canAlways, false, s);
+});
