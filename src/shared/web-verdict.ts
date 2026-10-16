@@ -1,5 +1,4 @@
 // The one rule for web reads (WebFetch, WebSearch, browser_open). Pure: no I/O.
-import { isIP } from 'node:net';
 export const MAX_SEARCH = 300; export const MAX_PATH = 200; export const PATH_BUDGET = 10;
 export function canonicalHost(raw: string): string | undefined {
   try { const h = new URL(raw).hostname.toLowerCase().replace(/\.$/, ''); return h || undefined; } catch { return undefined; }
@@ -42,7 +41,8 @@ export function webVerdict(call: WebCall, ctx: WebCtx): WebVerdict {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return { kind: 'ask', host, why: 'http', canAlways: false };
   if (ctx.secretRead) return ask('secret-read');
   if (u.username || u.password) return ask('userinfo');
-  if (isIP(host.replace(/^\[|\]$/g, ''))) return ask('ip');
+  // the URL parser already turns decimal, hex and octal hosts into a dotted quad and wraps IPv6 in brackets
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith('[')) return ask('ip');
   if (u.protocol !== 'https:') return ask('http');
   if (u.port) return ask('port');
   if (!ctx.trusted(host)) return ask('new-host');
