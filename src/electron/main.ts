@@ -13,7 +13,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
-import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, keyLine, loadConnectorKey } from './connector-key.js';
+import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
@@ -173,8 +173,10 @@ async function spawnCore(port: number): Promise<string | null> {
     // Connectors data key: only read when key.bin already exists (no safeStorage call otherwise); created on the first Connect, not here.
     const connectorKey = await loadConnectorKey(dataDir(), safeStorage);
     // The gates key signs the gate settings files. It has its own keystore file and launch line, so signing never waits for a GitHub Connect.
+    // new / old / lost is decided before the key file is made: a lost key in a used folder must not look like a fresh install
+    const gatesState = gatesKeyState(dataDir());
     const gatesKey = await ensureGatesKey(dataDir(), safeStorage);
-    const gatesLine = gatesKey ? gatesKeyLine(gatesKey) : '';
+    const gatesLine = gatesKey ? gatesKeyLine(gatesKey, gatesState) : '';
     const child = spawn(launch.cmd, [...heapArgv(), coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],

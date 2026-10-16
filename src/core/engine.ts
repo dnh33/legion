@@ -23,6 +23,7 @@ import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { dataFolderHit } from './exec/data-folder-guard.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
 /** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
@@ -1420,6 +1421,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
       if (opts.card === false) return undefined;
+      // Legion's own data folder: a command that changes it (or may, by a path built at run time) needs the owner's card in every mode but Full
+      // (Task 17 folds this into the askGuards pipeline)
+      const folderCard = this.dataFolderCard(job, agent, toolName, input, command, kind);
+      if (folderCard) return folderCard;
       why = unjudgeableCommand(command, kind);
     } catch {
       // fail closed: a floor that could not read the command asks the owner
@@ -1443,6 +1448,47 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (allowed) return { allow: true };
       const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
       return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
+    });
+  }
+
+  /** The folders a shell command may not work on without a card (a CoreModule `shellProtectedPaths()` entry: the data folder). */
+  private shellProtectedDirs(): string[] {
+    const out: string[] = [];
+    for (const m of this.modules) {
+      try { out.push(...(m.shellProtectedPaths?.() ?? [])); } catch { /* none */ }
+    }
+    return out;
+  }
+
+  /**
+   * Agents may not change Legion's own data folder (gate settings, the gates key, projects, config, armory, away). A shell command that
+   * names it, or whose path is built when it runs, and that does more than read, gets a card in Ask, Auto-edits and Smart with no Remember
+   * (no remembered rule may skip it). Reading stays free. Full (Bypass) is the one mode that can change anything. Undefined when nothing is due.
+   */
+  private dataFolderCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): Promise<{ allow: boolean; message?: string }> | undefined {
+    const folders = this.shellProtectedDirs();
+    if (!folders.length) return undefined;
+    const mode = this.modeNow(job, agent);
+    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') return undefined;
+    let hit: 'none' | 'names' | 'hidden';
+    try { hit = dataFolderHit(command, kind, folders); } catch { hit = 'hidden'; }
+    if (hit === 'none') return undefined;
+    const c = classifySafe({ kind: 'approval', toolName, input });
+    const readsOnly = c.level <= 1 || (c.tags.length > 0 && c.tags.every((t) => t === 'reads'));
+    if (readsOnly) return undefined;
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
+    const what = hit === 'names' ? "works on Legion's own settings folder" : "has a path that is built when it runs and could point at Legion's own settings folder";
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary: `This command ${what}.\n${shown}\nThat folder holds your gate settings, keys and projects. An agent may not change it without you, so you are asked in every approval mode but Full. Allow it only if you asked for this.`,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (it works on Legion's own settings folder). ${stop}` : `The user has not approved this command (it works on Legion's own settings folder). ${stop}` };
     });
   }
 
@@ -1587,7 +1633,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
             const target = field && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)[field] : undefined;
             if (typeof target !== 'string' || !target) return { continue: true };
             const abs = resolve(cwd, target);
-            return this.protectedDirs().some((d) => pathInside(d, abs)) ? preToolDeny('The Armory\'s files can only be changed by the owner in Settings \u2192 Armory, not by an agent.') : { continue: true };
+            return this.protectedDirs().some((d) => pathInside(d, abs)) ? preToolDeny("Legion's own settings files (the Armory, gates, keys, projects) can only be changed by the owner in Legion, not by an agent.") : { continue: true };
           }] },
         ],
       },

@@ -1,5 +1,5 @@
 /**
- * Signing for the gate settings files (spec 4.1). The key is the connectors' persistent data key (the per-launch secrets change on
+ * Signing for the gate settings files (spec 4.1). The key is the gates key (<dataDir>/gates-key.bin; the per-launch secrets change on
  * every start, so they cannot sign files that must survive a restart). Legion derives its own sub-key with HKDF, so the data key
  * itself is never used as a MAC key. The signature covers the file name too, so one file cannot be copied over another.
  */

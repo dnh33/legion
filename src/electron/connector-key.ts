@@ -97,7 +97,13 @@ export async function ensureGatesKey(dataDir: string, ss: SafeStorageLike, platf
     return hex;
   } catch { return undefined; }
 }
-export const gatesKeyLine = (hex: string): string => `GATESKEY ${hex}
+/** Decided BEFORE the key file is made: `old` if it is there, `lost` if it is not but the data folder is in use, `new` for an empty data folder. */
+export type GatesKeyState = 'new' | 'old' | 'lost';
+export function gatesKeyState(dataDir: string): GatesKeyState {
+  if (existsSync(gatesKeyFilePath(dataDir))) return 'old';
+  return ['projects.json', 'state.json', 'gates'].some((n) => existsSync(join(dataDir, n))) ? 'lost' : 'new';
+}
+export const gatesKeyLine = (hex: string, state: GatesKeyState = 'old'): string => `GATESKEY ${hex} ${state}
 `;
 
 /** The line written to the core's stdin after the two secrets. */

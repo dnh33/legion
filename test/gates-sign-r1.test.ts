@@ -219,7 +219,7 @@ test('I5: with no usable keystore there is no gates key (fail closed: only Ask)'
 
 test('I5: the core installs the gates key from its own launch line, and only that form', async () => {
   const hex = 'c'.repeat(64);
-  assert.equal(gatesKeyLine(hex), `GATESKEY ${hex}\n`);
+  assert.equal(gatesKeyLine(hex), `GATESKEY ${hex} old\n`);
   const kr = new GatesKeyring();
   assert.equal(kr.installLine('KEY ' + hex), false);
   assert.equal(kr.installLine('GATESKEY zz'), false);
@@ -234,7 +234,7 @@ test('I5: the core installs the gates key from its own launch line, and only tha
 test('I5: main.ts creates the gates key at launch and passes it as its own line; legion-core installs it', () => {
   const main = readFileSync(join(process.cwd(), 'src/electron/main.ts'), 'utf8');
   assert.match(main, /const gatesKey = await ensureGatesKey\(dataDir\(\), safeStorage\);/);
-  assert.match(main, /gatesKeyLine\(gatesKey\)/);
+  assert.match(main, /gatesKeyLine\(gatesKey, gatesState\)/);
   const core = readFileSync(join(process.cwd(), 'src/bin/legion-core.ts'), 'utf8');
   assert.match(core, /keyring: gatesKeyring/);
 });

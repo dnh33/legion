@@ -11,6 +11,13 @@
  * wrong is not applied and is not renamed: the setting reads as Ask and its name is listed in `changedOutside()` until the owner
  * chooses Accept (re-sign and apply what is on disk) or Keep mine (write what the core holds back, signed). With no signer (no
  * keystore key) nothing looser can be stored at all, so only Ask is possible.
+ *
+ * Folder-level attacks (fix round 2): the signed app file lists every project file with its counter, and is the thing that proves the
+ * folder is whole. Electron says whether the key is `new` (an empty data folder), `old` (the key file was there) or `lost` (a used data
+ * folder with no key file). With an old or lost key, an app file that is missing or does not verify means the list is gone: every project
+ * reads Ask, every name is listed, and only Keep mine on `app` (which writes Ask everywhere) or an owner's per-project choice ends it.
+ * An app file whose counter is below a project file's was replayed and is treated the same way. A project file counts as genuine only if
+ * the verified list names it. Nothing here deletes a cap file or a list entry for a project missing from projects.json.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,6 +42,8 @@ const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permiss
 const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
 /** "Per agent" (no preset) is the 0.3.0 behavior, which ranks the same as Ask for this comparison. */
 const rank = (p: Preset | undefined): number => (p ? RANK[p] : 0);
+export type GatesKeyState = 'new' | 'old' | 'lost';
+const LOST_MESSAGE = "Legion's gate settings are missing or were changed. Every project is Ask until you choose. Choose Keep mine to set every project to Ask, then change what you want.";
 const KEY_MESSAGE = "Legion needs a key from your computer's keystore to sign gate settings, and none is available, so only Ask can be set here.";
 const blank = (): GateSettings => ({ version: 1 });
 /** What a damaged or unreadable file reads as (spec 4.1). A missing file is blank, not this. */
@@ -130,17 +139,26 @@ export class GatesStore {
   private listIds = new Set<string>();
   /** What the next app file lists: every project file this core wrote or read as genuine. */
   private fileGens = new Map<string, number>();
+  /** The list that proves the folder is whole is gone (missing or unverified app file with an old or lost key, or a replayed one). */
+  private lost = false;
+  private appVerified = false;
+  private appGen = 0;
+  private maxProjGen = 0;
   private seq = 0;
   private dirty = new Set<string>();
   private timer: NodeJS.Timeout | undefined;
   private readonly allowed: readonly Preset[];
   private readonly signer: Signer | undefined;
+  private readonly keyState: GatesKeyState;
 
-  constructor(dir: string, opts: { allowed?: readonly Preset[]; signer?: Signer } = {}) {
+  constructor(dir: string, opts: { allowed?: readonly Preset[]; signer?: Signer; keyState?: GatesKeyState } = {}) {
     this.folder = dir;
     this.allowed = opts.allowed ?? ASK_ONLY;
     this.signer = opts.signer;
+    this.keyState = opts.keyState ?? 'new';
     this.reload();
+    // A new install writes its (blank) signed app file at once, so a missing app file later means it was deleted, not never made.
+    if (this.signer && opts.keyState === 'new' && !existsSync(join(this.folder, 'app.json'))) this.mark('app');
   }
 
   /** Whether this core holds a key to sign with. Without one only Ask can be stored. */
@@ -149,10 +167,10 @@ export class GatesStore {
   changedOutside(): string[] { return [...this.outside]; }
 
   app(): GateSettings { return { ...this.appS }; }
-  project(id: string): GateSettings { return { ...(this.projects.get(id) ?? blank()) }; }
+  project(id: string): GateSettings { return { ...(this.projects.get(id) ?? (this.lost ? damaged() : blank())) }; }
 
   view(ids: string[]): { app: GateSettings; projects: Record<string, GateSettings>; unreadable: string[]; changedOutside: string[]; canSign: boolean } {
-    return { app: this.app(), projects: Object.fromEntries(ids.map((id) => [id, this.project(id)])), unreadable: [...this.unreadable], changedOutside: this.changedOutside(), canSign: this.canSign() };
+    return { app: this.app(), projects: Object.fromEntries(ids.map((id) => [id, this.project(id)])), unreadable: [...this.unreadable], changedOutside: this.lost ? [...new Set(['app', ...ids, ...this.outside])] : this.changedOutside(), canSign: this.canSign() };
   }
 
   /**
@@ -169,6 +187,7 @@ export class GatesStore {
   }
 
   patchApp(body: Record<string, unknown>): GateSettings {
+    if (this.lost) throw new GatesError(409, LOST_MESSAGE);
     this.appS = this.merge(this.appS, body, true);
     this.settle('app');
     return this.app();
@@ -184,19 +203,28 @@ export class GatesStore {
   /** The owner chose to apply what is on disk. It is re-signed, written, and applies from now on. */
   accept(name: string): GateSettings {
     const p = this.pending.get(name);
-    if (!this.outside.has(name) || !p) throw new GatesError(404, 'That file has not changed outside Legion.');
+    if (!this.outside.has(name) && !this.lost) throw new GatesError(404, 'That file has not changed outside Legion.');
+    if (!p) throw new GatesError(404, 'There is no file to apply. Choose Keep mine.');
     if (!this.signer) throw new GatesError(400, KEY_MESSAGE);
+    if (name === 'app' && this.lost) throw new GatesError(400, LOST_MESSAGE);
     if (name === 'app') this.appS = { ...p }; else this.projects.set(name, { ...p });
     this.settle(name);
     return name === 'app' ? this.app() : this.project(name);
   }
 
   /** The owner chose to keep what the core holds (Ask, until a change is saved): the file is rewritten from memory, signed. */
-  keepMine(name: string): void {
-    if (!this.outside.has(name)) throw new GatesError(404, 'That file has not changed outside Legion.');
+  keepMine(name: string, ids: readonly string[] = []): void {
+    if (!this.outside.has(name) && !this.lost) throw new GatesError(404, 'That file has not changed outside Legion.');
+    if (this.lost && name === 'app') {
+      // Ask everywhere: every project (those with a file, those named by `ids`) gets an Ask file, signed. Nothing from disk is imported.
+      for (const id of new Set([...this.projects.keys(), ...ids])) { this.projects.set(id, damaged()); this.settle(id); }
+      this.appS = damaged();
+      this.lost = false;
+    } else if (this.lost) this.projects.set(name, damaged());
     this.settle(name);
   }
 
+  /** Drops the caps of projects that no longer exist. Only for an owner's project delete, never called at start: a damaged or edited projects.json must not remove a cap. */
   prune(liveIds: string[]): void {
     const live = new Set(liveIds);
     for (const id of [...this.projects.keys()]) {
@@ -212,23 +240,33 @@ export class GatesStore {
     this.writeDirty();
     if (this.dirty.size > 0) throw new GatesError(409, 'Legion could not save your last change, and Reload would undo it. Try again in a moment.');
     if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
-    this.listGens.clear(); this.listIds.clear(); this.fileGens.clear();
-    this.unreadable.clear();
-    this.outside.clear();
-    this.pending.clear();
-    this.projects.clear();
-    this.appS = this.readOne('app') ?? blank();
-    for (const n of existsSync(this.folder) ? readdirSync(this.folder) : []) {
-      const m = /^(.+)\.json$/.exec(n);
-      if (!m || !PROJECT_ID_RE.test(m[1]!)) continue;
-      const s = this.readOne(m[1]!);
-      if (s) this.projects.set(m[1]!, s);
-    }
+    this.lost = false;
+    this.loadAll();
+    // an app file older than a project file (a replay): the list is not to be trusted, so read it all again as lost
+    if (this.signer && this.appVerified && this.appGen < this.maxProjGen) { this.lost = true; this.loadAll(); }
     // A project the app file lists whose file is gone reads Ask and is listed: deleting a file must not remove its cap.
     for (const id of this.listIds) {
       if (this.projects.has(id)) continue;
       this.projects.set(id, damaged());
       this.outside.add(id);
+    }
+  }
+
+  private loadAll(): void {
+    this.listGens.clear(); this.listIds.clear(); this.fileGens.clear();
+    this.unreadable.clear();
+    this.outside.clear();
+    this.pending.clear();
+    this.projects.clear();
+    this.appVerified = false; this.appGen = 0; this.maxProjGen = 0;
+    if (this.signer && this.keyState !== 'new' && !existsSync(join(this.folder, 'app.json'))) this.lost = true;
+    this.appS = this.readOne('app') ?? blank();
+    if (this.lost) { this.outside.add('app'); if (!this.pending.has('app')) this.appS = damaged(); }
+    for (const n of existsSync(this.folder) ? readdirSync(this.folder) : []) {
+      const m = /^(.+)\.json$/.exec(n);
+      if (!m || !PROJECT_ID_RE.test(m[1]!)) continue;
+      const s = this.readOne(m[1]!);
+      if (s) this.projects.set(m[1]!, s);
     }
   }
 
@@ -324,16 +362,24 @@ export class GatesStore {
         for (const id of Object.keys(files)) this.listIds.add(id); // even an unverified list can only add Ask caps
         if (verified) for (const [id, g] of Object.entries(files)) { this.listGens.set(id, g); this.fileGens.set(id, g); }
       }
+      if (isApp) {
+        this.appVerified = verified; this.appGen = gen;
+        if (this.signer && this.keyState !== 'new' && !verified) this.lost = true;
+      } else if (verified) this.maxProjGen = Math.max(this.maxProjGen, gen);
       if (verified) this.seq = Math.max(this.seq, gen, ...Object.values(files));
       const listed = this.listGens.get(name);
       let genuine: boolean;
-      if (this.signer === undefined) genuine = !looserThan(blank(), out, isApp, blank()); // no key: only what is no looser than blank
-      else if (verified) genuine = isApp || listed === undefined || gen >= listed; // an older file than the list says is a replay
-      else {
+      // no key: only what is no looser than blank, and a listed project file must still carry its Ask cap
+      if (this.signer === undefined) genuine = !looserThan(blank(), out, isApp, blank()) && (isApp || !this.listIds.has(name) || (out.preset === 'ask' && out.limit !== false));
+      else if (verified) genuine = isApp || (listed !== undefined && gen >= listed); // not on the list, or older than the list says: a replay
+      else genuine = false;
+      if (this.signer !== undefined && !verified) {
         // Unsigned: only an Ask file from before signing (or a blank app file) is taken, and never over a listed project file.
         const plain = !('sig' in raw) && !('gen' in raw) && !('files' in raw) && !looserThan(blank(), out, isApp, blank());
         genuine = plain && (isApp || (out.preset === 'ask' && out.limit !== false && !this.listIds.has(name)));
       }
+      // the list is gone: nothing on disk is proven, so every name waits for the owner
+      if (this.lost) genuine = false;
       if (!genuine) {
         // not proven to be ours (or no cap): not applied, left on disk for the owner to accept or keep theirs
         this.outside.add(name);
@@ -369,6 +415,8 @@ export class GatesStore {
     const names = [...this.dirty];
     const projects = names.filter((n) => n !== 'app');
     // the app file lists the project files, so it is written after them (a crash between leaves a file newer than its list, which is fine)
+    // a lost list is not rewritten except by the owner's Keep mine on app
+    if (this.lost && names.includes('app')) names.splice(names.indexOf('app'), 1);
     const order = names.includes('app') || (this.signer !== undefined && projects.length > 0) ? [...projects, 'app'] : projects;
     for (const name of order) {
       try {
@@ -384,6 +432,8 @@ export class GatesStore {
     if (!s) { rmSync(file, { force: true }); this.fileGens.delete(name); return; }
     // without a key nothing looser than blank may be written: it could never be verified again
     if (!this.signer && looserThan(blank(), s, name === 'app', blank())) return;
+    // without a key a signed app file with its list is left as it is: rewriting it would erase the list
+    if (!this.signer && name === 'app' && this.listIds.size > 0) return;
     mkdirSync(this.folder, { recursive: true });
     const tmp = `${file}.tmp`;
     // Signed files carry a counter that only goes up; the app file also lists the newest counter of every project file.

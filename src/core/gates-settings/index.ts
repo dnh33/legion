@@ -8,7 +8,6 @@ import { join } from 'node:path';
 import type { ApprovalMode, LegionEvent } from '../../shared/types.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
-import type { ConnectorKeyring } from '../connectors/keyring.js';
 import { effectiveMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
@@ -16,6 +15,7 @@ import type { Ctx } from '../server.js';
 import { PRESETS } from '../../shared/gates-registry.js';
 import { makeSigner } from './sign.js';
 import { GatesError, GatesStore } from './store.js';
+import type { GatesKeyState } from './store.js';
 
 export { GatesStore, GatesError } from './store.js';
 
@@ -29,17 +29,14 @@ export interface ModeResolver {
 export interface GatesCore { store: GatesStore; resolver: ModeResolver }
 
 /**
- * `keyring` is the connectors' persistent data key (the per-launch secrets change on every start, so they cannot sign files that
- * must survive a restart). It is read once, here, after the launch pipe installed it. No key: no signer, only Ask can be stored.
+ * `keyring` is the gates key (its own key file; the per-launch secrets change on every start, so they cannot sign files that must
+ * survive a restart). It is read once, here, after the launch pipe installed it. No key: no signer, only Ask can be stored.
+ * `state()` says whether Electron made the key now (`new`) or it was there before (`old`, `lost`); see the store. A cap file or list
+ * entry for a project missing from projects.json is kept: a damaged or edited projects.json must not remove a cap.
  */
-export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: Pick<ConnectorKeyring, 'get'> }): GatesCore {
+export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: { get(): Buffer | undefined; state?(): GatesKeyState } }): GatesCore {
   const signer = makeSigner(o.keyring?.get());
-  const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PRESETS, ...(signer ? { signer } : {}) });
-  // An empty list is never a reason to prune: a failed projects.json load must not delete every cap.
-  try {
-    const ids = o.projects ? o.projects.list().map((p) => p.id) : [];
-    if (ids.length > 0) store.prune(ids);
-  } catch { /* the settings stay as they are */ }
+  const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PRESETS, ...(signer ? { signer } : {}), ...(o.keyring?.state ? { keyState: o.keyring.state() } : {}) });
   const resolver: ModeResolver = {
     mode({ agentMode, source, startProjectId, ceiling }) {
       const ps = startProjectId ? store.project(startProjectId) : undefined;
@@ -66,7 +63,7 @@ export function requireNative(c: Ctx, o: { nativeSecret?: string }): void {
   if (typeof given !== 'string' || !safeEqual(given, o.nativeSecret)) throw new HttpError(403, 'native_confirmation_required: a change that loosens a gate comes only from the app after its confirmation dialog');
 }
 
-export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string }): GatesModule {
+export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string }): GatesModule {
   const { store } = opts.core;
   const wrap = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof GatesError) throw new HttpError(e.status, e.message); throw e; }
@@ -79,7 +76,10 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   const body = (c: Ctx): Record<string, unknown> => { if (!isObj(c.body)) throw new HttpError(400, 'JSON object body required'); return c.body; };
   return {
     id: 'gates', store,
-    protectedPaths: () => [store.folder],
+    // The file tools may not touch the gates folder, the key file, the project list or the config. A shell command may not work on the whole data
+    // folder without a card (the engine's data-folder guard); reading stays free.
+    protectedPaths: () => [store.folder, ...(opts.dataDir ? ['gates-key.bin', 'projects.json', 'config.json'].map((n) => join(opts.dataDir!, n)) : [])],
+    shellProtectedPaths: () => (opts.dataDir ? [opts.dataDir] : []),
     routes: (add) => {
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
       add('PATCH', '/api/gates/app', (c) => {
@@ -94,7 +94,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
       });
       // A file changed outside Legion: Accept applies what is on disk (a loosening, so native only); Keep mine rewrites what the core holds.
       add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); const r = wrap(() => store.accept(c.params[0] ?? '')); emit(); return r; });
-      add('POST', '/api/gates/keep/:name', (c) => { wrap(() => store.keepMine(c.params[0] ?? '')); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
+      add('POST', '/api/gates/keep/:name', (c) => { wrap(() => store.keepMine(c.params[0] ?? '', opts.projects.list().map((p) => p.id))); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
       add('POST', '/api/gates/reload', () => { wrap(() => store.reload()); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
     },
     dispose: async () => { await store.flush(); },
