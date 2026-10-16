@@ -73,14 +73,26 @@ function pathOf(input: Record<string, unknown>): unknown {
 
 /* ---------- shell ---------- */
 
-type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** flags that make the call run something else: unknown. */ unknownFlags?: string[] };
+type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** flags that make the call run something else: unknown. */ unknownFlags?: string[]; /** Reads the arguments after the subcommand itself; undefined means "use the rule above". */ inspect?: (args: string[]) => Consequence | undefined };
 interface ProgramRule extends Sub {
   /** Per subcommand (git, npm, ...). When present a subcommand with no entry is unknown. */
   subs?: Record<string, Sub>;
   /** Any of these flags (prefix match for --long=value) makes the call unknown: it runs something else. */
-  /** Reads the arguments itself (curl and friends); returns undefined for "use the rule above". */
-  inspect?: (args: string[]) => Consequence | undefined;
 }
+
+const LOCAL = (): Consequence => rule(1, [], C.localRun);
+const LOCALSUB: Sub = { level: 1, tags: [], chip: C.localRun };
+const SCRIPTS_OK = /^(test|build|lint|typecheck|check|format)$/;
+/** `npm|pnpm|yarn run <script>`: only the listed script names; extra flags or any other name stay unknown. */
+const runScript = (args: string[]): Consequence | undefined => {
+  const plain = args.filter((a) => a !== '--silent' && a !== '--quiet');
+  return plain.length === 1 && SCRIPTS_OK.test(plain[0]!) ? LOCAL() : undefined;
+};
+const pkgManager = (): ProgramRule => ({ level: 3, tags: [], chip: UNKNOWN_CHIP, subs: {
+  publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' },
+  test: { level: 1, tags: [], chip: C.localRun },
+  run: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: runScript },
+} });
 
 const R1: Sub = { level: 1, tags: ['reads'], chip: C.readOnly };
 /** git reads that can write a file (--output) or run a configured program (--ext-diff, --textconv). */
@@ -190,10 +202,12 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
       reset: { ...R2, flagRules: [{ flags: ['--hard'], to: DELETES() }] },
     },
   },
-  npm: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
-  yarn: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
-  pnpm: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
-  cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
+  npm: pkgManager(), yarn: pkgManager(), pnpm: pkgManager(),
+  npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: (a) => (a.length === 2 && a[0] === 'tsc' && a[1] === '--noEmit' ? LOCAL() : undefined) },
+  node: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: (a) => (a[0] === '--test' ? LOCAL() : undefined) },
+  pytest: { level: 1, tags: [], chip: C.localRun, unknownFlags: ['-p', '--pyargs'] },
+  cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: LOCALSUB, build: LOCALSUB, check: LOCALSUB } },
+  go: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { test: LOCALSUB, build: LOCALSUB, vet: LOCALSUB } },
   gh: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { release: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
 };
 
@@ -305,7 +319,7 @@ function classifySegment(words: string[]): Consequence {
   if (base.unknownFlags?.some((f) => hasFlag(subLowered, f))) return unknownConsequence();
   const flagged = base.flagRules?.find((r) => r.flags.some((f) => hasFlag(subLowered, f)));
   if (flagged) return { ...flagged.to, tags: [...flagged.to.tags] };
-  const inspected = pr.inspect?.(args);
+  const inspected = base.inspect?.(args) ?? pr.inspect?.(args);
   if (inspected) return inspected;
   return withTags(base);
 }

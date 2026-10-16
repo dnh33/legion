@@ -16,6 +16,7 @@ export const AWAY_COPY = {
     editsOutside: 'Changes a file outside this project, check it',
     writesFile: 'Writes a file',
     fetches: 'Fetches from the web',
+    localRun: 'Runs a check on your computer',
     decides: 'A choice, nothing happens until you answer',
     proposal: 'Written after outside content',
     unknown: 'Unknown effect, check it',
