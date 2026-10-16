@@ -11,15 +11,15 @@ test('every gate has a unique id, a family, plain copy and a value for every pre
   for (const g of GATES) {
     assert.ok(!ids.has(g.id), `duplicate ${g.id}`); ids.add(g.id);
     assert.ok(['permission', 'qa', 'rail'].includes(g.family));
-    const copy = g.family === 'rail' && !g.expert ? [g.label, g.protects] : [g.label, g.protects, g.ifOff];
+    const copy = g.family === 'rail' ? [g.label, g.protects] : [g.label, g.protects, g.ifOff];
     for (const s of copy) { assert.ok(s.length > 0, `empty copy in ${g.id}`); assert.ok(!s.includes('\u2014'), `em dash in ${g.id}`); }
     if (g.family === 'rail') assert.equal(g.defaults, 'always', `${g.id} is a rail`);
     else for (const p of PRESETS) assert.ok(typeof g.defaults === 'object' && p in g.defaults, `${g.id} lacks ${p}`);
   }
 });
 
-test('only the shell floor is an expert switch', () => {
-  assert.deepEqual(GATES.filter((g) => g.expert).map((g) => g.id), ['rail-shell-floor']);
+test('no gate is an expert switch: rails are always on and none has a switch', () => {
+  assert.equal(GATES.some((g) => 'expert' in g), false);
 });
 
 test('an unknown gate id is on', () => {

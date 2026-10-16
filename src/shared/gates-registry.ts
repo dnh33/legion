@@ -1,8 +1,7 @@
 /**
  * Every gate Legion has, in one list: what it protects, what can happen with it off, and its value under each preset
  * (spec docs/superpowers/specs/2026-10-14-goal-and-gates-design.md, section 4). Pure: no I/O, safe in the window and the core.
- * Permission gates follow the preset; QA gates follow a goal's care level (part 3); rails are always on, and only the shell
- * floor has a switch (an expert one, read from the app settings, not from here).
+ * Permission gates follow the preset; QA gates follow a goal's care level (part 3); rails are always on and have no switch.
  */
 export const PRESETS = ['ask', 'accept-edits', 'smart', 'bypass'] as const;
 export type Preset = (typeof PRESETS)[number];
@@ -17,7 +16,6 @@ export interface GateDef {
   protects: string;
   ifOff: string;
   defaults: Record<Preset, GateValue> | 'always';
-  expert?: true;
 }
 
 const all = (v: GateValue, bypass: GateValue = v): Record<Preset, GateValue> => ({ ask: v, 'accept-edits': v, smart: v, bypass });
@@ -54,7 +52,7 @@ const GATE_LIST = [
   { id: 'rail-protected-paths', family: 'rail', scope: 'global', label: 'Agents cannot edit Legion own settings', protects: 'Gates, goals and the Armory are changed by you only.', ifOff: '', defaults: 'always' },
   { id: 'rail-house-trust', family: 'rail', scope: 'global', label: 'Only house files you adopted load', protects: 'A changed house file is not loaded until you adopt it.', ifOff: '', defaults: 'always' },
   { id: 'rail-browser-url', family: 'rail', scope: 'global', label: 'The browser stays on the open web', protects: 'The browser cannot reach private or reserved addresses.', ifOff: '', defaults: 'always' },
-  { id: 'rail-shell-floor', family: 'rail', scope: 'global', label: 'Commands that wipe a drive are refused', protects: 'Commands that wipe a drive, a system folder or your home folder never run.', ifOff: 'An agent can run commands that wipe a drive, a system folder or your home folder. Commands Legion cannot read will run in Bypass.', defaults: 'always', expert: true },
+  { id: 'rail-shell-floor', family: 'rail', scope: 'global', label: 'Commands that wipe a drive are refused', protects: 'Commands that wipe a drive, a system folder or your home folder never run.', ifOff: '', defaults: 'always' },
 ] as const satisfies readonly GateDef[];
 
 export const GATES: readonly GateDef[] = GATE_LIST;
@@ -66,7 +64,10 @@ export interface GateSettings {
   /** "Limit agents to this": the preset is also a ceiling on every agent in the project (spec 4.2). Absent with a preset means on. */
   limit?: boolean;
   overrides?: Partial<Record<GateId, GateValue>>;
-  shellFloorOff?: boolean;
+  /** Sites agents may read without asking (app file only, at most 200). Adding one is a loosening. */
+  allowedHosts?: string[];
+  /** Environment variable names (or NAME* prefixes) that are not scrubbed from agent commands (app file only, at most 50). Adding one is a loosening. */
+  envKeep?: string[];
   version: 1;
 }
 

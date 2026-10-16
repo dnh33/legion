@@ -99,7 +99,7 @@ async function main() {
   approvals.setPolicy(awayCore.service.policy());
   questions.setPolicy(awayCore.service.policy());
   // gate presets (spec 2026-10-14 goals and gates, part 1: Ask only, so every run keeps its agent's own mode)
-  const gatesCore = createGatesCore({ dataDir: dataDir(), projects });
+  const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: connectorKeyring });
   const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
@@ -145,7 +145,7 @@ async function main() {
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
-  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore });
+  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, ...(nativeSecret ? { nativeSecret } : {}) });
   const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({

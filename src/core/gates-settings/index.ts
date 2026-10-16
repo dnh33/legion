@@ -1,15 +1,20 @@
 /**
  * The gates settings module (spec section 4): the owner's presets per project and for the app, and the one resolver every
  * permission check asks for a run's mode. Routes are admin-only by the gate's default deny (none is a client route).
- * Part 1 accepts only the Ask preset, so the resolver returns exactly the agent's own mode (0.3.0 behavior).
+ * Settings that loosen anything need the app's native confirm (the per-launch native secret) and a key to sign with; without
+ * the key only Ask can be stored, so a core without a keystore behaves exactly as 0.3.0 does.
  */
 import { join } from 'node:path';
 import type { ApprovalMode, LegionEvent } from '../../shared/types.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
+import { NATIVE_HEADER, safeEqual } from '../admin.js';
+import type { ConnectorKeyring } from '../connectors/keyring.js';
 import { effectiveMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
+import { PRESETS } from '../../shared/gates-registry.js';
+import { makeSigner } from './sign.js';
 import { GatesError, GatesStore } from './store.js';
 
 export { GatesStore, GatesError } from './store.js';
@@ -23,11 +28,13 @@ export interface ModeResolver {
 }
 export interface GatesCore { store: GatesStore; resolver: ModeResolver }
 
-/** Part 1: only Ask. Part 2 widens this list and teaches the callers about 'smart'. */
-const PART_ONE_PRESETS = ['ask'] as const;
-
-export function createGatesCore(o: { dataDir: string; projects?: ProjectStore }): GatesCore {
-  const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PART_ONE_PRESETS });
+/**
+ * `keyring` is the connectors' persistent data key (the per-launch secrets change on every start, so they cannot sign files that
+ * must survive a restart). It is read once, here, after the launch pipe installed it. No key: no signer, only Ask can be stored.
+ */
+export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: Pick<ConnectorKeyring, 'get'> }): GatesCore {
+  const signer = makeSigner(o.keyring?.get());
+  const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PRESETS, ...(signer ? { signer } : {}) });
   // An empty list is never a reason to prune: a failed projects.json load must not delete every cap.
   try {
     const ids = o.projects ? o.projects.list().map((p) => p.id) : [];
@@ -52,7 +59,14 @@ export interface GatesModule extends CoreModule { store: GatesStore }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore }): GatesModule {
+/** A change that loosens a gate comes from the Legion app's main process after its own confirmation dialog, never the window and never a token client. */
+export function requireNative(c: Ctx, o: { nativeSecret?: string }): void {
+  if (!o.nativeSecret) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
+  const given = (c.req.headers as Record<string, string | string[] | undefined>)[NATIVE_HEADER];
+  if (typeof given !== 'string' || !safeEqual(given, o.nativeSecret)) throw new HttpError(403, 'native_confirmation_required: a change that loosens a gate comes only from the app after its confirmation dialog');
+}
+
+export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string }): GatesModule {
   const { store } = opts.core;
   const wrap = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof GatesError) throw new HttpError(e.status, e.message); throw e; }
@@ -68,8 +82,19 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
     protectedPaths: () => [store.folder],
     routes: (add) => {
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
-      add('PATCH', '/api/gates/app', (c) => { const r = wrap(() => store.patchApp(body(c))); emit(); return r; });
-      add('PATCH', '/api/gates/projects/:id', (c) => { const id = must(c.params[0]); const r = wrap(() => store.patchProject(id, body(c))); emit(); return r; });
+      add('PATCH', '/api/gates/app', (c) => {
+        const b = body(c);
+        if (store.isLoosening('app', b)) requireNative(c, opts);
+        const r = wrap(() => store.patchApp(b)); emit(); return r;
+      });
+      add('PATCH', '/api/gates/projects/:id', (c) => {
+        const id = must(c.params[0]); const b = body(c);
+        if (store.isLoosening(id, b)) requireNative(c, opts);
+        const r = wrap(() => store.patchProject(id, b)); emit(); return r;
+      });
+      // A file changed outside Legion: Accept applies what is on disk (a loosening, so native only); Keep mine rewrites what the core holds.
+      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); const r = wrap(() => store.accept(c.params[0] ?? '')); emit(); return r; });
+      add('POST', '/api/gates/keep/:name', (c) => { wrap(() => store.keepMine(c.params[0] ?? '')); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
       add('POST', '/api/gates/reload', () => { store.reload(); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
     },
     dispose: async () => { await store.flush(); },
