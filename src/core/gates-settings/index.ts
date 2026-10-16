@@ -95,7 +95,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
       // A file changed outside Legion: Accept applies what is on disk (a loosening, so native only); Keep mine rewrites what the core holds.
       add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); const r = wrap(() => store.accept(c.params[0] ?? '')); emit(); return r; });
       add('POST', '/api/gates/keep/:name', (c) => { wrap(() => store.keepMine(c.params[0] ?? '')); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
-      add('POST', '/api/gates/reload', () => { store.reload(); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
+      add('POST', '/api/gates/reload', () => { wrap(() => store.reload()); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
     },
     dispose: async () => { await store.flush(); },
   };

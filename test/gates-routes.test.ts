@@ -50,7 +50,7 @@ test('settings round-trip, unknown project is 404, bypass is 400 when the core h
     assert.equal((await r.call('PATCH', '/api/gates/projects/proj_00000000beef', { preset: 'ask' })).status, 404);
     const res = await r.native('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'bypass' });
     assert.equal(res.status, 400);
-    assert.match(await res.text(), /keystore key/);
+    assert.match(await res.text(), /keystore/);
   } finally { await r.close(); }
 });
 
@@ -133,7 +133,7 @@ test('tightening needs only the admin token', async () => {
   try {
     assert.equal((await r.native('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'bypass' })).status, 200);
     assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'ask' })).status, 200);
-    assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { preset: null })).status, 200);
+    assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { preset: null })).status, 403, 'removing the cap loosens');
     assert.equal((await r.call('PATCH', '/api/gates/app', { preset: 'ask' })).status, 200);
   } finally { await r.close(); }
 });
@@ -153,7 +153,7 @@ test('with no keystore key only Ask can be set, even with the native header (fai
   try {
     const res = await r.native('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'bypass' });
     assert.equal(res.status, 400);
-    assert.match(await res.text(), /keystore key/);
+    assert.match(await res.text(), /keystore/);
     assert.equal(r.core.store.project(r.pid).preset, undefined);
     assert.equal((await r.call('PATCH', `/api/gates/projects/${r.pid}`, { preset: 'ask' })).status, 200);
     const v = await (await r.call('GET', '/api/gates/settings')).json() as { canSign: boolean };

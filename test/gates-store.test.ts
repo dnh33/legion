@@ -121,14 +121,13 @@ test('a saved change clears the damaged-file mark for that file', () => {
   assert.deepEqual(s.view([P1]).unreadable, []);
 });
 
-test('reload drops unsaved changes, and a later flush does not write them', async () => {
+test('reload saves unsaved changes first, so it never undoes them', async () => {
   const d = dir();
   const s = new GatesStore(d);
   s.patchProject(P1, { preset: 'ask' });
   s.reload();
-  assert.deepEqual(s.project(P1), { version: 1 });
-  await s.flush();
-  assert.equal(existsSync(join(d, `${P1}.json`)), false);
+  assert.deepEqual(s.project(P1), { version: 1, preset: 'ask' });
+  assert.equal(existsSync(join(d, `${P1}.json`)), true);
 });
 
 test('reload reads only files named for a project id', () => {

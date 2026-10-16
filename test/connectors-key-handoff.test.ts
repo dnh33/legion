@@ -71,7 +71,7 @@ test('the key line is accepted in the same chunk, split across chunks, or later 
 
 test('legion-core.ts reads the launch secrets as before, passes only a keyring callback, and the key never goes to a log, env or argv', () => {
   const core = readFileSync(join(repoRoot, 'src/bin/legion-core.ts'), 'utf8');
-  assert.match(core, /await readLaunchSecrets\(process\.env, process\.stdin, \(line\) => \{ connectorKeyring\.installLine\(line\); \}\)/);
+  assert.match(core, /await readLaunchSecrets\(process\.env, process\.stdin, \(line\) => \{ connectorKeyring\.installLine\(line\); gatesKeyring\.installLine\(line\); \}\)/);
   assert.match(core, /const \{ admin: adminSecret, native: nativeSecret \} = /);
   assert.doesNotMatch(core, /connectorKeyring\.get\(\)|process\.env\.\w*KEY/);
   assert.match(core, /createGitHubClient\(\{ tokens: new TokenStore\(join\(dataDir\(\), 'connectors'\), connectorKeyring\)/);
@@ -139,8 +139,8 @@ test('shouldReEncrypt re-wraps the key; a file that does not unwrap is never ove
 
 test('main.ts: the keyless launch line is untouched; the key is a third line only when key.bin unwrapped; safeStorage is read, not created, at launch', () => {
   const main = readFileSync(join(repoRoot, 'src/electron/main.ts'), 'utf8');
-  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/);
-  assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ keyLine\(connectorKey\)\);\n\s*else child\.stdin\?\.end/);
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine\)/);
+  assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ keyLine\(connectorKey\)\);\n\s*else child\.stdin\?\.end/);
   assert.match(main, /const connectorKey = await loadConnectorKey\(dataDir\(\), safeStorage\);/);
   // creation is the first Connect (slice 1b): ensureConnectorKey appears only inside the connector-connect handler, never at launch
   assert.equal((main.match(/ensureConnectorKey\(/g) ?? []).length, 1);
@@ -148,6 +148,6 @@ test('main.ts: the keyless launch line is untouched; the key is a third line onl
   assert.ok(handler.includes('ensureKey: () => ensureConnectorKey(dataDir(), safeStorage)'));
   assert.doesNotMatch(main.slice(main.indexOf('async function spawnCore'), main.indexOf('/** Asks what to do with a foreign core')), /ensureConnectorKey/);
   const spawnBlock = main.slice(main.indexOf('const child = spawn('), main.indexOf('coreProc = child;'));
-  assert.doesNotMatch(spawnBlock, /connectorKey|keyLine/, 'not in argv or env');
+  assert.doesNotMatch(spawnBlock, /connectorKey|keyLine|gatesKey/, 'not in argv or env');
   assert.doesNotMatch(main, /console\.\w+\([^)]*connectorKey/);
 });

@@ -80,7 +80,7 @@ test('a file with a signature field that is not a valid signature is not applied
   assert.deepEqual(t.changedOutside(), [P]);
 });
 
-test('a PR 1 file (Ask or blank, no signature) stays valid and is not flagged', () => {
+test('a PR 1 file (Ask project, blank app, no signature) stays valid and is not flagged', () => {
   const { dir, open } = mk(); open();
   writeFileSync(join(dir, `${P}.json`), JSON.stringify({ version: 1, preset: 'ask' }));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ version: 1 }));
@@ -199,7 +199,7 @@ test('a wrong key does not verify', async () => {
   s.patchProject(P, { preset: 'smart' }); await s.flush();
   const b = new GatesStore(a.dir, { allowed: PRESETS, signer: makeSigner(Buffer.alloc(32, 2))! });
   assert.equal(b.project(P).preset, 'ask');
-  assert.deepEqual(b.changedOutside(), [P]);
+  assert.deepEqual(b.changedOutside().sort(), ['app', P], 'the project file and the app file that lists it');
 });
 
 test('a signature for one name does not verify under another name', async () => {
@@ -243,7 +243,7 @@ test('isLoosening: a tighter change from a looser state is not a loosening', () 
   assert.equal(s.isLoosening(P, { preset: 'ask' }), false);
   assert.equal(s.isLoosening(P, { preset: 'smart' }), false);
   assert.equal(s.isLoosening(P, { preset: 'bypass' }), false, 'no change');
-  assert.equal(s.isLoosening(P, { preset: null }), false);
+  assert.equal(s.isLoosening(P, { preset: null }), true, 'removing a cap is a loosening (fix round 1)');
 });
 
 test('isLoosening compares what a gate would be: dropping an override that held a gate on is a loosening', () => {

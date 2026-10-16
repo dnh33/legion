@@ -68,5 +68,37 @@ export async function ensureConnectorKey(dataDir: string, ss: SafeStorageLike, p
   } catch { return undefined; }
 }
 
+// The gates key: signs the gate settings files. Its own file and its own launch line, so signing never waits for a GitHub Connect.
+export const GATES_KEY_FILE = 'gates-key.bin';
+export const gatesKeyFilePath = (dataDir: string): string => join(dataDir, GATES_KEY_FILE);
+
+/** The gates key as hex, or undefined (no file, keystore unusable, does not unwrap). Never throws. */
+export async function loadGatesKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<string | undefined> {
+  const file = gatesKeyFilePath(dataDir);
+  if (!existsSync(file)) return undefined;
+  try {
+    if (!keystoreUsable(ss, platform) || !(await ss.isAsyncEncryptionAvailable())) return undefined;
+    const r = await ss.decryptStringAsync(readFileSync(file));
+    if (!HEX_KEY.test(r.result)) return undefined;
+    if (r.shouldReEncrypt) writeAtomic(file, await ss.encryptStringAsync(r.result));
+    return r.result;
+  } catch { return undefined; }
+}
+
+/** Makes and wraps the gates key on first need, or returns the existing one. undefined when no usable keystore exists: only Ask can be stored then. */
+export async function ensureGatesKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<string | undefined> {
+  const existing = await loadGatesKey(dataDir, ss, platform);
+  if (existing) return existing;
+  if (existsSync(gatesKeyFilePath(dataDir))) return undefined; // never overwrite a file we cannot unwrap: that would orphan every signed file
+  try {
+    if (!keystoreUsable(ss, platform) || !(await ss.isAsyncEncryptionAvailable())) return undefined;
+    const hex = randomBytes(32).toString('hex');
+    writeAtomic(gatesKeyFilePath(dataDir), await ss.encryptStringAsync(hex));
+    return hex;
+  } catch { return undefined; }
+}
+export const gatesKeyLine = (hex: string): string => `GATESKEY ${hex}
+`;
+
 /** The line written to the core's stdin after the two secrets. */
 export const keyLine = (hex: string): string => `KEY ${hex}\n`;

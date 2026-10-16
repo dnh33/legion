@@ -37,6 +37,7 @@ import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
 import { createAwayCore, createAwayModule } from '../core/away/index.js';
 import { createGatesCore, createGatesModule } from '../core/gates-settings/index.js';
+import { GatesKeyring } from '../core/gates-settings/keyring.js';
 import { agentIdVisible } from '../core/visibility.js';
 import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
 import type { ModuleDeps } from '../core/modules.js';
@@ -68,7 +69,8 @@ async function main() {
   // The second line is the NATIVE secret (main only, never the window): BSV policy changes need it as well.
   // A third line (KEY <hex>, connectors data key, memory only) is accepted from the same pipe; the two secrets are read exactly as before.
   const connectorKeyring = new ConnectorKeyring();
-  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); });
+  const gatesKeyring = new GatesKeyring();
+  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); gatesKeyring.installLine(line); });
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
@@ -98,8 +100,8 @@ async function main() {
   const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects });
   approvals.setPolicy(awayCore.service.policy());
   questions.setPolicy(awayCore.service.policy());
-  // gate presets (spec 2026-10-14 goals and gates, part 1: Ask only, so every run keeps its agent's own mode)
-  const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: connectorKeyring });
+  // gate presets (spec 2026-10-14 goals and gates): signed files, a key of their own (gates-key.bin), no looser preset without the key
+  const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring });
   const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });

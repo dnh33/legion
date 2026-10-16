@@ -13,7 +13,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
-import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
+import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
@@ -172,6 +172,9 @@ async function spawnCore(port: number): Promise<string | null> {
     const native = randomBytes(32).toString('hex');
     // Connectors data key: only read when key.bin already exists (no safeStorage call otherwise); created on the first Connect, not here.
     const connectorKey = await loadConnectorKey(dataDir(), safeStorage);
+    // The gates key signs the gate settings files. It has its own keystore file and launch line, so signing never waits for a GitHub Connect.
+    const gatesKey = await ensureGatesKey(dataDir(), safeStorage);
+    const gatesLine = gatesKey ? gatesKeyLine(gatesKey) : '';
     const child = spawn(launch.cmd, [...heapArgv(), coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
@@ -187,8 +190,8 @@ async function spawnCore(port: number): Promise<string | null> {
     rendererAdmin = undefined;
     child.stdin?.on('error', () => undefined);
     // Without a connectors key this is exactly the old launch line. With one, the key is a third line (the core accepts only KEY <hex>).
-    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + keyLine(connectorKey));
-    else child.stdin?.end(secret + '\n' + native + '\n');
+    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + gatesLine + keyLine(connectorKey));
+    else child.stdin?.end(secret + '\n' + native + '\n' + gatesLine);
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT' || (launch.mode === 'package' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(err.code ?? ''))
