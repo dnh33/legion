@@ -1,7 +1,7 @@
 // test/data-folder-guard.test.ts: a shell command that names Legion's own data folder (gates, key, projects, config, armory, away)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dataFolderHit } from '../src/core/exec/data-folder-guard.js';
+import { dataFolderHit, dataFolderRead } from '../src/core/exec/data-folder-guard.js';
 import { classifySafe } from '../src/shared/consequence.js';
 
 const DATA = 'C:/Users/Fakeuser/AppData/Roaming/legion';
@@ -60,4 +60,35 @@ test('the level decides: the mv and cp probes are level 2, so Smart would not as
   assert.equal(lvl('mv C:/Users/Fakeuser/AppData/Roaming/legion/gates/app.json C:/work/projB/x'), 2);
   assert.equal(lvl('cp C:/work/projB/old.json C:/Users/Fakeuser/AppData/Roaming/legion/gates/app.json'), 2);
   assert.ok(lvl('cat C:/Users/Fakeuser/AppData/Roaming/legion/projects.json') <= 2);
+});
+
+test('N30: a cd then ordinary work is free; the cd does not hide a path that names the data folder', () => {
+  for (const kind of ['sh', 'pwsh'] as const) {
+    assert.equal(hit('cd x; npm run build', kind), 'none', `${kind}: cd x; npm run build`);
+    assert.equal(hit('cd x; rm -rf build', kind), 'none', `${kind}: cd x; rm -rf build`);
+    assert.equal(hit('cd x || exit 1; rm build/a.o', kind), 'none', `${kind}: cd x || ...`);
+  }
+  // a cd that fails leaves the old folder, one that works gives the new one: both are tried
+  assert.equal(hit('cd x; rm ../../../Users/Fakeuser/AppData/Roaming/legion/gates/app.json'), 'names');
+  assert.equal(hit('cd /nonexistent; rm ../../Users/Fakeuser/AppData/Roaming/legion/gates/app.json'), 'names');
+  // a target the guard cannot read leaves no known folder: still hidden
+  assert.equal(hit('cd $WHERE; rm build/a.o'), 'hidden');
+});
+
+test('N30: TMPDIR is a known folder variable', () => {
+  const run = (c: string) => dataFolderHit(c, 'sh', [DATA], { cwd: 'C:/work/projA', env: { ...env, TMPDIR: 'C:\Users\Fakeuser\AppData\Local\Temp' } });
+  assert.equal(run('rm -rf $TMPDIR/x'), 'none');
+  assert.equal(run('rm -rf ${TMPDIR}/x'), 'none');
+});
+
+test('N29: moved is set by a cd the guard cannot prove stays outside; cwdUnknown makes relative write words hidden', () => {
+  const read = (c: string, o: { cwdUnknown?: boolean } = {}) => dataFolderRead(c, 'sh', [DATA], { cwd: 'C:/work/projA', env, ...o });
+  assert.equal(read('cd sub; ls').moved, false, 'a project subfolder is provably outside');
+  assert.equal(read('npm test').moved, false);
+  assert.equal(read('cd C:/Users/Fakeuser/AppData/Roaming/legion').moved, true);
+  assert.equal(read('cd C:/Users/Fakeuser').moved, true, 'a folder above the data folder');
+  assert.equal(read('cd $WHERE').moved, true);
+  assert.equal(read('rm gates/app.json').hit, 'none');
+  assert.equal(read('rm gates/app.json', { cwdUnknown: true }).hit, 'hidden');
+  assert.equal(read('cat gates/app.json', { cwdUnknown: true }).hit, 'none', 'reading stays free');
 });

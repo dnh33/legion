@@ -4,7 +4,7 @@
  *
  * Default deny. The command is read as text, not run:
  * - It is normalised the way the shell reads it: quotes, bash backslash escapes, `$'...'`, the pwsh backtick and the cmd caret;
- *   `~` and the known folder variables (HOME, USERPROFILE, APPDATA, LOCALAPPDATA, TEMP, TMP) from the run's environment.
+ *   `~` and the known folder variables (HOME, USERPROFILE, APPDATA, LOCALAPPDATA, TEMP, TMP, TMPDIR) from the run's environment.
  * - Hidden commands are read too: `$(...)`, backticks, heredoc bodies, `<<<`, and the strings given to iex / Invoke-Expression,
  *   Start-Process -ArgumentList, cmd /c, powershell -Command, bash -c, node -e and python -c.
  * - It is cut into simple commands. Each word, resolved against the working folder it will have (`cd`, `pushd`, `popd`,
@@ -48,7 +48,7 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'cmd', 'powershell', 'pwsh']);
 const SKIP_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', 'sudo', 'time', 'env', 'command', 'exec', 'nohup', 'call', 'start', 'xargs', 'builtin', 'noglob']);
 const MARKERS = /homedir|appdata|userprofile|os\.path|pathlib|join\(|resolve\(|environ|getenv|process\.env|\$env:|\bhome\b/i;
 /** The folder variables read from the run's environment. Any other variable is unknown. */
-const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp'];
+const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp', 'tmpdir'];
 
 const VARS = '(?:HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|CDPATH)';
 /** The line sets a folder variable (or CDPATH): `~`, `$HOME` and `cd` no longer mean what the run's environment says. */
@@ -259,7 +259,7 @@ function globHitsSet(raw: string, canon: readonly string[], cwd: string): boolea
   return false;
 }
 
-interface Ctx { set: readonly string[]; canon: string[]; get: (n: string) => string | undefined; home: string; ids: { ids?: Set<string> }; memo: Map<string, string> }
+interface Ctx { start: string; cwdUnknown: boolean; set: readonly string[]; canon: string[]; get: (n: string) => string | undefined; home: string; ids: { ids?: Set<string> }; memo: Map<string, string> }
 
 const uniq = (a: string[]): string[] => [...new Set(a)].slice(0, 8);
 const merge = (a: Where, b: Where): Where => {
@@ -275,6 +275,8 @@ class Reader {
   redirHidden = false;
   allRead = true;
   unknown = false;
+  /** A `cd` ran that the guard cannot prove ends outside the protected set (the shell may stay there for the next call). */
+  navUnproven = false;
   where: Where;
   private stack: Where[] = [];
   private loops = new Map<string, string[]>();
@@ -301,7 +303,7 @@ class Reader {
     const r = new Reader(this.ctx, this.where, kind, this.depth + 1);
     for (const [k, v] of this.loops) r.loops.set(k, v);
     r.text(text);
-    this.names ||= r.names; this.hidden ||= r.hidden; this.redir ||= r.redir; this.redirHidden ||= r.redirHidden; this.unknown ||= r.unknown;
+    this.names ||= r.names; this.hidden ||= r.hidden; this.redir ||= r.redir; this.redirHidden ||= r.redirHidden; this.unknown ||= r.unknown; this.navUnproven ||= r.navUnproven;
     this.allRead &&= r.allRead;
     if (!subshell && r.where !== this.where) this.where = merge(this.where, r.where);
   }
@@ -376,7 +378,8 @@ class Reader {
       if (h === 'names') return 'names';
       if (h === 'hidden') res = 'hidden';
     }
-    return !rooted && !where.exact ? 'hidden' : res;
+    // every folder the shell may be in was tried above; only an unknown or cut-off set, or a folder kept from an earlier call, leaves a relative word open
+    return !rooted && (this.ctx.cwdUnknown || where.cwds.length >= 8) ? 'hidden' : res;
   }
 
   private at(t: string, cwd: string): FolderHit {
@@ -423,7 +426,18 @@ class Reader {
       const drive = word && /^([a-z]):/i.exec(word);
       if (this.kind === 'cmd' && name === 'cd' && drive && !args.some((a) => /^\/d$/i.test(a)) && before.cwds.some((c) => c[0]?.toLowerCase() !== drive[1]!.toLowerCase())) after = merge(before, after);
     }
-    this.where = sure ? after : after.cwds.length ? merge(before, after) : { cwds: before.cwds, exact: false };
+    // a target the guard cannot read leaves no known folder at all (a relative word after it is unknown)
+    this.where = sure ? after : after.cwds.length ? merge(before, after) : { cwds: [], exact: false };
+    if (this.unknown || !after.cwds.length || after.cwds.length >= 8 || after.cwds.some((c) => !this.provenOutside(c))) this.navUnproven = true;
+  }
+
+  /** The starting folder, or a folder that is not in, not above and not a protected entry: a `cd` there leaves the next call's relative words alone. */
+  private provenOutside(cwd: string): boolean {
+    try {
+      if (P.resolve(cwd).toLowerCase() === P.resolve(this.ctx.start).toLowerCase()) return true;
+      const c = canonicalLocal(cwd, { cwd: this.ctx.start });
+      return !/~\d[\\/]/.test(c) && !hitsCanonical(c, this.ctx.canon, true);
+    } catch { return false; }
   }
 
   private segment(seg: Tok[], next: Op | undefined): void {
@@ -580,11 +594,21 @@ class Reader {
  * @param protectedSet the protected files and folders (`protectedTargets(...)`): one set for the file tools and the shell
  * @param opts.cwd the folder the run's shell starts in (relative paths are read from here)
  */
-export function dataFolderHit(command: string, kind: ShellKindName, protectedSet: readonly string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): FolderHit {
+export function dataFolderHit(command: string, kind: ShellKindName, protectedSet: readonly string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; cwdUnknown?: boolean } = {}): FolderHit {
+  return dataFolderRead(command, kind, protectedSet, opts).hit;
+}
+
+/**
+ * Like `dataFolderHit`, and says whether the line ran a `cd` the guard cannot prove ends outside the protected set (`moved`).
+ * Claude Code's shell keeps its folder between calls, so the engine remembers `moved` for the rest of the run and passes it back as
+ * `opts.cwdUnknown`: a relative word in a command that writes is then unknown (`hidden`).
+ */
+export function dataFolderRead(command: string, kind: ShellKindName, protectedSet: readonly string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; cwdUnknown?: boolean } = {}): { hit: FolderHit; moved: boolean } {
   const home = (() => { try { return homedir(); } catch { return ''; } })();
   const get = lookup(opts.env ?? process.env, home);
-  const ctx: Ctx = { set: protectedSet, canon: canonicalSet(protectedSet), get, home: get('userprofile') ?? home, ids: {}, memo: new Map() };
-  const r = new Reader(ctx, { cwds: [opts.cwd ?? process.cwd()], exact: true }, kind, 0);
+  const start = opts.cwd ?? process.cwd();
+  const ctx: Ctx = { start, cwdUnknown: opts.cwdUnknown === true, set: protectedSet, canon: canonicalSet(protectedSet), get, home: get('userprofile') ?? home, ids: {}, memo: new Map() };
+  const r = new Reader(ctx, { cwds: [start], exact: true }, kind, 0);
   r.text(command);
-  return r.result();
+  return { hit: r.result(), moved: r.navUnproven };
 }

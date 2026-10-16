@@ -62,3 +62,17 @@ test('Bypass: no extra card (the one mode the owner chose to leave open)', async
   const out = await viaHook('full', [['Bash', `mv ${fwd}/gates/app.json x`], ['Bash', `rm ${fwd}/gates/app.json`]]);
   for (const o of out) { assert.equal(o.card, false, o.command); assert.equal(o.decision, undefined); }
 });
+
+test('N29: Claude Code keeps its folder between shell calls: an unproven cd marks the rest of the run', async () => {
+  for (const mode of ['ask', 'auto-edits'] as const) {
+    // call 1 moves into the data folder (a read, free); call 2 is a relative write that means the data folder
+    const out = await viaHook(mode, [['Bash', `cd ${fwd}`], ['Bash', 'rm gates/app.json'], ['PowerShell', 'Remove-Item gates\app.json']]);
+    assert.equal(out[0]!.card, false, `${mode}: the cd itself only reads`);
+    for (const o of out.slice(1)) { assert.equal(o.card, true, `${mode}: ${o.command}`); assert.equal(o.noRemember, true, `${mode}: no Remember: ${o.command}`); }
+  }
+});
+
+test('N29: a run that only did cd into a folder outside the protected set keeps ordinary work free', async () => {
+  const out = await viaHook('ask', [['Bash', 'cd C:/work/projB/sub'], ['Bash', 'rm build/x'], ['Bash', 'mv a.txt b.txt']]);
+  for (const o of out) assert.equal(o.card, false, o.command);
+});

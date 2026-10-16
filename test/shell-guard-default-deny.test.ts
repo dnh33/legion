@@ -74,11 +74,13 @@ test('N26: a cd that can fail or does not last leaves the folder unknown; Push-L
     ['sh', 'cd /nonexistent; rm ../../gates/app.json'], ['sh', 'cd /nonexistent || rm ../../gates/app.json'], ['sh', '(cd /tmp && true); rm ../../gates/app.json'],
     ['sh', 'cd ../.. & rm gates/app.json'], ['pwsh', 'Push-Location ../..; Remove-Item gates/app.json'], ['pwsh', 'Set-Location C:\\nonexistent; Remove-Item ..\\..\\gates\\app.json'],
     ['cmd', 'cd /d C:\\nonexistent & del ..\\..\\gates\\app.json'], ['pwsh', 'cd ../..; Pop-Location; ri gates/app.json'], ['sh', `CDPATH=${D} cd gates && rm app.json`],
-    ['sh', 'cd /nonexistent; cp a b'], ['pwsh', 'Push-Location ../.. && Remove-Item gates/app.json'],
+    ['sh', 'cd $WHERE; cp a b'], ['pwsh', 'Push-Location ../.. && Remove-Item gates/app.json'],
   ]);
   // a subshell's cd does not leak: back in the workspace, gates/app.json is the workspace's own file
   assert.equal(hit('(cd ../..); rm gates/app.json'), 'none');
-  assert.equal(hit('(cd ../..) && Pop-Location && rm x', 'pwsh'), 'hidden', 'pwsh parentheses do not restore the folder');
+  // both folders were tried and neither names a protected path: a cd that may fail is no reason to ask
+  assert.equal(hit('cd /nonexistent; cp a b'), 'none');
+  assert.equal(hit('(cd ../..) && Pop-Location && rm gates/app.json', 'pwsh'), 'names', 'pwsh parentheses do not restore the folder');
 });
 
 test('N16b: an admin share through any address of this computer is local', opts, () => {

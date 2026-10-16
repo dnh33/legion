@@ -23,7 +23,7 @@ import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
-import { dataFolderHit } from './exec/data-folder-guard.js';
+import { dataFolderRead } from './exec/data-folder-guard.js';
 import { isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
@@ -326,6 +326,8 @@ interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
+  /** Claude Code's shell keeps its folder between calls: set once a call ran a `cd` the data-folder guard could not prove stays outside the protected set. */
+  shellMoved?: boolean;
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
   projectAtStart?: string;
   /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
@@ -1462,7 +1464,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const mode = this.modeNow(job, agent);
     if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') return undefined;
     let hit: 'none' | 'names' | 'hidden';
-    try { hit = dataFolderHit(command, kind, folders, { cwd: this.gateCwd(agent, toolName, input) }); } catch { hit = 'hidden'; }
+    // Legion's own host shell takes a folder per call; Claude's Bash and PowerShell keep theirs from call to call
+    const keeps = !toolName.startsWith('mcp__host__');
+    const act = this.active.get(job.taskId);
+    try {
+      const r = dataFolderRead(command, kind, folders, { cwd: this.gateCwd(agent, toolName, input), cwdUnknown: keeps && act?.shellMoved === true });
+      hit = r.hit;
+      if (keeps && r.moved && act) act.shellMoved = true;
+    } catch { hit = 'hidden'; if (keeps && act) act.shellMoved = true; }
     if (hit === 'none') return undefined;
     const o = job.origin;
     let timedOut = false; let waited: number | undefined;
