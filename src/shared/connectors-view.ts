@@ -30,8 +30,8 @@ export interface GithubConnectionView {
  * same user read, including the token store, so Legion cannot promise the token stays out of its reach. A Claude agent always has Bash;
  * an agent on another provider has a shell only when its VM is on (vm_exec). Returns undefined when there is nothing to warn about.
  */
-export function connectorsShellWarning(o: { connectors: boolean; approval: string; onProvider: boolean; vmOn: boolean }): string | undefined {
-  if (!o.connectors || o.approval !== 'full') return undefined;
+export function connectorsShellWarning(o: { connectors: boolean; approval: string; /** The mode the agent's runs are judged by (project preset, ceiling) where the caller knows it; else the stored mode decides. */ resolved?: string; onProvider: boolean; vmOn: boolean }): string | undefined {
+  if (!o.connectors || (o.resolved ?? o.approval) !== 'full') return undefined;
   const shell = !o.onProvider || o.vmOn;
   if (!shell) return undefined;
   return 'This agent can run shell commands and never asks. A shell runs as you, so it can read files Legion keeps on your computer, including the encrypted GitHub sign-in and the key that opens it. Legion does not hand tokens to agents, but it cannot stop code running as you from reading them. Use "Ask before Bash" for an agent that reads GitHub.';

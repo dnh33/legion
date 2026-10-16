@@ -42,6 +42,8 @@ const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permiss
 const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
 /** "Per agent" (no preset) is the 0.3.0 behavior, which ranks the same as Ask for this comparison. */
 const rank = (p: Preset | undefined): number => (p ? RANK[p] : 0);
+/** Accept edits and Smart are not ordered: each waves through something the other asks about, so a switch either way is a loosening. */
+const unordered = (a: Preset | undefined, b: Preset | undefined): boolean => (a === 'smart' && b === 'accept-edits') || (a === 'accept-edits' && b === 'smart');
 export type GatesKeyState = 'new' | 'old' | 'lost' | 'unreadable';
 const UNREADABLE_MESSAGE = "Legion's gate key exists but could not be opened (the keystore may be locked or damaged). Every project is Ask until it opens again.";
 const LOST_MESSAGE = "Legion's gate settings are missing or were changed. Every project is Ask until you choose. Choose Keep mine to set every project to Ask, then change what you want.";
@@ -114,11 +116,13 @@ function parseEnvKeep(v: unknown): string[] {
  * what every permission gate would be, and any approved site or kept variable that is new.
  */
 function looserThan(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings): boolean {
-  if (rank(next.preset) > rank(before.preset)) return true;
+  if (rank(next.preset) > rank(before.preset) || unordered(before.preset, next.preset)) return true;
   if (next.limit === false && before.limit !== false) return true;
   // No cap at all (a project with no preset, or with its limit off) is looser than any cap, Bypass included.
   const cap = (x: GateSettings): number => (x.preset && x.limit !== false ? RANK[x.preset] : 4);
   if (!isApp && cap(next) > cap(before)) return true;
+  const capPreset = (x: GateSettings): Preset | undefined => (x.limit !== false ? x.preset : undefined);
+  if (!isApp && unordered(capPreset(before), capPreset(next))) return true;
   const ctxOf = (x: GateSettings) => (isApp ? { app: x } : { project: x, app: appCtx });
   for (const id of PERMISSION_IDS) if (valueLooser(gateValue(id, ctxOf(before)), gateValue(id, ctxOf(next)))) return true;
   const added = (a: string[] | undefined, b: string[] | undefined): boolean => (b ?? []).some((x) => !(a ?? []).includes(x));

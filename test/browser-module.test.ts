@@ -33,7 +33,7 @@ const until = async (cond: () => boolean, ms = 5000): Promise<boolean> => { cons
 const fsOf = (files: string[], dirs: Record<string, string[]> = {}): ChromiumIo => ({ exists: (p) => files.includes(p), readDir: (p) => dirs[p] ?? [] });
 const EDGE_IO = fsOf([EDGE], { [EDGE_DIR]: ['120.0.2210.91', 'msedge.exe'] });
 
-function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?: string | null; io?: ChromiumIo; platform?: NodeJS.Platform; checkProbe?: string } = {}) {
+function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?: string | null; io?: ChromiumIo; platform?: NodeJS.Platform; checkProbe?: string; engine?: unknown } = {}) {
   const dataDir = cleanupTemp('br-mod-');
   const reportBase = join(dataDir, 'report');
   const pages = join(dataDir, 'pages.json');
@@ -45,7 +45,7 @@ function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?:
   const base = createLaunchPorts();
   const reports: string[] = [];
   const launchPorts: LaunchPorts = { ...base, proc: { spawn(req) { const rep = `${reportBase}-${reports.length + 1}.json`; reports.push(rep); return base.proc.spawn({ ...req, file: process.execPath, prefixArgs: [FAKE_CHR, rep, o.mode ?? 'ok', pages] }); }, kill: base.proc.kill } };
-  const deps = { config: { authToken: 'tok-12345678' }, bus, approvals, dataDir } as unknown as ModuleDeps;
+  const deps = { config: { authToken: 'tok-12345678' }, bus, approvals, dataDir, ...(o.engine ? { engine: o.engine } : {}) } as unknown as ModuleDeps;
   const mod = createBrowserModule(deps, { launchPorts, resolve: DNS, limits: o.limits, platform: o.platform ?? 'win32', hostEnv: WINENV, chromiumIo: o.io ?? EDGE_IO, ...(o.checkProbe ? { checkProbe: o.checkProbe } : {}), ...(o.nativeSecret === null ? {} : { nativeSecret: o.nativeSecret ?? NATIVE }) });
   const routes = new Map<string, Handler>();
   mod.routes!((m, p, h) => { routes.set(`${m} ${p}`, h); });
@@ -152,6 +152,16 @@ test('detection and the plain status line: Edge found with the version read from
   await r.call('POST /api/browser/config', { chromiumPath: 'D:\\Gone\\chrome.exe' }, { 'x-legion-native': NATIVE });
   s = await status(r);
   assert.equal(s.browser, null); assert.match(s.note, /you chose \(D:\\Gone\\chrome\.exe\) was not found/); assert.deepEqual(s.tried, ['D:\\Gone\\chrome.exe']);
+});
+
+test('N4: when the resolver throws, the browser reads a stored-Full agent as Ask: the first page raises a card', async () => {
+  const r = rig({ engine: { runModeOf: () => { throw new Error('resolver down'); } } });
+  await r.call('POST /api/browser/config', { enabled: true });
+  const t = await tools(r);
+  try {
+    await t.call('browser_open', { url: 'https://a.test/' });
+    assert.ok(r.cards.length >= 1, 'a throwing resolver must not leave the stored Full in charge');
+  } finally { await t.client.close(); }
 });
 
 test('E8: a full run (fake Edge on Windows paths): the result names the browser, a card shows the first page, the run is tainted, the last run is recorded, and the process stops when the run ends', async () => {

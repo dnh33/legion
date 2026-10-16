@@ -12,6 +12,7 @@ import { renderCapabilities } from '../src/core/agent-facts.js';
 import { stricterMode, effectiveMode } from '../src/core/permission-mode.js';
 import type { RunMode } from '../src/core/permission-mode.js';
 import { buildCommsToolsServer } from '../src/core/comms/tools.js';
+import { createCommsModule } from '../src/core/comms/index.js';
 import { makeHarness } from './comms-fakes.test.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -263,6 +264,20 @@ test('C2b: room_post and handoff from an Ask-capped project run carry the cap to
   assert.equal(h.engine.last('c').origin!.approvalCeiling, 'ask');
   await client.close();
 });
+test('N4: when the resolver throws, the comms module wakes a bot with an Ask ceiling, not the stored Full', async () => {
+  const h = makeHarness({ agents: [['a', 'Alpha', 'full'], ['b', 'Beta', 'full']] });
+  const engine = Object.assign(h.engine, { runModeOf: (): RunMode => { throw new Error('resolver down'); } });
+  const mod = createCommsModule({ engine: engine as never, store: h.store as never, bus: h.bus, config: {} as never, approvals: {} as never, dataDir: h.dir, bsvEnabled: () => false });
+  try {
+    const server = mod.mcpServers!(h.agents.get('a')!, { taint: () => false, taskId: 't1' } as never).legion_comms as never as { instance: { connect(t: unknown): Promise<void> } };
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0' });
+    await Promise.all([server.instance.connect(b), client.connect(a)]);
+    await client.callTool({ name: 'bot_send', arguments: { to: 'b', text: 'do the deploy' } });
+    assert.equal(h.engine.last('b').origin!.approvalCeiling, 'ask');
+    await client.close();
+  } finally { mod.dispose?.(); }
+});
 test('hub: a Smart sender wakes a bot with a Smart ceiling, not Accept edits', () => {
   const h = makeHarness({ agents: [['a', 'Alpha', 'full'], ['b', 'Beta', 'full']], hub: { runModeOf: () => 'smart' } });
   h.hub.botSend('a', 'b', 'hello there');
@@ -295,6 +310,29 @@ test('the board guard asks the resolver for THIS task: a full agent in an Ask-ca
     await c.close();
   }
   assert.ok(asked.includes('capped') && asked.includes('free'), `the guard named the task: ${JSON.stringify(asked)}`);
+});
+
+test('N4: when the resolver throws, the board guard cards a stored-Full agent (it reads as Ask)', async () => {
+  const root = tempDir('legion-mr-board-throw-');
+  const projects = new ProjectStore(join(root, 'data'), join(root, 'ws'));
+  let now = 0;
+  const board = new BoardStore(join(root, 'data', 'board'), () => now);
+  const P = projects.setMembers(projects.create({ name: 'P' }).id, ['scout']);
+  board.setLeader(P, 'scout');
+  const asks: unknown[][] = [];
+  const engine = { runModeOf: (): RunMode => { throw new Error('resolver down'); } };
+  const approvals = { request: async (...a: unknown[]) => { asks.push(a); return false; } };
+  const mod = createBoardModule({ config: {} as never, store: {} as never, bus: new EventBus(), engine: engine as never, approvals: approvals as never, dataDir: root, bsvEnabled: () => false }, { projects, board });
+  now += 60 * 60_000;
+  const item = board.create(P, { title: 'x' });
+  const cfg = mod.mcpServers!({ id: 'scout', name: 'scout', approval: 'full' } as never, { taskId: 't1', taint: () => false, projectId: P.id } as never).legion_board as never as { instance: { connect(t: unknown): Promise<void> } };
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await cfg.instance.connect(b);
+  const c = new Client({ name: 't', version: '0' });
+  await c.connect(a);
+  await c.callTool({ name: 'delete', arguments: { id: item.id } });
+  assert.equal(asks.length, 1, 'a throwing resolver reads as Ask, not as the stored Full');
+  await c.close();
 });
 
 test('agent facts say smart in the run mode, with what smart still asks for', () => {

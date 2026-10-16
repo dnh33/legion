@@ -34,6 +34,16 @@ export function stricterMode<A extends RunMode, B extends RunMode>(a: A, b: B): 
 }
 const stricter = (a: RunMode, b: RunMode): RunMode => stricterMode(a, b);
 
+/**
+ * The resolver's answer for a module guard. No resolver (a core built without an engine) gives undefined, so the module uses the stored
+ * mode as in 0.3.0. A resolver that THROWS reads as Ask: the stored mode may be Full while a project or ceiling caps the run, and a failed
+ * lookup must never hand that Full back.
+ */
+export function resolverMode(engine: { runModeOf?(agentId: string, taskId?: string): RunMode | undefined } | undefined, agentId: string, taskId?: string): RunMode | undefined {
+  if (!engine?.runModeOf) return undefined;
+  try { return engine.runModeOf(agentId, taskId); } catch { return 'ask'; }
+}
+
 export function presetMode(p: Preset): RunMode {
   switch (p) {
     case 'ask': return 'ask';

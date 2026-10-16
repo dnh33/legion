@@ -128,6 +128,21 @@ test('a loosening needs the native header: admin alone gets 403 and nothing chan
   } finally { await r.close(); }
 });
 
+test('N1: Smart and Accept edits are not ordered: a switch either way, for the app, a project preset and a project cap, needs the native header', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    for (const [path, read, extra] of [['/api/gates/app', () => r.core.store.app(), {}], [`/api/gates/projects/${r.pid}`, () => r.core.store.project(r.pid), { limit: true }]] as const) {
+      for (const [from, to] of [['smart', 'accept-edits'], ['accept-edits', 'smart']] as const) {
+        assert.equal((await r.native('PATCH', path, { preset: from, ...extra })).status, 200, `${path} set to ${from}`);
+        assert.equal((await r.call('PATCH', path, { preset: to })).status, 403, `${path}: ${from} to ${to} with admin only`);
+        assert.equal(read().preset, from, 'nothing changed');
+        assert.equal((await r.native('PATCH', path, { preset: to })).status, 200, `${path}: ${from} to ${to} with the native header`);
+        assert.equal(read().preset, to);
+      }
+    }
+  } finally { await r.close(); }
+});
+
 test('tightening needs only the admin token', async () => {
   const r = await boot({ keyed: true, nativeSecret: NATIVE });
   try {
