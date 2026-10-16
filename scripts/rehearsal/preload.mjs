@@ -8,8 +8,8 @@
 //   3. optional, REHEARSAL_DELAY_FILE holding "<version>:<ms>": the core of that version (and only that one) waits <ms> before it
 //      starts, so the slow first start of a freshly swapped-in build can be rehearsed.
 //   2. when the updater's trust module loads, the PEM of the baked key is swapped for the throwaway one.
-import { registerHooks } from 'node:module';
-import { existsSync, readFileSync } from 'node:fs';
+import { registerHooks, syncBuiltinESMExports } from 'node:module';
+import fs, { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const port = process.env.REHEARSAL_PORT;
@@ -23,6 +23,25 @@ if (port && pemFile) {
     let have = '';
     try { have = JSON.parse(readFileSync(join(dirname(entry), '..', '..', '..', 'package.json'), 'utf8')).version; } catch { /* not an install tree */ }
     if (want === have && Number(ms) > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(ms));
+  }
+  // 4. optional, REHEARSAL_HOLD_FILE holding "<ms>" (at most 15000): in the swap helper only, the write that asks the update window to hand the
+  //    lock over waits <ms> first, so a reopen during the swap can be rehearsed (a real swap on the runner is over in milliseconds).
+  const holdFile = process.env.REHEARSAL_HOLD_FILE;
+  if (holdFile && existsSync(holdFile) && /[\\/]\.update[\\/]run[\\/]apply\.mjs$/.test(entry)) {
+    const ms = Number(readFileSync(holdFile, 'utf8').trim());
+    if (Number.isInteger(ms) && ms > 0 && ms <= 15000) {
+      const realAppend = fs.appendFileSync;
+      let held = false;
+      fs.appendFileSync = (p, data, ...rest) => {
+        if (!held && /[\\/]commands\.jsonl$/.test(String(p)) && String(data).includes('"release-lock"')) {
+          held = true;
+          try { realAppend(join(dirname(String(p)), '..', '..', 'apply.log'), `[${new Date().toISOString()}] rehearsal: holding ${ms} ms before the hand-over\n`); } catch { /* best effort */ }
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+        }
+        return realAppend(p, data, ...rest);
+      };
+      syncBuiltinESMExports();
+    }
   }
   const HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
   const realFetch = globalThis.fetch;

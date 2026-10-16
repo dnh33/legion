@@ -13,11 +13,13 @@ export interface UpdateBadgeStatus {
   progress?: { bytes: number; total: number } | null;
   staged?: { version: string; kind?: 'code' | 'full' } | null;
   settings?: { autoInstallWhenIdle?: boolean } | null;
+  /** Set once, right after an update landed and until it is dismissed (GET /api/update/status `updated`). */
+  updated?: { version: string; id: string } | null;
   busy?: { idle?: boolean; reasons?: string[] } | null;
 }
 
-export type UpdateBadgeKind = 'none' | 'available' | 'downloading' | 'ready' | 'installing' | 'approval';
-export type UpdateBadgeTone = 'accent' | 'progress' | 'ready' | 'busy';
+export type UpdateBadgeKind = 'none' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'approval' | 'updated';
+export type UpdateBadgeTone = 'accent' | 'progress' | 'ready' | 'busy' | 'done';
 
 /** Everything the badge renders from. `visible: false` means render nothing at all. */
 export interface UpdateBadgeState {
@@ -34,6 +36,8 @@ export interface UpdateBadgeState {
   title: string;
   /** What a click does. 'settings' opens Settings -> About, where the update panel lives. */
   action: 'settings' | 'none';
+  /** For kind 'updated': the version and update id the notice is about (the component acknowledges the id when it is dismissed). */
+  updated?: { version: string; id: string };
 }
 
 /** Percent of the download that has arrived, 0..100, or null before a byte count exists. */
@@ -46,6 +50,8 @@ export function downloadPct(p?: { bytes: number; total: number } | null): number
 export function installsWhenIdle(s: UpdateBadgeStatus): boolean {
   return s.settings?.autoInstallWhenIdle === true && s.busy?.idle !== false;
 }
+
+const fmtBytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 
 const NONE: UpdateBadgeState = { visible: false, kind: 'none', label: '', detail: '', pct: null, tone: 'accent', title: '', action: 'none' };
 
@@ -60,17 +66,25 @@ export function pureBadgeState(s: UpdateBadgeStatus): UpdateBadgeState {
   // Installing cannot be acted on and cannot be missed: it is the loudest state and it wins outright.
   if (phase === 'committing') {
     return {
-      visible: true, kind: 'installing', label: 'Installing update…', detail: '', pct: null, tone: 'busy',
-      title: 'Legion is installing the update and will restart. Click to open the update panel.', action: 'settings',
+      visible: true, kind: 'installing', label: 'Closing Legion', detail: '', pct: null, tone: 'busy',
+      title: 'Legion is closing to install the update. A window shows each step until the new version is running.', action: 'settings',
     };
   }
 
   if (phase === 'downloading') {
     const pct = downloadPct(s.progress);
+    // step 3: once every byte is in, the signature and hash checks run before the update counts as ready
+    if (pct === 100) {
+      return {
+        visible: true, kind: 'verifying', label: 'Verifying the signature', detail: '', pct: 100, tone: 'progress',
+        title: 'The update has downloaded. Legion is checking its signature before it offers to install. Click to open the update panel.', action: 'settings',
+      };
+    }
+    const bytes = s.progress && s.progress.total > 0 ? ` (${fmtBytes(s.progress.bytes)} of ${fmtBytes(s.progress.total)})` : '';
     return {
-      visible: true, kind: 'downloading', label: 'Downloading update', detail: pct === null ? 'starting…' : `${pct}%`,
+      visible: true, kind: 'downloading', label: 'Downloading', detail: pct === null ? 'starting…' : `${pct}%`,
       pct, tone: 'progress',
-      title: pct === null ? 'Downloading the update in the background.' : `Downloading the update: ${pct}%. Click to open the update panel.`,
+      title: pct === null ? 'Downloading the update in the background.' : `Downloading the update: ${pct}%${bytes}. Click to open the update panel.`,
       action: 'settings',
     };
   }
@@ -90,6 +104,14 @@ export function pureBadgeState(s: UpdateBadgeStatus): UpdateBadgeState {
     return {
       visible: true, kind: 'approval', label: 'Update waiting', detail: 'your answer', pct: null, tone: 'accent',
       title: 'Legion is waiting for your answer on the update card. Click to open it.', action: 'settings',
+    };
+  }
+
+  // step 10, seen from the new build: the update landed. Quiet, once, and below anything that is still under way.
+  if (s.updated) {
+    return {
+      visible: true, kind: 'updated', label: `Updated to ${s.updated.version}`, detail: 'What\'s new', pct: null, tone: 'done',
+      title: `Legion updated to ${s.updated.version}.`, action: 'none', updated: s.updated,
     };
   }
 

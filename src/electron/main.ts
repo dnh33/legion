@@ -24,6 +24,11 @@ import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
 
+// Legion's main must never run as the "Updating Legion" window: the window is started by the update helper, and a runtime that ignores
+// the window's entry would boot a second Legion in the middle of the swap. Write nothing, take no lock, touch no path.
+// process.exit, not app.exit: app.exit returns and the rest of this module (the lock, the paths) would still run.
+if (process.env.LEGION_UPDATE_WINDOW === '1') process.exit(0);
+
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
 const coreEntry = resolve(here, '..', 'bin', 'legion-core.js');
@@ -674,12 +679,12 @@ if (instance.quit) {
   void app.whenReady().then(async () => {
     // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
     if ((await holdStartIfUpdating(root, dataDir(), updateHandoff)) === 'exit') { quitting = true; app.exit(0); return; }
-    await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
+    await recoverAtStart(root, dataDir()); // finish or undo an update that was cut off, before the core starts
     logStartOutcome(root, dataDir()); // after recovery, so a rollback it just wrote is logged too
     await boot();
-    if (coreBooted) void confirmAfterBoot(root, () => getHealth((pinned ?? readConfig()).port));
+    if (coreBooted) void confirmAfterBoot(root, dataDir(), () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
-    const updaterHost = { installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
+    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
     initUpdater(updaterHost);
     if (coreBooted) void showOutcomeNotice(updaterHost, dataDir()); // an update that did not finish says so once, with Retry and Dismiss
   });

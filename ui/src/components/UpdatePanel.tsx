@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import { errText } from '../store';
+import { journeyRows, journeySummary, type JourneyViewLike } from '../updateJourneyView';
 import '../styles/update.css';
 
 /** GET /api/update/status (admin only). Mirrors src/core/updater/index.ts UpdateStatus. */
 interface UpdateStatus {
   mode: 'apply' | 'checkout' | 'unwritable' | 'unsupported'; keyConfigured: boolean; installed: { version: string };
-  settings: { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number };
+  settings: { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number; updateWindow: boolean };
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
   available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; canFullInstall?: boolean };
   phase: 'idle' | 'checking' | 'awaiting-approval' | 'downloading' | 'staged' | 'committing';
@@ -16,10 +17,13 @@ interface UpdateStatus {
   stopped?: { tasks: Array<{ id: string; agentId: string }> };
   /** Versions held back after a rolled-back first start, and when each may be retried. */
   blocked?: Array<{ version: string; at?: string; retryAfter?: string }>;
+  /** The newest update journey (steps, times, result): Settings, About shows it. */
+  journey?: JourneyViewLike;
 }
 type Bridge = { updateRestartNow?: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean }> };
 const bridge = (): Bridge => (window as unknown as { legion?: Bridge }).legion ?? {};
 
+export const UPDATE_WINDOW_TEXT = 'Show the Updating Legion window while an update installs, with every step from closing Legion to the new version running. Turn it off to see only a short notice.';
 export const AUTO_INSTALL_TEXT = 'Install updates automatically when idle. Legion will download a new release without asking again and restart itself when no task or approval is running. Off by default.';
 const mb = (n: number) => `${Math.max(1, Math.round(n / 1e6))} MB`;
 /** Bytes as a person reads them. The download total is the route-aware `size`, so this line and the card agree. */
@@ -39,13 +43,34 @@ function Progress({ p }: { p?: { bytes: number; total: number } }) {
   const total = p?.total ?? 0;
   const got = p?.bytes ?? 0;
   const pct = total > 0 ? Math.min(100, Math.round((got / total) * 100)) : null;
-  const label = p
-    ? (pct !== null ? `Downloading and checking… ${fmtBytes(got)} of ${fmtBytes(total)} (${pct}%)` : `Downloading and checking… ${fmtBytes(got)}`)
-    : 'Downloading and checking…';
+  // step 2 while bytes arrive, step 3 once they are all in
+  const verifying = pct === 100;
+  const label = verifying ? 'Verifying the signature…'
+    : p ? (pct !== null ? `Downloading… ${fmtBytes(got)} of ${fmtBytes(total)} (${pct}%)` : `Downloading… ${fmtBytes(got)}`)
+    : 'Downloading…';
   return (
     <div className="upd-progress" role="progressbar" aria-label="Downloading update" aria-valuemin={0} aria-valuemax={100} {...(pct !== null ? { 'aria-valuenow': pct } : {})}>
       <div className="upd-bar"><span style={{ width: `${pct ?? 0}%` }} /></div>
       <span className="upd-muted">{label}</span>
+    </div>
+  );
+}
+
+/** The last update's journey: every step with its state and time, and how it ended. Plain text only. */
+function JourneyList({ v }: { v: JourneyViewLike }) {
+  const rows = journeyRows(v);
+  return (
+    <div className="upd-journey">
+      <p className={v.result === 'failed' || v.result === 'rolled-back' ? 'upd-warn' : 'upd-muted'}>{journeySummary(v)}</p>
+      <ol aria-label="Steps of the last update">
+        {rows.map((r) => (
+          <li key={r.id} className={`upd-step upd-step-${r.state}`}>
+            <i className="upd-step-mark" aria-hidden="true" />
+            <span>{r.label}</span>
+            <span className="upd-step-when">{r.when}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -118,7 +143,7 @@ export function UpdatePanel() {
             <div className="upd-actions"><button type="button" className="btn primary" disabled={busy} onClick={() => void installNow()}>Download update</button></div>
           )}
           {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer on the update card.</p>}
-          {st.phase === 'committing' && <p className="upd-muted" role="status">Installing the update. Legion restarts to finish{'…'}</p>}
+          {st.phase === 'committing' && <p className="upd-muted" role="status">Closing Legion to install the update. Legion restarts to finish, and a window shows each step{'…'}</p>}
           {st.phase === 'downloading' && <Progress p={st.progress} />}
           {st.staged && (
             <div className="upd-ready">
@@ -133,6 +158,7 @@ export function UpdatePanel() {
           )}
         </div>
       )}
+      {st.journey && <JourneyList v={st.journey} />}
       {st.blocked && st.blocked.length > 0 && (
         <div className="upd-card">
           {st.blocked.map((b) => (
@@ -156,6 +182,7 @@ export function UpdatePanel() {
       {st.error && <p className="upd-err" role="alert">{st.error}</p>}
       {err && <p className="upd-err" role="alert">{err}</p>}
       <label className="set-check"><input type="checkbox" checked={st.settings.checkEnabled} disabled={busy} onChange={(e) => void patch({ checkEnabled: e.target.checked })} /> <span>Check for updates on launch and every {st.settings.intervalHours} hours (one request to github.com; nothing else is sent)</span></label>
+      <label className="set-check"><input type="checkbox" checked={st.settings.updateWindow} disabled={busy} onChange={(e) => void patch({ updateWindow: e.target.checked })} /> <span>{UPDATE_WINDOW_TEXT}</span></label>
       <label className="set-check"><input type="checkbox" checked={st.settings.autoInstallWhenIdle} disabled={busy || st.mode !== 'apply'} onChange={(e) => { if (!e.target.checked || window.confirm(AUTO_INSTALL_TEXT)) void patch({ autoInstallWhenIdle: e.target.checked }); }} /> <span>{AUTO_INSTALL_TEXT}</span></label>
     </div>
   );

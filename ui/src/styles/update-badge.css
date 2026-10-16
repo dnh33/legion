@@ -13,6 +13,16 @@
 .upd-badge.tone-accent { border-color: var(--accent-line); }
 .upd-badge.tone-accent .upd-badge-dot { background: var(--accent); }
 .upd-badge.tone-ready .upd-badge-dot { background: var(--warn); }
+/* an update that landed is good news: the mint of live and done work, never the amber of "needs you" */
+.upd-badge.tone-done .upd-badge-dot { background: var(--accent); }
 .upd-badge.tone-progress .upd-badge-dot,
 .upd-badge.tone-busy .upd-badge-dot { background: var(--muted); }
 /* downloading or working is ordinary activity: neutral and steady. Amber is only "ready, needs your restart". */
+
+/* "Updated to X": quiet, once. The link and the dismiss button are plain controls inside the pill. */
+.upd-badge-updated { gap: 8px; padding-right: 4px; }
+.upd-badge-link { color: var(--accent); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.upd-badge-link:hover { color: var(--text); }
+.upd-badge-x { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 9px; border: 0; background: transparent; color: var(--muted); }
+.upd-badge-x:hover { background: var(--surface-2); color: var(--text); }
+:root[data-kbd-nav] .upd-badge-x:focus-visible, :root[data-kbd-nav] .upd-badge-link:focus-visible { background: var(--surface-2); color: var(--text); outline: none; }

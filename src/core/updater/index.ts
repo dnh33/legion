@@ -12,6 +12,8 @@ import { safeEqual, NATIVE_HEADER } from '../admin.js';
 import type { CoreModule, ModuleDeps, RouteAdder } from '../modules.js';
 import { HttpError } from '../server.js';
 import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome } from './apply.js';
+import { newUpdateId, type JourneyStepId, type JourneyView } from './journey.js';
+import { readLastJourney, recordStep, type StepExtra } from './journey-io.js';
 import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifest2Url, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sig2Url, sigUrl, type UpdateSource } from './config.js';
 import { planRelease } from './deps-change.js';
 import { isUpdateInProgress, type MarkerDeps } from './update-marker.js';
@@ -55,6 +57,10 @@ export interface UpdateStatus {
   outcome?: Outcome; stopped?: { tasks: Array<{ id: string; agentId: string }>; at?: string };
   /** Versions held back after a rolled-back first start, and when each may be retried. Empty when none. */
   blocked?: Array<{ version: string; at?: string; retryAfter?: string }>;
+  /** The newest update journey: every step with its state and time, and the result. Settings, About shows it. */
+  journey?: JourneyView;
+  /** Set once, right after an update landed: the new build is running and the owner has not dismissed the notice. */
+  updated?: { version: string; id: string };
 }
 export interface UpdaterModule extends CoreModule {
   registerBusyProbe(name: string, probe: BusyProbe): void;
@@ -62,7 +68,7 @@ export interface UpdaterModule extends CoreModule {
   status(): Promise<UpdateStatus>;
   install(o?: { auto?: boolean }): Promise<{ ok: boolean; declined?: boolean }>;
   drain(): Promise<{ stopped: Array<{ id: string; agentId: string }>; settled: boolean }>;
-  commit(o?: { force?: boolean }): Promise<{ installDir: string; stagedDir: string; from: string; to: string; names?: readonly string[] }>;
+  commit(o?: { force?: boolean }): Promise<{ installDir: string; stagedDir: string; from: string; to: string; names?: readonly string[]; updateId?: string }>;
   abortCommit(): void;
 }
 
@@ -97,6 +103,20 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   let frozen = false;
   let freezeTimer: NodeJS.Timeout | null = null;
   let checking: Promise<void> | null = null;
+  // The update journey (journey.ts): one id from the moment an applicable update is found, carried through download, the app, the helper and the new build.
+  let journeyId: string | undefined; let journeyTo: string | undefined; let journeyKind: 'code' | 'full' = 'code';
+  const jr = (step: JourneyStepId, state: 'start' | 'done' | 'failed', extra: StepExtra = {}): void => {
+    if (!journeyId || !journeyTo) return;
+    try { recordStep({ installDir: opts.root, dataDir: deps.dataDir, id: journeyId, from: version, to: journeyTo, proc: 'core', kind: journeyKind, now }, step, state, extra); } catch { /* a log line never stops an update */ }
+  };
+  const beginJourney = (m: Manifest): void => {
+    if (mode !== 'apply') return;
+    const route = planRelease(m).route;
+    if (route === 'notify') return; // nothing can be applied here, so there is no journey to follow
+    if (journeyId && journeyTo === m.version) return; // the same update found again
+    journeyId = newUpdateId(); journeyTo = m.version; journeyKind = route === 'full' ? 'full' : 'code';
+    jr('checking', 'done', { note: `Legion ${m.version} is available` });
+  };
 
   const buildInfo = (): { publishedAt?: string } => { try { const j = JSON.parse(readFileSync(join(opts.root, 'build-info.json'), 'utf8')) as { publishedAt?: unknown }; return typeof j.publishedAt === 'string' ? { publishedAt: j.publishedAt } : {}; } catch { return {}; } };
   const installedLock = (): string | undefined => sha256File(join(opts.root, 'package-lock.json'));
@@ -170,6 +190,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       }
       if (staged && staged.version !== m.version) { clearStage(); }
       available = { manifest: m };
+      beginJourney(m);
       settle(`update available: ${m.version}`);
       error = undefined;
     } catch (e) {
@@ -221,6 +242,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const s = files.state();
       const settings = files.settings();
       const outcome = readOutcome(opts.root) ?? undefined;
+      const journey = readLastJourney(opts.root) ?? undefined;
+      const updated = journey && journey.result === 'ok' && journey.to === version && s.updatedAckId !== journey.id ? { version: journey.to, id: journey.id } : undefined;
       const a = available?.manifest;
       const st2 = files.state();
       const plan = a ? planRelease(a) : null;
@@ -245,6 +268,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         readyToApply: mode === 'apply' && !!staged && consent && reasons.length === 0 && clock.isQuiet(now()),
         busy: { idle: reasons.length === 0 && clock.isQuiet(now()), reasons, quietMs: clock.quietMs(now()) },
         ...(outcome ? { outcome } : {}),
+        ...(journey ? { journey } : {}),
+        ...(updated ? { updated } : {}),
         ...(s.stoppedForUpdate.length ? { stopped: { tasks: s.stoppedForUpdate, ...(s.stoppedAt ? { at: s.stoppedAt } : {}) } } : {}),
       };
     },
@@ -278,7 +303,13 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       // gating the commit (readyToApply) so a staged update waits for the owner AND for Legion to be idle.
       const progressTotal = plan.route === 'full' ? (a.fullAsset?.size ?? a.asset.size) : a.asset.size;
       phase = 'downloading'; progress = { bytes: 0, total: progressTotal };
-      const onProgress = (bytes: number, total: number): void => { progress = { bytes, total }; };
+      // steps 2 and 3: the download ends when every byte has arrived; the signature and hash checks that follow are step 3
+      let verifying = false; let last = { bytes: 0, total: progressTotal };
+      if (!journeyId || journeyTo !== a.version) beginJourney(a);
+      jr('downloading', 'start', { bytes: 0, total: progressTotal });
+      const toVerifying = (): void => { if (verifying) return; verifying = true; jr('downloading', 'done', { bytes: last.bytes, total: last.total }); jr('verifying', 'start'); };
+      const onProgress = (bytes: number, total: number): void => { progress = { bytes, total }; last = { bytes, total }; if (total > 0 && bytes >= total) toVerifying(); };
+      const staged4 = (): void => { toVerifying(); jr('verifying', 'done'); jr('ready', 'done', { note: `Legion ${a.version} is ready to install` }); };
       const stageOpts = { installDir: opts.root, source, manifest: a, version: a.version, onProgress, ...(opts.freeBytes ? { freeBytes: opts.freeBytes } : {}), ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) };
       try {
         // route 'full': the app package carries no node_modules, so stage the signed full package instead.
@@ -286,6 +317,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
           ? await stageFullPackage(stageOpts)
           : await stagePackage({ ...stageOpts, installedDepsHash: installedDepsHash() });
         consent = true; phase = 'staged';
+        staged4();
         return { ok: true };
       } catch (e) {
         // The manifest did not declare the dependency change, but the app package's lock content differs from what is
@@ -295,9 +327,12 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         if (e instanceof StageError && e.code === 'full-install' && a.fullAsset) {
           fellBack = true;
           log('updater stage refused, trying the signed full package', e.code, e.message); // the refusal that starts the fallback; a 285 MB failure must leave a trace
+          journeyKind = 'full'; verifying = false; last = { bytes: 0, total: a.fullAsset?.size ?? progressTotal };
+          jr('downloading', 'start', { bytes: 0, total: last.total, note: 'this release changes dependencies: downloading the full package' });
           try {
             staged = await stageFullPackage(stageOpts);
             consent = true; phase = 'staged';
+            staged4();
             return { ok: true };
           } catch (e2) { e = e2; }
         }
@@ -311,6 +346,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
           error = `The update was not downloaded: ${e.message}`;
         }
         else { error = 'The update could not be prepared.'; log('updater stage failed', e instanceof Error ? e.message : String(e)); }
+        jr('failed', 'done', { during: verifying ? 'verifying' : 'downloading', note: error ?? 'The update could not be prepared.' });
         return { ok: false };
       } finally { progress = undefined; }
     },
@@ -351,7 +387,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       await deps.store.flush();
       // A full-package stage returns FULL_PACKAGE_SET so the helper swaps node_modules and runtime too; a code-only
       // stage leaves it out and the helper swaps CODE_SET. commitMatches refuses any other set before it is written.
-      return { installDir: opts.root, stagedDir: info.treeDir, from: version, to: staged.version, ...(staged.kind === 'full' ? { names: FULL_PACKAGE_SET } : {}) };
+      if (!journeyId || journeyTo !== staged.version) { journeyId = newUpdateId(); journeyTo = staged.version; journeyKind = staged.kind; }
+      return { installDir: opts.root, stagedDir: info.treeDir, from: version, to: staged.version, ...(staged.kind === 'full' ? { names: FULL_PACKAGE_SET } : {}), updateId: journeyId };
     },
     abortCommit() {
       frozen = false; if (freezeTimer) { clearTimeout(freezeTimer); freezeTimer = null; }
@@ -371,6 +408,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         const patch: Partial<UpdateSettings> = {};
         if ('checkEnabled' in body) { if (typeof body.checkEnabled !== 'boolean') throw new HttpError(400, 'checkEnabled must be true or false.'); patch.checkEnabled = body.checkEnabled; }
         if ('autoInstallWhenIdle' in body) { if (typeof body.autoInstallWhenIdle !== 'boolean') throw new HttpError(400, 'autoInstallWhenIdle must be true or false.'); patch.autoInstallWhenIdle = body.autoInstallWhenIdle; }
+        if ('updateWindow' in body) { if (typeof body.updateWindow !== 'boolean') throw new HttpError(400, 'updateWindow must be true or false.'); patch.updateWindow = body.updateWindow; }
         if ('intervalHours' in body) { if (typeof body.intervalHours !== 'number' || !Number.isFinite(body.intervalHours)) throw new HttpError(400, 'intervalHours must be a number.'); patch.intervalHours = body.intervalHours; }
         return files.saveSettings(patch);
       });
@@ -392,6 +430,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         return module.status();
       });
       add('POST', '/api/update/ack', async () => { try { rmSync(outcomePath(opts.root), { force: true }); } catch { /* ignore */ } files.saveState({ stoppedForUpdate: [] }); return module.status(); });
+      add('POST', '/api/update/ack-updated', ({ body }) => { const id = isObj(body) && typeof body.id === 'string' ? body.id : ''; if (!/^[0-9a-f]{8}$/.test(id)) throw new HttpError(400, 'id is required'); files.saveState({ updatedAckId: id }); return { ok: true }; });
       add('POST', '/api/update/drain', ({ req }) => { needNative(req); return module.drain(); });
       add('POST', '/api/update/commit', ({ req, body }) => { needNative(req); return module.commit({ force: isObj(body) && body.force === true }); });
       add('POST', '/api/update/abort-commit', ({ req }) => { needNative(req); module.abortCommit(); return { ok: true }; });

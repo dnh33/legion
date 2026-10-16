@@ -13,7 +13,7 @@ import { execFile, spawn } from 'node:child_process';
 import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // C21: this helper is copied alone to <install>/.update/run/apply.mjs and run standalone during the swap,
 // so it imports node: builtins ONLY. The types and the pure recovery judge are inlined here (no sibling
@@ -26,6 +26,24 @@ export interface RecoveryVerdict { action: 'swap-back' | 'complete' | 'clean'; r
 export interface UpdateAttemptRec { at: number; from: string; to: string; result: 'ok' | 'rolled-back' | 'failed' | 're-exec'; durationMs: number; reason?: string }
 export interface ProgressEventRec { stage: string; message: string; percent: number | null }
 export type ProgressSink = (e: ProgressEventRec) => void;
+/**
+ * The journey steps this helper writes (journey.ts holds the shared table; this file cannot import it, so a test pins that the two agree).
+ * `closing` is shared with the app, which starts it; the helper finishes it once the old app and core are gone.
+ */
+export type HelperStep = 'closing' | 'preparing' | 'installing' | 'starting' | 'health' | 'failed' | 'rolled-back';
+export const HELPER_JOURNEY_STEPS: readonly HelperStep[] = Object.freeze(['closing', 'preparing', 'installing', 'starting', 'health', 'failed', 'rolled-back'] as HelperStep[]);
+export type HelperStepWriter = (step: HelperStep, state: 'start' | 'done' | 'failed', extra?: { pct?: number; during?: HelperStep; note?: string }) => void;
+/** The "Updating Legion" window as the helper drives it (see realWindow below and update-window-main.ts). */
+export interface WindowDep {
+  /** Opens the window (it appears at once; it waits for the old app to let go of the single-instance lock). Never throws. */
+  start(): void;
+  /** Asks the window to give up the single-instance lock, and waits (briefly) until it has. Safe to call twice. Never throws. */
+  releaseLock(): Promise<void>;
+  /** Tells the window the result. Ok: it shows Done and closes. Failed or rolled back: it shows the reason and waits for the person. `started`: whether the helper has started Legion again; when it has not, the window starts it when the person leaves. */
+  finish(result: 'ok' | 'failed' | 'rolled-back', message?: string, started?: boolean): Promise<void>;
+  /** The helper's last step on every exit path: puts back anything the window start changed. Never throws; safe to call twice. */
+  dispose?(): void;
+}
 
 /** The only names an update may replace (directories and files at the top of the install folder). */
 export const CODE_SET: readonly string[] = Object.freeze([
@@ -412,6 +430,12 @@ export interface ApplyJob {
   healthTimeoutMs?: number; /** One extra wait, used only when the new build's process is still alive at the end of the first window. */ healthExtensionMs?: number; parentWaitMs?: number; portFreeMs?: number; swapRetryMs?: number;
   /** The names to swap; omitted = CODE_SET (code-only), FULL_PACKAGE_SET = code set + node_modules + runtime. Validated by main-logic commitMatches before it is written here. */
   names?: readonly string[];
+  /** One id for the whole journey, made when the update was found and carried through the app, this helper and the new app. A job from an older app has none: the helper makes one. */
+  updateId?: string;
+  /** The data folder, so every step is also written to <data>/logs/app.log. */
+  dataDir?: string;
+  /** The "Updating Legion" window. `userData` is Legion's own user-data folder: the window takes the single-instance lock under that identity. */
+  window?: { enabled: boolean; userData: string; /** Chromium switches the app itself was started with (none in a normal start). */ args?: string[] };
 }
 /** `finished`: the re-exec copy ran and ended by itself with a non-ok result, so it already wrote the outcome and started the app; the parent must do neither. */
 export type ReExecResult = { ok: true } | { ok: false; error: string; finished?: boolean };
@@ -443,9 +467,17 @@ export interface ApplyDeps {
   recordAttempt?: (attempt: UpdateAttemptRec) => void;
   /** Progress events for the update panel (progress.ts). */
   progress?: ProgressSink;
+  /** The step log (one line per step, one update id). */
+  journey?: HelperStepWriter;
+  /** The "Updating Legion" window. Absent when turned off or when this helper runs from a runtime a swap would rename. */
+  window?: WindowDep;
 }
 
 export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['result']> {
+  try { return await runApplyInner(job, d); } finally { try { d.window?.dispose?.(); } catch { /* the window is a courtesy */ } }
+}
+
+async function runApplyInner(job: ApplyJob, d: ApplyDeps): Promise<Outcome['result']> {
   const { installDir } = job;
   const progress: ProgressSink = d.progress ?? (() => undefined);
   const startTime = Date.now();
@@ -459,6 +491,23 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
       });
     }
     return result;
+  };
+  // The step log and the window. Both are optional and neither may ever stop an update.
+  let cur: HelperStep = 'closing';
+  const jr: HelperStepWriter = (step, state, extra) => { try { d.journey?.(step, state, extra); } catch { /* a log line never stops an update */ } };
+  const stepStart = (s: HelperStep): void => { cur = s; jr(s, 'start'); };
+  const stepDone = (s: HelperStep): void => jr(s, 'done');
+  const winSafe = async (f: () => Promise<void> | void): Promise<void> => { try { await f(); } catch { /* the window is a courtesy */ } };
+  let released = false;
+  /** The window holds the single-instance lock. Whoever starts an app next (the new build, or the old one after a failure) must be able to take it. */
+  const releaseWindowLock = async (): Promise<void> => { if (released || !d.window) return; released = true; await winSafe(() => d.window!.releaseLock()); };
+  const respawn = async (): Promise<{ pid?: number } | null> => { await releaseWindowLock(); return d.spawnApp(job.relaunch); };
+  /** An update that did not finish: say so in the log (which step, why) and on the window, which stays up with the reason. */
+  const failed = async (reason: string, startOldApp = false): Promise<void> => {
+    jr('failed', 'done', { during: cur, note: reason });
+    // the old app goes back up first (when it is gone and this failure left it so); the window learns whether that worked, and starts Legion itself on Retry or Close when it did not
+    const started = startOldApp ? !!(await respawn()) : false;
+    await winSafe(() => d.window?.finish('failed', reason, started));
   };
   let beatAt = 0;
   const beatMarker = (): void => { const t = Date.now(); if (d.marker?.touch && t - beatAt >= 2000) { beatAt = t; try { d.marker.touch(); } catch { /* the lease just ages */ } } };
@@ -474,6 +523,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     if (!begin.ok) {
       d.log(`update refused: ${begin.message}`);
       writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: begin.message });
+      await failed(begin.message ?? 'the update was refused');
       return finish('failed', begin.message);
     }
   }
@@ -493,7 +543,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
       const reason = `Legion could not prepare the update helper (${r.error}). Nothing was changed.`;
       d.log(reason);
       writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason });
-      d.spawnApp(job.relaunch);
+      await failed(reason, true);
       if (d.marker) d.marker.end();
       return finish('failed', reason);
     }
@@ -502,6 +552,9 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   // re-exec above): the log names the route, and the rehearsal checks it.
   if (job.names?.includes('node_modules')) d.log('full package: the swap helper runs from a runtime outside the install');
   d.log(`apply ${job.from} -> ${job.to} [${APPLY_HELPER_STAMP}]`);
+  // The window comes first: from here to the new build's first healthy answer there is always something on the screen.
+  if (d.window) { try { d.window.start(); } catch { /* no window: the update goes on */ } }
+  stepStart('closing');
   // Data backup before any file is touched (state-preflight.ts). Fail closed.
   if (d.runPreflight) {
     progress({ stage: 'preflight', message: 'Backing up data', percent: null });
@@ -510,27 +563,32 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
       d.log(`preflight failed: ${pf.error}`);
       writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: `preflight: ${pf.error}` });
       if (d.marker) d.marker.end();
+      await failed(`preflight: ${pf.error}`);
       return finish('failed', `preflight: ${pf.error}`);
     }
     d.log(`preflight: backed up ${pf.backedUp.length} entries`);
   }
   progress({ stage: 'teardown', message: 'Waiting for the app to close', percent: null });
-  if (!(await waitUntil(() => !d.isAlive(job.parentPid), job.parentWaitMs ?? 30_000))) { d.log('the app is still running: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'the app did not exit in time; nothing was changed' }); if (d.marker) d.marker.end(); return finish('failed', 'the app did not exit in time'); }
+  if (!(await waitUntil(() => !d.isAlive(job.parentPid), job.parentWaitMs ?? 30_000))) { d.log('the app is still running: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'the app did not exit in time; nothing was changed' }); if (d.marker) d.marker.end(); await failed('the app did not exit in time; nothing was changed'); return finish('failed', 'the app did not exit in time'); }
   // A core that still answers means files are in use: never swap under it (health-based guard).
-  if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); d.spawnApp(job.relaunch); if (d.marker) d.marker.end(); return finish('failed', 'a Legion core is still running'); }
+  if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); await failed('a Legion core is still running; nothing was changed', true); if (d.marker) d.marker.end(); return finish('failed', 'a Legion core is still running'); }
   // Graceful core shutdown before swap (teardown.ts). Never swap files under a running core.
   progress({ stage: 'teardown', message: 'Stopping the core', percent: null });
   const td = d.gracefulTeardown ? await d.gracefulTeardown(job.portFreeMs ?? 5000) : { ok: true };
   if (!td.ok) {
     d.log(`teardown failed: ${td.error}`);
     writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: td.error });
-    d.spawnApp(job.relaunch);
+    await failed(td.error ?? 'the Legion core did not stop', true);
     if (d.marker) d.marker.end();
     return finish('failed', td.error);
   }
+  stepDone('closing');
+  // Preparing is a full-package step: the staged tree (thousands of files) is checked for completeness before anything moves.
+  if (job.names?.includes('node_modules')) { stepStart('preparing'); stepDone('preparing'); }
   // Swap (journaled rename).
   progress({ stage: 'swap', message: 'Installing the update', percent: 50 });
   beatAt = 0; beatMarker();
+  stepStart('installing');
   try {
     await swapIn({ installDir, stagedDir: job.stagedDir, from: job.from, to: job.to, retryMs: job.swapRetryMs ?? 15_000, ...(job.names ? { names: job.names } : {}), ...(d.step ? { step: d.step } : {}) });
   } catch (e) {
@@ -539,13 +597,17 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     const code = (e as NodeJS.ErrnoException).code;
     const msg = ['EBUSY', 'EPERM', 'EACCES'].includes(code ?? '') ? 'files in use: close other Legion windows or tools started in the Legion folder, then try again' : reason;
     writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: msg });
-    d.spawnApp(job.relaunch);
+    await failed(msg, true);
     if (d.marker) d.marker.end();
     return finish('failed', msg);
   }
+  stepDone('installing');
   d.log('swapped; starting the new build');
   // Relaunch via external waiter (relaunch-waiter.ts) so the old process is provably gone first.
   progress({ stage: 'relaunch', message: 'Starting the new build', percent: 80 });
+  // The window lets go of the single-instance lock first, so the new build can take it; the window itself stays up until the build is healthy.
+  await releaseWindowLock();
+  stepStart('starting');
   let pid: number | undefined;
   if (d.startWaiter) {
     const r = await d.startWaiter({
@@ -558,8 +620,10 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     const child = d.spawnApp(job.relaunch);
     pid = child?.pid;
   }
+  stepDone('starting');
   // Health check of the new build.
   progress({ stage: 'health', message: 'Waiting for the new build', percent: 90 });
+  stepStart('health');
   const win = healthWindow(job);
   const isHealthy = async (): Promise<boolean> => {
     touchHeartbeat(installDir);
@@ -579,22 +643,196 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     await cleanPrev(installDir);
     d.log('the new build is healthy');
     progress({ stage: 'health', message: 'Update complete', percent: 100 });
+    stepDone('health');
     if (d.marker) d.marker.end();
+    await winSafe(() => d.window?.finish('ok'));
     return finish('ok');
   }
   d.log('the new build did not become healthy: rolling back');
   progress({ stage: 'error', message: 'Update failed, rolling back', percent: null });
   if (pid) await d.killTree(pid); // by PID, never by name
   await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000);
-  await rollback(installDir, `the new build did not report healthy on 127.0.0.1:${job.port} within ${Math.round(win.baseMs / 1000)} s`, job.swapRetryMs ?? 15_000);
-  d.spawnApp(job.relaunch);
+  const why = `the new build did not report healthy on 127.0.0.1:${job.port} within ${Math.round(win.baseMs / 1000)} s`;
+  await rollback(installDir, why, job.swapRetryMs ?? 15_000);
+  jr('rolled-back', 'done', { during: 'health', note: why });
+  const started = !!(await respawn());
+  await winSafe(() => d.window?.finish('rolled-back', why, started));
   if (d.marker) d.marker.end();
   return finish('rolled-back');
 }
-export function realDeps(installDir: string, job?: { port: number }): ApplyDeps {
+/** Both files are small and only ever read whole. A journey id that differs from the file's last one starts a new file (the newest update only). */
+const JOURNEY_FILE_NAME = 'journey.jsonl';
+const randomId = (): string => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(4)), (x) => x.toString(16).padStart(2, '0')).join('');
+
+/**
+ * The helper's step log: the same three lines journey-io.ts writes (the journey file, apply.log, app.log), with the job's one update id.
+ * This file cannot import journey-io.ts, so the line shapes are repeated here and test/update-journey-helper.test.ts reads them back with the shared parser.
+ */
+export function helperJourney(installDir: string, job: { updateId?: string; dataDir?: string; from?: string; to?: string; names?: readonly string[] }): HelperStepWriter {
+  const id = job.updateId ?? randomId();
+  const kind = job.names?.includes('node_modules') ? 'full' : 'code';
+  const from = job.from ?? ''; const to = job.to ?? '';
+  return (step, state, extra) => {
+    const at = new Date().toISOString();
+    const e: Record<string, string | number> = { at, id, step, state, proc: 'helper', from, to, kind };
+    if (extra?.pct !== undefined) e.pct = Math.round(extra.pct);
+    if (extra?.during) e.during = extra.during;
+    if (extra?.note) e.note = extra.note;
+    const file = join(upDir(installDir), JOURNEY_FILE_NAME);
+    try {
+      mkdirSync(upDir(installDir), { recursive: true });
+      let lastId = '';
+      try { const rows = readFileSync(file, 'utf8').split('\n').filter(Boolean); lastId = (JSON.parse(rows[rows.length - 1] ?? '{}') as { id?: string }).id ?? ''; } catch { /* no journey file yet */ }
+      if (lastId && lastId !== id) writeFileSync(file, '');
+      appendFileSync(file, JSON.stringify(e) + '\n');
+    } catch { /* the other two logs still get the line */ }
+    let line = `journey step=${step} state=${state} id=${id} from=${from} to=${to} proc=helper kind=${kind}`;
+    if (e.pct !== undefined) line += ` pct=${e.pct}`;
+    if (e.during) line += ` during=${e.during}`;
+    if (e.note) line += ` note=${JSON.stringify(e.note)}`;
+    try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${at}] ${line}\n`); } catch { /* ignore */ }
+    if (job.dataDir) {
+      const bad = step === 'failed' || step === 'rolled-back' || state === 'failed';
+      let app = `${at} ${bad ? 'WARN ' : 'INFO '} updater journey-step step=${JSON.stringify(step)} state=${JSON.stringify(state)} id=${JSON.stringify(id)} from=${JSON.stringify(from)} to=${JSON.stringify(to)} proc="helper" kind=${JSON.stringify(kind)}`;
+      if (e.pct !== undefined) app += ` pct=${e.pct}`;
+      if (e.during) app += ` during=${JSON.stringify(e.during)}`;
+      if (e.note) app += ` note=${JSON.stringify(String(e.note).slice(0, 400))}`;
+      try { mkdirSync(join(job.dataDir, 'logs'), { recursive: true }); appendFileSync(join(job.dataDir, 'logs', 'app.log'), app + '\n'); } catch { /* ignore */ }
+    }
+  };
+}
+
+/** Where the window's own files live: <install>/.update/run/window, outside every folder a swap renames. The app copies them there before it quits. */
+export const WINDOW_DIR_PARTS: readonly string[] = Object.freeze(['run', 'window']);
+export type WindowLaunch = 'folder' | 'patch' | 'none';
+const isInside = (child: string, parent: string): boolean => { const r = relative(resolve(parent), resolve(child)); return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r); };
+const ownRuntime = (installDir: string, runtimeDir: string): boolean => relative(resolve(installDir, 'runtime', 'electron'), resolve(runtimeDir)) === '';
+
+/**
+ * How to start the window from `runtimeDir` (the folder of the helper's electron.exe). Electron runs `resources/app` when it exists and ignores a folder argument,
+ * so a packaged runtime (app shim, no default_app.asar) cannot be pointed at the window by argument.
+ *  - folder: no app shim, and default_app.asar is there (a dev runtime): pass the window folder as before.
+ *  - patch: an app shim exists in a COPY of the runtime (inside <install>/.update or the temp folder): point the shim at the window for the start.
+ *  - none: anything else. The install's own runtime above all: its shim starts Legion's own main, and the helper must not do that during a swap.
+ */
+export function windowLaunchPlan(p: { runtimeDir: string; installDir: string; hasAppShim: boolean; hasDefaultApp: boolean; tempDir?: string }): WindowLaunch {
+  if (!p.hasAppShim) return p.hasDefaultApp ? 'folder' : 'none';
+  if (ownRuntime(p.installDir, p.runtimeDir)) return 'none';
+  if (isInside(p.runtimeDir, upDir(p.installDir)) || isInside(p.runtimeDir, p.tempDir ?? tmpdir())) return 'patch';
+  return 'none';
+}
+
+/** Test hooks: where the runtime is, how to spawn, how long to wait before the shim goes back. */
+export interface WindowHooks { execPath?: string; spawn?: typeof spawn; restoreAfterMs?: number; pollMs?: number; tempDir?: string }
+
+/**
+ * Drives the "Updating Legion" window (a tiny Electron app, update-window-main.ts, started from THIS helper's runtime and the files in .update/run/window).
+ * They talk through files: this side writes window-job.json once and appends numbered lines to commands.jsonl; the window answers in state.json.
+ * Never throws and never waits long: the window is a courtesy, the update is the job.
+ */
+export function realWindow(installDir: string, job: { updateId: string; appPid?: number; from: string; to: string; names?: readonly string[]; relaunch?: Relaunch; window: { enabled: boolean; userData: string; args?: string[] } }, log: (line: string) => void, hooks: WindowHooks = {}): WindowDep {
+  const dir = join(upDir(installDir), ...WINDOW_DIR_PARTS);
+  const cmdFile = join(dir, 'commands.jsonl');
+  const stateFile = join(dir, 'state.json');
+  const execPath = hooks.execPath ?? process.execPath;
+  const spawnFn = hooks.spawn ?? spawn;
+  let pid: number | undefined;
+  let seq = 0;
+  // The packaged runtime's app shim while it points at the window: the original bytes wait here until they are put back.
+  let shimFile = '';
+  let shimOriginal: Buffer | undefined;
+  let shimTimer: ReturnType<typeof setInterval> | undefined;
+  const restoreOnExit = (): void => restoreShim('helper exit');
+  const restoreShim = (why: string): void => {
+    if (shimTimer) { clearInterval(shimTimer); shimTimer = undefined; }
+    if (!shimOriginal) return;
+    try { writeFileSync(shimFile, shimOriginal); shimOriginal = undefined; process.off('exit', restoreOnExit); log(`window: the runtime's app shim is back as it was (${why})`); }
+    catch (e) { log(`window: could not put the runtime's app shim back: ${e instanceof Error ? e.message : String(e)}`); }
+  };
+  const alive = (p: number): boolean => { try { process.kill(p, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
+  const send = (c: Record<string, unknown>): void => { seq += 1; try { appendFileSync(cmdFile, JSON.stringify({ seq, ...c }) + '\n'); } catch { /* ignore */ } };
+  const lock = (): string => { try { return (JSON.parse(readFileSync(stateFile, 'utf8')) as { lock?: string }).lock ?? ''; } catch { return ''; } };
+  const waitFor = async (cond: () => boolean, ms: number): Promise<boolean> => { const end = Date.now() + ms; while (Date.now() < end) { if (cond()) return true; await sleepMs(100); } return cond(); };
+  return {
+    start() {
+      try {
+        if (!existsSync(join(dir, 'package.json'))) { log('window: not started (its files are not in .update/run/window)'); return; }
+        const runtimeDir = dirname(execPath);
+        const shim = join(runtimeDir, 'resources', 'app', 'package.json');
+        const hasAppShim = existsSync(shim);
+        const plan = windowLaunchPlan({ runtimeDir, installDir, hasAppShim, hasDefaultApp: existsSync(join(runtimeDir, 'resources', 'default_app.asar')), ...(hooks.tempDir ? { tempDir: hooks.tempDir } : {}) });
+        if (plan === 'none') { log(hasAppShim && ownRuntime(installDir, runtimeDir) ? "window: not started (the helper runs from Legion's own runtime)" : 'window: not started (this runtime cannot start it safely)'); return; }
+        for (const f of [cmdFile, stateFile]) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
+        writeFileSync(join(dir, 'window-job.json'), JSON.stringify({ installDir, updateId: job.updateId, helperPid: process.pid, appPid: job.appPid, userData: job.window.userData, from: job.from, to: job.to, kind: job.names?.includes('node_modules') ? 'full' : 'code', startedAt: Date.now(), ...(job.relaunch ? { relaunch: job.relaunch } : {}) }));
+        if (plan === 'patch') {
+          // Electron runs resources/app and ignores a folder argument: point the copy's shim at the window for the start, then put the original bytes back.
+          // Electron joins resources/app and `main`, so `main` must be relative. Another drive has no relative path: no window then.
+          const rel = relative(dirname(shim), join(dir, 'dist', 'src', 'electron', 'update-window-main.js'));
+          if (isAbsolute(rel)) { log('window: not started (the runtime copy is on another drive than the install)'); return; }
+          const main = rel.split(sep).join('/');
+          try {
+            shimOriginal = readFileSync(shim); shimFile = shim;
+            writeFileSync(shim, JSON.stringify({ name: 'legion', version: '0.0.0', main }));
+          } catch (e) {
+            log(`window: not started (the runtime's app shim could not be changed: ${e instanceof Error ? e.message : String(e)})`);
+            restoreShim('write failed'); return;
+          }
+          log('window: the copy of the runtime now starts the window (its app shim is put back when the window is up)');
+          process.on('exit', restoreOnExit);
+          const t0 = Date.now();
+          shimTimer = setInterval(() => { if (existsSync(stateFile)) restoreShim('the window is up'); else if (Date.now() - t0 >= (hooks.restoreAfterMs ?? 10_000)) restoreShim('10 s passed'); }, hooks.pollMs ?? 100);
+          shimTimer.unref();
+        }
+        // the helper runs with ELECTRON_RUN_AS_NODE=1; the window must run as a real app
+        const env: Record<string, string | undefined> = { ...process.env, LEGION_UPDATE_WINDOW: '1' };
+        delete env.ELECTRON_RUN_AS_NODE;
+        // the window's own output goes to a file (real descriptors, never pipes: the helper must not wait on them)
+        let out: number | undefined;
+        try { out = openSync(join(dir, 'window-output.log'), 'a'); } catch { /* no output file: the window still starts */ }
+        try {
+          const c = spawnFn(execPath, [...(plan === 'folder' ? [dir] : []), ...(job.window.args ?? [])], { cwd: dir, detached: true, stdio: out !== undefined ? ['ignore', out, out] : 'ignore', windowsHide: false, env });
+          c.on?.('error', (e: Error) => { log(`window: could not start: ${e.message}`); restoreShim('the window did not start'); });
+          c.unref?.();
+          pid = c.pid;
+        } finally { if (out !== undefined) { try { closeSync(out); } catch { /* ignore */ } } }
+        log(`window: started pid=${pid ?? 'none'} id=${job.updateId}`);
+      } catch (e) { log(`window: could not start: ${e instanceof Error ? e.message : String(e)}`); restoreShim('the window did not start'); }
+    },
+    dispose() { restoreShim('the helper is done'); },
+    async releaseLock() {
+      if (!pid) return;
+      send({ cmd: 'release-lock' });
+      const ok = await waitFor(() => lock() === 'released' || !alive(pid!), 3000);
+      log(ok ? 'window: the single-instance lock was handed over' : 'window: the lock hand-over was not confirmed in 3 s: going on');
+    },
+    async finish(result, message, started) {
+      restoreShim('the update finished');
+      if (!pid) return;
+      send({ cmd: 'finish', result, ...(message ? { message } : {}), ...(started !== undefined ? { started } : {}) });
+      if (result !== 'ok') return; // a failure stays on screen until the person chooses; it closes itself
+      if (!(await waitFor(() => !alive(pid!), 5000)) && alive(pid)) {
+        await new Promise<void>((done) => {
+          if (process.platform === 'win32') execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => done());
+          else { try { process.kill(pid!, 'SIGKILL'); } catch { /* gone */ } done(); }
+        });
+        log('window: still open after 5 s: closed by its pid');
+      }
+    },
+  };
+}
+
+export function realDeps(installDir: string, job?: { port: number; parentPid?: number; updateId?: string; dataDir?: string; from?: string; to?: string; names?: readonly string[]; window?: ApplyJob['window']; relaunch?: Relaunch }): ApplyDeps {
   const port = job?.port ?? 4747;
+  const logLine = (line: string): void => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } };
+  // One id for every step this process writes: the job's, or one made here for a job from an older app.
+  const updateId = job?.updateId ?? randomId();
+  // The window needs a runtime that no swap renames: the install's own for a code-only update; for a full one only the copy outside the install.
+  const full = !!job?.names?.includes('node_modules');
+  const windowOk = !!job?.window?.enabled && (!full || process.env.LEGION_APPLY_REEXEC === '1');
   return {
     marker: fileMarker(installDir),
+    journey: helperJourney(installDir, { ...(job ?? {}), updateId }),
+    ...(windowOk ? { window: realWindow(installDir, { updateId, ...(job?.parentPid ? { appPid: job.parentPid } : {}), from: job?.from ?? '', to: job?.to ?? '', ...(job?.names ? { names: job.names } : {}), ...(job?.relaunch ? { relaunch: job.relaunch } : {}), window: job!.window! }, logLine) } : {}),
     isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } },
     health: async (port) => {
       try {

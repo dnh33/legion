@@ -97,6 +97,9 @@ const env = {
   ELECTRON_ENABLE_LOGGING: '1', ELECTRON_DISABLE_GPU: '1',
 };
 delete env.ELECTRON_RUN_AS_NODE;
+// chain: the preload holds the helper 8 s before it asks the window for the lock (preload.mjs, item 4), so the reopen 2 s after the window
+// takes the lock really happens during the swap. Nothing under src/ reads it.
+if (a.scenario === 'chain') { const holdFile = join(work, 'hold-ms.txt'); writeFileSync(holdFile, '8000'); env.REHEARSAL_HOLD_FILE = holdFile; }
 
 /** Lines worth a look in the installed copy's own logs. Printed in the run output; each one must be fixed, explained or listed by the reviewer. */
 function scanLogs() {
@@ -146,7 +149,7 @@ function collect() {
   try { for (const n of readdirSync(home)) if (/^core\.log/.test(n)) cpSync(join(home, n), join(art, n)); } catch { /* none */ }
   try { cpSync(join(up, 'run', 'job.json'), join(art, 'job.json')); } catch { /* none */ }
   try { scanLogs(); } catch { /* best effort */ }
-  for (const [from, to] of [[join(up, 'apply.log'), 'apply.log'], [join(up, 'journal.json'), 'journal.json'], [join(up, 'outcome.json'), 'outcome.json'], [join(home, 'updater', 'state.json'), 'updater-state.json'], [join(work, 'app.log'), 'app.log']]) {
+  for (const [from, to] of [[join(up, 'apply.log'), 'apply.log'], [join(up, 'journal.json'), 'journal.json'], [join(up, 'outcome.json'), 'outcome.json'], [join(home, 'updater', 'state.json'), 'updater-state.json'], [join(work, 'app.log'), 'app.log'], [join(up, 'run', 'window', 'window-output.log'), 'window-output.log'], [join(up, 'run', 'window', 'state.json'), 'window-state.json']]) {
     try { if (existsSync(from)) cpSync(from, join(art, to)); } catch { /* best effort */ }
   }
 }
@@ -254,6 +257,16 @@ try {
     const stampNow = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
     check(!!stampNow, `the code-only update replaced the helper source in dist (${stampNow})`);
     // Hop 2: the full-package candidate, applied by the helper the code-only update installed.
+    // H2: while hop 2 runs, the "Updating Legion" window must appear, and a reopen of Legion 2 s after it holds the lock must land in it (no second core).
+    const readApplyLog = () => (existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '');
+    const reopen = (async () => {
+      const up1 = await waitFor('the update window to hold the single-instance lock', async () => (/\] window pid=\d+ id=\w+ holds the single-instance lock/.test(readApplyLog()) ? true : null), 900000);
+      if (!up1) return false;
+      await sleep(2000);
+      spawn(electron, [install, '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage'], { env, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      log('H2: reopened Legion 2 s after the window took the lock');
+      return true;
+    })();
     writeFileSync(control, 'good');
     const h2 = await waitFor(`/health to report ${good}`, async () => { const h = await health(); return h?.ok && h.version === good ? h : null; }, 900000);
     check(!!h2, `hop 2: the full-package candidate ${good} starts and reports health`);
@@ -261,6 +274,25 @@ try {
     const line2 = log2.split('\n').find((l) => l.includes(`apply ${co} -> ${good}`)) ?? '';
     check(!!stampNow && line2.includes(`[${stampNow}]`), `hop 2 was done by the NEW helper: ${line2.trim()}`);
     check(log2.includes('full package:'), 'hop 2 used the full-package swap (runtime outside the install)');
+    // H2: the visible journey. The window process wrote its own log lines, every step wrote one line with ONE update id, and the reopen landed in the window.
+    check(/\] window pid=\d+ id=\w+ opened /.test(log2), 'H2: the "Updating Legion" window opened (a log line from the window process)');
+    check(await reopen === true, 'H2: the window took the single-instance lock, so there was something to reopen into');
+    check(/a reopen of Legion landed here: no second core was started/.test(readApplyLog()), 'H2: a reopen 2 s later landed in the window (second-instance seen by the window)');
+    // the new build writes Done once it has confirmed itself, a moment after /health first answers
+    await waitFor('the new build to write step 10 (Done)', async () => (readApplyLog().split('\n').some((l) => l.includes('journey step=done state=done ') && l.includes(` to=${good} proc=new-app`)) ? true : null), 120000);
+    const steps = readApplyLog().split('\n').map((l) => /journey step=(\S+) state=(\S+) id=(\S+) from=(\S+) to=(\S+) proc=(\S+)/.exec(l)).filter((m) => m && m[5] === good);
+    const ids = new Set(steps.map((m) => m[3]));
+    check(ids.size === 1, `H2: every journey line of hop 2 carries one update id (${[...ids].join(', ')})`);
+    const names = new Set(steps.map((m) => m[1]));
+    const missing = ['checking', 'downloading', 'verifying', 'ready', 'closing', 'preparing', 'installing', 'starting', 'health'].filter((n) => !names.has(n));
+    check(missing.length === 0, `H2: every step before Done wrote a line${missing.length ? `; missing: ${missing.join(', ')}` : ''}`);
+    check(steps.some((m) => m[1] === 'done' && m[6] === 'new-app'), 'H2: the new build wrote step 10 (Done)');
+    const procsSeen = new Set(steps.map((m) => m[6]));
+    check(['core', 'app', 'helper', 'new-app'].every((x) => procsSeen.has(x)), `H2: the one id crossed the core, the app, the helper and the new app (${[...procsSeen].join(', ')})`);
+    let appLogText = ''; try { appLogText = readFileSync(join(home, 'logs', 'app.log'), 'utf8'); } catch { /* checked below */ }
+    check(!!ids.size && appLogText.split('\n').filter((l) => l.includes('journey-step') && l.includes(`id="${[...ids][0]}"`)).length >= 9, 'H2: the same steps are in the app log with the same id');
+    const cores = Number((ps(`@(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*legion-core*' -and $_.ExecutablePath -like '${install.replace(/'/g, "''")}\\*' }).Count`).stdout || '0').trim()) || 0;
+    check(cores <= 1, `H2: no second core after the reopen (${cores} core process(es) of this install)`);
     // the journal commits only after the healthy start is confirmed, so wait for it like hop 1 does (reading it at once raced the commit)
     check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === good ? true : null), 120000) !== null, 'hop 2 is committed');
     const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));

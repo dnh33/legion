@@ -18,7 +18,7 @@ test('plainReason turns the helper wording into words an owner can act on', () =
   assert.equal(plainReason('Legion could not prepare the update helper (x). Nothing was changed.'), 'Legion could not prepare the update helper');
   assert.equal(plainReason(undefined), 'Something went wrong');
   assert.ok(!/—/.test(plainReason('odd — reason')), 'no em dash ever reaches the owner');
-  assert.ok(plainReason('x'.repeat(500)).length <= 200, 'a long unknown reason is cut');
+  assert.equal(plainReason('x'.repeat(500)).length, 500, 'a long reason shows in full: the window and Settings wrap it, nothing is cut to dots');
 });
 
 test('outcomeNotice: failed and rolled-back give one notice with Retry and Dismiss; ok, re-exec and none give nothing', () => {

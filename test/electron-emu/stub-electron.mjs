@@ -7,3 +7,4 @@ export const Menu = { buildFromTemplate: () => ({}) }; export const nativeImage 
 export const shell = { openExternal() {}, openPath() {} }; export class Tray { constructor() {} setToolTip() {} setContextMenu() {} on() {} }
 export const safeStorage = { isAsyncEncryptionAvailable: async () => false, encryptStringAsync: async () => Buffer.alloc(0), decryptStringAsync: async () => ({ result: '', shouldReEncrypt: false }) };
 export class Notification { static isSupported() { return false; } constructor(o) { this.o = o; } show() {} on() {} close() {} }
+export const screen = { getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }), getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }) };
