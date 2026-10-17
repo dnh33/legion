@@ -89,7 +89,8 @@ function words(s: string): Array<[number, number]> {
 /** The text after `curl` or `wget` with each secret value replaced by `<omitted>`; read word by word, so a value is never mistaken for a flag. */
 function scrubWebArgs(tail: string, curl: boolean): string {
   const ws = words(tail); const cuts: Array<[number, number, string]> = [];
-  const next = (k: number): boolean => { const w = ws[k + 1]; if (w) cuts.push([w[0], w[1], '<omitted>']); return !!w; };
+  // a value already dropped stays as it is, so scrubbing twice gives the same line (the text after it, like a comma, is kept)
+  const next = (k: number): boolean => { const w = ws[k + 1]; if (w && !tail.startsWith('<omitted>', w[0])) cuts.push([w[0], w[1], '<omitted>']); return !!w; };
   for (let k = 0; k < ws.length; k++) {
     const [a, b] = ws[k]!; const w = tail.slice(a, b);
     if (w.startsWith('--')) {
@@ -140,35 +141,66 @@ function segments(s: string): string[] {
  * Drops the bodies, logins, headers and cookies of curl, wget and PowerShell web calls; every other command in the line is kept as written.
  * curl's short letters are read when any curl appears in the segment (`wget x $(curl -u a:b y)` is one segment).
  */
-/** `$h = @{ ... }`: a PowerShell hashtable kept in a variable. On a line with a web call it may be the headers or the splatted call, so it is dropped. */
-const HASH_ASSIGN = /^(\s*\$[\w:]+\s*=\s*)@\{[\s\S]*$/;
-export const scrubShell = (s: string): string => { const web = WEB_TOOL.test(s); return segments(s).map((seg) => {
-  if (web && HASH_ASSIGN.test(seg)) return seg.replace(HASH_ASSIGN, '$1@{ <omitted> }');
-  const found = [...seg.matchAll(WEB_TOOLS)];
-  if (found.length === 0) return seg;
-  const curl = found.some((x) => x[2]!.toLowerCase() === 'curl');
-  // each call is read from its own program word, the last first, so a call inside $( ) or ( ) is read too and earlier offsets stay right
-  for (const m of found.reverse()) {
-    let at = m.index! + m[0].length;
-    if ((m[1] === '"' || m[1] === "'") && seg[at] === m[1]) at++; // "curl" written in quotes
-    seg = seg.slice(0, at) + scrubWebArgs(seg.slice(at), curl);
-  }
-  return seg;
-}).join(''); };
-/** An address without its userinfo, query string and fragment. Text that is not an address comes back as it was. */
+/** A variable set in its own statement (`$h = @{...}`, `$pw = ConvertTo-SecureString '...'`, `AUTH=x`). On a line with a web call it may feed the call, so its value is dropped. */
+// not anchored: the log line starts with the tool name (`PowerShell $h = ...`, `Asked: Bash AUTH=x`)
+const VAR_ASSIGN = /((?:^|\s)(?:export\s+)?(?:\$[A-Za-z_][\w:]*\s*=|[A-Za-z_]\w*=)(?!=)\s*)\S[\s\S]*$/;
+/** A heredoc (`<<'EOF' ... EOF`) or a PowerShell here-string (`@' ... '@`): on a line with a web call it is the request body. */
+const HEREDOC = /(<<-?\s*(['"]?)([A-Za-z_]\w*)\2[^\n]*\n)[\s\S]*?(\n\s*\3[ \t]*(?=\r?\n|$))/g;
+const HERESTRING = /@(['"])\r?\n[\s\S]*?\r?\n\1@/g;
+/**
+ * Drops the bodies, logins, headers and cookies of curl, wget and PowerShell web calls; every other command in the line is kept as written.
+ * curl's short letters are read when any curl appears in the segment (`wget x $(curl -u a:b y)` is one segment). On a line with a web call,
+ * variable values and heredoc bodies go too. Callers bound the input (the log reads at most a few thousand characters): the cost grows with length squared.
+ */
+export const scrubShell = (s: string): string => {
+  const web = WEB_TOOL.test(s);
+  if (web) s = s.replace(HEREDOC, '$1<omitted>$4').replace(HERESTRING, "@'<omitted>'@");
+  return segments(s).map((seg) => {
+    const found = [...seg.matchAll(WEB_TOOLS)];
+    if (found.length === 0) return web ? seg.replace(VAR_ASSIGN, '$1<omitted>') : seg;
+    const curl = found.some((x) => x[2]!.toLowerCase() === 'curl');
+    // each call is read from its own program word, the last first, so a call inside $( ) or ( ) is read too and earlier offsets stay right
+    for (const m of found.reverse()) {
+      let at = m.index! + m[0].length;
+      // a quoted program ("curl", "/usr/bin/curl", "C:\...\curl.exe"): skip the closing quote
+      if ((seg[at] === '"' || seg[at] === "'") && (at + 1 >= seg.length || isSpace(seg[at + 1]))) at++;
+      seg = seg.slice(0, at) + scrubWebArgs(seg.slice(at), curl);
+    }
+    // a variable set in front of the call (`AUTH=x curl ...`)
+    const head = found[found.length - 1]!.index!;
+    return seg.slice(0, head).replace(/(^|\s)([A-Za-z_]\w*=)("[^"]*"|'[^']*'|\S+)/g, '$1$2<omitted>') + seg.slice(head);
+  }).join('');
+};
+/** Hosts whose address path holds the secret itself (a webhook or bot token): only the start of the path is kept. */
+const PATH_SECRET = /^((?:hooks\.slack\.com\/services|(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks|api\.telegram\.org)\/).+$/i;
+/**
+ * An address without its userinfo, query string and fragment, otherwise as written (port, case and `..` stay: the log shows what ran).
+ * Text that is not an address comes back as it was.
+ */
 export function scrubUrl(u: string): string {
-  try { const x = new URL(u); x.username = ''; x.password = ''; x.search = ''; x.hash = ''; return x.toString().replace(/\/$/, u.endsWith('/') ? '/' : ''); } catch { /* not parseable: cut by hand */ }
   const m = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/is.exec(u);
   if (!m) return u;
-  // a password may hold `?`, `/` or `#`, so everything up to the last `@` goes (a path with an `@` loses its head: safe)
-  const rest = m[2]!.slice(m[2]!.lastIndexOf('@') + 1);
-  return m[1]! + rest.split(/[?#]/)[0]!;
+  let rest = m[2]!;
+  const slash = rest.indexOf('/');
+  const authority = slash < 0 ? rest : rest.slice(0, slash);
+  let parses = true; try { new URL(u); } catch { parses = false; }
+  if (authority.includes('@')) rest = rest.slice(authority.lastIndexOf('@') + 1);
+  // a password may hold `/`, `?` or `#`, which a parser then cannot read: everything up to the last `@` goes (a path with an `@` loses its head: safe)
+  else if (!parses && rest.includes('@')) rest = rest.slice(rest.lastIndexOf('@') + 1);
+  const cut = rest.split(/[?#]/)[0]!;
+  const out = m[1]! + (PATH_SECRET.test(cut) ? cut.replace(PATH_SECRET, '$1<omitted>') : cut);
+  return cut.length < rest.length && !u.endsWith('/') ? out.replace(/\/$/, '') : out;
 }
 // the look-behind keeps the scan linear on long runs such as `a.a.a.a`
 const URL_IN_TEXT = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 const TRAILING = /[.,;:!?)\]}>'"]+$/;
-/** Every address in a line is cut down to scheme, host and path, and curl body flags are dropped, before the log redactor runs. */
-export const scrubLine = (s: string): string => scrubShell(s).replace(URL_IN_TEXT, (m) => { const tail = TRAILING.exec(m)?.[0] ?? ''; return scrubUrl(m.slice(0, m.length - tail.length)) + tail; });
+/** `Authorization: Bearer x`, `Authorization = 'Basic x'`, a bare `Basic <base64>`: the credential goes wherever it is. */
+const AUTH_VALUE = /(authorization["']?\s*[:=]\s*["']?)((?:bearer|basic|token|digest)\s+)?[^\s"';}]+/gi;
+const BASIC = /\b(Basic\s+)[A-Za-z0-9+/=]{8,}/g;
+/** Every address in a line is cut down to scheme, host and path, web-call secrets are dropped, then authorization values, before the log redactor runs. */
+export const scrubLine = (s: string): string => scrubShell(s)
+  .replace(URL_IN_TEXT, (m) => { const tail = TRAILING.exec(m)?.[0] ?? ''; return scrubUrl(m.slice(0, m.length - tail.length)) + tail; })
+  .replace(AUTH_VALUE, '$1$2<omitted>').replace(BASIC, '$1<omitted>');
 const clean = (s: unknown, n: number): string => clip(redact(scrubLine(String(s).slice(0, n * 5))), n);
 const dayOf = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 const isKind = (k: unknown): k is ActivityKind => typeof k === 'string' && (ACTIVITY_KINDS as readonly string[]).includes(k);

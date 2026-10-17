@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createActivityLog, scrubShell, scrubUrl, scrubLine } from '../src/core/activity/index.js';
 import { tempDir } from './tmp-cleanup.js';
+import { summarizeToolInput } from '../src/core/approvals.js';
 
 const fileText = (log: { folder: string }): string => readFileSync(join(log.folder, readdirSync(log.folder)[0]!), 'utf8');
 const fresh = () => createActivityLog({ dataDir: join(tempDir('act-scrub-'), 'data') });
@@ -85,6 +86,31 @@ test('scrubShell: braces count only as @{ }, (...) values stay whole, a backtick
     assert.ok(scrubShell(cmd).includes('ls -ld dir'), cmd + ' -> ' + scrubShell(cmd));
   assert.equal(scrubShell('irm https://x -Proxy http://p:8080 -OutFile o'), 'irm https://x -Proxy http://p:8080 -OutFile o');
   assert.equal(scrubShell('$n = @{ a = 1 }; ls -ld x'), '$n = @{ a = 1 }; ls -ld x');
+});
+test('the real log path: PowerShell, Monitor and host shell commands are logged as the command, not JSON, and scrubbed', () => {
+  assert.equal(summarizeToolInput('PowerShell', { command: 'irm https://x', timeout: 30000 }), 'irm https://x');
+  assert.equal(summarizeToolInput('mcp__host__shell', { command: 'ls' }), 'ls');
+  assert.equal(summarizeToolInput('Monitor', { command: 'tail -f a.log' }), 'tail -f a.log');
+  const log = fresh();
+  const ps = (c: string) => `PowerShell ${summarizeToolInput('PowerShell', { command: c })}`;
+  for (const c of ["$h = @{ 'X-Key' = 'SECRETVALUE' }\nInvoke-RestMethod -Uri https://x.com -Headers $h", '$h = @{ "X-Key" = "SECRETVALUE" }; Invoke-RestMethod https://x.com -Headers $h',
+    "$h=@{Authorization='Basic SECRETVALUE'}; irm https://x.com -Headers $h", "$pw = ConvertTo-SecureString 'SECRETVALUE' -AsPlainText -Force; irm https://x -Credential $c", "$body = '{\"auth\":\"SECRETVALUE\"}'; irm https://x -Body $body"])
+    log.wouldHaveAsked({ gateId: 'g', label: 'Web', action: ps(c), taskId: 't' });
+  log.append({ kind: 'card-asked', text: `Asked: Bash curl -X POST https://api.x.com -d @- <<'EOF'\n{"auth": "SECRETVALUE"}\nEOF`, taskId: 't' });
+  log.append({ kind: 'card-asked', text: 'Asked: Bash AUTH=SECRETVALUE; curl -H "X: $AUTH" https://x', taskId: 't' });
+  log.append({ kind: 'card-asked', text: 'Asked: Bash "/usr/bin/curl" -u a:SECRETVALUE https://x', taskId: 't' });
+  log.append({ kind: 'note', text: 'Web: https://hooks.slack.com/services/T0/B0/SECRETVALUE and https://discord.com/api/webhooks/1/SECRETVALUE and https://api.telegram.org/botSECRETVALUE/sendMessage', taskId: 't' });
+  log.append({ kind: 'note', text: 'gh api -H "Authorization: token SECRETVALUE" /user; echo Basic SECRETVALUExx', taskId: 't' });
+  const raw = fileText(log);
+  assert.ok(!raw.includes('SECRETVALUE'), raw.split('\n').filter((l) => l.includes('SECRETVALUE')).join('\n'));
+  assert.match(raw, /, because Web is off/);
+});
+test('scrubUrl keeps the address as written: port, case and dot segments stay', () => {
+  assert.equal(scrubUrl('http://svc:80/health'), 'http://svc:80/health');
+  assert.equal(scrubUrl('https://x.com/a/../admin?k=1'), 'https://x.com/a/../admin');
+  assert.equal(scrubUrl('http://LOCALHOST:3000/A'), 'http://LOCALHOST:3000/A');
+  assert.equal(scrubUrl('https://usr:p/w@h.com/x'), 'https://h.com/x');
+  assert.equal(scrubUrl('https://h.com/@me/x'), 'https://h.com/@me/x');
 });
 test('scrubUrl cuts a malformed address by hand: no userinfo, no query', () => {
   assert.equal(scrubUrl('mongodb://usr:pw1@h1:27017,h2:27017/db?replicaSet=r'), 'mongodb://h1:27017,h2:27017/db');

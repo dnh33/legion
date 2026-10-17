@@ -153,7 +153,8 @@ function compactJson(v: unknown, max: number): string {
 
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   const cap = (s: string) => (s.length > 400 ? s.slice(0, 399) + '…' : s);
-  if (toolName === 'Bash' && typeof input?.command === 'string') return cap(input.command);
+  // every shell tool shows its command as written (the card and the activity log read it; JSON would hide it from the log scrub)
+  if ((toolName === 'Bash' || toolName === 'PowerShell' || toolName === 'Monitor' || toolName === 'mcp__host__shell') && typeof input?.command === 'string') return cap(input.command);
   if ((toolName === 'Write' || toolName === 'Edit') && typeof input?.file_path === 'string') return cap(input.file_path);
   if (toolName === BLENDER_EXEC_TOOL && typeof input?.script === 'string') {
     const lines = input.script.split('\n');
