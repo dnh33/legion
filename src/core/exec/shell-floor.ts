@@ -20,6 +20,9 @@
  * seen by reading. Neither are folders below the protected ones (C:\Windows\System32\config, ~/.ssh), single system
  * files, overwrites (`> /etc/passwd`) and the registry. Only a sandboxed backend closes those; the next step is a card
  * for any delete whose target is not provably ordinary (council 2026-10-13, measured on 20,205 real agent commands).
+ * The project-folder rule (criticalDelete, below) is default deny: a delete that could reach the project folder or a folder
+ * above it is asked about. Its stated limits: git's clean command, `node -e` / `python -c` / a script file, `xargs` and
+ * stdin in sh, 8.3 short names of the project path, and symlinks or junctions.
  */
 
 export type ShellKind = 'sh' | 'pwsh' | 'cmd';
@@ -1156,144 +1159,425 @@ function psStage(stage: string, all: string, depth: number): string | undefined 
 
 /* ---------- the project folder and the folders above it ---------- */
 
-/**
- * Where a command runs. `cwd`: the folder the shell is in (absent: not known). `roots`: the project's folders. `extras`: further
- * working folders, of which only a glob directly under one counts, not the folder itself. `home`: the person's home folder.
+/*
+ * Default deny (fix round 1, same design as the data-folder guard's round 5). A delete is free only when EVERY target is a plain
+ * word that resolves, from a known folder, strictly inside the project (or the working folder), or entirely outside them and
+ * their parents. Anything that could reach the project folder or a folder above it is critical: a word built when it runs (a
+ * variable, a substitution, %X%), a share or device path it cannot place, a drive-relative path with no known folder, a glob at
+ * or above the project's level before the path parts from it, a wide glob directly in it, what a pipeline hands Remove-Item, and
+ * a relative word when the shell's folder is not known (unless the word cannot name one of those folders from anywhere).
+ * Where the shell is: every folder it may be in. A `cd` that may not have happened (a later `||`, a `;`, a subshell, a call that
+ * was refused or denied, a folder that is not there) leaves the folder before it as a candidate too; each candidate is judged.
+ * Stated limits (not read here): git's clean command (it removes untracked files, not the folder), `node -e` / `python -c` / a
+ * script file calling a delete, a target that arrives through `xargs` or stdin in sh, 8.3 short names of the project path (only
+ * the home's is read), and symlinks or junctions (no I/O).
  */
-export interface CriticalWhere { cwd?: string; roots: string[]; extras?: string[]; home: string }
-/** What reading a command found: why it is critical (`reason`, and `target` for a card), and the folder the shell is in after it (absent: lost). */
-export interface CriticalRead { reason?: string; target?: string; cwd?: string }
+
+/**
+ * Where a command runs. `cwd`: the folder the shell is in (absent: not known). `cwds`: every folder the shell may be in (a shell
+ * that keeps its folder between calls hands back what the last call returned); each is judged on its own and each counts as a
+ * working folder. `roots`: the project's folders. `extras`: further working folders, of which only a glob directly under one
+ * counts, not the folder itself. `home`: the person's home folder.
+ */
+export interface CriticalWhere { cwd?: string; cwds?: string[]; roots: string[]; extras?: string[]; home: string }
+/**
+ * What reading a command found: why it is critical (`reason`, and `target` for a card); `cwd`, the folder the line's last `cd`
+ * moved to (absent: none, or lost); `cwds`, every folder the shell may be in after the line, the ones it started in included
+ * (absent: not known). Keep `cwds` for the next call whether or not this one runs: the folders before a `cd` stay candidates.
+ */
+export interface CriticalRead { reason?: string; target?: string; cwd?: string; cwds?: string[] }
+
+/** At most this many candidate folders are followed; past that, the folder counts as not known. */
+const MAX_CWDS = 8;
+/** Delete commands this rule reads: the floor's, and the del-cli package. */
+const CRIT_DELETE_VERBS = new Set([...DELETE_VERBS, 'del-cli']);
+/** Package runners that run a package's program after a sub-command: `pnpm dlx rimraf`, `yarn dlx`, `npm exec`, `npm x`. */
+const PKG_RUNNERS = new Set(['pnpm', 'yarn', 'npm', 'bun']);
+const PKG_RUN_SUBS = new Set(['dlx', 'exec', 'x']);
+/** PowerShell's delete cmdlet takes its paths from the pipeline when none is written. */
+const PS_PIPE_DELETES = new Set(['remove-item', 'ri', 'rm', 'del', 'erase', 'rd', 'rmdir']);
+const GET_ITEM = new Set(['get-item', 'gi', 'resolve-path', 'rvpa']);
+/** Get-ChildItem switches (no value) and options that take one: any other option makes the listing unreadable. */
+const GCI_SWITCHES = new Set(['-recurse', '-r', '-force', '-file', '-directory', '-dir', '-hidden', '-system', '-readonly', '-name', '-followsymlink', '-s', '-a']);
+const GCI_VALUES = new Set(['-filter', '-include', '-exclude', '-depth', '-attributes', '-erroraction', '-ea', '-path', '-literalpath']);
 
 /** A path in the one form paths are compared in: lower case, forward slashes, Git Bash /d/x as d:/x, dots folded, no trailing slash. */
 function plainPath(p: string): string {
   let t = windowsPath(p.toLowerCase()).replace(/\\/g, '/').replace(/(?!^)\/{2,}/g, '/');
   const drive = /^\/(?:cygdrive\/|mnt\/)?([a-z])(\/.*)?$/.exec(t);
   if (drive) t = `${drive[1]}:${drive[2] ?? ''}`;
+  // Windows drops trailing spaces and dots from a name: "D:/work/app " and D:/work/app. are D:/work/app
+  t = t.split('/').map((s) => (s === '.' || s === '..' ? s : s.replace(/[ .]+$/, '') || s)).join('/');
   return collapseDots(t);
 }
+const segsOf = (plain: string): string[] => (plain === '/' ? [''] : plain.split('/'));
+const joinSegs = (s: readonly string[]): string => s.join('/') || '/';
 
-/** Only dots and slashes: `.`, `..`, `./`, `../..`, or nothing in front of a glob. These name "here" or "above here" whatever folder here is. */
-const HERE_ONLY = /^(?:\.{1,2}(?:[\\/]+\.{1,2})*)?[\\/]*$/;
-const HOME_WORD = /^(?:~|\$home|\$\{home\}|%userprofile%|\$env:userprofile)(?=[\\/]|$)(.*)$/;
+/** A path part that is a pattern (sh, PowerShell and cmd globs; bash's extglob). */
+const GLOB_SEG = /[*?[]|[@+!]\(/;
+/** A glob that can match nearly any name (`*`, `.*`, `?*`, `**`, `.[!.]*`): no letter or digit outside a bracket class. */
+const wideGlob = (seg: string): boolean => /[@+!]\(/.test(seg) || !/[a-z0-9]/.test(seg.replace(/\[[^\]]*\]/g, ''));
+const globToRe = (g: string): RegExp => new RegExp(`^${g.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\[[^\]]*\]/g, '.').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
 
-/** The folder a delete word names: its plain path (and whether it is a glob over that folder's contents), 'unknown-here' for a relative word with no known folder, undefined for a word to skip. */
-function criticalTarget(word: string, cwd: string | undefined, home: string): { path: string; glob: boolean } | 'unknown-here' | undefined {
-  let w = word.split(ESCAPED_SPACE).join(' ').replace(/^-(?:literal)?path:/, '').replace(/^[\\/]{2}[?.][\\/]/, '');
-  const h = HOME_WORD.exec(w);
-  if (h) { if (!home) return undefined; w = home.replace(/[\\/]+$/, '') + h[1]!; }
-  // a path built when the command runs is the unjudgeable rule's business, not this one's
-  else if (/[$`%{]/.test(w)) return undefined;
-  if (!w) return undefined;
-  const g = /^(?:(.*)[\\/])?(\*|\.\*|\*\.\*)$/.exec(w);
-  const base = g ? (g[1] ?? '.') : w;
-  if (/^(?:[a-z]:|[\\/])/i.test(base) || (g && g[1] === '')) return { path: plainPath(base === '' ? '/' : base), glob: !!g };
-  if (cwd === undefined) return HERE_ONLY.test(base) ? 'unknown-here' : undefined;
-  return { path: plainPath(`${cwd}/${base}`), glob: !!g };
-}
-
-/** A folder's parents as written (D:\work\app: D:\work, D:\), in the separator the folder was written with. */
-function parentsOf(shown: string): string[] {
-  const sep = shown.includes('\\') ? '\\' : '/';
-  const segs = shown.split(/[\\/]+/).filter(Boolean);
-  const lead = /^[\\/]/.test(shown) ? sep : '';
-  const out: string[] = [];
-  for (let k = segs.length - 1; k >= 0; k--) {
-    const head = segs.slice(0, k).join(sep);
-    out.push(k === 0 ? lead : /^[a-z]:$/i.test(head) ? head + sep : lead + head);
+type Rel = 'self' | 'parent' | 'everything' | 'pattern';
+/**
+ * How target `t` relates to folder `s` (both as path parts): s itself, a folder above it, a wide glob directly in it, or a glob
+ * at or above s's level before the two part ways (it may match s or a folder above it: not proven otherwise, so it counts).
+ */
+function relation(t: readonly string[], s: readonly string[]): { rel: Rel; at: number } | undefined {
+  for (let k = 0; k < Math.min(t.length, s.length); k++) {
+    if (GLOB_SEG.test(t[k]!)) return { rel: 'pattern', at: k };
+    if (t[k] !== s[k]) return undefined;
   }
-  return out.filter(Boolean);
+  if (t.length < s.length) return { rel: 'parent', at: t.length - 1 };
+  if (t.length === s.length) return { rel: 'self', at: t.length - 1 };
+  const next = t[s.length]!;
+  return t.length === s.length + 1 && GLOB_SEG.test(next) && wideGlob(next) ? { rel: 'everything', at: s.length - 1 } : undefined;
 }
 
-/** The folder the shell is in after a cd (or pushd), or undefined when it cannot be followed. */
-function movedTo(target: string | undefined, cwd: string | undefined, home: string, shell: ShellKind): string | undefined {
-  if (target === undefined) return shell === 'sh' && home ? plainPath(home) : cwd;
-  if (target === '-') return undefined;
-  const t = criticalTarget(target, cwd, home);
-  return t && t !== 'unknown-here' && !t.glob ? t.path : undefined;
+/** A folder as the owner wrote it: the spelling of a known folder it is, sits in or sits above; else the plain path in Windows form. */
+function shownAs(plain: string, known: readonly string[]): string {
+  const p = segsOf(plain);
+  for (const k of known) {
+    const ks = segsOf(plainPath(k));
+    const words = k.split(/[\\/]+/);
+    while (words.length > 1 && words[words.length - 1] === '') words.pop();
+    if (words.length !== ks.length) continue;
+    const n = Math.min(p.length, ks.length);
+    if (joinSegs(p.slice(0, n)) !== joinSegs(ks.slice(0, n))) continue;
+    const sep = k.includes('\\') ? '\\' : '/';
+    const s = [...words.slice(0, n), ...p.slice(n)].join(sep);
+    return /^[a-z]:$/i.test(s) ? s + sep : s || sep;
+  }
+  const s = /^[a-z]:/.test(plain) ? plain[0]!.toUpperCase() + plain.slice(1).replace(/\//g, '\\') : plain;
+  return /^[a-z]:$/i.test(s) ? `${s}\\` : s;
 }
+
+/** sh, PowerShell and cmd spellings of the folder the shell is in ($PWD, ${PWD}, $pwd.Path, $(pwd), `pwd`, (Get-Location), %CD%, ~+), then a tail. */
+const CWD_WORD = /^(?:\$\{?pwd\}?(?:\.path)?|\$\((?:pwd|get-location|gl)\)(?:\.path)?|\((?:pwd|get-location|gl)\)(?:\.path)?|`pwd`|%cd%|~\+)(?=[\\/]|$)(.*)$/;
+const HOME_WORD = /^(?:~|\$home|\$\{home\}|%userprofile%|\$env:userprofile)(?=[\\/]|$)(.*)$/;
+/** A word built when it runs: a variable or substitution, cmd's %X% and !X!, a ~ form that is not the home, a PowerShell block or expression. */
+const builtWord = (w: string, shell: ShellKind): boolean =>
+  /[$`]/.test(w) || /%[^%\s]+%/.test(w) || (shell === 'cmd' && /![^!\s]+!/.test(w)) || w.startsWith('~') || w.startsWith('(') || (shell !== 'sh' && /[{}]/.test(w));
+/** A line that sets the home folder's variable: then ~ and $HOME are not the home. */
+const SETS_HOME = /(?:^|[\s;&|(])(?:export\s+|set\s+"?)?(?:home|userprofile)=|\$(?:env:)?(?:home|userprofile)\s*=/i;
+
+/** Where a word points: an absolute path as parts; relative parts when no folder is known; 'here' (dots only, or ..) with no folder; 'could' when reading cannot say. */
+type Resolved = { segs: string[] } | { rel: string[] } | 'here' | 'could';
+function resolveWord(word: string, raw: string, shell: ShellKind, cwd: string | undefined, home: string, homeSet: boolean): Resolved {
+  let w = word.split(ESCAPED_SPACE).join(' ');
+  const here = CWD_WORD.exec(raw.split(ESCAPED_SPACE).join(' ')) ?? CWD_WORD.exec(w);
+  if (here) { if (cwd === undefined) return 'here'; w = cwd + here[1]!; }
+  else {
+    const h = HOME_WORD.exec(w);
+    if (h) { if (!home || homeSet) return 'could'; w = (home.replace(/[\\/]+$/, '') + h[1]!).toLowerCase(); }
+    else if (builtWord(w, shell)) return 'could';
+  }
+  // device paths: \\?\D:\x and \\.\D:\x are D:\x, \\?\UNC\host\share is \\host\share; a volume GUID or anything else cannot be placed
+  const dev = /^[\\/]{2}[?.][\\/](.*)$/.exec(w);
+  if (dev) { w = dev[1]!; if (/^unc[\\/]/.test(w)) w = `\\\\${w.slice(4)}`; else if (!/^[a-z]:/.test(w)) return 'could'; }
+  // an admin share (\\host\D$\x, whatever the host is called: this computer has many names) is that drive; another share may be the project
+  const unc = /^[\\/]{2}[^\\/]+[\\/]([^\\/]+)(.*)$/.exec(w);
+  if (unc) { const d = /^([a-z])\$$/.exec(unc[1]!); if (!d) return 'could'; w = `${d[1]}:${unc[2] || '/'}`; }
+  else if (/^[\\/]{2}/.test(w)) return 'could';
+  // D:work is the folder the shell last had on drive D:, which reading does not know
+  if (/^[a-z]:(?![\\/])/.test(w)) return 'could';
+  if (shell === 'sh') w = w.replace(/^\\(?![\\])/, '');
+  // cmd and PowerShell: \work is on the drive of the folder the shell is in
+  else if (/^[\\/](?![\\/])/.test(w) && cwd !== undefined && /^[a-z]:/.test(cwd)) w = cwd.slice(0, 2) + w;
+  else if (/^[\\/](?![\\/])/.test(w) && cwd === undefined) return 'could';
+  if (!w) return 'could';
+  if (/^(?:[a-z]:|[\\/])/.test(w)) return { segs: segsOf(plainPath(w)) };
+  if (cwd !== undefined) return { segs: segsOf(plainPath(`${cwd}/${w}`)) };
+  const rel = w.replace(/\\/g, '/').split('/').filter((s) => s && s !== '.').map((s) => (s === '..' ? s : s.replace(/[ .]+$/, '') || s));
+  return !rel.length || rel.includes('..') ? 'here' : { rel };
+}
+
+/** With no known folder: could a relative word name one of `selves` (or a wide glob in one) from somewhere? Only if its plain part ends one of their paths. */
+function relativeCouldReach(rel: readonly string[], selves: ReadonlyArray<readonly string[]>): boolean {
+  const g = rel.findIndex((s) => GLOB_SEG.test(s));
+  const lit = g < 0 ? rel : rel.slice(0, g);
+  if (!lit.length) return true;
+  const want = lit.join('/');
+  return selves.some((s) => { for (let end = lit.length; end <= s.length; end++) if (s.slice(end - lit.length, end).join('/') === want) return true; return false; });
+}
+
+/** A target of a delete: the word (cleaned) and as written (for $(pwd) and (Get-Location) forms). */
+interface Word { w: string; raw: string }
+/** The words after word i that a delete or cd takes as paths: no options, except PowerShell's -Path:x and -LiteralPath:x (the value is the path). */
+function pathWords(args: readonly Arg[], i: number, slashOptions: boolean): Word[] {
+  const out: Word[] = [];
+  for (let j = i + 1; j < args.length; j++) {
+    const a = args[j]!;
+    if (/^-(?:literal)?path:/.test(a.w)) { out.push({ w: a.w.replace(/^-(?:literal)?path:/, ''), raw: a.raw.replace(/^-(?:literal)?path:/, '') }); continue; }
+    if (a.w.startsWith('-') || (slashOptions && a.sw) || !a.w) continue;
+    out.push({ w: a.w, raw: a.raw });
+  }
+  return out;
+}
+
+/** The folder word of a cd: 'none' (no word: home in sh), 'lost' (an option it cannot read), or the word (`-` for the folder before). */
+function cdWord(args: readonly Arg[], i: number, shell: ShellKind): Word | 'none' | 'lost' {
+  for (let j = i + 1; j < args.length; j++) {
+    const a = args[j]!;
+    const w = a.w;
+    if (!w || (shell !== 'sh' && w === '/d')) continue;
+    if (/^-(?:literal)?path:/.test(w)) return { w: w.replace(/^-(?:literal)?path:/, ''), raw: a.raw.replace(/^-(?:literal)?path:/, '') };
+    if (w === '-path' || w === '-literalpath') { const n = args[j + 1]; return n ? { w: n.w, raw: n.raw } : 'lost'; }
+    if (w === '-') return { w, raw: w };
+    if (w === '--') { const n = args[j + 1]; return n ? { w: n.w, raw: n.raw } : 'none'; }
+    if (shell === 'sh' && /^-[ple@]+$/.test(w)) continue;
+    if (w.startsWith('-')) return 'lost';
+    return { w, raw: a.raw };
+  }
+  return 'none';
+}
+
+/** Splits at `re` outside quotes, like splitOutside, and keeps the separator after each part ('' after the last). */
+function splitKeepingSeps(s: string, re: RegExp, shell: ShellKind): Array<{ part: string; sep: string }> {
+  const masked = maskQuotes(s, shell);
+  let g = GLOBAL.get(re);
+  if (!g) { g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`); GLOBAL.set(re, g); }
+  const out: Array<{ part: string; sep: string }> = [];
+  let last = 0;
+  for (const m of masked.matchAll(g)) { out.push({ part: s.slice(last, m.index), sep: m[0] }); last = m.index! + m[0].length; }
+  out.push({ part: s.slice(last), sep: '' });
+  return out;
+}
+
+/** A folder the shell may be in (plain), and the working folder it came from (that one is protected like the project). */
+interface Cand { p: string; base?: string }
+const union = (a: readonly Cand[] | undefined, b: readonly Cand[] | undefined): Cand[] | undefined => {
+  if (!a || !b) return undefined;
+  const seen = new Map<string, Cand>();
+  for (const c of [...a, ...b]) seen.set(`${c.p}|${c.base ?? ''}`, c);
+  return seen.size > MAX_CWDS ? undefined : [...seen.values()];
+};
+
+interface Hit { target: string; reason: string; rel?: Rel }
 
 /**
- * Reads a command for a delete of the project folder or a folder above it (see criticalDelete). Same readers as the refusal:
- * segments, stages, delete verbs at command positions, the text of a shell's -c. It follows `cd` through the line and hands back
- * the folder the shell is in afterwards, so the next call of a shell that keeps its folder is read from there.
+ * Reads a command for a delete that could reach the project folder or a folder above it (see criticalDelete). Same readers as the
+ * refusal: segments, stages, delete verbs at command positions, the text of a shell's -c and of substitutions. It follows `cd`
+ * through the line and hands back every folder the shell may be in afterwards, for the next call of a shell that keeps its folder.
  */
-export function criticalDeleteRead(raw: string, shell: ShellKind, where: CriticalWhere, depth = 0): CriticalRead {
-  const cmd = unglue(ansiC(prepare(raw, shell)));
+export function criticalDeleteRead(raw: string, shell: ShellKind, where: CriticalWhere): CriticalRead {
+  const start: Cand[] | undefined = where.cwds?.length
+    ? where.cwds.map((c) => ({ p: plainPath(c), base: plainPath(c) }))
+    : where.cwd ? [{ p: plainPath(where.cwd), base: plainPath(where.cwd) }] : undefined;
+  const r = readCritical(raw, shell, where, start, 0, !!where.cwds?.length);
+  const cwds = union(start, r.cands);
+  return { ...(r.hit ? { reason: r.hit.reason, target: r.hit.target } : {}), ...(r.moved ? { cwd: r.moved } : {}), ...(cwds ? { cwds: cwds.map((c) => c.p) } : {}) };
+}
+
+function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, startCands: Cand[] | undefined, depth: number, history: boolean): { hit?: Hit; cands?: Cand[]; moved?: string } {
+  let cmd = unglue(ansiC(prepare(raw, shell)));
+  // cmd and PowerShell run `cd..` and `cd\` as cd .. and cd \
+  if (shell !== 'sh') cmd = cmd.replace(/(^|[\s;&|(])(cd|chdir)(?=[.\\/])/gi, '$1$2 ');
   const text = shell === 'sh' && /\\ /.test(cmd) ? cmd.replace(/\\ /g, ESCAPED_SPACE) : cmd;
   const home = where.home;
-  const homeNorm = home ? plainPath(home) : '';
-  // the folders that matter, as written (for the message) and compared (lower case)
-  const selves = new Map<string, { shown: string; what: string }>();
-  for (const r of where.roots) if (r) selves.set(plainPath(r), { shown: r, what: 'the project folder' });
-  if (where.cwd && !selves.has(plainPath(where.cwd))) selves.set(plainPath(where.cwd), { shown: where.cwd, what: 'the working folder' });
-  const parents = new Map<string, string>();
-  for (const { shown } of selves.values()) for (const p of parentsOf(shown)) if (!selves.has(plainPath(p))) parents.set(plainPath(p), p);
-  const extras = new Map<string, string>();
-  for (const e of where.extras ?? []) if (e) extras.set(plainPath(e), e);
+  const homeSet = SETS_HOME.test(text);
+  const known = [...where.roots, ...(where.cwd ? [where.cwd] : []), ...(home ? [home] : []), ...(where.extras ?? [])].filter(Boolean);
+  const show = (segs: readonly string[]) => shownAs(joinSegs(segs), known);
+  const roots = where.roots.filter(Boolean).map((r) => segsOf(plainPath(r)));
+  const homeSegs = home ? segsOf(plainPath(home)) : undefined;
+  const extras = (where.extras ?? []).filter(Boolean).map((e) => segsOf(plainPath(e)));
 
-  const judge = (word: string, cwd: string | undefined): { target: string; reason: string } | undefined => {
-    const t = criticalTarget(word, cwd, home);
-    if (!t) return undefined;
-    if (t === 'unknown-here') return { target: 'the folder the shell is in', reason: 'it deletes the folder the shell is in, which may be the project folder' };
-    const here = selves.get(t.path);
-    const parent = parents.get(t.path);
-    if (t.glob) {
-      const shown = here?.shown ?? parent ?? extras.get(t.path);
-      if (shown) return { target: `everything in ${shown}`, reason: `it deletes everything in ${shown}${here || parent ? ', which holds the project' : ''}` };
-    } else if (here) return { target: `${here.what} ${here.shown}`, reason: `it deletes ${here.what} ${here.shown}` };
-    else if (parent) return { target: parent, reason: `it deletes ${parent}, a folder that holds the project` };
-    // the home folder, also by its 8.3 short name (C:\Users\DANIEL~1)
-    const short = /^[a-z]:\/users\/[^/]{1,6}~\d+$/.test(t.path) && /^[a-z]:\/users\//.test(homeNorm);
-    if (t.path === homeNorm || short) return { target: t.glob ? 'everything in your home folder' : 'your home folder', reason: `it deletes ${t.glob ? 'everything in ' : ''}your home folder` };
+  /** What deleting absolute path `t` does, read from a folder that came from working folder `base`. */
+  const judgeAbs = (t0: readonly string[], base: string | undefined, word: string): Hit | undefined => {
+    let t = t0;
+    // the home folder by its 8.3 short name (C:\Users\DANIEL~1), any user's: a home folder
+    if (homeSegs && homeSegs.length >= 3 && homeSegs[0] === t[0] && homeSegs[1] === 'users' && t[1] === 'users' && /^[^/]{1,6}~\d+$/.test(t[2] ?? '')) t = [...homeSegs.slice(0, 3), ...t.slice(3)];
+    const selves: Array<{ s: string[]; what: string }> = roots.map((s) => ({ s, what: 'the project folder' }));
+    if (base !== undefined && !roots.some((s) => joinSegs(s) === base)) selves.push({ s: segsOf(base), what: 'the working folder' });
+    for (const { s, what } of selves) {
+      const rel = relation(t, s);
+      if (!rel) continue;
+      const at = show(s.slice(0, rel.at + 1));
+      if (rel.rel === 'self') return { rel: 'self', target: `${what} ${at}`, reason: `it deletes ${what} ${at}` };
+      if (rel.rel === 'parent') return { rel: 'parent', target: at, reason: `it deletes ${at}, a folder that holds the project` };
+      if (rel.rel === 'everything') return { rel: 'everything', target: `everything in ${at}`, reason: `it deletes everything in ${at}, which holds the project` };
+      return { rel: 'pattern', target: `what ${word} matches, which can be ${at}`, reason: `it deletes what the pattern ${word} matches, and that can be ${at}, which holds the project` };
+    }
+    if (homeSegs) {
+      const rel = relation(t, homeSegs);
+      if (rel?.rel === 'self') return { rel: 'self', target: 'your home folder', reason: 'it deletes your home folder' };
+      if (rel?.rel === 'everything') return { rel: 'everything', target: 'everything in your home folder', reason: 'it deletes everything in your home folder' };
+      if (rel) return { rel: rel.rel, target: show(homeSegs.slice(0, rel.at + 1)), reason: `it deletes ${show(homeSegs.slice(0, rel.at + 1))}, which holds your home folder` };
+    }
+    for (const e of extras) if (relation(t, e)?.rel === 'everything') return { rel: 'everything', target: `everything in ${show(e)}`, reason: `it deletes everything in ${show(e)}` };
     return undefined;
   };
+  const could = (word: string): Hit => ({ target: `${word} (Legion cannot tell where that is before it runs; it may be the project folder)`, reason: `what it deletes (${word}) is only known when it runs, and it may be the project folder or a folder above it` });
+  const unknownHere: Hit = { target: 'the folder the shell is in', reason: 'it deletes the folder the shell is in, which may be the project folder' };
 
-  let cwd = where.cwd;
-  let found: { target: string; reason: string } | undefined;
-  const slashFor = (st: Stage, i: number): boolean => shell !== 'sh' && CMD_SWITCH_VERBS.has(program(st.ws[i]!));
-  for (const segment of splitOutside(text, SEGMENTS, shell)) {
-    for (const stage of splitOutside(segment, PIPE, shell)) {
-      const st = new Stage(argWords(stage, shell));
+  let cands = startCands;
+  /** What deleting `word` does, from every folder the shell may be in. */
+  const judge = (word: string, rawWord: string): Hit | undefined => {
+    if (!word) return undefined;
+    // a comma list (PowerShell), or cmd's , ; = between arguments: every path in it
+    const listSep = shell === 'pwsh' ? /,/ : shell === 'cmd' ? /[,;=]/ : undefined;
+    if (listSep && listSep.test(word)) {
+      const parts = word.split(listSep);
+      const raws = rawWord.split(listSep);
+      for (const [n, p] of parts.entries()) { const h = judge(p, raws.length === parts.length ? raws[n]! : p); if (h) return h; }
+      return undefined;
+    }
+    // sh's brace list is every one of its forms ({*,.*} is * and .*); a sequence ({a..z}) is not read
+    if (shell === 'sh') {
+      const b = /^([^{]*)\{([^{}]*)\}(.*)$/.exec(word);
+      if (b && b[2]!.includes('..') && !b[2]!.includes(',')) return could(word);
+      if (b && b[2]!.includes(',')) {
+        const alts = b[2]!.split(',');
+        if (alts.length > 32) return could(word);
+        for (const a of alts) { const w = `${b[1]}${a}${b[3]}`; const h = judge(w, w); if (h) return h; }
+        return undefined;
+      }
+    }
+    if (cands === undefined) {
+      const res = resolveWord(word, rawWord, shell, undefined, home, homeSet);
+      if (res === 'could') return could(word);
+      if (res === 'here') return unknownHere;
+      if ('rel' in res) return relativeCouldReach(res.rel, [...roots, ...(homeSegs ? [homeSegs] : [])]) ? unknownHere : undefined;
+      return judgeAbs(res.segs, undefined, word);
+    }
+    for (const c of cands) {
+      const res = resolveWord(word, rawWord, shell, c.p, home, homeSet);
+      if (res === 'could' || res === 'here') return could(word);
+      if ('segs' in res) { const h = judgeAbs(res.segs, c.base, word); if (h) return h; }
+    }
+    return undefined;
+  };
+  /** The folder a cd word moves a candidate to (plain), or undefined when it cannot be followed. */
+  const cdTo = (word: Word, cwd: string | undefined): string | undefined => {
+    const res = resolveWord(word.w, word.raw, shell, cwd, home, homeSet);
+    if (typeof res === 'string' || !('segs' in res) || res.segs.some((s) => GLOB_SEG.test(s))) return undefined;
+    return joinSegs(res.segs);
+  };
+
+  let hit: Hit | undefined;
+  let moved: string | undefined;
+  let before: Cand[] | undefined | null = null;
+  const stack: Array<Cand[] | undefined> = [];
+  // a cd replaces the folder only when the next command runs only if it worked (`cd x && …`) and nothing on the line can skip
+  // it or undo it (a `||`, a subshell); otherwise the folder before stays a candidate
+  const unsure = /\|\|/.test(maskQuotes(text, shell)) || /\(\s*(?:cd|chdir|pushd|set-location|sl|push-location)\b/i.test(text) || /\bcdpath=/i.test(text);
+  const slashFor = (args: readonly Arg[], i: number): boolean => shell !== 'sh' && CMD_SWITCH_VERBS.has(program(args[i]!.w));
+  const inner = (t: string, k: ShellKind) => { const r = readCritical(t, k, where, cands, depth + 1, history); if (r.hit) hit ??= r.hit; };
+
+  for (const { part: segment, sep } of splitKeepingSeps(text, SEGMENTS, shell)) {
+    const stageTexts = splitOutside(segment, PIPE, shell);
+    const stages = stageTexts.map((t) => argWords(t, shell));
+    for (const [s, args] of stages.entries()) {
+      const st = new Stage(args);
+      const ws = st.ws;
+      // cmd and PowerShell: `D:` alone switches drive (to the folder last used there, which reading knows only for the same drive)
+      if (shell !== 'sh' && ws.length === 1 && /^[a-z]:$/.test(ws[0]!)) { if (cands && !cands.every((c) => c.p.startsWith(ws[0]!))) cands = undefined; continue; }
       const c = st.at(CD_VERBS)[0];
-      if (c !== undefined) { cwd = movedTo(st.targetsAfter(c, slashFor(st, c))[0], cwd, home, shell); continue; }
-      if (st.at(new Set(['popd'])).length) { cwd = undefined; continue; }
-      for (const i of st.at(DELETE_VERBS)) for (const w of st.targetsAfter(i, slashFor(st, i))) found ??= judge(w, cwd);
-      // find with -delete (or -exec rm) and nothing narrowing it: its start paths are what it deletes
-      const deletes = st.has((w) => w === '-delete') || st.ws.some((w, k) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(st.ws[k + 1] ?? '')));
-      if (deletes && !st.has((w) => FIND_FILTERS.has(w))) {
+      const pop = st.at(new Set(['popd', 'pop-location']))[0];
+      if (c !== undefined || pop !== undefined) {
+        let next: Cand[] | undefined;
+        if (pop !== undefined) next = union(cands, stack.pop());
+        else {
+          if (['pushd', 'push-location'].includes(program(ws[c!]!))) stack.push(cands);
+          const word = /\bcdpath=/i.test(text) ? 'lost' : cdWord(args, c!, shell);
+          if (word === 'lost') next = undefined;
+          else if (word === 'none') next = shell === 'cmd' ? cands : shell === 'sh' ? (home ? cands?.map((x) => ({ ...x, p: plainPath(home) })) : undefined) : union(cands, cands?.map((x) => ({ ...x, p: plainPath(home) })));
+          else if (word.w === '-') next = before === null ? (history ? cands : undefined) : before;
+          else if (cands === undefined) { const to = cdTo(word, undefined); next = to ? [{ p: to }] : undefined; }
+          else {
+            const moves = cands.map((x) => { const to = cdTo(word, x.p); return to ? { ...x, p: to } : undefined; });
+            next = moves.every(Boolean) ? (moves as Cand[]) : undefined;
+          }
+        }
+        const sure = sep === '&&' && !unsure && stages.length === 1 && pop === undefined;
+        before = cands;
+        cands = next === undefined ? undefined : sure ? next : union(cands, next);
+        moved = next?.[next.length - 1]?.p;
+        continue;
+      }
+      const verbs = [...st.at(CRIT_DELETE_VERBS)];
+      // pnpm dlx rimraf, yarn dlx, npm exec [--] rimraf, npm x del-cli
+      for (const j of st.at(PKG_RUNNERS)) {
+        if (!PKG_RUN_SUBS.has(ws[j + 1] ?? '')) continue;
+        let k = j + 2;
+        while (k < ws.length && ws[k]!.startsWith('-')) k += ws[k] === '-p' || ws[k] === '--package' ? 2 : 1;
+        if (k < ws.length && CRIT_DELETE_VERBS.has(program(ws[k]!))) verbs.push(k);
+      }
+      for (const i of verbs) {
+        const targets = pathWords(args, i, slashFor(args, i));
+        for (const t of targets) hit ??= judge(t.w, t.raw);
+        // PowerShell: a delete with no path deletes what the command before the pipe hands it
+        if (!targets.length && s > 0 && (shell === 'pwsh' || program(ws[i]!) === 'remove-item' || program(ws[i]!) === 'ri') && PS_PIPE_DELETES.has(program(ws[i]!))) hit ??= piped(stages[s - 1]!);
+      }
+      // find with -delete (or -exec rm): its start folders are what it deletes, unless a narrow -name keeps it to files inside
+      const findDeletes = st.has((w) => w === '-delete') || ws.some((w, k) => (w === '-exec' || w === '-execdir') && CRIT_DELETE_VERBS.has(program(ws[k + 1] ?? '')));
+      if (findDeletes) {
+        const names = ws.flatMap((w, k) => (w === '-name' || w === '-iname' ? [ws[k + 1] ?? ''] : []));
+        const narrow = names.length > 0 && names.every((n) => n && !wideGlob(n)) && !st.has((w) => w === '-o' || w === '-or' || w === '-not' || w === '!' || w === ',');
         for (const i of st.at(new Set(['find']))) {
-          const starts = st.ws.slice(i + 1).findIndex((w) => /^[-!(]/.test(w));
-          for (const w of st.ws.slice(i + 1, starts < 0 ? undefined : i + 1 + starts)) found ??= judge(w, cwd);
+          const rest = args.slice(i + 1);
+          const first = rest.findIndex((a) => /^[-!(]/.test(a.w));
+          const starts = rest.slice(0, first < 0 ? undefined : first).map((a) => ({ w: a.w, raw: a.raw }));
+          for (const start of starts.length ? starts : [{ w: '.', raw: '.' }]) {
+            const h = judge(start.w, start.raw);
+            const base = start.w.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+            if (h && !(narrow && h.rel === 'self' && !names.some((n) => globToRe(n).test(base)))) hit ??= h;
+          }
         }
       }
       // robocopy /MIR or /PURGE: the destination loses what the source does not have
-      if (st.has((w) => w === '/mir' || w === '/purge')) for (const i of st.at(new Set(['robocopy']))) { const dest = st.targetsAfter(i, true)[1]; if (dest) found ??= judge(dest, cwd); }
+      if (st.has((w) => w === '/mir' || w === '/purge')) for (const i of st.at(new Set(['robocopy']))) { const dest = pathWords(args, i, true)[1]; if (dest) hit ??= judge(dest.w, dest.raw); }
       if (depth < 2) {
-        // a shell's -c text is a command of its own, in its shell, read from where the line has got to
-        const pos = commandPositions(st.ws);
-        for (const [n, i] of pos.entries()) {
-          if (!/\s/.test(st.ws[i]!)) continue;
-          const inner = criticalDeleteRead(st.ws[i]!, shellOf(n > 0 ? program(st.ws[pos[n - 1]!]!) : '', shell), { ...where, cwd }, depth + 1);
-          if (inner.reason) found ??= { target: inner.target ?? '', reason: inner.reason };
+        // a shell's -c text (bash -lc, sh -ic and other clusters with c; PowerShell's -Command and its short forms; cmd /c /k /r) is a command of its own
+        const pos = commandPositions(ws);
+        for (const [n, i] of pos.entries()) if (/\s/.test(ws[i]!)) inner(ws[i]!, shellOf(n > 0 ? program(ws[pos[n - 1]!]!) : '', shell));
+        for (const k of st.at(SHELLS)) {
+          const kind = shellOf(program(ws[k]!), shell);
+          const flag = ws.findIndex((w, j) => j > k && (kind === 'sh' ? /^-[a-z]*c[a-z]*$/.test(w) : kind === 'pwsh' ? /^-c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?$/.test(w) : /^\/[ckr]$/.test(w)));
+          if (flag > k && ws[flag + 1] !== undefined) inner(ws[flag + 1]!, kind);
         }
       }
-      if (found) return { reason: found.reason, target: found.target, ...(cwd ? { cwd } : {}) };
     }
   }
-  if (depth < 2) for (const t of new Set(substitutions(text, shell))) {
-    const inner = criticalDeleteRead(t, shell, { ...where, cwd }, depth + 1);
-    if (inner.reason) return { reason: inner.reason, ...(inner.target ? { target: inner.target } : {}), ...(cwd ? { cwd } : {}) };
+  if (depth < 2) for (const t of new Set(substitutions(text, shell))) inner(t, shell);
+  return { ...(hit ? { hit } : {}), ...(cands ? { cands } : {}), ...(moved ? { moved } : {}) };
+
+  /** What a pipeline hands Remove-Item: what Get-ChildItem lists (a glob over its folder), what Get-Item names, else not known. */
+  function piped(prev: readonly Arg[]): Hit | undefined {
+    const st = new Stage([...prev]);
+    const list = st.at(LIST_VERBS)[0];
+    const item = st.at(GET_ITEM)[0];
+    if (item !== undefined) { const ps = pathWords(prev, item, false); return ps.length ? ps.map((p) => judge(p.w, p.raw)).find(Boolean) : judge('.', '.'); }
+    if (list === undefined) return could('what the command before the pipe hands it');
+    const paths: Word[] = [];
+    let filter: string | undefined;
+    for (let j = list + 1; j < prev.length; j++) {
+      const w = prev[j]!.w;
+      if (!w) continue;
+      if (/^-(?:literal)?path:/.test(w)) { paths.push({ w: w.replace(/^-(?:literal)?path:/, ''), raw: prev[j]!.raw.replace(/^-(?:literal)?path:/, '') }); continue; }
+      if (w === '-path' || w === '-literalpath') { const n = prev[++j]; if (n) paths.push({ w: n.w, raw: n.raw }); continue; }
+      if (w === '-filter' || w === '-include') { filter = prev[++j]?.w; continue; }
+      if (GCI_VALUES.has(w)) { j++; continue; }
+      if (GCI_SWITCHES.has(w)) continue;
+      if (prev[j]!.sw && shell === 'cmd') continue;
+      if (w.startsWith('-')) return could('what the command before the pipe lists');
+      if (paths.length && filter === undefined) filter = w; else paths.push({ w, raw: prev[j]!.raw });
+    }
+    const glob = filter && !wideGlob(filter) ? filter : '*';
+    for (const p of paths.length ? paths : [{ w: '.', raw: '.' }]) {
+      const h = builtWord(p.w, shell) || CWD_WORD.test(p.raw) ? judge(p.w, p.raw) : judge(`${p.w.replace(/[\\/]+$/, '')}/${glob}`, `${p.raw.replace(/[\\/]+$/, '')}/${glob}`);
+      if (h) return h;
+    }
+    return undefined;
   }
-  // a cd inside a subshell does not move the shell that runs the next call: not followed, so the folder is lost
-  if (/\(\s*(?:cd|chdir|pushd|set-location|sl)\b/i.test(text)) cwd = undefined;
-  return cwd ? { cwd } : {};
 }
 
 /**
- * Why a command deletes the project folder or a folder above it, else undefined (Claude Code's critical paths: the working
- * folder and its parents, and a glob directly under a working folder; the home folder and its 8.3 name). Pure, no I/O. The
- * card or the refusal around it is the engine's. Targets beyond this reading (a path built at run time, a delete whose
- * target arrives on stdin, a script file) are the unjudgeable rule's business or a known limit of reading text.
+ * Why a command deletes, or could delete, the project folder or a folder above it, else undefined (Claude Code's critical
+ * paths: the working folder and its parents, a glob directly in a working folder, the home folder and its 8.3 name), read
+ * default deny: a delete is free only when every target provably stays inside the project or outside it and its parents.
+ * Pure, no I/O. The card or the refusal around it is the engine's.
  */
 export function criticalDelete(cmd: string, shell: ShellKind, where: CriticalWhere): string | undefined {
   return criticalDeleteRead(cmd, shell, where).reason;

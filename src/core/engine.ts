@@ -341,8 +341,11 @@ interface Active {
   shellMoved?: boolean;
   /** The folder(s) the run's Claude shell may be in after its last call, when the guard could follow them. */
   shellCwds?: string[];
-  /** The folder Claude's shell is in after its last call, as the project-folder delete check followed it (null: lost; absent: still where the run started). */
-  critCwd?: string | null;
+  /**
+   * Every folder Claude's shell may be in after its earlier calls, as the project-folder delete check followed them (null: not known;
+   * absent: still where the run started). The folders before a `cd` stay in: the call may have been refused or denied, or the cd may have failed.
+   */
+  critCwds?: string[] | null;
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
   projectAtStart?: string;
   /** For an outside helper's run: the project it helps (its cap and deny rules bind the run although the run is not in it). */
@@ -1486,12 +1489,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const act = this.active.get(job.taskId);
     const start = this.gateCwd(agent, toolName, input);
     const folder = this.projectOf(job.taskId, agent.id)?.folder;
-    const carried = keeps && act ? act.critCwd : undefined;
+    const carried = keeps && act ? act.critCwds : undefined;
+    // a command too long to read is carded anyway; it may hold a cd, so the folder is not known after it
+    if (command.length > MAX_READABLE) { if (keeps && act) act.critCwds = null; return undefined; }
     let r: ReturnType<typeof criticalDeleteRead>;
     try {
-      r = criticalDeleteRead(command, kind, { cwd: carried === undefined ? start : carried ?? undefined, roots: folder ? [folder] : [], home: homedir() });
-    } catch (e) { if (keeps && act) act.critCwd = null; throw e; }
-    if (keeps && act) act.critCwd = r.cwd ?? null;
+      // the run's start folder is shown as written; folders a cd reached are kept in the reader's plain form
+      r = criticalDeleteRead(command, kind, { ...(carried === undefined ? { cwd: start } : carried ? { cwd: start, cwds: carried } : {}), roots: folder ? [folder] : [], home: homedir() });
+    } catch (e) { if (keeps && act) act.critCwds = null; throw e; }
+    // kept whether or not this call runs: the reader's list holds the folders before every cd as well as after
+    if (keeps && act) act.critCwds = r.cwds?.length ? r.cwds : null;
     return r.reason ? (r.target ?? 'the project folder') : undefined;
   }
 
