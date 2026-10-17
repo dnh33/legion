@@ -5,9 +5,11 @@
  * NODE_OPTIONS, ...) are dropped the same way. The owner's keep list (`envKeep` in the signed app file) overrides both.
  */
 export const SECRET_ENV = /(_TOKEN|_SECRET|_KEY)$|PASSWORD|PASSWD|^AWS_|^(GITHUB_TOKEN|GH_TOKEN)$/i;
-const SECRET_WORDS = new Set(['TOKEN', 'TOKENS', 'SECRET', 'SECRETS', 'KEY', 'KEYS', 'APIKEY', 'PASSWORD', 'PASSWD', 'CREDENTIAL', 'CREDENTIALS']);
+const SECRET_WORDS = new Set(['TOKEN', 'SECRET', 'SECRETS', 'KEY', 'KEYS', 'APIKEY', 'PASSWORD', 'PASSWD', 'CREDENTIAL', 'CREDENTIALS']);
 /** A URL with user:password@ in it, e.g. DATABASE_URL=postgres://u:p@host/db (the user part may be empty: redis://:pw@host). */
 const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^\s/:@]*:[^\s/@]+@/i;
+/** git's config-by-environment set: dropping part of it (a KEY_n without its COUNT) makes every git command fail, so it stays whole. */
+const GIT_CONFIG_ENV = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/i;
 /** Never removed, even when a rule matches (a proxy URL may carry a password; the tools need these to run at all). */
 const NEVER_STRIP = new Set(['PATH', 'PATHEXT', 'PWD', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'COMSPEC', 'TEMP', 'TMP', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY']);
 /** Inherited variables that make a program load someone's code. An owner who needs one adds it to the keep list. */
@@ -31,7 +33,7 @@ export function scrubSecretEnv(env: Record<string, string | undefined>, o: Scrub
   const keep = o.keep ?? [];
   const out: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(env)) {
-    if (!NEVER_STRIP.has(k.toUpperCase()) && !kept(k, keep)) {
+    if (!NEVER_STRIP.has(k.toUpperCase()) && !GIT_CONFIG_ENV.test(k) && !kept(k, keep)) {
       if (injectionClass(k)) continue;
       if (secretLooking(k, v) && !(o.providerAuth && PROVIDER.test(k))) continue;
     }

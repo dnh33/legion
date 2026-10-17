@@ -23,8 +23,8 @@ test('providerAuth leaves the cloud login variables alone', () => {
 test('a secret word as its own segment goes (GITHUB_TOKEN_2, API_KEY_ID, MY_SECRET_VALUE); look-alikes stay', () => {
   const env = { GITHUB_TOKEN_2: '1', API_KEY_ID: '2', MY_SECRET_VALUE: '3', SOME_CREDENTIALS: '4', X_APIKEY_Y: '5', DB_PASSWD_OLD: '6', my_tokens_a: '7', KEYBOARD_LAYOUT: 'us', TOKENIZERS_PARALLELISM: 'false', MONKEY_COUNT: '3', SECRETARY: 'x', PWD: '/w' };
   const out = scrubSecretEnv(env);
-  for (const k of ['GITHUB_TOKEN_2', 'API_KEY_ID', 'MY_SECRET_VALUE', 'SOME_CREDENTIALS', 'X_APIKEY_Y', 'DB_PASSWD_OLD', 'my_tokens_a']) assert.equal(k in out, false, k);
-  for (const k of ['KEYBOARD_LAYOUT', 'TOKENIZERS_PARALLELISM', 'MONKEY_COUNT', 'SECRETARY', 'PWD']) assert.equal(k in out, true, k);
+  for (const k of ['GITHUB_TOKEN_2', 'API_KEY_ID', 'MY_SECRET_VALUE', 'SOME_CREDENTIALS', 'X_APIKEY_Y', 'DB_PASSWD_OLD']) assert.equal(k in out, false, k);
+  for (const k of ['KEYBOARD_LAYOUT', 'TOKENIZERS_PARALLELISM', 'MONKEY_COUNT', 'SECRETARY', 'PWD', 'my_tokens_a']) assert.equal(k in out, true, k);
 });
 test('a value that is a URL with a password goes; a URL without one stays', () => {
   const out = scrubSecretEnv({ DATABASE_URL: 'postgres://u:p@h/db', REDIS: 'redis://:pw@h:6379', PLAIN_URL: 'https://example.com/a', USER_AT: 'https://user@example.com/x', NOTE: 'a://b:c d@e' });
@@ -91,4 +91,13 @@ test('buildChildEnv with Bedrock on keeps the cloud login variables', () => {
     const env = buildChildEnv(defaultConfig());
     assert.equal(env.AWS_SECRET_ACCESS_KEY, 'aws_owner'); assert.equal('NPM_TOKEN' in env, false);
   } finally { for (const k of names) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } }
+});
+test('Legion\'s own CLI settings that end in TOKENS survive the scrub', () => {
+  const prev = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS; process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '32000';
+  try { assert.equal(buildChildEnv(defaultConfig()).CLAUDE_CODE_MAX_OUTPUT_TOKENS, '32000'); assert.equal(scrubSecretEnv({ OPENAI_MAX_TOKENS: '9' }).OPENAI_MAX_TOKENS, '9'); }
+  finally { if (prev === undefined) delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS; else process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = prev; }
+});
+test('git\'s config-by-environment set stays whole', () => {
+  const out = scrubSecretEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.pager', GIT_CONFIG_VALUE_0: 'cat', GIT_CONFIG_KEY_X: 'y' });
+  assert.equal(out.GIT_CONFIG_COUNT, '1'); assert.equal(out.GIT_CONFIG_KEY_0, 'core.pager'); assert.equal(out.GIT_CONFIG_VALUE_0, 'cat'); assert.equal('GIT_CONFIG_KEY_X' in out, false);
 });
