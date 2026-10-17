@@ -419,7 +419,11 @@ async function scenarioNotify() {
   baselineInstalled();
   startServer();
   const unchanged = await tree(install);
+  // package requests made since the current step began (the code release with a different lock does download its code package, to find the lock differs)
+  let mark = 0;
+  const newPackages = () => packageHits().slice(mark);
   const notice = async (folder, label, fn) => {
+    mark = packageHits().length;
     killInstalled();
     serve(folder);
     startApp(label);
@@ -437,7 +441,7 @@ async function scenarioNotify() {
     await sleep(30_000);
     const s2 = await status();
     check(!s2?.staged && !s2?.readyToApply, 'nothing was staged');
-    check(packageHits().length === 0, `no package of any kind was requested (${packageHits().length})`);
+    check(newPackages().length === 0, `no package of any kind was requested (${newPackages().length})`);
   });
   // a code release whose lock differs and that carries a Windows package: the code route is refused, the package is not fetched
   await notice('stone-stranded', 'a code release with a different lock', async () => {
@@ -456,15 +460,16 @@ async function scenarioNotify() {
     check(!st?.available, 'nothing is offered');
     check(/^rejected/.test(st?.check?.lastResult ?? ''), `the check says rejected (${st?.check?.lastResult})`);
     await sleep(15_000);
-    check(packageHits().length === 0, 'no package was requested');
+    check(newPackages().length === 0, 'no package was requested');
   });
   // a downgrade
   await notice('unix-old', 'an older release', async () => {
     const st = await checkNow();
     check(!st?.available, `nothing is offered (${st?.check?.lastResult})`);
-    check(packageHits().length === 0, 'no package was requested');
+    check(newPackages().length === 0, 'no package was requested');
   });
   // a folder without the marker (a hand-made clone) only gets a notice
+  mark = packageHits().length;
   killInstalled();
   rmSync(join(install, '.legion-install.json'));
   serve('unix-good');
@@ -475,7 +480,7 @@ async function scenarioNotify() {
   const i = await api('POST', '/api/update/install');
   check(i?.status === 409, `install() answers 409 (${i?.status ?? i?.err})`);
   await sleep(20_000);
-  check(packageHits().length === 0, 'no package was requested');
+  check(newPackages().length === 0, 'no package was requested');
   killInstalled();
   const d = diff(unchanged, await tree(install)).filter((k) => k !== '.legion-install.json'); // the marker was removed on purpose
   check(d.length === 0, `the install is unchanged after every notice${d.length ? `; differs: ${d.slice(0, 8).join(', ')}` : ''}`);
