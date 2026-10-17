@@ -23,7 +23,7 @@ const REFUSED = 'Your system key store did not unlock, so Legion cannot save key
 const BLOCKED_VIEW = { providers: [{ id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1' }], keyStoreState: 'blocked' };
 const OK_VIEW = { providers: [{ id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1' }], keyStoreState: 'encrypted' };
 
-function rig(views: Array<Record<string, unknown>>, over: { confirm?: boolean; startStatus?: number; restartError?: string | null; noStartOver?: boolean } = {}) {
+function rig(views: Array<Record<string, unknown>>, over: { confirm?: boolean; startStatus?: number; restartError?: string | null; noStartOver?: boolean; storeReady?: boolean } = {}) {
   const log: string[] = [];
   const calls: Array<{ method: string; route: string; body?: unknown; native?: boolean }> = [];
   const dialogs: Array<{ title: string; message: string; detail: string; confirmLabel: string }> = [];
@@ -36,7 +36,7 @@ function rig(views: Array<Record<string, unknown>>, over: { confirm?: boolean; s
       return { status: 200, json: { ok: true } };
     },
     async confirm(o) { dialogs.push(o); log.push('confirm'); return over.confirm !== false; },
-    ...(over.noStartOver ? {} : { startOver: { async setAsideKey() { log.push('setAsideKey'); }, async restartCore() { log.push('restartCore'); return over.restartError ?? null; } } }),
+    ...(over.noStartOver ? {} : { startOver: { async storeReady() { log.push('storeReady'); return over.storeReady !== false; }, async setAsideKey() { log.push('setAsideKey'); }, async restartCore() { log.push('restartCore'); return over.restartError ?? null; } } }),
   };
   return { d, calls, dialogs, log };
 }
@@ -53,7 +53,7 @@ test('R2 start over: the core is asked first, then key.bin is set aside by main,
   const { d, log, dialogs, calls } = rig([BLOCKED_VIEW, OK_VIEW]);
   const r = await providerChange({ kind: 'start-over' }, d);
   assert.equal(r.ok, true);
-  assert.deepEqual(log, ['GET /api/providers', 'confirm', 'POST /api/providers/keys/start-over', 'setAsideKey', 'restartCore', 'GET /api/providers']);
+  assert.deepEqual(log, ['GET /api/providers', 'storeReady', 'confirm', 'POST /api/providers/keys/start-over', 'setAsideKey', 'restartCore', 'GET /api/providers']);
   assert.equal(calls.find((c) => c.method === 'POST')!.native, true, 'the core gets the native secret, only after Confirm');
   const t = `${dialogs[0]!.title} ${dialogs[0]!.message} ${dialogs[0]!.detail}`;
   assert.match(t, /start over/i); assert.match(t, /set aside|renamed/i); assert.match(t, /not deleted/i); assert.match(t, /restart/i); assert.match(t, /paste/i);
@@ -73,7 +73,7 @@ test('R2 Cancel changes nothing', async () => {
   const { d, log } = rig([BLOCKED_VIEW], { confirm: false });
   const r = await providerChange({ kind: 'start-over' }, d);
   assert.equal(r.cancelled, true);
-  assert.deepEqual(log, ['GET /api/providers', 'confirm']);
+  assert.deepEqual(log, ['GET /api/providers', 'storeReady', 'confirm']);
 });
 
 test('R2 when the core refuses, key.bin is not touched and the core is not restarted', async () => {
@@ -89,6 +89,23 @@ test('R2 a failed restart is reported; a core that comes back still locked out i
   assert.equal(a.ok, false); assert.match(a.error!, /Core did not become ready/);
   const b = await providerChange({ kind: 'start-over' }, rig([BLOCKED_VIEW, BLOCKED_VIEW]).d);
   assert.equal(b.ok, false); assert.match(b.error!, /still/i);
+});
+
+test('R2 a key store that is only unavailable right now (locked, not unlocked yet) is not "start over": no dialog, no core call, nothing renamed, no restart', async () => {
+  const { d, log } = rig([BLOCKED_VIEW], { storeReady: false });
+  const r = await providerChange({ kind: 'start-over' }, d);
+  assert.equal(r.ok, false);
+  assert.match(r.error!, /not available right now/i);
+  assert.match(r.error!, /Nothing was changed/);
+  assert.deepEqual(log, ['GET /api/providers', 'storeReady']);
+});
+
+test('R2 start over only counts as done when the restarted core holds an ENCRYPTED store; a plain one (no usable key store after all) is reported as a failure', async () => {
+  const r = await providerChange({ kind: 'start-over' }, rig([BLOCKED_VIEW, { providers: [], keyStoreState: 'plain' }]).d);
+  assert.equal(r.ok, false);
+  assert.match(r.error!, /would not be encrypted/);
+  const ok = await providerChange({ kind: 'start-over' }, rig([BLOCKED_VIEW, OK_VIEW]).d);
+  assert.equal(ok.ok, true);
 });
 
 test('R2 without the app hooks (no startOver deps) the request is refused', async () => {
@@ -169,10 +186,24 @@ test('R2 setAsideProviderKey: an unreadable key.bin is renamed (never deleted); 
   assert.equal(readdirSync(join(dir, 'providers')).filter((n) => n.startsWith('key.bin.unreadable-')).length, 2);
 });
 
+test('R2 setAsideProviderKey never renames a key.bin while the key store is only unavailable (locked, no keyring, no encryption): that file may be fine', async () => {
+  const dir = tempDir('legion-pkey-unavail-');
+  const hex = await ensureProviderKey(dir, fakeStorage(), 'win32');
+  assert.ok(hex);
+  const before = readFileSync(providerKeyFilePath(dir));
+  const off: SafeStorageLike = { ...fakeStorage(), isAsyncEncryptionAvailable: async () => false };
+  assert.equal(await setAsideProviderKey(dir, off, 'win32'), 'unavailable');
+  const throws: SafeStorageLike = { ...fakeStorage(), isAsyncEncryptionAvailable: async () => { throw new Error('keychain locked'); } };
+  assert.equal(await setAsideProviderKey(dir, throws, 'win32'), 'unavailable');
+  assert.equal(await setAsideProviderKey(dir, { ...fakeStorage(), getSelectedStorageBackend: () => 'basic_text' }, 'linux'), 'unavailable');
+  assert.deepEqual(readFileSync(providerKeyFilePath(dir)), before, 'byte for byte');
+  assert.deepEqual(readdirSync(join(dir, 'providers')), ['key.bin']);
+});
+
 test('R2 main.ts passes start over its own two steps: set the key aside, restart the core quietly (a full restart, like the connector key)', () => {
   const main = readFileSync(join(repoRoot, 'src/electron/main.ts'), 'utf8');
   const h = main.slice(main.indexOf("ipcMain.handle('legion:provider-change'"), main.indexOf("ipcMain.handle('legion:web-search-change'"));
-  assert.match(h, /startOver: \{ setAsideKey: \(\) => setAsideProviderKey\(dataDir\(\), safeStorage\)\.then\(\(\) => undefined\), restartCore: restartCoreQuiet \}/);
+  assert.match(h, /startOver: \{ storeReady: \(\) => providerKeyStoreReady\(safeStorage\), setAsideKey: \(\) => setAsideProviderKey\(dataDir\(\), safeStorage\)\.then\(\(r\) => \{ if \(r === 'unavailable'\) throw new Error\('key store unavailable'\); \}\), restartCore: restartCoreQuiet \}/);
 });
 
 // ------------------------------------------------------------------------------------------------ core routes
