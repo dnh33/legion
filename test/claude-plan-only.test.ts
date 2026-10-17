@@ -233,6 +233,8 @@ test('plan only: accountInfo reports a key source -> no message is ever written,
   assert.equal(t.status, 'error');
   assert.equal(t.error, BLOCKED('/login managed key'));
   assert.equal(s.calls.length, 1);
+  // give the fake's prompt reader time to record a message a closed channel might still deliver
+  await new Promise((r) => setTimeout(r, 30));
   assert.deepEqual(s.order, ['account']);
 });
 
@@ -244,6 +246,7 @@ test('plan only: the account check fails or times out -> fails closed, no messag
     assert.equal(t.status, 'error');
     assert.equal(t.error, text);
     assert.equal(s.calls.length, 1);
+    await new Promise((r) => setTimeout(r, 30));
     assert.equal(s.order.includes('message'), false);
   }
 });
