@@ -10,6 +10,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, chmodS
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './ps-helpers.js';
+import { CODE_SET } from '../src/core/updater/apply.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const installSh = join(root, 'scripts', 'install', 'install.sh');
@@ -168,9 +169,10 @@ test('marker: the contract written exactly; head is the commit (also for an anno
   assert.equal(JSON.parse(readFileSync(join(dir, '.legion-install.json'), 'utf8')).head, git(dir, 'rev-parse', 'HEAD'));
   // on a branch the marker is not written (the updater would call this clone a plain checkout) and an old marker is removed
   git(dir, 'checkout', '-q', '-b', 'work');
-  const bad = run(['write_marker'], 'write_marker "$1"', [p]);
-  assert.notEqual(bad.status, 0);
-  assert.match(bad.stderr, /detached/);
+  const bad = run(['write_marker'], 'write_marker "$1"; echo "rc=$?"', [p]);
+  assert.match(bad.stdout, /rc=1/, 'it reports failure to the caller instead of ending the script');
+  assert.match(bad.stderr, /Legion is installed, but it could not mark this folder for self-update; updates will show a notice instead\./);
+  assert.match(bad.stderr, /not a commit sha/);
   assert.equal(existsSync(join(dir, '.legion-install.json')), false, 'no stale marker is left behind');
 });
 
@@ -257,4 +259,112 @@ esac
   r = install();
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /has local changes/);
+});
+
+// ---------------------------------------------------------------- the allow-list (I4)
+/** Names the installer's dirty rule has allowed so far. It only grows: a Legion that is already installed keeps swapping with ITS code set,
+ *  so the installer must still allow every name any shipped CODE_SET had (a missing name makes a re-run refuse with "has local changes"). */
+const PINNED_ALLOW = ['.update', '.legion-install.json', 'dist', 'dist-ui', 'assets', 'scripts', 'licenses', 'package.json', 'package-lock.json', 'build-info.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'setup.cmd', 'setup-yes.cmd', 'start-legion.cmd'];
+const installerAllowList = (): string[] => {
+  const m = /split\("([^"]+)", names, " "\)/.exec(sh);
+  assert.ok(m, 'outside_dirt in install.sh still has its split("...", names, " ") list');
+  return m[1].split(' ');
+};
+
+test('allow-list: install.sh allows exactly CODE_SET plus .update and .legion-install.json, read from the real files', () => {
+  const want = [...CODE_SET, '.update', '.legion-install.json'].sort();
+  assert.deepEqual([...installerAllowList()].sort(), want, 'install.sh outside_dirt and CODE_SET (src/core/updater/apply.ts) must list the same names. Adding a name: add it in both places.');
+});
+
+test('allow-list: never shrinks (a removal strands every install that still swaps that name)', () => {
+  const have = new Set(installerAllowList());
+  const gone = PINNED_ALLOW.filter((n) => !have.has(n));
+  assert.deepEqual(gone, [], `install.sh outside_dirt no longer allows ${gone.join(', ')}. An installed Legion keeps swapping these names with its own CODE_SET, so a re-run of the installer would refuse with "has local changes" and the person could not get a dependency release. Never remove a name from the list; if CODE_SET really drops one, keep it here.`);
+  const extra = [...have].filter((n) => !PINNED_ALLOW.includes(n));
+  assert.deepEqual(extra, [], `install.sh allows ${extra.join(', ')}, which is not in PINNED_ALLOW in this test. Add it there in the same commit.`);
+});
+
+// ---------------------------------------------------------------- a running Legion (I1)
+const fakePs = (dir: string, lines: string[] | 'fail'): string => {
+  const bin = join(dir, 'psbin'); mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'ps'), lines === 'fail' ? '#!/bin/sh\nexit 1\n' : `#!/bin/sh\ncat <<'END_OF_PS'\n${lines.join('\n')}\nEND_OF_PS\n`);
+  chmodSync(join(bin, 'ps'), 0o755);
+  return px(bin);
+};
+const running = (psDir: string, p: string): boolean => {
+  const r = spawnSync('sh', ['-c', `${STUBS}${fn('legion_running')}\nlegion_running "$1"`, 'sh', p], { encoding: 'utf8', env: { ...process.env, PATH: `${psDir}:${process.env.PATH}` } });
+  return r.status === 0;
+};
+
+test('running Legion: a process with the folder\'s Electron on its command line counts; another folder, a longer name, a missing or failing ps do not', { skip: skipSh }, () => {
+  const w = tempDir('install-ps-');
+  const d = '/home/u/.local/share/legion';
+  assert.equal(running(fakePs(w, ['/sbin/init', `${d}/node_modules/electron/dist/electron ${d}`]), d), true, 'Linux app process');
+  assert.equal(running(fakePs(w, [`${d}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ${d}`]), d), true, 'macOS app process');
+  assert.equal(running(fakePs(w, [`node ${d}/node_modules/electron/dist/electron --type=zygote`]), d), true, 'as an argument after a space');
+  assert.equal(running(fakePs(w, [`${d}2/node_modules/electron/dist/electron ${d}2`]), d), false, 'a sibling folder with a longer name');
+  assert.equal(running(fakePs(w, [`/other${d}/node_modules/electron/dist/electron`]), d), false, 'the same path under another prefix');
+  assert.equal(running(fakePs(w, [`sh install.sh --dir ${d}`]), d), false, 'the installer itself');
+  assert.equal(running(fakePs(w, 'fail'), d), false, 'ps fails: not detected, the install goes on');
+});
+
+// ---------------------------------------------------------------- the whole script again: reftable, a marker that cannot be written, a running Legion
+interface Rig { w: string; wp: string; env: NodeJS.ProcessEnv; inst: string; install: () => ReturnType<typeof spawnSync> }
+function rig(name: string, extraEnv: Record<string, string> = {}): Rig {
+  const w = tempDir(name); const wp = px(w);
+  const bare = join(w, 'base', 'dnh33', 'legion.git'); mkdirSync(dirname(bare), { recursive: true });
+  git(w, 'init', '-q', '--bare', bare);
+  const src = join(w, 'src-repo'); mkdirSync(src); git(src, 'init', '-q');
+  for (const [rel, body] of Object.entries({ '.gitignore': 'node_modules\ndist\ndist-ui\n', 'package.json': '{"version":"0.99.0"}', 'src/a.ts': 'a' })) { mkdirSync(dirname(join(src, rel)), { recursive: true }); writeFileSync(join(src, rel), body); }
+  git(src, 'add', '.'); git(src, 'commit', '-q', '-m', 'v0.99.0'); git(src, 'tag', '-a', 'v0.99.0', '-m', 'v0.99.0');
+  git(src, 'remote', 'add', 'origin', bare); git(src, 'push', '-q', 'origin', 'HEAD:refs/heads/main', 'v0.99.0');
+  const bin = join(w, 'bin'); mkdirSync(bin);
+  writeFileSync(join(bin, 'npm'), `#!/bin/sh
+case "$1" in
+  ci) mkdir -p node_modules/electron && printf 'module.exports = __dirname + "/electron-bin";\\n' > node_modules/electron/index.js && printf '#!/bin/sh\\n' > node_modules/electron/electron-bin && chmod 755 node_modules/electron/electron-bin ;;
+  run) mkdir -p dist/src/electron dist-ui && : > dist/src/electron/main.js && : > dist-ui/index.html ;;
+esac
+`); chmodSync(join(bin, 'npm'), 0o755);
+  const home = join(w, 'home'); mkdirSync(home);
+  const env = { ...process.env, HOME: px(home), PATH: `${px(bin)}:${process.env.PATH}`, LEGION_INSTALL_BASE: `file://${wp}/base`, ...extraEnv };
+  const inst = `${wp}/inst`;
+  return { w, wp, env, inst, install: () => spawnSync('sh', [px(installSh), '--no-launch', '--dir', inst, '--version', '0.99.0'], { encoding: 'utf8', env }) };
+}
+const reftableOk = ((): boolean => { const t = tempDir('reftable-probe-'); return spawnSync('git', ['init', '-q', '--ref-format=reftable', t], { encoding: 'utf8' }).status === 0; })();
+const reftableSkip = skipSh || (reftableOk ? false : 'this git has no reftable');
+
+test('reftable: a fresh install with init.defaultRefFormat=reftable still gets a bare-sha .git/HEAD and a valid marker', { skip: reftableSkip }, () => {
+  const w = tempDir('install-reftable-cfg-'); const cfg = join(w, 'gitconfig');
+  writeFileSync(cfg, '[init]\n\tdefaultRefFormat = reftable\n');
+  const r = rig('install-reftable-', { GIT_CONFIG_GLOBAL: px(cfg) });
+  const out = r.install();
+  assert.equal(out.status, 0, String(out.stdout) + String(out.stderr));
+  const dir = join(r.w, 'inst');
+  const head = git(dir, 'rev-parse', 'HEAD');
+  assert.equal(readFileSync(join(dir, '.git', 'HEAD'), 'utf8').trim(), head, '.git/HEAD is the bare sha');
+  assert.equal(JSON.parse(readFileSync(join(dir, '.legion-install.json'), 'utf8')).head, head);
+});
+
+test('reftable: an existing reftable clone is installed anyway, with a warning and no marker, and the launcher is written', { skip: reftableSkip }, () => {
+  const r = rig('install-reftable-existing-');
+  git(r.w, 'clone', '-q', '--ref-format=reftable', '--depth', '1', '--branch', 'v0.99.0', `file://${r.wp}/base/dnh33/legion.git`, join(r.w, 'inst'));
+  assert.match(readFileSync(join(r.w, 'inst', '.git', 'HEAD'), 'utf8'), /\.invalid/, 'the probe clone really is reftable');
+  const out = r.install();
+  assert.equal(out.status, 0, String(out.stdout) + String(out.stderr));
+  assert.match(String(out.stderr), /Legion is installed, but it could not mark this folder for self-update; updates will show a notice instead\./);
+  assert.equal(existsSync(join(r.w, 'inst', '.legion-install.json')), false);
+  assert.equal(existsSync(join(r.w, 'home', '.local', 'bin', 'legion')), true, 'the launcher is there');
+});
+
+test('a running Legion in the folder stops the installer before it touches node_modules', { skip: skipSh }, () => {
+  const r = rig('install-running-');
+  assert.equal(r.install().status, 0);
+  const dir = join(r.w, 'inst');
+  writeFileSync(join(dir, 'node_modules', 'keep'), '1');
+  const real = spawnSync('sh', ['-c', 'cd "$1" && pwd -P', 'sh', r.inst], { encoding: 'utf8' }).stdout.trim();
+  const ps = fakePs(r.w, [`${real}/node_modules/electron/dist/electron ${real}`]);
+  const out = spawnSync('sh', [px(installSh), '--no-launch', '--dir', r.inst, '--version', '0.99.0'], { encoding: 'utf8', env: { ...r.env, PATH: `${ps}:${r.env.PATH}` } });
+  assert.notEqual(out.status, 0);
+  assert.match(out.stderr, /Legion is running from .* Close it/);
+  assert.equal(existsSync(join(dir, 'node_modules', 'keep')), true, 'node_modules was not deleted');
 });

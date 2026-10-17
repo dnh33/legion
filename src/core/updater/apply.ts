@@ -45,7 +45,11 @@ export interface WindowDep {
   dispose?(): void;
 }
 
-/** The only names an update may replace (directories and files at the top of the install folder). */
+/**
+ * The only names an update may replace (directories and files at the top of the install folder).
+ * Adding a name: add it to the allow-list in scripts/install/install.sh (outside_dirt) in the same commit. Never remove one there:
+ * installed Legion versions keep swapping with their own set. test/install-sh-marker.test.ts checks both.
+ */
 export const CODE_SET: readonly string[] = Object.freeze([
   'dist', 'dist-ui', 'assets', 'scripts', 'licenses',
   'package.json', 'package-lock.json', 'build-info.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md',

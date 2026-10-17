@@ -14,10 +14,10 @@
 #   3. Fetches the source at that release tag into ~/.local/share/legion. An existing folder is updated in place only if it is a
 #      clean clone of dnh33/legion; any other folder is left alone and the script stops. "Clean" allows the changes Legion's own
 #      updater makes (the program folders and files at the top of the folder, .update, build-info.json); an edit anywhere else,
-#      for example in src/, stops the script. It also stops while Legion is in the middle of an update.
+#      for example in src/, stops the script. It also stops while Legion is running from that folder or is in the middle of an update.
 #   4. Runs npm ci (which downloads Electron) and npm run build in that folder, and checks that Electron is there.
 #   5. Writes .legion-install.json in that folder (it tells Legion's updater that this installer manages the folder, so Legion can
-#      update itself) and the launcher ~/.local/bin/legion. A re-run also clears what an interrupted update left behind.
+#      update itself; if that fails, Legion still works and shows a notice for updates) and the launcher ~/.local/bin/legion. A re-run also clears what an interrupted update left behind.
 # There is no prebuilt app for macOS and Linux yet, so this builds from source. It sends nothing anywhere.
 #
 # The whole script is one function called on the last line, so a download that is cut off runs nothing.
@@ -89,6 +89,11 @@ main() {
     fail "an update is in progress in $dir. Wait for it to finish (about a minute), or close Legion, then run this again."
   fi
 
+  # The build below deletes node_modules (the Electron the open app runs from) and rewrites dist/ under it. Stop while Legion runs from here.
+  if legion_running "$dir"; then
+    fail "Legion is running from $dir. Close it (quit it from its window or tray), then run this again."
+  fi
+
   # 2) which version
   if [ -z "$version" ]; then
     command -v curl >/dev/null 2>&1 || fail "curl is not installed. Install curl, then run this again."
@@ -127,7 +132,9 @@ main() {
     git -C "$dir" checkout --quiet --force "tags/$tag" || fail "Could not switch to $tag."
   else
     say "Fetching Legion $tag into $dir ..."
-    git clone --quiet --depth 1 --branch "$tag" "$base$repo_path.git" "$dir" || fail "Could not fetch $tag. Does that release exist?"
+    # GIT_DEFAULT_REF_FORMAT=files: with the reftable format (a git setting, and the default from Git 3.0) .git/HEAD is not the commit sha,
+    # which Legion's updater reads to recognise this folder. Git versions that do not know the variable ignore it.
+    GIT_DEFAULT_REF_FORMAT=files git clone --quiet --depth 1 --branch "$tag" "$base$repo_path.git" "$dir" || fail "Could not fetch $tag. Does that release exist?"
   fi
   # The updater's files must not show up as changes. This goes in .git/info/exclude because a .gitignore change would not reach clones that exist.
   add_excludes "$dir"
@@ -149,7 +156,8 @@ main() {
   # The build is good. Drop what an interrupted update left behind (it would roll this fresh build back to old files), then mark the
   # folder as managed by this installer.
   clear_stale_update "$dir"
-  write_marker "$dir"
+  # A folder that cannot be marked still works; Legion then shows a notice for updates instead of applying them.
+  write_marker "$dir" || :
 
   # 5) launcher (~/.local/bin does not exist by default on macOS)
   mkdir -p "$bindir"
@@ -240,18 +248,31 @@ clear_stale_update() {
 }
 
 # Writes <dir>/.legion-install.json, the sign for Legion's updater that this installer manages the folder. HEAD must be the bare
-# commit sha (a detached checkout); anything else would make the updater treat the folder as a plain checkout, so stop instead.
+# commit sha (a detached checkout in the files ref format); anything else would make the updater treat the folder as a plain
+# checkout. Then the marker is removed and this returns 1 with a warning: Legion is installed and works, so the caller goes on.
 write_marker() {
   _mf=$1/.legion-install.json
+  _warn="Legion is installed, but it could not mark this folder for self-update; updates will show a notice instead."
   _head=$(git -C "$1" rev-parse HEAD 2>/dev/null) || _head=
   _file=$(cat "$1/.git/HEAD" 2>/dev/null) || _file=
   if ! printf '%s' "$_head" | grep -Eq '^[0-9a-f]{40}$' || [ "$_file" != "$_head" ]; then
     rm -f -- "$_mf"
-    fail "The folder is not on a detached release checkout (.git/HEAD is not a commit), so Legion could not update itself. Run this again with a new --dir."
+    printf 'Warning: %s (.git/HEAD is not a commit sha: the folder is not a detached checkout in the files ref format. Run this installer again with a new --dir to fix it.)\n' "$_warn" >&2
+    return 1
   fi
-  _real=$(cd -- "$1" && pwd -P) || fail "Could not enter $1."
+  _real=$(cd -- "$1" && pwd -P) || { printf 'Warning: %s (could not enter %s.)\n' "$_warn" "$1" >&2; return 1; }
   node -e 'var fs=require("fs"),a=process.argv,t=a[1]+".tmp";fs.writeFileSync(t,JSON.stringify({schema:1,manager:"install.sh",dir:a[2],head:a[3]})+"\n");fs.renameSync(t,a[1])' "$_mf" "$_real" "$_head" \
-    || fail "Could not write $_mf."
+    || { rm -f -- "$_mf" "$_mf.tmp"; printf 'Warning: %s (could not write %s.)\n' "$_warn" "$_mf" >&2; return 1; }
+}
+
+# True while a process runs Electron from <dir>/node_modules/electron/dist (the app, its helpers). Looks at every process's command line
+# with POSIX ps (macOS, Linux). The path counts only at the start of the line or after a space, so /a/b does not match /x/a/b. Where
+# ps is missing or fails, nothing is detected and the install goes on.
+legion_running() {
+  ps -A -o args= 2>/dev/null | LEGION_RUN_PAT="$1/node_modules/electron/dist/" awk '
+    BEGIN { p = ENVIRON["LEGION_RUN_PAT"] }
+    { s = $0; while ((i = index(s, p)) > 0) { if (i == 1 || substr(s, i - 1, 1) == " ") { found = 1; exit } s = substr(s, i + 1) } }
+    END { exit found ? 0 : 1 }'
 }
 
 # Electron 44 needs Node 22.12 or newer, and so do vite 7 and plugin-react 5 on the 22 line (they also allow 20.19+, but Electron does not).
