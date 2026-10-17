@@ -34,7 +34,7 @@ export function connectorsShellWarning(o: { connectors: boolean; approval: strin
   if (!o.connectors || (o.resolved ?? o.approval) !== 'full') return undefined;
   const shell = !o.onProvider || o.vmOn;
   if (!shell) return undefined;
-  return 'This agent can run shell commands and never asks. A shell runs as you, so it can read files Legion keeps on your computer, including the encrypted GitHub sign-in and the key that opens it. Legion does not hand tokens to agents, but it cannot stop code running as you from reading them. Use "Ask before Bash" for an agent that reads GitHub.';
+  return 'This agent can run shell commands and never asks. A shell runs as you, so it can read files Legion keeps on your computer, including the encrypted GitHub sign-in and the key that opens it. Legion does not hand tokens to agents, but it cannot stop code running as you from reading them. Set an agent that reads GitHub to Ask.';
 }
 
 /** One plain line for where the sign-in is kept. */
