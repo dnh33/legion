@@ -1,0 +1,75 @@
+name: Spike unix electron
+on:
+  push:
+    branches: [spike/unix-electron]
+permissions:
+  contents: read
+jobs:
+  spike:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Local release repo with tag v0.98.0
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/site/dnh33"
+          git clone --bare --quiet . "$RUNNER_TEMP/site/dnh33/legion.git"
+          git -C "$RUNNER_TEMP/site/dnh33/legion.git" tag v0.98.0 "$(git rev-parse HEAD)"
+          git -C "$RUNNER_TEMP/site/dnh33/legion.git" tag
+      - name: install.sh (CI and ELECTRON_SKIP_BINARY_DOWNLOAD unset)
+        run: |
+          set -eu
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          env -u CI -u ELECTRON_SKIP_BINARY_DOWNLOAD LEGION_INSTALL_BASE="file://$RUNNER_TEMP/site" \
+            sh scripts/install/install.sh --no-launch --version 0.98.0 --dir "$RUNNER_TEMP/legion-install"
+          test -x "$HOME/.local/bin/legion"
+          cat "$HOME/.local/bin/legion"
+      - name: Linux deps
+        if: runner.os == 'Linux'
+        run: command -v xvfb-run || (sudo apt-get update -q && sudo apt-get install -y xvfb)
+      - name: Start the app and wait for /health
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/logs"
+          export HOME="$RUNNER_TEMP/home"
+          dir="$RUNNER_TEMP/legion-install"
+          export LEGION_HOME="$RUNNER_TEMP/legion-home"; mkdir -p "$LEGION_HOME"
+          export LEGION_PORT=$(node -e 'const s=require("net").createServer().listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
+          echo "port $LEGION_PORT"
+          flags=""
+          if [ "$RUNNER_OS" = Linux ]; then
+            nohup xvfb-run -a "$dir/node_modules/.bin/electron" "$dir" --no-sandbox --disable-gpu >"$RUNNER_TEMP/logs/app.log" 2>&1 &
+          else
+            nohup "$dir/node_modules/.bin/electron" "$dir" >"$RUNNER_TEMP/logs/app.log" 2>&1 &
+          fi
+          ok=0; start=$(date +%s)
+          for i in $(seq 1 120); do
+            if curl -fsS --max-time 2 "http://127.0.0.1:$LEGION_PORT/health" >"$RUNNER_TEMP/logs/health.json" 2>/dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          echo "elapsed $(( $(date +%s) - start ))s ok=$ok"
+          cat "$RUNNER_TEMP/logs/health.json" 2>/dev/null || true; echo
+          echo "--- app.log tail"; tail -n 40 "$RUNNER_TEMP/logs/app.log"
+          find "$LEGION_HOME" -name '*.log' -exec sh -c 'echo "--- $1"; tail -n 20 "$1"' _ {} \; || true
+          cp -R "$LEGION_HOME" "$RUNNER_TEMP/logs/legion-home" 2>/dev/null || true
+          pkill -f "$dir/node_modules" || true
+          pkill Xvfb || true
+          [ "$ok" = 1 ]
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: logs-${{ matrix.os }}
+          path: ${{ runner.temp }}/logs
+          if-no-files-found: ignore
