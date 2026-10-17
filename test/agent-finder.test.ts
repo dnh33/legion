@@ -41,3 +41,16 @@ test('the core stores what the form sent: on with k, then Same as the Armory rem
   assert.equal(kept.json.skillFinder, 'off');
   assert.equal(kept.json.skillFinderK, 3, 'off does not touch k');
 });
+
+test('the task a window gets from /api/state carries skillTurns (both the full and the slim snapshot), so the chat line can show', async () => {
+  const m = await mount();
+  const turns = [{ at: new Date().toISOString(), suggested: ['sp:a'], loaded: [], why: [{ id: 'sp:a', score: 3, matched: ['pdf'], thirdParty: true as const }] }];
+  const t = { id: 'task_finder_turns', agentId: 'worker', title: 'x', status: 'done', source: 'ui', requestedModel: 'auto', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), skillTurns: turns };
+  m.store.upsertTask(t as never);
+  for (const q of ['/api/state', '/api/state?slim=1']) {
+    const r = await m.http('GET', q, undefined, AUTH);
+    assert.equal(r.status, 200);
+    const got = (r.json.tasks as Array<{ id: string; skillTurns?: unknown }>).find((x) => x.id === t.id);
+    assert.deepEqual(got?.skillTurns, turns, q);
+  }
+});

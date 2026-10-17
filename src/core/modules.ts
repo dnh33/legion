@@ -58,6 +58,8 @@ export interface TurnNote {
   /** The ids the note names, best first. */
   suggested: string[];
   why: Ranked[];
+  /** Which of the named ids are third-party (the note shows them by id only; so does the screen). */
+  thirdParty?: string[];
 }
 
 /** What the engine tells a module about one turn it may add a note to. */

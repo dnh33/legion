@@ -235,7 +235,8 @@ export interface SkillTurn {
   loaded: string[];
   /** Set for a note made when a subagent started: its agent type. */
   subagent?: string;
-  why: { id: string; score: number; matched: string[] }[];
+  /** `thirdParty` is set by the core for a skill from outside (plugin or import): the screen then shows its id only. */
+  why: { id: string; score: number; matched: string[]; thirdParty?: true }[];
 }
 
 export interface Task {

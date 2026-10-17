@@ -1,11 +1,9 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SkillTurn } from '../../../src/shared/types';
 import { MAX_LINES, lineText, overflowTurns, rowText } from '../../../src/shared/skill-line';
 import { loadChatLine, useArmory } from '../armory/armoryStore';
 
-/** Sources whose text the owner did not write: their rows show the id only. */
-const OUTSIDE = new Set(['imported', 'claude-plugin']);
 const GAP = 4;
 const EDGE = 8;
 
@@ -15,34 +13,32 @@ const EDGE = 8;
  */
 export const SkillLines = memo(function SkillLines({ turns }: { turns: SkillTurn[] }) {
   const chatLine = useArmory((s) => s.chatLine);
-  const skills = useArmory((s) => s.data?.skills);
   useEffect(() => { void loadChatLine(); }, []);
-  const outside = useMemo(() => new Set((skills ?? []).filter((s) => OUTSIDE.has(s.source)).map((s) => s.id)), [skills]);
   if (!chatLine || !turns.length) return null;
   const shown = turns.slice(0, MAX_LINES);
   const extra = overflowTurns(turns);
   return (
     <div className="skl-lines">
-      {shown.map((t, i) => <SkillLine key={`${t.at}-${i}`} turn={t} extra={i === shown.length - 1 ? extra : []} outside={outside} />)}
+      {shown.map((t, i) => <SkillLine key={`${t.at}-${i}`} turn={t} extra={i === shown.length - 1 ? extra : []} />)}
     </div>
   );
 });
 
-function SkillLine({ turn, extra, outside }: { turn: SkillTurn; extra: SkillTurn[]; outside: ReadonlySet<string> }) {
+function SkillLine({ turn, extra }: { turn: SkillTurn; extra: SkillTurn[] }) {
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const id = useId();
   return (
     <>
       <button ref={btn} type="button" className="skl" aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
-        title="Why these skills were suggested" onClick={() => setOpen((o) => !o)}>{lineText(turn)}</button>
-      {open && <Why id={id} anchor={btn} turn={turn} extra={extra} outside={outside} onClose={(back) => { setOpen(false); if (back) btn.current?.focus(); }} />}
+        title={lineText(turn)} onClick={() => setOpen((o) => !o)}>{lineText(turn)}</button>
+      {open && <Why id={id} anchor={btn} turn={turn} extra={extra} onClose={(back) => { setOpen(false); if (back) btn.current?.focus(); }} />}
     </>
   );
 }
 
 /** The note. Fixed and in the page body, so the windowed message list never clips it. It sits below the line, or above when there is more room there, and stays inside the window. */
-function Why({ id, anchor, turn, extra, outside, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; turn: SkillTurn; extra: SkillTurn[]; outside: ReadonlySet<string>; onClose: (refocus: boolean) => void }) {
+function Why({ id, anchor, turn, extra, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; turn: SkillTurn; extra: SkillTurn[]; onClose: (refocus: boolean) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
   const place = useCallback(() => {
@@ -100,7 +96,7 @@ function Why({ id, anchor, turn, extra, outside, onClose }: { id: string; anchor
       onBlur={(e) => { if (!document.hasFocus()) return; /* the window lost focus, not the note */ const n = e.relatedTarget as Node | null; if (!n || (!box.current?.contains(n) && !anchor.current?.contains(n))) onClose(false); }}>
       <p className="skl-pop-h">{turn.subagent ? `Why these were suggested to ${turn.subagent}` : 'Why these skills'}</p>
       <ul>
-        {rows.map((w) => <li key={w.id}>{turn.why.some((x) => x.id === w.id) ? rowText(w, outside.has(w.id)) : w.id}</li>)}
+        {rows.map((w) => <li key={w.id}>{turn.why.some((x) => x.id === w.id) ? rowText(w) : w.id}</li>)}
       </ul>
       {extra.length > 0 && (
         <>

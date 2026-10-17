@@ -40,16 +40,24 @@ export function overflowTurns(turns: readonly SkillTurn[]): SkillTurn[] {
   return turns.slice(MAX_LINES);
 }
 
-/** "Suggested: a, b · loaded: a", or "Suggested to <subagent>: a, b" for a note made when a subagent started. */
-export function lineText(turn: SkillTurn): string {
-  const head = turn.subagent ? `Suggested to ${turn.subagent}: ` : 'Suggested: ';
-  const loaded = turn.loaded.length ? ` \u00b7 loaded: ${turn.loaded.map(shortSkillName).join(', ')}` : '';
-  return head + turn.suggested.map(shortSkillName).join(', ') + loaded;
+/** The most short names a line shows before "+N more". The full ids are in the popover. */
+export const MAX_NAMES = 3;
+
+function names(ids: readonly string[]): string {
+  const short = ids.slice(0, MAX_NAMES).map(shortSkillName).join(', ');
+  return ids.length > MAX_NAMES ? `${short} +${ids.length - MAX_NAMES} more` : short;
 }
 
-/** One popover row: "id · score 12.3 · matched: pdf, export". A skill from outside shows its id only. */
-export function rowText(why: SkillTurn['why'][number], idOnly: boolean): string {
-  if (idOnly) return why.id;
+/** "Suggested: a, b · loaded: a", or "Suggested to <subagent>: a, b" for a note made when a subagent started. At most 3 names per part, then "+N more". */
+export function lineText(turn: SkillTurn): string {
+  const head = turn.subagent ? `Suggested to ${turn.subagent}: ` : 'Suggested: ';
+  const loaded = turn.loaded.length ? ` \u00b7 loaded: ${names(turn.loaded)}` : '';
+  return head + names(turn.suggested) + loaded;
+}
+
+/** One popover row: "id · score 12.3 · matched: pdf, export". A skill the core marked third-party shows its id only. */
+export function rowText(why: SkillTurn['why'][number]): string {
+  if (why.thirdParty) return why.id;
   const matched = why.matched.length ? ` \u00b7 matched: ${why.matched.join(', ')}` : '';
   return `${why.id} \u00b7 score ${why.score.toFixed(1)}${matched}`;
 }

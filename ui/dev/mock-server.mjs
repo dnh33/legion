@@ -135,6 +135,8 @@ function makeDb(flags) {
     ];
     if (t1 && f('skl-four')) t1.skillTurns = ['invoice-pdf-export', 'release-notes', 'db-tune', 'design-polish'].map((n, i) => ({ at: before5, suggested: ['legion-armory:' + n], loaded: i === 0 ? ['legion-armory:' + n] : [], ...(i === 2 ? { subagent: 'reviewer' } : {}), why: [w('legion-armory:' + n, 10 - i, ['words'])] }));
     if (t1 && f('skl-late')) t1.skillTurns = [{ at: ago(1), suggested: ['legion-armory:db-tune'], loaded: [], why: [w('legion-armory:db-tune', 5, ['db'])] }];
+    // the core marks plugin skills third-party in each note
+    for (const t of db.tasks) for (const n of t.skillTurns ?? []) for (const x of n.why) if (x.id.startsWith('sp:')) x.thirdParty = true;
     if (f('af-on')) Object.assign(db.agents[0], { skillFinder: 'on', skillFinderK: 4 });
     if (f('af-off')) Object.assign(db.agents[0], { skillFinder: 'off', skillFinderK: 2 });
   }

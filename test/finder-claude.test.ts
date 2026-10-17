@@ -297,6 +297,16 @@ describe('finder fixes: doc cache, late hooks, load matching, shown notes, subag
     assert.deepEqual(r2.task.skillTurns![0]!.loaded, ['sp:invoice-audit']);
   });
 
+  it('records which suggested skills are third-party, so the screen can show their ids only', async () => {
+    const rig = await rigWith();
+    const { task } = await drive(rig, PROMPT, async (o) => { await fire(o, 'UserPromptSubmit', { prompt: 'x' }); });
+    const why = task.skillTurns![0]!.why;
+    const own = why.find((w) => w.id === 'legion-armory:invoice-pdf-export')!;
+    const plugin = why.find((w) => w.id === 'sp:invoice-audit')!;
+    assert.equal(plugin.thirdParty, true, 'a plugin skill is flagged');
+    assert.equal('thirdParty' in own, false, 'the owner own skill is not');
+  });
+
   it('marks subagent notes and credits loads by who made them', async () => {
     const rig = await rigWith();
     const { task } = await drive(rig, PROMPT, async (o) => {

@@ -469,7 +469,9 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(chosen, docs);
       if (!text) return undefined;
       const suggested = chosen.map((r) => r.id);
-      return { text, suggested, why: chosen };
+      // Decided as the note does: a skill with no doc counts as third-party.
+      const thirdParty = suggested.filter((id) => { const d = docs.get(id); return !d || d.thirdParty; });
+      return { text, suggested, why: chosen, thirdParty };
     },
 
     // Called by the engine only for a note it accepted in time.

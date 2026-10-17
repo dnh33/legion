@@ -51,11 +51,17 @@ test('line text: short names, loaded only when something was loaded, and the sub
   assert.equal(lineText(turn(1, ['sp:a'], ['sp:a'], { subagent: 'reviewer' })), 'Suggested to reviewer: a · loaded: a');
 });
 
+test('the line shows at most 3 short names, then +N more, for suggested and loaded alike', () => {
+  const t = turn(1, ['x:a', 'x:b', 'x:c', 'x:d', 'x:e'], ['x:a', 'x:b', 'x:c', 'x:d']);
+  assert.equal(lineText(t), 'Suggested: a, b, c +2 more · loaded: a, b, c +1 more');
+  assert.equal(lineText(turn(1, ['x:a', 'x:b', 'x:c'])), 'Suggested: a, b, c', 'exactly three has no +N');
+});
+
 test('popover rows: full id, score with one decimal, matched words only when there are some, id alone for outside skills', () => {
   const t = turn(1, ['sp:a', 'b']);
-  assert.equal(rowText(t.why[0]!, false), 'sp:a · score 12.3 · matched: pdf, export');
-  assert.equal(rowText(t.why[1]!, false), 'b · score 11.3', 'no matched words, no matched part');
-  assert.equal(rowText(t.why[0]!, true), 'sp:a');
+  assert.equal(rowText(t.why[0]!), 'sp:a · score 12.3 · matched: pdf, export');
+  assert.equal(rowText(t.why[1]!), 'b · score 11.3', 'no matched words, no matched part');
+  assert.equal(rowText({ ...t.why[0]!, thirdParty: true }), 'sp:a', 'a third-party row is the id alone: no score, no matched words');
 });
 
 test('at most three lines per reply; the rest are counted for the popover', () => {

@@ -1343,7 +1343,7 @@ export class Engine {
   /** Keeps a note on the task (newest 50) so the screen can show it. */
   private recordSkillTurn(taskId: string, note: TurnNote, subagent?: string): void {
     const prev = this.store.getTask(taskId)?.skillTurns ?? [];
-    const entry = { at: nowIso(), suggested: note.suggested, loaded: [] as string[], ...(subagent ? { subagent } : {}), why: note.why.map((w) => ({ id: w.id, score: w.score, matched: w.matched })) };
+    const entry = { at: nowIso(), suggested: note.suggested, loaded: [] as string[], ...(subagent ? { subagent } : {}), why: note.why.map((w) => ({ id: w.id, score: w.score, matched: w.matched, ...(note.thirdParty?.includes(w.id) ? { thirdParty: true as const } : {}) })) };
     this.patchTask(taskId, { skillTurns: [...prev, entry].slice(-50) });
   }
 
