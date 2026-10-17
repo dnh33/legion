@@ -80,6 +80,8 @@ function ProviderCard({ p }: { p: ProviderView }) {
 function AddCustom() {
   const busy = useProviders((s) => s.busy);
   const [id, setId] = useState(''); const [label, setLabel] = useState(''); const [url, setUrl] = useState('');
+  // What the last Add did, shown right here: the page-level error sits at the top, out of view of this form.
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const ok = PLAIN_ID.test(id) && url.trim().length > 0;
   return (
     <fieldset className="prov-add">
@@ -89,8 +91,15 @@ function AddCustom() {
         <label>Short name<input value={id} onChange={(e) => setId(e.target.value.toLowerCase())} placeholder="mygateway" spellCheck={false} /></label>
         <label>Label<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My gateway" /></label>
         <label className="grow">Address<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://llm.example.com/v1" spellCheck={false} /></label>
-        <button type="button" className="btn sm" disabled={!ok || !!busy} onClick={() => void saveEntry(id, { label: label.trim() || id, baseUrl: url.trim(), enabled: true }).then((done) => { if (done) { setId(''); setLabel(''); setUrl(''); } })}>Add (confirm in dialog)</button>
+        <button type="button" className="btn sm" disabled={!ok || !!busy} onClick={() => { const name = label.trim() || id; setResult(null); void saveEntry(id, { label: name, baseUrl: url.trim(), enabled: true }).then((done) => {
+          const s = getProviders();
+          const added = done && !s.error && (s.view?.providers ?? []).some((p) => p.id === id);
+          if (added) { setId(''); setLabel(''); setUrl(''); setResult({ ok: true, text: `Added ${name}. Paste its API key on its card below, then press Test.` }); }
+          else if (s.error) setResult({ ok: false, text: s.error });
+          else setResult({ ok: false, text: 'Cancelled. Nothing was added.' });
+        }); }}>Add (confirm in dialog)</button>
       </div>
+      {result && <p className={result.ok ? 'field-note' : 'set-error'} role={result.ok ? 'status' : 'alert'}>{result.text}</p>}
     </fieldset>
   );
 }

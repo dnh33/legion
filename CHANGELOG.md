@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-17
+
+This update installs by itself.
+
+### Added
+
+- **DeepSeek in Settings, Providers.** A ready card for the DeepSeek API: paste a key from platform.deepseek.com, switch it on, and pick deepseek-flash or deepseek-v4-pro for an agent. Runs are billed to your DeepSeek account.
+
+### Fixed
+
+- **Adding a custom endpoint did nothing.** Settings, Providers, Add a custom endpoint refused every new provider with "Unknown provider", and the message showed at the top of the page, out of view. It now asks you to confirm in a dialog and adds the provider; its card then has the API key field. The result of Add now shows right under the form.
+
 ## [0.3.3] - 2026-10-17
 
 This update installs by itself.

@@ -1,0 +1,9 @@
+This update installs by itself.
+
+DeepSeek is ready to use
+Settings, Providers now has a DeepSeek card. Paste an API key from platform.deepseek.com, click Save key, switch the card on, then pick deepseek-flash or deepseek-v4-pro in the model menu under the message box. Runs are billed to your DeepSeek account.
+
+Custom endpoints work
+Add a custom endpoint did nothing before: it refused every new provider. It now asks you to confirm and adds it. Paste the key on its new card.
+
+Full detail in CHANGELOG.md.
