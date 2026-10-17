@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { defaultConfig, validateWebSearchPatch } from '../src/core/web-search/index.js';
 import { ProviderKeys } from '../src/core/providers/secrets.js';
 import { loadConfig } from '../src/shared/config.js';
@@ -35,6 +36,13 @@ test('provider keys are origin-bound and never in config.json', () => {
   keys.set('web:exa', 'k_test_12345', 'https://api.exa.ai');
   assert.equal(keys.get('web:exa', 'https://api.exa.ai'), 'k_test_12345'); assert.equal(keys.get('web:exa', 'https://evil.test'), undefined);
   assert.ok(!JSON.stringify(defaultConfig()).includes('k_test_12345')); assert.ok(readFileSync(join(dir, 'providers', 'keys.json'), 'utf8').includes('web:exa'));
+  // with a data key (the app) the same key lives in keys.enc, and neither it nor its id is readable in any file
+  const sealed = tempDir('legion-web-'); const sk = new ProviderKeys(join(sealed, 'providers', 'keys.json'), { dataKey: randomBytes(32) });
+  sk.set('web:exa', 'k_test_12345', 'https://api.exa.ai');
+  assert.equal(sk.get('web:exa', 'https://api.exa.ai'), 'k_test_12345'); assert.equal(sk.get('web:exa', 'https://evil.test'), undefined);
+  assert.equal(existsSync(join(sealed, 'providers', 'keys.json')), false);
+  const enc = readFileSync(join(sealed, 'providers', 'keys.enc')).toString('latin1');
+  assert.ok(!enc.includes('k_test_12345') && !enc.includes('web:exa'));
 });
 test('the settings route returns a key hint (last 4) and never the key', async () => {
   const body = await getWebSearchSettings({ 'web:exa': 'k_test_12345' }); assert.equal(body.keys['web:exa'].hint, '…2345'); assert.ok(!JSON.stringify(body).includes('k_test_12345'));
@@ -114,9 +122,10 @@ test('test route: reports the coded error text, never the key, and does not need
 });
 test('view: lists every provider with what it can do and whether it is ready, and says whether the app can confirm natively', async () => {
   const w = webSearchRoutes({ native: 'n_secret' });
-  const v = await w.call('GET', '/api/settings/web-search') as { providers: Array<{ id: string; canRead: boolean; ready: boolean }>; nativeAvailable: boolean; tregMaxCostUsd: number };
+  const v = await w.call('GET', '/api/settings/web-search') as { providers: Array<{ id: string; canRead: boolean; ready: boolean }>; nativeAvailable: boolean; tregMaxCostUsd: number; keyStore?: string };
   assert.deepEqual(v.providers.map((p) => p.id), ['treg', 'exa', 'tavily', 'brave', 'searxng']);
   assert.deepEqual(v.providers.filter((p) => p.canRead).map((p) => p.id), ['treg', 'exa', 'tavily']);
   assert.equal(v.providers.find((p) => p.id === 'exa')!.ready, false); assert.equal(v.nativeAvailable, true); assert.equal(v.tregMaxCostUsd, 0.01);
-  assert.ok(!existsSync(join(w.dir, 'providers', 'keys.json')) || !readFileSync(join(w.dir, 'providers', 'keys.json'), 'utf8').includes('k_'));
+  assert.ok(!existsSync(join(w.dir, 'providers', 'keys.json')) && !existsSync(join(w.dir, 'providers', 'keys.enc')), 'nothing is stored until a key is saved');
+  assert.match(String(v.keyStore), /encrypted/i, 'the view carries the one-line note on how keys are stored');
 });

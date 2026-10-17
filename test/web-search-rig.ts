@@ -1,4 +1,5 @@
 /** Rig for the web provider settings routes (task 28): the real module over a temp data folder, called without an HTTP server. Nothing here touches the network. */
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { tempDir } from './tmp-cleanup.js';
 import type { Handler } from '../src/core/server.js';
@@ -13,7 +14,7 @@ export function webSearchRoutes(o: { native?: string; fetchImpl?: typeof fetch; 
   const dir = tempDir('legion-wsroutes-');
   const configPath = join(dir, 'config.json');
   const cfg: WebSearchConfig = { ...defaultWebSearch(), ...(o.cfg ?? {}) };
-  const keys = new ProviderKeys(join(dir, 'providers', 'keys.json'));
+  const keys = new ProviderKeys(join(dir, 'providers', 'keys.json'), { dataKey: randomBytes(32) }); // sealed, as in the app
   const service = new WebSearchService({ config: () => cfg, keys, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
   const handlers: Array<{ method: string; re: RegExp; h: Handler }> = [];
   const mod = createWebSearchModule({ config: () => cfg, keys, service, configPath, ...(o.native ? { nativeSecret: o.native } : {}) });

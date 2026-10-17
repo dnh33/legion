@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildChildEnv } from '../src/core/engine.js';
 import { keyFileFor } from '../src/core/providers/secrets.js';
 import { defaultConfig } from '../src/shared/config.js';
@@ -52,5 +53,20 @@ test('the key file is the only file that holds a key, and a stale file path does
     assert.equal(JSON.stringify(h.providers.view()).includes(PLAIN_KEY), false);
     assert.equal(readFileSync(keyFileFor(String(h.keys['file' as keyof typeof h.keys]).replace(/[\\/]providers[\\/]keys\.json$/, '')), 'utf8').includes(PLAIN_KEY), true);
     assert.equal(JSON.stringify(h.config).includes(PLAIN_KEY), false);
+  } finally { await f.close(); }
+});
+
+test('with a data key the key is in keys.enc only: the provider still gets it, and no file under the data folder holds it as text', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'ok'));
+  try {
+    const h = setup(f, { entry: { keyless: false }, sealed: true });
+    h.keys.set('fake', PLAIN_KEY, f.base);
+    await run(h);
+    assert.equal(f.requests[0]!.headers.authorization, `Bearer ${PLAIN_KEY}`, 'the call used it');
+    const dir = String(h.keys['file' as keyof typeof h.keys]).replace(/[\\/]providers[\\/]keys\.json$/, '');
+    assert.equal(existsSync(keyFileFor(dir)), false, 'no plain file');
+    for (const name of readdirSync(join(dir, 'providers'))) assert.equal(readFileSync(join(dir, 'providers', name)).toString('latin1').includes(PLAIN_KEY), false, name);
+    assert.equal(JSON.stringify(h.providers.view()).includes(PLAIN_KEY), false);
+    assert.equal(h.providers.redact(`oops ${PLAIN_KEY}`).includes(PLAIN_KEY), false, 'redaction still knows the key');
   } finally { await f.close(); }
 });

@@ -44,7 +44,9 @@ export interface Opts {
   limits?: Partial<HttpLimits>;
   turn?: typeof chatTurn;
   approvalTimeoutMs?: number;
-  claude?: (params: any) => AsyncGenerator<any, void>;
+  /** Keys are sealed in keys.enc (a data key was handed over), as in the app. Default: the plain keys.json store. */
+  sealed?: boolean;
+  claude?:(params: any) => AsyncGenerator<any, void>;
   /** A projects service, for project runs on a provider. */
   projects?: ProjectStore;
   /** The web search provider service (task 28). */
@@ -63,7 +65,7 @@ export function setup(fake: Fake, o: Opts = {}) {
   config.providers = provCfg(o.noEntry ? {} : { fake: entryFor(fake, o.entry) });
   if (o.maxTurns) config.providers.maxTurns = o.maxTurns;
   if (o.maxToolCallsPerTurn) config.providers.maxToolCallsPerTurn = o.maxToolCallsPerTurn;
-  const keys = memKeys(cleanupTemp('legion-pk-'));
+  const keys = memKeys(cleanupTemp('legion-pk-'), o.sealed ? { dataKey: Buffer.alloc(32, 7) } : undefined);
   const providers = new ProviderRuntime({ config, keys, limits: o.limits, turn: o.turn });
   const approvals = new ApprovalBroker(bus, { timeoutMs: o.approvalTimeoutMs });
   const claudeCalls: any[] = [];

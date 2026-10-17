@@ -8,7 +8,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ProviderRuntime } from '../src/core/providers/runtime.js';
 import { createProvidersModule } from '../src/core/providers/routes.js';
-import { keyFileFor, ProviderKeys } from '../src/core/providers/secrets.js';
+import { randomBytes } from 'node:crypto';
+import { keyFileFor, ProviderKeys, sealedFileFor } from '../src/core/providers/secrets.js';
 import { isClientRoute } from '../src/core/admin.js';
 import { defaultConfig } from '../src/shared/config.js';
 import { AUTH, asClient, makeFakes, start, TOKEN } from './helpers-c.js';
@@ -20,7 +21,9 @@ const dir = cleanupTemp('legion-prov-routes-');
 const configPath = join(dir, 'config.json');
 writeFileSync(configPath, JSON.stringify({ port: 0, authToken: TOKEN, claude: { maxTurns: 7 } }, null, 2));
 const cfg = defaultConfig();
-const keys = new ProviderKeys(keyFileFor(dir));
+// production mode: Electron hands the core a data key, so keys are sealed in keys.enc (the plain keys.json mode is covered in provider-keys-sealed.test.ts)
+const DATA_KEY = randomBytes(32);
+const keys = new ProviderKeys(keyFileFor(dir), { dataKey: DATA_KEY });
 const runtime = new ProviderRuntime({ config: cfg, keys });
 const f = makeFakes();
 (f.ctx as any).modules = [createProvidersModule({ runtime, configPath, nativeSecret: NATIVE })];
@@ -57,7 +60,7 @@ test('C6 an address or private-network change, and any key change, need the nati
   assert.equal((await call('PUT', '/api/providers/mine', body, H({ 'X-Legion-Native': 'wrong' }))).status, 403);
   assert.equal((await call('PUT', '/api/providers/mine/key', { key: FAKE_KEY })).status, 403);
   assert.equal((await call('PUT', '/api/providers/mine/key', { key: FAKE_KEY }, H({ 'X-Legion-Native': 'wrong' }))).status, 403);
-  assert.equal(existsSync(keyFileFor(dir)), false, 'nothing was stored');
+  assert.equal(existsSync(keyFileFor(dir)) || existsSync(sealedFileFor(dir)), false, 'nothing was stored');
   assert.equal((await call('PUT', '/api/providers/mine', body, H(NATIVE_H))).status, 200);
   // widening: private network and keyless
   assert.equal((await call('PUT', '/api/providers/mine', { baseUrl: 'https://10.0.0.5/v1', allowPrivateNetwork: true })).status, 403);
@@ -73,7 +76,7 @@ test('C6 an address or private-network change, and any key change, need the nati
   assert.throws(() => routes['PUT /api/providers/:id/key']!({ req: { headers: { 'x-legion-native': NATIVE } }, params: ['mine'], body: { key: FAKE_KEY } }), /native_unavailable/);
 });
 
-test('C4 a key is stored only in providers/keys.json (0600), never in config.json, and no response, view or file other than that one holds it', async () => {
+test('C4 a key is stored only in providers/keys.enc (encrypted, 0600), never in config.json, and no response, view or file holds it in clear', async () => {
   const r = await call('PUT', '/api/providers/mine/key', { key: FAKE_KEY }, H(NATIVE_H));
   assert.equal(r.status, 200);
   const text = await r.text();
@@ -88,8 +91,11 @@ test('C4 a key is stored only in providers/keys.json (0600), never in config.jso
   assert.equal((await call('PUT', '/api/providers/mine', { models: ['m1'] })).status, 200);
   assert.equal(readFileSync(configPath, 'utf8').includes(FAKE_KEY), false, 'config.json after later writes');
   assert.equal(readFileSync(configPath, 'utf8').includes(FAKE_KEY.slice(-8)), false, 'not even a part of it');
-  assert.equal(JSON.parse(readFileSync(keyFileFor(dir), 'utf8')).keys.mine.key, FAKE_KEY);
-  if (process.platform !== 'win32') assert.equal(statSync(keyFileFor(dir)).mode & 0o077, 0);
+  assert.equal(keys.get('mine', 'https://llm.example.com'), FAKE_KEY, 'the store holds it');
+  assert.equal(existsSync(keyFileFor(dir)), false, 'no plain keys.json is made');
+  assert.equal(readFileSync(sealedFileFor(dir)).toString('latin1').includes(FAKE_KEY), false, 'keys.enc holds no key text');
+  assert.equal(readFileSync(sealedFileFor(dir)).toString('latin1').includes(FAKE_KEY.slice(-8)), false, 'not even a part of it');
+  if (process.platform !== 'win32') assert.equal(statSync(sealedFileFor(dir)).mode & 0o077, 0);
   assert.equal((await (await call('GET', '/api/providers')).text()).includes(FAKE_KEY), false, 'GET /api/providers');
   assert.equal(JSON.stringify(f.ctx.config).includes(FAKE_KEY), false);
   const redacted: any = await (await call('GET', '/api/config')).json();
@@ -104,7 +110,7 @@ test('C6 changing the address to another origin deletes the saved key; a path ch
   const r: any = await (await call('PUT', '/api/providers/mine', { baseUrl: 'https://other.example.net/v1' }, H(NATIVE_H))).json();
   assert.equal(keys.has('mine'), false, 'another origin: the key is deleted, not carried over');
   assert.equal(r.providers.find((p: any) => p.id === 'mine').keySet, false);
-  assert.equal(JSON.parse(readFileSync(keyFileFor(dir), 'utf8')).keys.mine, undefined);
+  assert.equal(new ProviderKeys(keyFileFor(dir), { dataKey: DATA_KEY }).has('mine'), false, 'also gone from the sealed file');
   await call('PUT', '/api/providers/mine/key', { key: FAKE_KEY }, H(NATIVE_H));
   assert.equal((await call('DELETE', '/api/providers/mine/key')).status, 200);
   assert.equal(keys.has('mine'), false);
