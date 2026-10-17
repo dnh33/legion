@@ -17,7 +17,7 @@ This update installs by itself.
 - **"Credit balance is too low" on a Claude login.** If Claude Code on your computer was signed in with a Claude Console account, or your Claude Code settings set an API key or an `apiKeyHelper`, runs billed Anthropic API credits instead of your Claude plan, and failed once the credits ran out. Legion now holds the request back until it has checked which login Claude Code will use, and stops before anything is sent when that login would bill API credits.
 - **Help, Doctor reported such a login as fine.** It now says when runs would bill API credits, names the key source (never the key), and says how to switch to your plan.
 - **A run that hits an empty credit balance explains why**, with the steps to fix it, above what Claude said.
-- **Runs of a lead agent failed with "JSON schema is invalid".** The model field of the ask and tell tools carried a pattern the Claude API rejects, so every run of an agent with those tools (such as the default lead agent) stopped before it began. The pattern is fixed, and a test checks every tool pattern for this shape.
+- **Every Claude run failed with "JSON schema is invalid" in 0.3.2.** The model field of the ask and tell tools, which every agent gets, carried a pattern the Claude API rejects, so each run stopped before it began. The pattern is fixed, and a test checks every tool pattern for this shape.
 
 ## [0.3.2] - 2026-10-16
 
