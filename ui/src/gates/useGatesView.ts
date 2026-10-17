@@ -4,14 +4,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, request, subscribe } from '../api';
 import type { GatesView } from './presetsLogic';
+import { applyViaBridge, runAction } from './gatesAction';
+import type { GatesChangeRequest, GatesNote, GatesOutcome } from './gatesAction';
+export { CANCELLED_NOTE } from './gatesAction';
+export type { GatesChangeRequest, GatesNote, GatesOutcome } from './gatesAction';
 
-export type GatesChangeRequest =
-  | { kind: 'app'; patch: Record<string, unknown> }
-  | { kind: 'project'; id: string; patch: Record<string, unknown> }
-  | { kind: 'accept'; name: string }
-  | { kind: 'keep'; name: string };
-
-export type GatesOutcome = { state: 'ok' } | { state: 'cancelled' } | { state: 'error'; message: string };
 
 const msg = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
@@ -33,17 +30,7 @@ export function useGatesView(): {
     return () => { alive.current = false; off(); };
   }, [reload]);
 
-  const apply = useCallback(async (change: GatesChangeRequest): Promise<GatesOutcome> => {
-    const bridge = window.legion?.gatesChange;
-    if (!bridge) return { state: 'error', message: 'Changing gate settings needs the Legion app window, which shows a confirmation. Open the app to do this.' };
-    try {
-      const r = await bridge(change);
-      if (r.cancelled) return { state: 'cancelled' };
-      if (!r.ok) return { state: 'error', message: r.error ?? 'The change was not made.' };
-      await reload();
-      return { state: 'ok' };
-    } catch (e) { return { state: 'error', message: msg(e) }; }
-  }, [reload]);
+  const apply = useCallback((change: GatesChangeRequest): Promise<GatesOutcome> => applyViaBridge(window.legion?.gatesChange, change, reload), [reload]);
 
   return { view, loadError, reload, apply };
 }
@@ -72,7 +59,6 @@ export async function loadActivity(q: ActivityQuery = {}): Promise<ActivityRow[]
 /** Read the settings files again (the Reload button for a file that could not be read). */
 export async function reloadGatesFromDisk(): Promise<void> { await request('POST', '/api/gates/reload'); }
 
-export interface GatesNote { tone: 'ok' | 'info' | 'error'; text: string }
 export const PENDING_TEXT = 'Waiting for you to confirm in the window';
 /** One change at a time: `pending` is set while the native confirmation can be open, and `note` is the visible result (saved, cancelled, or the reason it failed). */
 export function useGatesAction(apply: (c: GatesChangeRequest) => Promise<GatesOutcome>): { pending: boolean; note: GatesNote | null; run: (change: GatesChangeRequest, done: string) => Promise<boolean> } {
@@ -80,12 +66,10 @@ export function useGatesAction(apply: (c: GatesChangeRequest) => Promise<GatesOu
   const [note, setNote] = useState<GatesNote | null>(null);
   const run = useCallback(async (change: GatesChangeRequest, done: string): Promise<boolean> => {
     setPending(true); setNote(null);
-    const r = await apply(change);
+    const r = await runAction(apply, change, done);
     setPending(false);
-    if (r.state === 'ok') setNote({ tone: 'ok', text: done });
-    else if (r.state === 'cancelled') setNote({ tone: 'info', text: 'Cancelled. Nothing changed.' });
-    else setNote({ tone: 'error', text: r.message });
-    return r.state === 'ok';
+    setNote(r.note);
+    return r.ok;
   }, [apply]);
   return { pending, note, run };
 }

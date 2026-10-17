@@ -1,6 +1,7 @@
 // The first-run screen "How should your agents ask?": when it shows and what Continue sends. Pure; the words live here so a test can read them.
 import type { Preset } from '../../../src/shared/gates-registry.js';
 import type { GatesView } from '../gates/presetsLogic.js';
+import type { GatesChangeRequest } from '../gates/gatesAction.js';
 
 export const PRESET_STRINGS = {
   title: 'How should your agents ask?',
@@ -23,7 +24,19 @@ export function shouldShowPresetChoice(view: GatesView, welcomeDone: boolean): b
   return !Object.values(view.projects).some((p) => p.preset !== undefined);
 }
 
+/** What Decide later sends: only the flag that the question was seen. No preset, so nothing gets looser and no dialog opens. */
+export function skipSubmit(): { patch: { firstRunChoice: true } } { return { patch: { firstRunChoice: true } }; }
+
 /** What Continue sends for the chosen preset. Only a looser one raises the native confirm (the core decides; this says so the screen can word the wait). */
 export function presetSubmit(id: Preset): { patch: { preset: Preset; firstRunChoice: true }; needsConfirm: boolean } {
   return { patch: { preset: id, firstRunChoice: true }, needsConfirm: id !== 'ask' };
 }
+
+type Run = (change: GatesChangeRequest, done: string) => Promise<boolean>;
+/** Continue: the chosen preset is saved, or (cancelled, refused) the screen stays with Ask selected. */
+export async function continueFrom(selected: Preset, run: Run): Promise<{ done: boolean; selected: Preset }> {
+  const ok = await run({ kind: 'app', patch: presetSubmit(selected).patch }, PRESET_STRINGS.saved);
+  return ok ? { done: true, selected } : { done: false, selected: 'ask' };
+}
+/** Decide later: the question is remembered as seen, then the screen goes. A write that fails still lets this launch go on. */
+export async function laterFrom(run: Run): Promise<void> { await run({ kind: 'app', patch: skipSubmit().patch }, ''); }

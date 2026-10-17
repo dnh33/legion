@@ -14,8 +14,8 @@ import type { GithubLevel } from '../../../src/shared/github-area';
 import { accessPatch } from '../github/agentAccess';
 import { useArea } from '../github/useArea';
 import { GithubAccess } from '../github/GithubAccess';
-import { APPROVAL_CHOICES, CHOICE_HELP, agentProjectLines, approvalPatch, choiceOf, type ApprovalChoice } from '../gates/agentFollowLogic';
-import { useGatesView } from '../gates/useGatesView';
+import { APPROVAL_CHOICES, CHOICE_HELP, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, type ApprovalChoice } from '../gates/agentFollowLogic';
+import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
@@ -87,11 +87,14 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
       ? `Your boat.dev account is on a free trial, which does not allow ${size === 'large' ? 'Large' : 'this size'}. Legion will use Default and tell you.`
       : 'Bigger sizes need a paid boat.dev plan. On a free trial Legion falls back to Default and tells you.';
   const [busy, setBusy] = useState(false);
+  // set while the app's native question about asking less can be open
+  const [waiting, setWaiting] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
 
   const submit = async () => {
     if (!name.trim() || busy || skillsTooMany) return;
     setBusy(true);
+    setWaiting(!!window.legion?.agentModeChange && mayRaiseMode(existing, choice, projects, gatesView));
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
     const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
@@ -105,6 +108,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
       ...(taskList !== startTaskList.current ? { taskList: taskList === nativeTaskListOn({ id: existing?.id ?? '' }) ? null : taskList ? 'on' as const : 'off' as const } : {}),
     };
     await saveAgent(id, body);
+    setWaiting(false);
     setBusy(false);
   };
 
@@ -143,6 +147,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </select>
             <span className="field-note">{CHOICE_HELP[choice]}</span>
             {followLines && <span className="field-note" role="status">{followLines}</span>}
+            {waiting && <span className="field-note" role="status">{PENDING_TEXT}</span>}
           </label>
         </div>
         <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}

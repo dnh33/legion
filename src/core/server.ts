@@ -31,6 +31,8 @@ import { checkRequest, dropNonLoopback, originAllowed } from './net-guard.js';
 import { publicBoatHealth } from './boat-health.js';
 import type { ProjectStore } from './projects/store.js';
 import type { BoardStore } from './projects/board/store.js';
+import { modeOf, previewAgentMode } from './gates-settings/agent-mode.js';
+import type { AgentModeGuard } from './gates-settings/agent-mode.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -53,6 +55,8 @@ export interface CoreContext {
   away?: { caps(): CoreCaps; parked(): ParkedAsk[] };
   /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
+  /** Checks a change of an agent's mode (the gates module makes it). Absent: only a change that keeps or tightens the mode is accepted. */
+  agentMode?: AgentModeGuard;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -329,11 +333,23 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- agents ----------------------------------------------------------
   route('GET', '/api/agents', () => ctx.store.listAgents().filter(visible));
-  route('POST', '/api/agents', ({ body }) => {
+  /**
+   * A change that RAISES how little an agent asks (Accept edits, Full, or following a project whose preset is looser) comes only from the app
+   * after its confirmation dialog: the native secret and the digest of the exact change. Keeping or tightening the mode needs nothing.
+   */
+  const guardMode = (c: Ctx, o: { cur: AgentProfile | undefined; name: string; change: { approval?: ApprovalMode; approvalSource?: 'own' | 'project' } }): void => {
+    if (ctx.agentMode) { ctx.agentMode.check(c, o); return; }
+    // no gates module in this core: nothing can be confirmed, so only a change that keeps or tightens the mode is taken
+    const pv = previewAgentMode({ agentId: o.cur?.id, name: o.name, before: modeOf(o.cur), change: o.change, world: { appPreset: undefined, projects: [] } });
+    if (pv.raises) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
+  };
+  route('POST', '/api/agents', (c) => {
+    const { body } = c;
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const f = parseAgentFields(body);
     const name = (f.name ?? '').trim();
     if (!name) throw new HttpError(400, 'name is required');
+    guardMode(c, { cur: undefined, name, change: { ...(f.approval ? { approval: f.approval } : {}), ...(f.approvalSource ? { approvalSource: f.approvalSource } : {}) } });
     const taken = new Set(ctx.store.listAgents().map((a) => a.id));
     const base = slugify(name);
     const id = uniqueAgentId(base, taken);
@@ -360,12 +376,14 @@ export function createServer(ctx: CoreContext): Server {
     ctx.bus.emit({ type: 'agent.updated', agent: saved });
     return saved;
   }, 201);
-  route('PATCH', '/api/agents/:id', ({ params, body }) => {
+  route('PATCH', '/api/agents/:id', (c) => {
+    const { params, body } = c;
     const cur = ctx.store.getAgent(params[0]);
     if (!cur) throw new HttpError(404, `Unknown agent "${params[0]}"`);
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const f = parseAgentFields(body);
     if (f.name !== undefined && !f.name.trim()) throw new HttpError(400, 'name must not be empty');
+    guardMode(c, { cur, name: (f.name ?? cur.name).trim(), change: { ...(f.approval ? { approval: f.approval } : {}), ...(f.approvalSource ? { approvalSource: f.approvalSource } : {}) } });
     const next: AgentProfile = {
       ...cur,
       ...(f.name !== undefined ? { name: f.name.trim() } : {}),

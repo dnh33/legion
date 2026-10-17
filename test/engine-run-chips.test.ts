@@ -52,3 +52,16 @@ test('a site the owner turns down adds nothing', () => using({ preset: 'smart', 
   assert.equal((await p).allow, false);
   assert.equal(taskOf(r).web, undefined);
 }));
+
+test('a follow-up run on the same task starts with a clean web summary', () => using({ preset: 'smart', follow: true }, async (r) => {
+  await r.call('WebFetch', url('https://docs.python.org/3/library/os.html'));
+  assert.deepEqual(taskOf(r).web, { pages: 1, newSites: 0 });
+  r.stop();
+  await r.tick(200);
+  r.start('a1', 'and again', { continueTaskId: r.task.id });
+  await r.tick(250);
+  const t = taskOf(r);
+  assert.equal(t.status, 'running', 'the follow-up run has started');
+  assert.equal(t.web, undefined, 'the first run pages are not counted on the second');
+  r.stop();
+}));

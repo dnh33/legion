@@ -8,13 +8,13 @@ import { join } from 'node:path';
 import { dataFolderTargets } from '../exec/canonical-path.js';
 import type { ApprovalMode, LegionEvent } from '../../shared/types.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
-import { NATIVE_HEADER, safeEqual } from '../admin.js';
+import { requireDigest, requireNative } from './native.js';
 import { baselineMode, effectiveMode } from '../permission-mode.js';
 import type { GoalAutonomy, RunMode } from '../permission-mode.js';
 import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
-import { DENY_LINE, GATES, GATES_DIGEST_HEADER, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../shared/gates-registry.js';
+import { DENY_LINE, GATES, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../shared/gates-registry.js';
 import type { GateValue, Preset } from '../../shared/gates-registry.js';
 import { DOCS_HOSTS } from '../../shared/docs-hosts.js';
 import { createWebLastUsed } from '../web-hosts.js';
@@ -22,6 +22,8 @@ import type { WebLastUsed } from '../web-hosts.js';
 import { createBuildEdited } from './build-edited.js';
 import type { BuildEdited } from './build-edited.js';
 import { makeSigner } from './sign.js';
+import { modeOf, previewAgentMode } from './agent-mode.js';
+import type { AgentModeChange, AgentModeGuard, ModeWorld } from './agent-mode.js';
 import { GatesError, GatesStore, PRESET_NAME } from './store.js';
 import type { ActivityLog } from '../activity/index.js';
 import type { GatesKeyState } from './store.js';
@@ -109,26 +111,18 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
   return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder), webLastUsed, canAllowHosts: () => store.canSign(), allowHost };
 }
 
-export interface GatesModule extends CoreModule { store: GatesStore }
+export interface GatesModule extends CoreModule { store: GatesStore; /** The check the agent routes run before they store a change of mode. */ agentMode: AgentModeGuard }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** A change that loosens a gate comes from the Legion app's main process after its own confirmation dialog, never the window and never a token client. */
-export function requireNative(c: Ctx, o: { nativeSecret?: string }): void {
-  if (!o.nativeSecret) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
-  const given = (c.req.headers as Record<string, string | string[] | undefined>)[NATIVE_HEADER];
-  if (typeof given !== 'string' || !safeEqual(given, o.nativeSecret)) throw new HttpError(403, 'native_confirmation_required: a change that loosens a gate comes only from the app after its confirmation dialog');
-}
+export { requireNative, requireDigest };
 
-/**
- * The app confirmed one exact change: its digest rides with the request, and the core refuses a change that would give different settings
- * (a file swapped, or another edit landed, while the dialog was open). A loosening must carry it; a change that does not loosen needs it only if sent.
- */
-export function requireDigest(c: Ctx, expected: () => string, required: boolean): void {
-  const given = (c.req.headers as Record<string, string | string[] | undefined>)[GATES_DIGEST_HEADER];
-  const want = expected(); // first, so a body that is not valid gets its own 400
-  if (typeof given !== 'string') { if (required) throw new HttpError(409, 'The change differs from what you confirmed'); return; }
-  if (!safeEqual(given, want)) throw new HttpError(409, 'The change differs from what you confirmed');
+const MODES = ['ask', 'auto-edits', 'full'];
+function parseModeChange(b: Record<string, unknown>): AgentModeChange {
+  const out: AgentModeChange = {};
+  if (b.approval !== undefined) { if (typeof b.approval !== 'string' || !MODES.includes(b.approval)) throw new HttpError(400, 'approval must be ask, auto-edits or full'); out.approval = b.approval as AgentModeChange['approval']; }
+  if (b.approvalSource !== undefined) { if (b.approvalSource !== 'own' && b.approvalSource !== 'project') throw new HttpError(400, 'approvalSource must be own or project'); out.approvalSource = b.approvalSource; }
+  return out;
 }
 
 export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string; /** Every successful change writes `gate-changed` lines here. */ activity?: ActivityLog }): GatesModule {
@@ -162,9 +156,21 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
     if ('limit' in b) return `Agent limit turned ${b.limit === false ? 'off' : 'on'} for ${scope}`;
     return `Gate settings changed for ${scope}`;
   };
+  /** The presets that decide the mode an agent follows: the app's, and the preset of each project it is in. */
+  const worldOf = (agentId: string | undefined): ModeWorld => ({
+    appPreset: store.app().preset,
+    projects: agentId ? opts.projects.list().filter((p) => p.status !== 'archived' && p.members.includes(agentId)).map((p) => ({ id: p.id, name: p.name, preset: store.project(p.id).preset })) : [],
+  });
+  const agentMode: AgentModeGuard = {
+    check(c, { cur, name, change }) {
+      const pv = previewAgentMode({ agentId: cur?.id, name, before: modeOf(cur), change, world: worldOf(cur?.id) });
+      if (pv.raises) requireNative(c, opts);
+      requireDigest(c, () => pv.digest, pv.raises);
+    },
+  };
   const body = (c: Ctx): Record<string, unknown> => { if (!isObj(c.body)) throw new HttpError(400, 'JSON object body required'); return c.body; };
   return {
-    id: 'gates', store,
+    id: 'gates', store, agentMode,
     // One protected set for the file tools and the shell guard: the gates folder, the key file, config, state and the project list (not agents' workspaces).
     protectedPaths: () => [store.folder, ...(opts.dataDir ? dataFolderTargets(opts.dataDir) : [])],
     routes: (add) => {
@@ -204,6 +210,16 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
         if (b.accept === true) return wrap(() => store.previewAccept(name));
         if (!isObj(b.patch)) throw new HttpError(400, 'patch must be an object.');
         return wrap(() => store.preview(name, b.patch as Record<string, unknown>));
+      });
+      // What a change of an agent's mode would do (the app words its dialog from this) and the digest the change must carry. No agentId: a new agent.
+      add('POST', '/api/agents/mode-preview', (c) => {
+        const b = body(c);
+        if (Object.keys(b).some((k) => k !== 'agentId' && k !== 'approval' && k !== 'approvalSource')) throw new HttpError(400, 'Only agentId, approval and approvalSource can be sent.');
+        const change = parseModeChange(b);
+        const cur = b.agentId === undefined ? undefined : deps.store.getAgent(String(b.agentId));
+        if (b.agentId !== undefined && !cur) throw new HttpError(404, `Unknown agent "${String(b.agentId).slice(0, 40)}"`);
+        const pv = previewAgentMode({ agentId: cur?.id, name: cur?.name ?? 'This agent', before: modeOf(cur), change, world: worldOf(cur?.id) });
+        return { ...pv, agentName: cur?.name ?? '' };
       });
       add('POST', '/api/gates/reload', () => { wrap(() => store.reload()); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
     },

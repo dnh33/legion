@@ -16,7 +16,7 @@ declare global {
       /** BSV policy changes: main shows its own native confirmation and calls the core with a secret this window never holds. */
       bsvPolicy?(action: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       connectorConnect?(): Promise<{ ok: boolean; error?: string; cancelled?: boolean }>;
-      providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown; unlocked?: boolean }>;
       /** Settings, Web search: a provider key or a private-network SearXNG address. Main shows the native confirmation and calls the core with a secret this window never holds. */
       webSearchChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
@@ -29,6 +29,8 @@ declare global {
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       /** Gate settings that loosen anything: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
       gatesChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Raising how little an agent asks (Accept edits, Full, a looser followed preset): main shows the native confirmation and calls the core with a secret this window never holds. Keeping or tightening goes through the same call without a dialog. */
+      agentModeChange?(change: { agentId: string; approval?: string; approvalSource?: string }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
     };
   }
 }

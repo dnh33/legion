@@ -4,6 +4,7 @@ import type {
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { loadProviders } from './providers/providersStore';
+import { saveWithMode, type AgentBody } from './gates/agentModeSave';
 import { incomingWins } from './chat/tasksync';
 import { keepTasks } from './history/historyLogic';
 import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type ThreadMeta } from './chat/threadWindow';
@@ -613,12 +614,16 @@ export const openPalette = () => setState({ palette: true, doctorOpen: false, ed
 export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
 export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
-export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null }) {
-  try {
-    const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
-    // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"
-    const body = a as unknown as Partial<AgentProfile> & { name: string };
-    const saved = id ? await api.patchAgent(id, body) : await api.createAgent(body);
+export async function saveAgent(id: string | null, a: AgentBody): Promise<boolean> {
+  const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
+  // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"
+  const r = await saveWithMode(id, a, {
+    bridge: window.legion?.agentModeChange,
+    patch: (aid, body) => api.patchAgent(aid, body as unknown as Partial<AgentProfile>),
+    create: (body) => api.createAgent(body as unknown as Partial<AgentProfile> & { name: string }),
+  });
+  if (r.state === 'saved') {
+    const saved = r.agent;
     // A remembered composer pick was made against the model that was configured then; a new model in Settings
     // makes it meaningless, so it goes (effectiveModel refuses an unequal value either way).
     if (id && before !== undefined && saved.model !== before) lsDel(modelKey(id));
@@ -626,7 +631,11 @@ export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>
     if (!id) selectAgent(saved.id);
     setState({ editor: null });
     return true;
-  } catch (e) { toast(errText(e), 'error'); return false; }
+  }
+  // A new agent that was created before the owner cancelled exists now: show it and close the editor, or a second save would make a copy.
+  if (r.created) { handleEvent({ type: 'agent.updated', agent: r.created }); selectAgent(r.created.id); setState({ editor: null }); }
+  toast(r.text, r.state === 'cancelled' ? 'info' : 'error');
+  return false;
 }
 export async function removeAgent(id: string) {
   try {

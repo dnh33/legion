@@ -73,8 +73,8 @@ test('the chip text on a run header uses runsAsChip with the start project, not 
   const c = runChips(task, { approval: 'full', approvalSource: 'own' }, PROJECTS, v);
   assert.deepEqual(c.runsAs, { text: 'Runs as Ask', reason: 'Agent is Full, limited by project Shop' });
   const follow = runChips({ runsAs: { mode: 'full', projectId: P_BLOG } }, { approval: 'ask', approvalSource: 'project' }, PROJECTS, v);
-  assert.deepEqual(follow.runsAs, { text: 'Runs as Bypass', reason: 'Following project Blog (Bypass)' });
-  assert.deepEqual(runChips({ runsAs: { mode: 'full' } }, { approval: 'full' }, PROJECTS, v).runsAs, { text: 'Runs as Full' }, 'Full on its own is Full, not Bypass');
+  assert.deepEqual(follow.runsAs, { text: 'Runs as Bypass', reason: 'Following project Blog (Bypass)', full: true });
+  assert.deepEqual(runChips({ runsAs: { mode: 'full' } }, { approval: 'full' }, PROJECTS, v).runsAs, { text: 'Runs as Full', full: true }, 'Full on its own is Full, not Bypass');
   assert.deepEqual(runChips({ runsAs: { mode: 'ask' } }, { approval: 'ask', approvalSource: 'project' }, PROJECTS, v).runsAs, { text: 'Runs as Ask', reason: 'Following the app default' });
   assert.equal(runChips({ runsAs: { mode: 'ask' }, origin: { roomId: 'r', fromAgentId: 'x', hop: 0, approvalCeiling: 'ask' } }, { approval: 'full' }, PROJECTS, v).runsAs?.reason, 'Started by an outside app: asks');
 });
@@ -111,8 +111,8 @@ describe('POST and PATCH /api/agents take approvalSource', () => {
     const a = await (await post({ name: 'Mover', approvalSource: 'project' })).json();
     const kept = await (await patch(a.id, { description: 'x' })).json();
     assert.equal(kept.approvalSource, 'project');
-    const own = await (await patch(a.id, { approval: 'full', approvalSource: 'own' })).json();
-    assert.equal(own.approvalSource, 'own'); assert.equal(own.approval, 'full');
+    const own = await (await patch(a.id, { approval: 'ask', approvalSource: 'own' })).json();
+    assert.equal(own.approvalSource, 'own'); assert.equal(own.approval, 'ask');
     const r = await patch(a.id, { approvalSource: 'everyone' });
     assert.equal(r.status, 400);
     assert.match(JSON.stringify(await r.json()), /approvalSource/);
@@ -246,5 +246,15 @@ test('render: the one-time notice says nothing changed and offers one way to dis
     assert.ok(unesc(html).includes(PROJECT_NOTICE.text));
     assert.match(html, />Got it</);
     assert.match(r.notice({ note: { tone: 'error', text: 'Could not save.' } }), /role="alert">Could not save\./);
+  } finally { cleanup(); }
+});
+
+test('render: a run that asks for nothing keeps the warning tint on the runs-as chip; an Ask run does not', async () => {
+  const v = view();
+  const { r, cleanup } = await loadUi(state([]), v);
+  try {
+    const agent = AGENT('a1', { approval: 'full' });
+    assert.match(r.chips({ id: 't', runsAs: { mode: 'full' } }, agent, PROJECTS, v), /class="chip-pill runs-as ap-full"/);
+    assert.match(r.chips({ id: 't', runsAs: { mode: 'ask' } }, agent, PROJECTS, v), /class="chip-pill runs-as"/);
   } finally { cleanup(); }
 });

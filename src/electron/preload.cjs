@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('legion', {
   gatesChange(change) {
     return ipcRenderer.invoke('legion:gates-change', change);
   },
+  // Agent editor: raising how little an agent asks. Main shows the native confirmation and holds the native secret.
+  agentModeChange(change) {
+    return ipcRenderer.invoke('legion:agent-mode-change', change);
+  },
   // Browser tool: choosing the browser program (Edge, Chrome) and local addresses. Main shows the native confirmation and holds the native secret.
   browserChange(change) {
     return ipcRenderer.invoke('legion:browser-change', change);

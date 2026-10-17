@@ -12,7 +12,7 @@ import { createWebSearchModule } from '../core/web-search/routes.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
-import { readLaunchSecrets } from '../core/admin.js';
+import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -79,6 +79,8 @@ async function main() {
   const gatesKeyring = new GatesKeyring();
   // the provider keys' data key (PKEY <hex>, or PKEY - unavailable / unreadable): memory only, like the other two
   const providerKeyring = new ProviderKeyring();
+  // read BEFORE readLaunchSecrets, which clears the flag: an app-started core with no PKEY line is "no key", not "no app"
+  const launchedByApp = process.env[ADMIN_STDIN_FLAG] === '1';
   const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); gatesKeyring.installLine(line); providerKeyring.installLine(line); });
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
@@ -107,7 +109,7 @@ async function main() {
   const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   const dataKey = providerKeyring.get();
   const noKey = providerKeyring.noKey();
-  const providerKeys = new ProviderKeys(keyFileFor(dataDir()), { ...(dataKey ? { dataKey } : {}), ...(noKey ? { noKey } : {}), committed: () => updateCommitted(installRoot) });
+  const providerKeys = new ProviderKeys(keyFileFor(dataDir()), { ...(dataKey ? { dataKey } : {}), ...(noKey ? { noKey } : {}), launchedByApp, committed: () => updateCommitted(installRoot) });
   // the optional web search and page read providers (off by default: both choices are the built-in tools); the service reads the live config.webSearch
   const webSearch = new WebSearchService({ config: () => config.webSearch, keys: providerKeys });
   const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: providerKeys, cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
@@ -173,7 +175,7 @@ async function main() {
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret, projects, away: awayCore.service, ...(board ? { board } : {}),
+    settings, adminSecret, projects, agentMode: gates.agentMode, away: awayCore.service, ...(board ? { board } : {}),
   });
 
   restartReaper();

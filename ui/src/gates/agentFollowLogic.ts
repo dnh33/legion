@@ -33,6 +33,19 @@ export function approvalPatch(existing: Pick<AgentProfile, 'approval' | 'approva
   return choice === 'project' ? { approvalSource: 'project' } : { approval: choice, approvalSource: 'own' };
 }
 
+/**
+ * Whether saving this choice may ask the owner in a native window (the core decides for real; this only words the wait). Own modes are ordered
+ * Ask < Accept edits < Full; Follow project may raise the mode when the app or a project the agent is in has a preset that is not Ask.
+ */
+export function mayRaiseMode(existing: Pick<AgentProfile, 'approval' | 'approvalSource' | 'id'> | undefined, choice: ApprovalChoice, projects: readonly Project[], view: GatesView | null): boolean {
+  if (existing !== undefined && choiceOf(existing) === choice) return false;
+  if (choice === 'ask') return false;
+  if (choice !== 'project') return true;
+  if (!view) return false;
+  const mine = existing ? projects.filter((p) => p.status !== 'archived' && p.members.includes(existing.id)) : [];
+  return (view.app.preset !== undefined && view.app.preset !== 'ask') || mine.some((p) => { const x = view.projects[p.id]?.preset; return x !== undefined && x !== 'ask'; });
+}
+
 /** The mode a run of this agent gets in a project (or outside one: `project` undefined), the same way the engine works it out. */
 function modeIn(a: { approval: ApprovalMode; source: 'own' | 'project' }, view: GatesView, projectId?: string): RunMode {
   const p = projectId === undefined ? undefined : view.projects[projectId];
@@ -85,9 +98,9 @@ export function shouldShowProjectNotice(view: GatesView, projectCount: number): 
 // ---------------------------------------------------------------- the chips on a run
 
 /** What the run header shows next to the agent: how the run asks, and how much of the web it read. Both hidden when the run has nothing to say. */
-export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefined, agent: Pick<AgentProfile, 'approval' | 'approvalSource'> | undefined, projects: readonly Project[], view: GatesView | null): { runsAs?: { text: string; reason?: string }; web?: string } {
+export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefined, agent: Pick<AgentProfile, 'approval' | 'approvalSource'> | undefined, projects: readonly Project[], view: GatesView | null): { runsAs?: { text: string; reason?: string; full?: true }; web?: string } {
   if (!task) return {};
-  const out: { runsAs?: { text: string; reason?: string }; web?: string } = {};
+  const out: { runsAs?: { text: string; reason?: string; full?: true }; web?: string } = {};
   const ra = task.runsAs;
   if (ra && agent) {
     // the project the run STARTED in, never the one the task sits in now
@@ -99,6 +112,8 @@ export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefin
       limit: set?.preset !== undefined && set.limit !== false,
       ...(task.origin?.approvalCeiling ? { ceiling: task.origin.approvalCeiling } : {}),
     });
+    // A run that asks for nothing keeps the amber warning the old approval pill had.
+    if (ra.mode === 'full') out.runsAs.full = true;
   }
   const web = task.web ? webChip(task.web) : undefined;
   if (web) out.web = web;
