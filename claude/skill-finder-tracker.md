@@ -21,7 +21,7 @@ build every step P1-P9 (owner, 2026-10-17: "the FULL AND COMPLETE THING").
 | P0 worktree + docs | done 2026-10-17 | |
 | P1 eval (Set A, Set B, cache check) | not started | |
 | P2 finder core (BM25, usage, gates) | not started | |
-| P3 embeddings (local + provider, hybrid) | not started | check whether the runtime can ship code-only |
+| P3 embeddings (local opt-in download + provider, hybrid) | not started | Blender download pattern; one release |
 | P4 Haiku rerank | not started | |
 | P5 Claude path (hooks, armory_find, slim listing) | not started | first verify that the hooks fire for SDK prompts |
 | P6 provider path | not started | |

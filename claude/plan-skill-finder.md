@@ -88,11 +88,18 @@ manual skill is never suggested or returned. Security test on both paths.
   - Reuse `kg/text.ts` tokenize and stemming.
   - **Fields:** id/name (high weight), description, `when_to_use` (parse it in the catalog), headings of the SKILL.md body (low weight).
 - **Stage 2: embeddings (hybrid with BM25).**
-  - **Local (default when installed):**
-    - Runtime: a small ONNX embedding model (multilingual, so Danish prompts match English skills).
-    - The model downloads on first enable into the Legion data folder, with a checksum check.
-    - Vectors are cached per skill content hash, so only changed skills re-embed.
-    - The query embeds in-process. No server to keep running.
+  - **Local model (opt-in download, off by default; nothing on the user's machine unless they ask):**
+    - A small multilingual ONNX embedding model, so Danish prompts match English skills. The P1 eval picks it.
+    - **Delivery reuses the Blender pattern** (`src/core/blender/get-blender.ts`):
+      - pinned sha256 values in code, for the model and for the runtime that runs it;
+      - an owner approval card naming the address, size, hash, folder and licence;
+      - a download to a temp file, with the hash checked before anything is used;
+      - the files live in `<dataDir>/skill-finder/`;
+      - Remove deletes them.
+    - Legion's install package does not change, so this is an ordinary code-only update.
+    - Fallback if the runtime must be a bundled dependency instead: the updater already applies
+      dependency-change releases through the signed full package (`docs/SHIPPING.md`), with no reinstall.
+    - CPU only, run once per turn. Vectors are cached per skill content hash. No server.
   - **Provider embeddings (option):** an embeddings endpoint of a provider the owner already set
     up. Off by default; turning it on says plainly that prompts leave the machine.
   - **Fusion:** a weighted score, not plain rank fusion (a community router measured RRF worse
@@ -192,15 +199,13 @@ finder is at least the full listing's.
   - `legion-update-path-check`.
   - The live walk before anything is marked Latest.
 
-## Releases (updater rule: users never reinstall)
-- Everything is built and tested on this branch together.
-- **Release 1 (code-only):**
-  - BM25, Haiku rerank, provider embeddings, the hooks, `armory_find`, the slim listing, KG recall, all UI;
-  - any updater change Release 2 needs.
-- **Release 2 (deps):** the local embedding runtime, after the full-install rehearsal from the
-  live release. Its UI options are present in Release 1 but marked "needs update".
-- If `legion-update-path-check` shows the runtime can ship code-only (pure WASM, no native
-  module), the two releases merge into one.
+## Release (one; updater rule: users never reinstall)
+- Everything ships in one release, including the local model option.
+- The model and its runtime are owner-approved downloads into the data folder (Blender
+  pattern), not package dependencies, so the release stays code-only.
+- If P3 finds the runtime must be bundled after all, the release is a dependency-change
+  release. The updater applies it through the signed full package, with a full-install
+  rehearsal under `legion-update-path-check`. Still one release, still no reinstall.
 
 ## Verification
 - `npm run typecheck` plus the touched test files locally. GitHub CI is the full gate.
