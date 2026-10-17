@@ -45,8 +45,8 @@ import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
 import { rank, rankFused } from './finder/rank.js';
 import type { Ranked } from './finder/rank.js';
-import { isCloseMatch, rerankPick, rerankScores } from './finder/rerank.js';
-import type { RerankQuery } from './finder/rerank.js';
+import { isCloseMatch, RerankSession, rerankScores } from './finder/rerank.js';
+import type { RerankLaunch, RerankQuery, RerankSessionOpts } from './finder/rerank.js';
 import { createUsageStore, skillIdOfLoad } from './finder/usage.js';
 import { oneLine } from '../kg/text.js';
 import type { SkillRecord, SkillState } from './store.js';
@@ -77,6 +77,8 @@ export interface ArmoryOptions {
   finderEmbedder?: (ranker: 'local' | 'provider') => Embedder | undefined;
   /** The query the Haiku rerank runs (rerank.ts). Tests pass a fake; absent, the Claude Code SDK's query. */
   rerankQuery?: RerankQuery;
+  /** Shorter timings and limits for the rerank session. Tests only. */
+  rerankTuning?: Partial<RerankSessionOpts>;
 }
 
 /** What the last listing of Claude Code skills found, and how. 'disk-fallback' reads installed_plugins.json and settings.json instead. */
@@ -228,9 +230,12 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
   };
   const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
   // The rerank's child process: the same environment and settings as the Claude Code listing (no connectors, the owner's executable).
-  const rerankEnv = () => (deps.config
+  // Without a config there is no rerank: the child never gets the full process environment.
+  const rerankLaunch = (): RerankLaunch | undefined => (deps.config
     ? { env: buildChildEnv(deps.config, { probe: true }), settings: { ...connectorSettings(deps.config, { probe: true }).settings }, ...(deps.config.claude.executablePath ? { executablePath: deps.config.claude.executablePath } : {}) }
-    : {});
+    : undefined);
+  // One warm session per module. It starts on the first turn that wants a rerank and is closed on dispose and when the rerank is switched off.
+  const rerank = new RerankSession({ dataDir: deps.dataDir, launch: rerankLaunch, log, ...(opts.rerankQuery ? { queryFn: opts.rerankQuery } : {}), ...(opts.rerankTuning ?? {}) });
   let usage: ReturnType<typeof createUsageStore> | undefined;
   const usageStore = () => (usage ??= createUsageStore(deps.dataDir));
   // Embeddings. The local model (a helper process) and the provider embedder are optional rankers; the vector cache holds one vector per
@@ -349,7 +354,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     finderSettled: () => filling ?? Promise.resolve(),
 
     // Stops the local model's helper process, if one is running.
-    async dispose() { model.dispose(); },
+    async dispose() { rerank.close(); model.dispose(); },
 
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
       const searchTool = finderSettings(agent).searchTool;
@@ -373,7 +378,9 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const boost = usageStore().boostFor(agent.id);
       const sub = { ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) };
       // With the rerank on, the ranking keeps the top RERANK_CANDIDATES so the rerank can choose among them; otherwise it keeps k.
-      const cut = f.rerank ? RERANK_CANDIDATES : f.k;
+      // Only a Claude-runtime agent reranks: a provider agent's prompt never goes to Anthropic.
+      const wantRerank = f.rerank && ctx.runtime === 'claude';
+      const cut = wantRerank ? RERANK_CANDIDATES : f.k;
       // Embeddings first, when the ranker has them and they answer within the budget. Any failure, or too few vectors yet, means keywords.
       let results: Ranked[] | undefined;
       let fused = false;
@@ -388,19 +395,16 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       let chosen = wide.slice(0, f.k);
       // The optional Haiku rerank: only when the top scores are close. Its answer is ids from this list, or undefined (keep the order).
       // The best raw BM25 is read here, not from rank(), because the margin normalises keyword scores by it (the fused path does not need it).
-      if (f.rerank && wide.length >= 2) {
+      if (wantRerank && wide.length >= 2) {
         const best = fused ? 0 : Math.max(0, ...[...scoreIndex(sub, ctx.prompt).values()].map((h) => h.score));
         if (isCloseMatch(rerankScores(wide, fused, best))) {
-          const pick = await rerankPick({
-            dataDir: deps.dataDir,
+          const ids = await rerank.pick({
             text: ctx.prompt,
             candidates: wide.map((r) => ({ id: r.id, description: docs.get(r.id)?.description ?? '' })),
             k: f.k,
             monthlyUsd: f.rerankMonthlyUsd,
-            queryFn: opts.rerankQuery,
-            ...rerankEnv(),
           });
-          if (pick.ids) chosen = pick.ids.map((id) => wide.find((r) => r.id === id)!);
+          if (ids) chosen = ids.map((id) => wide.find((r) => r.id === id)!);
         }
       }
       const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(chosen, docs);
@@ -586,6 +590,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
           throw e;
         }
         const file = updateArmoryFile(deps.dataDir, (f) => { f.finder = applyFinderPatch(f.finder, patch); });
+        // Switching the rerank off closes its warm session now; a later turn that wants it starts a new one.
+        if (!finderFor(file).rerank) rerank.close();
         log(`armory: owner changed the skill finder (${Object.keys(patch).join(', ') || 'no keys'})`);
         return finderFor(file);
       });

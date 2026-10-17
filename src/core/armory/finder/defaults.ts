@@ -51,5 +51,15 @@ export const RERANK_MARGIN = 0.15;
 export const RERANK_CANDIDATES = 8;
 export const RERANK_TEXT_CHARS = 2000;
 export const RERANK_DESC_CHARS = 200;
-/** After the deadline the turn goes on without the rerank, but the call may run on to this ceiling so its cost is still counted. */
+/** A request that missed its deadline is abandoned, but the session stays busy until its result comes. It is closed at this ceiling. */
 export const RERANK_HARD_MS = 30_000;
+/** Estimated cost of one request, reserved in the month's spend before the request and replaced by the real cost. US dollars. */
+export const RERANK_RESERVE_USD = 0.002;
+/** The warm session is closed and restarted after this many reranks, or after this long without one. */
+export const RERANK_RECYCLE_AFTER = 10;
+export const RERANK_IDLE_MS = 10 * 60_000;
+/** After this many failures in a row (a timeout counts) no session is started for RERANK_BACKOFF_MS. */
+export const RERANK_FAILS_BEFORE_BACKOFF = 3;
+export const RERANK_BACKOFF_MS = 60_000;
+/** How long a fresh session may take to answer its warm-up message. */
+export const RERANK_WARM_MS = 20_000;
