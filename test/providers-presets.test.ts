@@ -66,7 +66,7 @@ test('the preset note names both model roles, so Settings and the picker say wha
 });
 
 test('only OpenRouter is switched on; every other preset keeps its shipped state and the preset set is unchanged', () => {
-  assert.deepEqual(PROVIDER_PRESETS.map((p) => p.id), ['openai', 'openrouter', 'ollama', 'lmstudio', 'vllm']);
+  assert.deepEqual(PROVIDER_PRESETS.map((p) => p.id), ['openai', 'openrouter', 'deepseek', 'ollama', 'lmstudio', 'vllm']);
   for (const p of PROVIDER_PRESETS) {
     if (p.id === 'openrouter') continue;
     assert.equal(p.entry.enabled, false, `${p.id} is left exactly as it was (off)`);
