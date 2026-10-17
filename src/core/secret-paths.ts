@@ -20,14 +20,21 @@ function wildcardHit(value: unknown): string | undefined {
   return isSecretPath(value.replace(/[*?]/g, '')) || isSecretPath(value.replace(/[*?]/g, 'x')) ? value : undefined;
 }
 
+/** Search programs: their first plain word is the text to find, so `grep -r credentials src` is not a read (a word with a slash or a leading dot still counts). */
+const SEARCHERS: ReadonlySet<string> = new Set(['grep', 'rg', 'findstr', 'select-string', 'sls', 'awk', 'sed']);
+
 function shellHit(command: string): string | undefined {
-  for (const seg of command.split(/[;|&\n\r]+/)) {
-    const words = seg.trim().split(/\s+/).filter(Boolean);
-    const first = unquote(words[0] ?? '').split(/[\/]/).pop()!.toLowerCase().replace(/\.exe$/, '');
+  // a redirect such as 2>&1 or &> is not a command break; brackets and redirects around a word are not part of it
+  for (const seg of command.replace(/\d*>&\d*|&>/g, ' ').split(/[;|&\n\r]+/)) {
+    const words = seg.replace(/[()<>]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const first = unquote(words[0] ?? '').split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, '');
     if (!READERS.has(first)) continue;
+    let pattern = SEARCHERS.has(first);
     for (const w of words.slice(1)) {
-      const f = unquote(unquote(w).replace(/^--[\w-]+=/, '').replace(/^@/, ''));
-      if (f && isSecretPath(f)) return f;
+      const f = unquote(unquote(w).replace(/^--[\w-]+=/, '').replace(/^-[\w-]+:/, '').replace(/^@/, ''));
+      if (!f || f.startsWith('-')) continue;
+      if (pattern) { pattern = false; if (!/[\\/]/.test(f) && !f.startsWith('.')) continue; }
+      if (isSecretPath(f)) return f;
     }
   }
   return undefined;
@@ -40,7 +47,7 @@ function shellHit(command: string): string | undefined {
  * search over a folder that does not name the file.
  */
 export function secretReadHit(toolName: string, input: Record<string, unknown>): string | undefined {
-  if (toolName === 'Read') { const p = input.file_path; return typeof p === 'string' && isSecretPath(p) ? p : undefined; }
+  if (toolName === 'Read' || toolName === 'mcp__host__read_file') { const p = toolName === 'Read' ? input.file_path : input.path; return typeof p === 'string' && isSecretPath(p) ? p : undefined; }
   if (SEARCH_TOOLS.has(toolName)) {
     for (const k of toolName === 'Grep' ? ['path', 'glob'] : ['path', 'glob', 'pattern']) { const h = wildcardHit(input[k]); if (h) return h; }
     return undefined;

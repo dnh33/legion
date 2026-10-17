@@ -1602,7 +1602,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
     if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
     const hit = secretReadHit(toolName, input);
-    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${basename(hit)}. It may hold passwords or keys.`) : undefined;
+    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${hit.split(/[\\/]/).pop()}. It may hold passwords or keys.`) : undefined;
   }
 
   /** The card every guard raises: no Remember (no tool-wide rule can pass a guard), and the answer is final for this call. */

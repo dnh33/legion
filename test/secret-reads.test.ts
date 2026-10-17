@@ -19,6 +19,15 @@ test('a shell cat, type or Get-Content of a secret file counts as a read', () =>
     assert.ok(secretReadHit('Bash', { command: c }) ?? secretReadHit('PowerShell', { command: c }), c);
   for (const c of ['cat README.md', 'cat .env.example', 'ls .env', 'echo .env', 'type notes.txt', 'git status']) assert.equal(secretReadHit('Bash', { command: c }), undefined, c);
 });
+test('shell reads: a program by its Windows path, 2>&1, -Path:, brackets and redirects; a search for the word credentials is not a read', () => {
+  for (const c of ['C:\\tools\\cat.exe .env', 'cat 2>&1 .env', 'Get-Content -Path:.env', 'gc -Path:C:\\p\\.env', 'cat .env>out', '(cat .env)', 'grep KEY .env', 'grep -r x ./.env', 'Select-String -Pattern x -Path .env'])
+    assert.ok(secretReadHit('PowerShell', { command: c }), c);
+  for (const c of ['grep -r credentials src', 'rg credentials', 'findstr credentials notes.txt']) assert.equal(secretReadHit('Bash', { command: c }), undefined, c);
+});
+test('the host read_file tool counts as a read', () => {
+  assert.equal(secretReadHit('mcp__host__read_file', { path: 'C:\\p\\.env' }), 'C:\\p\\.env');
+  assert.equal(secretReadHit('mcp__host__read_file', { path: 'C:\\p\\a.ts' }), undefined);
+});
 test('the host shell tool is read like Bash', () => {
   assert.ok(secretReadHit('mcp__host__shell', { command: 'cat .env' }));
   assert.equal(secretReadHit('mcp__host__shell', { command: 'cat a.txt' }), undefined);
