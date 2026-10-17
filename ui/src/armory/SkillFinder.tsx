@@ -8,7 +8,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/icons';
 import { RERANK_LATENCY_NOTE } from '../../../src/core/armory/finder/defaults';
-import { endSentence } from '../../../src/shared/armory-view';
+import { endSentence, isLocalHostUrl, PROVIDER_DISCLOSURE, PROVIDER_DISCLOSURE_LOCAL } from '../../../src/shared/armory-view';
 import type { AgentRef, FinderSettings } from '../../../src/shared/armory-view';
 import { getProviders, loadProviders, useProviders } from '../providers/providersStore';
 import {
@@ -20,12 +20,12 @@ export const FINDER_NOTICE = 'Legion now lists your skills briefly and lets agen
 const SUGGEST_HELP = 'Off by default: in tests, a suggestion picked the right skill less than half the time.';
 const SLIM_HELP = "Sends each skill's name with a short description, and agents search for the rest. On by default.";
 const SLIM_NEEDS = 'Needs the search tool.';
-const PROVIDER_DISCLOSURE = 'Your messages are sent to this provider to rank skills. They leave your computer.';
 const RERANK_DISCLOSURE = "Uses your Claude account. Provider agents' messages are never sent.";
 const NO_PROVIDER = 'No embedding provider set up';
 const TEST_EMPTY = 'Type a message to see which skills fit it';
 const TEST_NONE = 'No skill scores above the floor for this message';
-const MODEL_GET = 'Get model (about 145 MB download, about 1 GB of memory while in use)';
+const MODEL_GET = 'Get model';
+const MODEL_FACTS = 'About 145 MB download. Uses about 1 GB of memory while in use.';
 
 type SuggestValue = 'false' | 'true' | 'auto';
 const suggestValue = (v: FinderSettings['suggest']): SuggestValue => (v === 'auto' ? 'auto' : v ? 'true' : 'false');
@@ -99,15 +99,12 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
         <Row id={id('slim')} label="Short skill list" help={<>{SLIM_HELP}{!f.searchTool ? <> <span className="arm-needs">{SLIM_NEEDS}</span></> : null}</>}
           control={<Switch label="Short skill list" on={slimOn} disabled={!f.searchTool} describedBy={`${id('slim')}-h`} onChange={(v) => { void setFinder({ slimListing: v }); }} />} />
 
-        <Row id={id('sub')} label="Subagent suggestions" help="Also suggests skills to the helpers an agent starts."
-          control={<Switch label="Subagent suggestions" on={f.subagents} describedBy={`${id('sub')}-h`} onChange={(v) => { void setFinder({ subagents: v }); }} />} />
-
         <Ranker f={f} id={id('rank')} />
 
         <Row id={id('rerank')} label="Rerank close calls with Haiku" help={RERANK_LATENCY_NOTE}
           control={<Switch label="Rerank close calls with Haiku" on={f.rerank} describedBy={`${id('rerank')}-h`} onChange={(v) => { void setFinder({ rerank: v }).then((ok) => { if (ok && v) void loadRerankSpend(); }); }} />}>
+          <div className={`arm-rrx${f.rerank ? '' : ' arm-fmuted'}`}>
           <Spend />
-          <p className="set-hint arm-fdisc">{RERANK_DISCLOSURE}</p>
           <label className="arm-cap">
             <span>Monthly cap</span>
             <span className="arm-capin"><span aria-hidden="true">$</span>
@@ -117,7 +114,15 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
             </span>
           </label>
+          </div>
+          <p className="set-hint arm-fdisc">{RERANK_DISCLOSURE}</p>
         </Row>
+
+
+        <p className="arm-fgrouph set-hint">Used when Suggest each turn is on.</p>
+        <div className={`arm-fgroup${f.suggest === false ? ' arm-fmuted' : ''}`}>
+        <Row id={id('sub')} label="Subagent suggestions" help="Also suggests skills to the helpers an agent starts."
+          control={<Switch label="Subagent suggestions" on={f.subagents} describedBy={`${id('sub')}-h`} onChange={(v) => { void setFinder({ subagents: v }); }} />} />
 
         <Row id={id('k')} label="Skills per suggestion" help="How many skills one suggestion names."
           control={(
@@ -137,6 +142,7 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
 
         <Row id={id('chat')} label="Show suggestions in chat" help="A quiet line under the reply names the skills that were suggested and the ones that were loaded."
           control={<Switch label="Show suggestions in chat" on={f.chatLine} describedBy={`${id('chat')}-h`} onChange={(v) => { void setFinder({ chatLine: v }); }} />} />
+        </div>
       </div>
 
       {err ? <p className="house-rowerr" role="alert"><Icon name="x" size={12} /> <span>{endSentence(`Could not save: ${err}`)} The setting is as it was.</span></p> : null}
@@ -158,16 +164,16 @@ function Ranker({ f, id }: { f: FinderSettings; id: string }) {
         <select aria-labelledby={`${id}-l`} aria-describedby={`${id}-h`} value={f.ranker} onChange={(e) => { void setFinder({ ranker: e.target.value as FinderSettings['ranker'] }); }}>
           <option value="keyword">Keywords</option>
           <option value="local">Keywords + local model</option>
-          <option value="provider" disabled={none && f.ranker !== 'provider'}>Keywords + provider embeddings</option>
+          <option value="provider" disabled={none && f.ranker !== 'provider'}>Keywords + provider embeddings{none ? ` (${NO_PROVIDER.toLowerCase()})` : ''}</option>
         </select>
       )}>
-      {f.ranker === 'provider' || none ? <ProviderPick f={f} id={id} providers={providers.map((p) => ({ id: p.id, label: p.label, models: p.models }))} /> : null}
+      {f.ranker === 'provider' ? <ProviderPick f={f} id={id} providers={providers.map((p) => ({ id: p.id, label: p.label, models: p.models, baseUrl: p.baseUrl }))} /> : null}
       <ModelCard show={f.ranker === 'local'} />
     </Row>
   );
 }
 
-function ProviderPick({ f, id, providers }: { f: FinderSettings; id: string; providers: { id: string; label: string; models: string[] }[] }) {
+function ProviderPick({ f, id, providers }: { f: FinderSettings; id: string; providers: { id: string; label: string; models: string[]; baseUrl: string }[] }) {
   const [model, setModel] = useState<string | null>(null);
   if (providers.length === 0) return <p className="set-hint arm-fdisc">{NO_PROVIDER}</p>;
   const cur = providers.find((p) => p.id === f.providerId);
@@ -187,8 +193,8 @@ function ProviderPick({ f, id, providers }: { f: FinderSettings; id: string; pro
           <datalist id={`${id}-models`}>{(cur?.models ?? []).map((m) => <option key={m} value={m} />)}</datalist>
         </label>
       </div>
-      {f.ranker === 'provider' ? <p className="set-hint arm-fdisc">{PROVIDER_DISCLOSURE}</p> : null}
-      {f.ranker === 'provider' && !(f.providerId && f.providerModel) ? <p className="set-hint arm-fdisc">Until a provider and a model are chosen, skills are ranked by keywords.</p> : null}
+      <p className="set-hint arm-fdisc">{cur && isLocalHostUrl(cur.baseUrl) ? PROVIDER_DISCLOSURE_LOCAL : PROVIDER_DISCLOSURE}</p>
+      {!(f.providerId && f.providerModel) ? <p className="set-hint arm-fdisc">Until a provider and a model are chosen, skills are ranked by keywords.</p> : null}
     </div>
   );
 }
@@ -207,8 +213,8 @@ function ModelCard({ show }: { show: boolean }) {
     <div className="arm-model" ref={card} tabIndex={-1} aria-label="Local model">
       {m.state === 'not-installed' ? (
         <>
-          <button type="button" className="btn sm" aria-disabled={busy || undefined} onClick={go(getFinderModel)}>{message ? 'Try again' : MODEL_GET}</button>
-          <p className="set-hint">Until the model is ready, skills are ranked by keywords.</p>
+          <button type="button" className="btn sm arm-nowrap" aria-disabled={busy || undefined} onClick={go(getFinderModel)}>{message ? 'Try again' : MODEL_GET}</button>
+          <p className="set-hint">{MODEL_FACTS} Until the model is ready, skills are ranked by keywords.</p>
         </>
       ) : null}
       {m.state === 'downloading' ? (
@@ -271,7 +277,7 @@ function TestBox({ agents }: { agents: readonly AgentRef[] }) {
       {res && res.rows.length === 0 ? <p className="set-hint" role="status">{TEST_NONE}</p> : null}
       {res && res.rows.length > 0 ? (
         <>
-          <p className="set-hint" role="status">{res.rows.length} of {res.candidates} skill{res.candidates === 1 ? '' : 's'} fit this message.</p>
+          <p className="set-hint" role="status">Top {res.rows.length} of {res.candidates} skill{res.candidates === 1 ? '' : 's'} for this message.</p>
           <table className="arm-ttable">
             <thead><tr><th scope="col">Rank</th><th scope="col">Skill</th><th scope="col">Score</th><th scope="col">Why</th></tr></thead>
             <tbody>

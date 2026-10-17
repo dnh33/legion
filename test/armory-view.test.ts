@@ -18,6 +18,7 @@ import {
   runsNote, seesLine, shortList, showSearch, slugify, sourceLabel, STATE_OPTIONS, stateLabel, toggleAgent, triOf, turnAllOnTargets, withState,
   agentLoads, bodyError, budgetSummary, bulkConsequence, commandView, duplicateNames, flagsLine, loadsLine, matchRank, nameSuggestion, newSkillCommand, NAME_RULE, NO_COMMAND,
   refusalLine, rowTag, showHidden, STATE_FILTERS, tickReason, totalLine, uniqueName,
+  isLocalHostUrl, PROVIDER_DISCLOSURE, PROVIDER_DISCLOSURE_LOCAL,
   seesText, crowdsLine, NOT_BUILTINS, shellConfirm, descriptionCut, CUT_NOTE, SHELL_SCOPE, SHELL_ON_LINE, flagsNamed,
 } from '../src/shared/armory-view.js';
 import type { ArmorySkill } from '../src/shared/armory-view.js';
@@ -969,5 +970,18 @@ describe('second UX review', () => {
     assert.match(read('src/core/armory/store.ts'), /export const defaultState = \(_source: SkillSource\): SkillState => 'off';/);
     assert.match(read('ui/src/armory/SkillEditor.tsx'), /A new skill starts off\./);
     assert.match(read('ui/src/armory/ArmorySection.tsx'), /<span>Saved \(off\)\.<\/span>/);
+  });
+});
+
+describe('the provider disclosure host check', () => {
+  it('treats localhost, 127.0.0.1, ::1 and *.localhost as your own computer', () => {
+    for (const u of ['http://localhost:11434/v1', 'http://LOCALHOST/v1', 'http://127.0.0.1:8080', 'http://[::1]:8080/v1', 'https://embed.localhost/v1', 'http://a.b.localhost']) assert.equal(isLocalHostUrl(u), true, u);
+  });
+  it('does not trust names that only look local, other hosts, or bad input', () => {
+    for (const u of ['https://api.example.com/v1', 'http://localhost.example.com', 'http://notlocalhost', 'http://127.0.0.2', 'http://192.168.1.5', 'http://evil.com/localhost', 'http://localhost@evil.com', 'localhost', '']) assert.equal(isLocalHostUrl(u), false, u);
+  });
+  it('the local line drops the claim that the messages leave your computer', () => {
+    assert.ok(PROVIDER_DISCLOSURE.endsWith('They leave your computer.'));
+    assert.equal(PROVIDER_DISCLOSURE_LOCAL, 'Your messages are sent to this provider to rank skills.');
   });
 });

@@ -823,3 +823,14 @@ export function shortList(items: readonly string[], max = 6): string {
 
 /** What Undo for a removed imported skill can bring back: only SKILL.md is sent again, so reference files are gone. */
 export const IMPORTED_UNDO_NOTE = 'Only SKILL.md comes back, and it comes back off.';
+
+/** The text shown when the finder ranks with a provider's embeddings: where your messages go. */
+export const PROVIDER_DISCLOSURE = 'Your messages are sent to this provider to rank skills. They leave your computer.';
+/** The same for a provider on your own computer, where nothing leaves it. */
+export const PROVIDER_DISCLOSURE_LOCAL = 'Your messages are sent to this provider to rank skills.';
+/** Whether an address points at your own computer: localhost, 127.0.0.1, ::1 or any *.localhost name. */
+export function isLocalHostUrl(url: string): boolean {
+  let host: string;
+  try { host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, ''); } catch { return false; }
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost');
+}

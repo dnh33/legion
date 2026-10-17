@@ -6,6 +6,7 @@
 //   fnd-local    the local model ranker is chosen
 //   mdl-dl | mdl-ready | mdl-err        the local model state at start (default: not installed)
 //   mdl-hang     "Get model" never finishes (stays downloading)
+//   provremote   the provider is on another computer (the disclosure keeps the full line)
 //   prov         one embedding-capable provider is set up; with fnd-provider the provider ranker is chosen
 //   noticeseen   the first-contact notice was already answered
 //   unm60        60 switched-on skills that no listing finds
@@ -37,7 +38,9 @@ export function armoryState(flags) {
   return { finder, model, spend: { month: '2026-10', spentUsd: all ? 0.37 : 0, capUsd: finder.rerankMonthlyUsd } };
 }
 
-const words = (t) => String(t).toLowerCase().match(/[a-z]{3,}/g) ?? [];
+// The real tokenizer drops stopwords, so a stopword never shows as a matched word.
+const STOP = new Set(['the', 'for', 'and', 'with', 'from', 'that', 'this', 'you', 'are', 'your', 'please', 'can', 'will', 'how', 'what']);
+const words = (t) => (String(t).toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !STOP.has(w));
 
 export async function armoryRoutes({ ctx, req, res, p, url, send, readBody, sleep }) {
   if (!p.startsWith('/api/armory') && p !== '/api/providers') return false;
@@ -45,7 +48,7 @@ export async function armoryRoutes({ ctx, req, res, p, url, send, readBody, slee
   const a = (ctx.armory ??= armoryState(flags));
   const m = req.method;
   if (p === '/api/providers') {
-    send(res, 200, { providers: flags.has('prov') || flags.has('fnd-provider') ? [{ id: 'local-embed', label: 'Local server', enabled: true, models: ['nomic-embed-text', 'bge-small'] }] : [], maxTurns: 40, maxToolCallsPerTurn: 20, dropped: [], cannotDo: [] });
+    send(res, 200, { providers: flags.has('prov') || flags.has('fnd-provider') ? [{ id: 'local-embed', label: flags.has('provremote') ? 'Embeddings cloud' : 'Local server', baseUrl: flags.has('provremote') ? 'https://api.embed.example/v1' : 'http://localhost:11434/v1', enabled: true, models: ['nomic-embed-text', 'bge-small'] }] : [], maxTurns: 40, maxToolCallsPerTurn: 20, dropped: [], cannotDo: [] });
     return true;
   }
   if (p === '/api/armory' && m === 'GET') {
