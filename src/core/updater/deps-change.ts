@@ -18,20 +18,30 @@
 import type { Manifest } from './manifest.js';
 
 export type ReleaseRoute = 'code' | 'full' | 'notify';
+
+/** What a person on Mac or Linux is told when a release changes dependencies. Those installs never apply a full package (it is a Windows package). */
+export const UNIX_DEPS_TEXT = "This update changes Legion's dependencies. On Mac and Linux, run the installer again to get it: curl -fsSL https://getlegion.xyz | sh (your data in ~/.legion stays).";
+
+/** A route value read from outside (parse-ahead for a later release): anything this build does not know is a notice, never an action. */
+export function parseRoute(v: unknown): ReleaseRoute {
+  return v === 'code' || v === 'full' || v === 'notify' ? v : 'notify';
+}
 export interface ReleasePlan { route: ReleaseRoute; reason: string }
 
 /** A short, non-secret fingerprint of the release's dependency hash, for the reason string only. */
 const deps = (m: Pick<Manifest, 'depsSha256'>): string => `depsSha256 ${m.depsSha256.slice(0, 12)}…`;
 
 /**
- * Decide the route for a verified manifest. Pure: no network, no disk.
+ * Decide the route for a verified manifest. Pure: no network, no disk. Off win32 a dependency release is always `notify`: the signed
+ * full package is a Windows package and must never be requested there.
  *
  * Only `requiresFullInstall` (plus the presence of a signed `fullAsset`) is consulted; the installed dependency hash is
  * not needed to route, because the code-only stager fails closed on a real mismatch and index.ts escalates that to the
  * full package when one is signed.
  */
-export function planRelease(m: Pick<Manifest, 'requiresFullInstall' | 'depsSha256' | 'fullAsset'>): ReleasePlan {
-  if (!m.requiresFullInstall) return { route: 'code', reason: 'the release does not change dependencies' };
+export function planRelease(m: Pick<Manifest, 'requiresFullInstall' | 'depsSha256' | 'fullAsset'>, platform: NodeJS.Platform): ReleasePlan {
+  if (!m.requiresFullInstall) return { route: parseRoute('code'), reason: 'the release does not change dependencies' };
+  if (platform !== 'win32') return { route: 'notify', reason: `the release changes dependencies (${deps(m)}): ${UNIX_DEPS_TEXT}` };
   if (m.fullAsset) return { route: 'full', reason: `the release changes dependencies (${deps(m)}) and ships a signed full package` };
   return { route: 'notify', reason: `the release changes dependencies (${deps(m)}) and carries no signed full package: download its source and run setup.cmd` };
 }

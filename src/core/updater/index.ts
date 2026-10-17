@@ -5,7 +5,7 @@
  * need the native secret, which only the Electron main process holds.
  */
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { VERSION } from '../../shared/config.js';
 import { safeEqual, NATIVE_HEADER } from '../admin.js';
@@ -15,7 +15,7 @@ import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome }
 import { newUpdateId, type JourneyStepId, type JourneyView } from './journey.js';
 import { readLastJourney, recordStep, type StepExtra } from './journey-io.js';
 import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifest2Url, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sig2Url, sigUrl, type UpdateSource } from './config.js';
-import { planRelease } from './deps-change.js';
+import { planRelease, UNIX_DEPS_TEXT } from './deps-change.js';
 import { isUpdateInProgress, type MarkerDeps } from './update-marker.js';
 import { BOOT_REASON, computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, manifestForUpdater, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
@@ -26,12 +26,38 @@ import { compareSemver } from './semver.js';
 import { UPDATE_KEYS, verifyManifestSignature, type UpdateKey } from './trust.js';
 
 export type InstallMode = 'apply' | 'checkout' | 'unwritable' | 'unsupported';
-/** Where an update may be applied. A git checkout, an unwritable folder or a non-Windows system only ever gets a notice. */
-export function installMode(i: { root: string; platform: NodeJS.Platform; exists?: (p: string) => boolean; writable?: (p: string) => boolean }): InstallMode {
+/** The file scripts/install/install.sh writes after a good build. Off win32 only; a Windows install never reads it. */
+export const INSTALL_MARKER_FILE = '.legion-install.json';
+/** The text a hand-made clone is shown, and the answer to install() on one. Legion runs none of these steps. */
+export const CHECKOUT_NOTICE = 'This is a git checkout. Update it yourself: git fetch --tags, check out the new tag, then npm ci and npm run build.';
+
+/**
+ * Whether the folder the installer made is still the one the marker describes. The marker is an accident guard, not a security boundary
+ * (any process of this user can already write dist/): it keeps a hand-made clone, a branch checkout and a copied folder from being swapped.
+ * True only when: .git/HEAD is a bare sha (a detached tag checkout; a branch is a developer's), the marker is schema 1 from install.sh,
+ * names this folder's real path, and records that same sha. No git binary is run.
+ */
+function managedClone(root: string, readFile: (p: string) => string, realpath: (p: string) => string): boolean {
+  try {
+    const head = readFile(join(root, '.git', 'HEAD')).trim();
+    if (!/^[0-9a-f]{40}$/.test(head)) return false;
+    const m: unknown = JSON.parse(readFile(join(root, INSTALL_MARKER_FILE)));
+    if (!isObj(m) || m.schema !== 1 || m.manager !== 'install.sh') return false;
+    return typeof m.dir === 'string' && m.dir === realpath(root) && m.head === head;
+  } catch { return false; }
+}
+
+/** Where an update may be applied. A git checkout, an unwritable folder or an unmanaged non-Windows system only ever gets a notice. */
+export function installMode(i: { root: string; platform: NodeJS.Platform; exists?: (p: string) => boolean; writable?: (p: string) => boolean; readFile?: (p: string) => string; realpath?: (p: string) => string }): InstallMode {
   const exists = i.exists ?? existsSync;
-  if (exists(join(i.root, '.git'))) return 'checkout';
-  if (i.platform !== 'win32') return 'unsupported';
   const writable = i.writable ?? ((p: string) => { try { accessSync(p, constants.W_OK); return true; } catch { return false; } });
+  if (i.platform === 'win32') {
+    if (exists(join(i.root, '.git'))) return 'checkout';
+    return writable(i.root) ? 'apply' : 'unwritable';
+  }
+  // Mac and Linux: a clone made by install.sh is updatable; any other clone keeps today's answer (a notice); no .git is unsupported, as before.
+  if (!exists(join(i.root, '.git'))) return 'unsupported';
+  if (!managedClone(i.root, i.readFile ?? ((p) => readFileSync(p, 'utf8')), i.realpath ?? ((p) => realpathSync(p)))) return 'checkout';
   return writable(i.root) ? 'apply' : 'unwritable';
 }
 
@@ -48,7 +74,7 @@ export interface UpdaterOptions {
 }
 type Phase = 'idle' | 'checking' | 'awaiting-approval' | 'downloading' | 'staged' | 'committing';
 export interface UpdateStatus {
-  mode: InstallMode; keyConfigured: boolean; installed: { version: string; publishedAt?: string }; settings: UpdateSettings;
+  mode: InstallMode; /** The system the core runs on: the panel words some notices per system. */ platform: NodeJS.Platform; keyConfigured: boolean; installed: { version: string; publishedAt?: string }; settings: UpdateSettings;
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
   available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; /** True when a dependency-change release ships a signed full package and can self-apply. */ canFullInstall: boolean };
   phase: Phase; progress?: { bytes: number; total: number }; error?: string;
@@ -82,7 +108,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   const source = opts.source ?? PRODUCTION_SOURCE;
   const keys = opts.keys ?? UPDATE_KEYS;
   const files = new UpdaterFiles(deps.dataDir);
-  const mode = installMode({ root: opts.root, platform: opts.platform ?? process.platform });
+  const platform = opts.platform ?? process.platform;
+  const mode = installMode({ root: opts.root, platform });
   const startedAt = now();
   const clock = new QuietClock(startedAt);
   const probes = new Map<string, BusyProbe>(Object.entries(opts.probes ?? {}));
@@ -115,7 +142,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   };
   const beginJourney = (m: Manifest): void => {
     if (mode !== 'apply') return;
-    const route = planRelease(m).route;
+    const route = planRelease(m, platform).route;
     if (route === 'notify') return; // nothing can be applied here, so there is no journey to follow
     if (journeyId && journeyTo === m.version) return; // the same update found again
     journeyId = newUpdateId(); journeyTo = m.version; journeyKind = route === 'full' ? 'full' : 'code';
@@ -209,7 +236,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     }
     // Auto-install only when the release can actually be applied here: a code-only update, or a dependency-change
     // release that ships a signed full package (route 'full'). A notify-only release has nothing to download.
-    if (available && !staged && mode === 'apply' && planRelease(available.manifest).route !== 'notify') {
+    if (available && !staged && mode === 'apply' && planRelease(available.manifest, platform).route !== 'notify') {
       const failedAt = stageFailedAt.get(available.manifest.version);
       if ((failedAt === undefined || now() - failedAt >= STAGE_RETRY_MS) && files.settings().autoInstallWhenIdle) void module.install({ auto: true }).catch(() => undefined);
     }
@@ -253,7 +280,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const updated = journey && journey.result === 'ok' && journey.to === version && s.updatedAckId !== journey.id ? { version: journey.to, id: journey.id } : undefined;
       const a = available?.manifest;
       const st2 = files.state();
-      const plan = a ? planRelease(a) : null;
+      const plan = a ? planRelease(a, platform) : null;
       const at2 = st2.failedAt ?? {};
       // Only a block on a version NEWER than what is running can ever be acted on. An older one is history: the
       // updater only ever offers something newer, so a block on it is invisible to the user and unreleasable by them.
@@ -264,7 +291,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         .map((v) => ({ version: v, at: at2[v], retryAfter: at2[v] ? new Date(Date.parse(at2[v]) + FAILED_BLOCK_DAYS * 86_400_000).toISOString() : undefined }))
         .filter((b) => b.retryAfter ? Date.parse(b.retryAfter) <= now() : true);
       return {
-        mode, keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
+        mode, platform, keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
         check: { ...(s.lastCheckedAt ? { lastCheckedAt: s.lastCheckedAt } : {}), ...(s.lastResult ? { lastResult: s.lastResult } : {}), ...(nextAllowedAt > now() ? { nextAllowedAt: new Date(nextAllowedAt).toISOString() } : {}) },
         ...(a && plan ? { available: { version: a.version, size: plan.route === 'full' ? (a.fullAsset?.size ?? a.asset.size) : a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall, canFullInstall: plan.route === 'full' } } : {}),
         phase, ...(progress && phase === 'downloading' ? { progress } : {}), ...(error ? { error } : {}),
@@ -282,13 +309,13 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     },
 
     async install(o = {}): Promise<{ ok: boolean; declined?: boolean }> {
-      if (mode !== 'apply') throw new HttpError(409, mode === 'checkout' ? 'This is a git checkout: update it with git pull and a rebuild.' : 'This install cannot be updated from inside Legion.');
+      if (mode !== 'apply') throw new HttpError(409, mode === 'checkout' ? CHECKOUT_NOTICE : 'This install cannot be updated from inside Legion.');
       const a = available?.manifest;
       if (!a) throw new HttpError(409, 'There is no verified update to install. Check for updates first.');
-      const plan = planRelease(a);
+      const plan = planRelease(a, platform);
       // A dependency-change release with no signed full package can only be installed by hand: the human fallback, and
-      // what every install that predates full-package support still gets.
-      if (plan.route === 'notify') throw new HttpError(409, 'This release changes dependencies. Download its source and run setup.cmd.');
+      // what every install that predates full-package support still gets. Off win32 that is every dependency release.
+      if (plan.route !== 'code' && plan.route !== 'full') throw new HttpError(409, platform === 'win32' ? 'This release changes dependencies. Download its source and run setup.cmd.' : UNIX_DEPS_TEXT);
       if (phase !== 'idle' && phase !== 'staged') throw new HttpError(409, 'An update is already being prepared.');
       // Cross-process guard: refuse if another Legion process already owns an update (update-marker.ts).
       if (opts.marker) {
@@ -331,7 +358,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         // installed (checkTree throws 'full-install'), or the install has no readable lock. When the release ALSO ships a
         // signed full package, apply that rather than giving up; otherwise this stays the notify-only fallback.
         let fellBack = false;
-        if (e instanceof StageError && e.code === 'full-install' && a.fullAsset) {
+        if (e instanceof StageError && e.code === 'full-install' && a.fullAsset && platform === 'win32') { // the full package is a Windows package: never fetched elsewhere
           fellBack = true;
           log('updater stage refused, trying the signed full package', e.code, e.message); // the refusal that starts the fallback; a 285 MB failure must leave a trace
           journeyKind = 'full'; verifying = false; last = { bytes: 0, total: a.fullAsset?.size ?? progressTotal };
@@ -347,7 +374,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         stageFailedAt.set(a.version, now());
         if (e instanceof StageError) {
           log('updater stage refused', e.code, e.message); // a refusal must be visible in the app log, not only in the panel
-          error = e.code === 'full-install' ? 'This release changes dependencies. Download its source and run setup.cmd.' : `The update was not installed: ${e.message}`;
+          error = e.code === 'full-install' ? (platform === 'win32' ? 'This release changes dependencies. Download its source and run setup.cmd.' : UNIX_DEPS_TEXT) : `The update was not installed: ${e.message}`;
           if (e.code === 'full-install' && available) available.manifest = { ...available.manifest, requiresFullInstall: true };
         } else if (e instanceof NetError) {
           log(fellBack ? 'updater full package download failed' : 'updater download failed', e.message);
