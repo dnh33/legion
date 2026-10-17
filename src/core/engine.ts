@@ -7,6 +7,7 @@ import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
+import { explainClaudeError } from '../shared/claude-errors.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { classifySafe } from '../shared/consequence.js';
 import { liveSecrets } from './kg/index.js';
@@ -1134,9 +1135,12 @@ export class Engine {
         : budgetLimit
           ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
           : outcome.errorText || outcome.subtype;
-      this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
+      // An empty API credit balance: say why and how to switch to the Claude plan, and keep what Claude said.
+      const why = explainClaudeError(outcome.errorText, this.config.claude.auth);
+      const shown = why ? `${why}\n\nClaude said: ${text}` : text;
+      this.patchTask(job.taskId, { status: 'error', error: shown,...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${text}`);
+      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
       // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
       else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');

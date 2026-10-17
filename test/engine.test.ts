@@ -1567,3 +1567,28 @@ test('a gate ask rule on a connectors tool that is not a carded write still rais
   s.engine.cancel(t.id);
   await s.engine.waitFor(t.id, 3000);
 });
+
+// An empty API credit balance: the run says why and how to switch to the Claude plan, whichever way the text arrives.
+const CREDIT = 'Credit balance is too low';
+for (const [label, script] of [
+  ['errors array', () => (async function* () { yield init(); yield err('error_during_execution', [CREDIT]); })()],
+  ['success subtype with is_error', () => (async function* () { yield init(); yield { type: 'result', subtype: 'success', is_error: true, result: CREDIT, total_cost_usd: 0, num_turns: 1, session_id: 'sess-1' }; })()],
+  ['thrown before any result', () => (async function* () { yield init(); throw new Error(CREDIT); })()],
+] as const) {
+  test(`empty credit balance (${label}): the task error explains it and keeps the original text`, async () => {
+    const s = setup(script, { agent: { model: 'opus' } });
+    const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+    assert.equal(done.status, 'error');
+    assert.match(done.error!, /^Claude Code is billing this run to Anthropic API credits/);
+    assert.match(done.error!, /\n\nClaude said: .*Credit balance is too low/);
+    const line = s.store.msgs.filter((m) => m.role === 'system').map((m) => m.text).find((t) => t.startsWith('Error: '))!;
+    assert.match(line, /^Error: Claude Code is billing this run/);
+    assert.doesNotMatch(line, /Claude said/);
+  });
+}
+
+test('empty credit balance with an API key: the API key wording', async () => {
+  const s = setup(() => (async function* () { yield init(); yield err('error_during_execution', [CREDIT]); })(), { agent: { model: 'opus' }, config: (c) => { c.claude.auth = 'api-key'; c.claude.apiKey = 'sk-test'; } });
+  const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.match(done.error!, /^The API key in Settings -> Claude has no credits left\./);
+});
