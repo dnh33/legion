@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, linkSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -21,12 +21,12 @@ function sandbox(): Sandbox {
   return sb;
 }
 
-function run(sb: Sandbox, args: string[]): { status: number | null; out: string } {
+function run(sb: Sandbox, args: string[], env: Record<string, string> = {}): { status: number | null; out: string } {
   const r = spawnSync(process.execPath, [SCRIPT, ...args], {
     cwd: REPO,
     encoding: 'utf8',
     timeout: 120_000,
-    env: { ...process.env, LEGION_HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claude, SKILL_FINDER_PRIVATE_ROOT: sb.privateRoot },
+    env: { ...process.env, LEGION_HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claude, SKILL_FINDER_PRIVATE_ROOT: sb.privateRoot, ...env },
   });
   return { status: r.status, out: `${r.stdout}\n${r.stderr}` };
 }
@@ -68,9 +68,22 @@ function writeTranscripts(base: string): string {
     call('widget-audit'),
     user('/garden-planner plan the beds'),
     call('acme:garden-planner'),
-    user('Check the storefront banner'),
+    user('Thanks'),
+    user('ok go'),
+    user('Please look at the invoice totals', { isSidechain: true }),
     { ...call('widget-audit'), isSidechain: true },
   ]);
+  // One subagent conversation: its calls pair with its FIRST sidechain user line that has text. Marker rules do not apply here.
+  writeJsonl(join(root, 'delta', 'session-c', 'subagents', 'agent-1.jsonl'), [
+    user([{ type: 'tool_result', tool_use_id: 'toolu_y', content: 'ok' }], { isSidechain: true }),
+    user('<system-reminder>Only a reminder</system-reminder>', { isSidechain: true }),
+    user('Tally the pallet counts for the depot', { isSidechain: true, turnOrigin: 'peer', promptSource: 'system' }),
+    { ...call('widget-audit'), isSidechain: true },
+    user('A second sidechain line about nothing', { isSidechain: true }),
+    { ...call('acme:garden-planner'), isSidechain: true },
+  ]);
+  // A subagent file with no usable user text gives no pair.
+  writeJsonl(join(root, 'delta', 'session-c', 'subagents', 'agent-2.jsonl'), [{ ...call('widget-audit'), isSidechain: true }]);
   writeJsonl(join(root, 'gamma', 'session-b.jsonl'), [
     user('Draft a note about the bot lineup', { turnOrigin: 'sdk', promptSource: 'sdk' }),
     user([
@@ -84,17 +97,19 @@ function writeTranscripts(base: string): string {
   return root;
 }
 
-// A subagent's Skill call (sidechain line) pairs with the owner's last real prompt, like any other call.
+// A subagent's Skill call (sidechain line) pairs with the first sidechain user text in its own file, as subset `subagent`.
 const SET_A = [
   { prompt: 'Run a widget-audit on the storefront pages', skill: 'widget-audit', subset: 'named' },
   { prompt: 'Plan the garden layout for spring', skill: 'acme:garden-planner', subset: 'implicit' },
-  { prompt: 'Check the storefront banner', skill: 'widget-audit', subset: 'implicit' },
+  { prompt: 'Please look at the invoice totals', skill: 'widget-audit', subset: 'subagent' },
+  { prompt: 'Tally the pallet counts for the depot', skill: 'widget-audit', subset: 'subagent' },
+  { prompt: 'Tally the pallet counts for the depot', skill: 'acme:garden-planner', subset: 'subagent' },
   { prompt: 'Write the widget-audit summary', skill: 'widget-audit', subset: 'named' },
 ];
 const PROMPT_TEXTS = [
   'Run a widget-audit', 'Plan the garden', 'Routine check-in', 'Task finished', 'invoice totals', 'Peer message',
   'Reminder only', 'Caveat: The messages', 'command-name', '/widget-audit now', '/garden-planner', 'Check the storefront banner',
-  'Draft a note', 'Write the widget-audit summary',
+  'Draft a note', 'Write the widget-audit summary', 'Tally the pallet', 'second sidechain line', 'Only a reminder',
 ];
 
 describe('finder eval: build', () => {
@@ -105,8 +120,9 @@ describe('finder eval: build', () => {
     assert.equal(r.status, 0, r.out);
     assert.deepEqual(readRows(join(out, 'setA.jsonl')), SET_A);
     const negatives = readRows(join(out, 'negatives.jsonl')).map((n) => n.prompt);
-    // 'Check the storefront banner' has a call (in the sidechain) and is also in file b with no call: it is not a negative.
-    assert.deepEqual(negatives, ['Draft a note about the bot lineup']);
+    // 'Thanks' and 'ok go' have fewer than 3 words and are dropped. Sidechain prompts are never negatives.
+    assert.deepEqual(negatives, ['Check the storefront banner', 'Draft a note about the bot lineup']);
+    assert.match(r.out, /3 subagent/);
     for (const text of PROMPT_TEXTS) assert.ok(!r.out.includes(text), `stdout or stderr printed prompt text: ${text}`);
   });
 
@@ -193,5 +209,136 @@ describe('finder eval: score', () => {
     const report = JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>;
     assert.equal(report.catalog.source, 'legion');
     assert.deepEqual(readdirSync(sb.home), []);
+  });
+});
+
+describe('finder eval: guards', () => {
+  it('fails with a usage line and exit code 2 when a flag has no value', () => {
+    const sb = sandbox();
+    const set = join(FIXTURES, 'cases.jsonl');
+    const catalog = join(FIXTURES, 'skills.json');
+    const cases: string[][] = [];
+    for (const flag of ['k', 'threshold', 'json', 'set', 'negatives', 'catalog']) {
+      cases.push(['score', '--set', set, '--catalog', catalog, `--${flag}`]);
+      cases.push(['score', `--${flag}`, '--set', set, '--catalog', catalog]);
+    }
+    for (const flag of ['out', 'transcripts']) cases.push(['build', `--${flag}`], ['build', `--${flag}`, '--out', join(sb.privateRoot, 'x')]);
+    for (const args of cases) {
+      const r = run(sb, args);
+      assert.equal(r.status, 2, args.join(' '));
+      assert.match(r.out, /usage:/, args.join(' '));
+    }
+  });
+
+  it('ignores SKILL_FINDER_PRIVATE_ROOT when it is outside the temp folder', () => {
+    const sb = sandbox();
+    const rogue = join(REPO, 'no-such-private-root-for-test');
+    const out = join(rogue, 'gold');
+    const r = run(sb, ['build', '--transcripts', writeTranscripts(sb.base), '--out', out], { SKILL_FINDER_PRIVATE_ROOT: rogue });
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /inside/);
+    assert.equal(existsSync(rogue), false);
+  });
+
+  it('refuses an out folder reached through a link that leaves the private folder', (t) => {
+    const sb = sandbox();
+    const outside = join(sb.base, 'outside');
+    mkdirSync(outside);
+    const link = join(sb.privateRoot, 'link');
+    try {
+      symlinkSync(outside, link, 'junction');
+    } catch (e) {
+      t.skip(`cannot create a link here: ${(e as NodeJS.ErrnoException).code}`);
+      return;
+    }
+    const r = run(sb, ['build', '--transcripts', writeTranscripts(sb.base), '--out', join(link, 'gold')]);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /inside/);
+    assert.deepEqual(readdirSync(outside), []);
+  });
+
+  it('accepts a path that differs from the private folder only in letter case on Windows', (t) => {
+    if (process.platform !== 'win32') {
+      t.skip('letter case only matters on Windows');
+      return;
+    }
+    const sb = sandbox();
+    const out = join(sb.privateRoot.toUpperCase(), 'gold');
+    const r = run(sb, ['build', '--transcripts', writeTranscripts(sb.base), '--out', out]);
+    assert.equal(r.status, 0, r.out);
+    assert.ok(existsSync(join(sb.privateRoot, 'gold', 'setA.jsonl')));
+  });
+
+  it('does not follow a link planted where setA.jsonl will be written', (t) => {
+    const sb = sandbox();
+    const out = join(sb.privateRoot, 'gold');
+    mkdirSync(out);
+    const victim = join(sb.base, 'victim.txt');
+    writeFileSync(victim, 'keep');
+    try {
+      symlinkSync(victim, join(out, 'setA.jsonl'), 'file');
+    } catch {
+      // No right to make symbolic links: a hard link is the same trap (writing through it changes the victim).
+      try {
+        linkSync(victim, join(out, 'setA.jsonl'));
+      } catch (e) {
+        t.skip(`cannot create a link here: ${(e as NodeJS.ErrnoException).code}`);
+        return;
+      }
+    }
+    const r = run(sb, ['build', '--transcripts', writeTranscripts(sb.base), '--out', out]);
+    assert.equal(r.status, 0, r.out);
+    assert.equal(readFileSync(victim, 'utf8'), 'keep');
+    assert.equal(readRows(join(out, 'setA.jsonl')).length, SET_A.length);
+  });
+
+  it('refuses --json onto the set file, the negatives file or the private folder', () => {
+    const sb = sandbox();
+    const catalog = join(FIXTURES, 'skills.json');
+    const set = join(sb.base, 'set.jsonl');
+    const neg = join(sb.base, 'neg.jsonl');
+    writeFileSync(set, readFileSync(join(FIXTURES, 'cases.jsonl')));
+    writeJsonl(neg, [{ prompt: 'zebra quartz nebula' }]);
+    const before = readFileSync(set, 'utf8');
+    for (const target of [set, neg, join(sb.privateRoot, 'report.json'), join(sb.privateRoot, 'deep', 'report.json')]) {
+      const r = run(sb, ['score', '--set', set, '--negatives', neg, '--catalog', catalog, '--json', target]);
+      assert.equal(r.status, 1, target);
+      assert.match(r.out, /--json/);
+    }
+    assert.equal(readFileSync(set, 'utf8'), before);
+    assert.equal(readdirSync(sb.privateRoot).length, 0);
+  });
+});
+
+describe('finder eval: gold ids and the pool', () => {
+  it('resolves bare names to plugin ids, reports covered and all numbers, lists unresolved ids', () => {
+    const sb = sandbox();
+    const catalog = join(sb.base, 'pool.json');
+    writeFileSync(catalog, JSON.stringify([
+      { id: 'acme:garden-planner', name: 'garden-planner', description: 'Plan a vegetable garden layout and sowing dates for spring.', source: 'claude-plugin' },
+      { id: 'widget-audit', name: 'widget-audit', description: 'Audit storefront product pages for missing alt text and broken links.' },
+      { id: 'locked-one', name: 'locked-one', description: 'Garden garden garden.', offReason: 'locked' },
+      { id: 'risky', name: 'risky', description: 'Garden risky.', unsafeReason: 'hidden text' },
+    ]));
+    const set = join(sb.base, 'set.jsonl');
+    writeJsonl(set, [
+      { prompt: 'Plan my vegetable garden layout for spring sowing', skill: 'garden-planner', subset: 'implicit' },
+      { prompt: 'Audit the storefront product pages for broken links', skill: 'widget-audit', subset: 'named' },
+      { prompt: 'Plan my vegetable garden layout for spring sowing', skill: 'locked-one', subset: 'subagent' },
+      { prompt: 'Plan my vegetable garden layout for spring sowing', skill: 'nowhere:ghost-skill', subset: 'subagent' },
+    ]);
+    const jsonPath = join(sb.base, 'pool-report.json');
+    const r = run(sb, ['score', '--set', set, '--catalog', catalog, '--json', jsonPath]);
+    assert.equal(r.status, 0, r.out);
+    const report = JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>;
+    assert.equal(report.catalog.skills, 2, 'locked and unsafe entries are not in the pool');
+    assert.equal(report.set.cases, 2);
+    assert.equal(report.setAll.cases, 4);
+    assert.equal(report.set.recall5, 1);
+    assert.equal(report.setAll.recall5, 0.5);
+    assert.deepEqual(report.unresolved, ['locked-one', 'nowhere:ghost-skill']);
+    assert.equal(report.setAll.subagent.cases, 2);
+    assert.match(r.out, /covered/);
+    assert.match(r.out, /ghost-skill/);
   });
 });

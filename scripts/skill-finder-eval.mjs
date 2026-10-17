@@ -5,8 +5,8 @@
  *   score  runs the compiled finder over a set and prints recall, MRR, false notes and latency.
  * Prompts never reach stdout or stderr. Only counts, skill ids and timings are printed.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,21 +14,30 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ARMORY_DIST = join(REPO, 'dist', 'src', 'core', 'armory');
 const NEGATIVE_CAP = 300;
+const NEGATIVE_MIN_WORDS = 3;
 const SAMPLE_SEED = 20261017;
+const SUBSETS = ['named', 'implicit', 'subagent'];
+const VALUE_FLAGS = new Set(['k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts']);
 const HARNESS_PREFIXES = [
   '<command-name>', '<command-message>', '<local-command', '<task-notification>', '<system-reminder>', 'Caveat: The messages below',
 ];
 const USAGE = 'usage: skill-finder-eval.mjs build --transcripts <dir> --out <folder> | '
   + 'score --set <file> [--negatives <file>] --catalog <skills.json|legion> [--threshold strict|balanced|eager] [--k 1-5] [--json <file>]';
 
-/** A problem with the command line or the inputs. Its message is fixed text that never holds a prompt. */
+/** A problem with the inputs. Its message is fixed text that never holds a prompt. Exit code 1. */
 class UsageError extends Error {}
+/** A malformed command line (a flag with no value, an unknown flag or command). Exit code 2. */
+class FlagError extends UsageError {}
 
 // ---------- the private folder guard ----------
 
-/** The folder the build may write into. Tests point it elsewhere with SKILL_FINDER_PRIVATE_ROOT. */
+const DEFAULT_ROOT = join(REPO, 'claude', 'skill-finder-private');
+
+/** The folder the build may write into. Tests point it elsewhere with SKILL_FINDER_PRIVATE_ROOT, but only inside the OS temp folder. */
 function allowedRoot() {
-  return resolve(process.env.SKILL_FINDER_PRIVATE_ROOT || join(REPO, 'claude', 'skill-finder-private'));
+  const env = process.env.SKILL_FINDER_PRIVATE_ROOT;
+  if (env && isInside(realish(tmpdir()), realish(resolve(env)), true)) return resolve(env);
+  return DEFAULT_ROOT;
 }
 
 /** Resolves symlinks in the part of the path that exists, so a link out of the folder is caught. */
@@ -46,15 +55,30 @@ function realish(p) {
 
 const caseKey = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
 
+/** True when target is root or below it (strict: below it only). Both must already be real paths. */
+function isInside(root, target, strict = false) {
+  const rel = relative(caseKey(root), caseKey(target));
+  if (rel === '') return !strict;
+  return !(isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`));
+}
+
+const samePath = (a, b) => caseKey(a) === caseKey(b);
+
 /** Returns the resolved out folder if it is the private root or inside it. Refuses anything else, before any read. */
 function guardOut(out) {
-  const root = realish(allowedRoot());
   const target = realish(resolve(out));
-  const rel = relative(caseKey(root), caseKey(target));
-  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
-    throw new UsageError(`refused: --out must be inside ${allowedRoot()}`);
-  }
+  if (!isInside(realish(allowedRoot()), target)) throw new UsageError(`refused: --out must be inside ${allowedRoot()}`);
   return target;
+}
+
+/** Writes a fresh file: an existing file or planted link at the path is removed first, and 'wx' refuses to follow anything that appears. */
+function writeFresh(path, data) {
+  try {
+    unlinkSync(path);
+  } catch (e) {
+    if (e?.code !== 'ENOENT') throw e;
+  }
+  writeFileSync(path, data, { flag: 'wx' });
 }
 
 // ---------- transcript reading ----------
@@ -79,10 +103,8 @@ function parseLine(raw) {
   }
 }
 
-/** The text of a real prompt, or null when the user line is not one (see notes: task 2, "Which user lines are real prompts"). */
-function promptText(obj) {
-  if (obj.type !== 'user' || obj.isSidechain === true) return null;
-  if (obj.promptSource === 'system' || obj.turnOrigin === 'task_notification' || obj.turnOrigin === 'peer') return null;
+/** The text of a user line, or null when it is not a prompt: a tool_result, empty after stripping reminders, or harness text. */
+function userText(obj) {
   const content = obj.message?.content;
   let text;
   if (typeof content === 'string') {
@@ -99,9 +121,23 @@ function promptText(obj) {
   return cleaned;
 }
 
+/** The text of a real prompt, or null when the user line is not one (see notes: task 2, "Which user lines are real prompts"). */
+function promptText(obj) {
+  if (obj.type !== 'user' || obj.isSidechain === true) return null;
+  if (obj.promptSource === 'system' || obj.turnOrigin === 'task_notification' || obj.turnOrigin === 'peer') return null;
+  return userText(obj);
+}
+
+/** The text of a subagent's user line. The marker rules do not apply to sidechain lines; the tool_result and harness-text rules do. */
+function sidechainText(obj) {
+  if (obj.type !== 'user' || obj.isSidechain !== true) return null;
+  return userText(obj);
+}
+
 /**
- * The skill ids of the Skill tool calls on one assistant line. Sidechain (subagent) calls count too: a subagent is started by
- * the owner's prompt, and a typed `/skill` in that prompt is what the drop rule removes. Only sidechain prompts are excluded.
+ * The skill ids of the Skill tool calls on one assistant line. Main-session calls and sidechain (subagent) calls are both kept.
+ * A subagent transcript is its own file under `<session>/subagents/`, so a sidechain call pairs with the first sidechain user
+ * text in the same file (subset `subagent`), not with the owner's prompt.
  */
 function skillCalls(obj) {
   if (obj.type !== 'assistant') return [];
@@ -156,13 +192,14 @@ function build(opts) {
   if (!existsSync(transcripts)) throw new UsageError('transcripts folder not found');
 
   const files = walk(transcripts);
-  const stats = { files: files.length, lines: 0, prompts: 0, skillCalls: 0, typedDrops: 0 };
+  const stats = { files: files.length, lines: 0, prompts: 0, skillCalls: 0, typedDrops: 0, unpairedSubagent: 0 };
   const pairs = new Map();
   const negatives = new Set();
   const positivePrompts = new Set();
 
   for (const file of files) {
     let current = null; // the last real prompt: { text, called }
+    let sideFirst = null; // the first sidechain user text in this file (one file = one subagent conversation)
     const close = () => {
       if (current && !current.called) negatives.add(current.text);
     };
@@ -178,8 +215,19 @@ function build(opts) {
         stats.prompts++;
         continue;
       }
+      if (sideFirst === null) sideFirst = sidechainText(obj);
       for (const skill of skillCalls(obj)) {
         stats.skillCalls++;
+        if (obj.isSidechain === true) {
+          if (sideFirst === null) {
+            stats.unpairedSubagent++;
+            continue;
+          }
+          const sideKey = JSON.stringify([sideFirst, skill]);
+          if (!pairs.has(sideKey)) pairs.set(sideKey, { prompt: sideFirst, skill, subset: 'subagent' });
+          positivePrompts.add(sideFirst);
+          continue;
+        }
         if (!current) continue;
         current.called = true;
         if (typedDrop(current.text, skill)) {
@@ -197,18 +245,20 @@ function build(opts) {
   }
 
   const setA = [...pairs.values()];
-  const candidates = [...negatives].filter((t) => !positivePrompts.has(t)).sort();
+  const candidates = [...negatives]
+    .filter((t) => !positivePrompts.has(t) && t.split(/\s+/).length >= NEGATIVE_MIN_WORDS)
+    .sort();
   const negativeSet = sample(candidates, NEGATIVE_CAP, SAMPLE_SEED).sort();
-  const named = setA.filter((r) => r.subset === 'named').length;
+  const count = (subset) => setA.filter((r) => r.subset === subset).length;
 
   mkdirSync(out, { recursive: true });
-  writeFileSync(join(out, 'setA.jsonl'), setA.map((r) => `${JSON.stringify(r)}\n`).join(''));
-  writeFileSync(join(out, 'negatives.jsonl'), negativeSet.map((prompt) => `${JSON.stringify({ prompt })}\n`).join(''));
+  writeFresh(join(out, 'setA.jsonl'), setA.map((r) => `${JSON.stringify(r)}\n`).join(''));
+  writeFresh(join(out, 'negatives.jsonl'), negativeSet.map((prompt) => `${JSON.stringify({ prompt })}\n`).join(''));
 
   console.log(`build: ${stats.files} transcript files, ${stats.lines} lines`);
-  console.log(`real prompts: ${stats.prompts}; Skill calls: ${stats.skillCalls}; typed drops: ${stats.typedDrops}`);
-  console.log(`set A: ${setA.length} cases (${named} named, ${setA.length - named} implicit)`);
-  console.log(`negatives: ${negativeSet.length} written (${candidates.length} candidates, cap ${NEGATIVE_CAP})`);
+  console.log(`real prompts: ${stats.prompts}; Skill calls: ${stats.skillCalls}; typed drops: ${stats.typedDrops}; subagent calls with no prompt: ${stats.unpairedSubagent}`);
+  console.log(`set A: ${setA.length} cases (${count('named')} named, ${count('implicit')} implicit, ${count('subagent')} subagent)`);
+  console.log(`negatives: ${negativeSet.length} written (${candidates.length} candidates, cap ${NEGATIVE_CAP}, at least ${NEGATIVE_MIN_WORDS} words)`);
   console.log(`written to ${out}`);
 }
 
@@ -217,7 +267,8 @@ function build(opts) {
 const round = (x) => Math.round(x * 10000) / 10000;
 const mean = (xs) => (xs.length === 0 ? null : round(xs.reduce((s, x) => s + x, 0) / xs.length));
 
-const usable = (e) => (e.state ?? 'on') === 'on' && !e.offReason && !e.unsafeReason;
+/** The pool: every skill the finder could ever suggest. State is not part of the rule (a skill can be switched on later). */
+const inPool = (e) => !e.offReason && !e.unsafeReason;
 
 function readJsonl(path, label) {
   let text;
@@ -241,8 +292,20 @@ function readJsonl(path, label) {
   return rows;
 }
 
-/** Loads the finder's docs for a catalog. `legion` reads the owner's catalog (read only); anything else is a skills.json file. */
+const countBy = (xs, key) => {
+  const out = {};
+  for (const x of xs) out[key(x)] = (out[key(x)] ?? 0) + 1;
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => (a < b ? -1 : 1)));
+};
+
+/**
+ * Loads the pool for a catalog. `legion` reads the owner's catalog (read only); anything else is a skills.json file.
+ * Returns the finder docs of the whole pool plus the pool size, how many are on, and the source breakdown.
+ */
 async function loadCatalog(spec, dist) {
+  let entries;
+  let source;
+  let toDoc;
   if (spec === 'legion') {
     const { buildCatalog } = await dist('catalog.js');
     const { docFromEntry } = await dist('finder/doc.js');
@@ -250,33 +313,42 @@ async function loadCatalog(spec, dist) {
     const dataDir = process.env.LEGION_HOME || join(homedir(), '.legion');
     // buildCatalog writes a fresh armory.json when none exists. The eval must never write, so with no file it gets an empty one in memory.
     const file = existsSync(armoryFilePath(dataDir)) ? undefined : { version: 1, migrations: [], skills: {}, ccNoticeSeen: true };
-    const entries = buildCatalog({ dataDir, inheritClaudeCode: true, file }).filter(usable);
-    return { source: 'legion', docs: entries.map((e) => docFromEntry(e)) };
-  }
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync(spec, 'utf8'));
-  } catch {
-    throw new UsageError('catalog file is missing or not valid JSON');
-  }
-  if (!Array.isArray(raw)) throw new UsageError('catalog file must hold a JSON array of skills');
-  const { THIRD_PARTY } = await dist('catalog.js');
-  const docs = raw.map((e, i) => {
-    if (!e || typeof e.id !== 'string') throw new UsageError(`catalog entry ${i + 1} has no id`);
-    return e;
-  }).filter(usable).map((e) => {
-    const source = e.source ?? 'yours';
-    return {
-      id: e.id,
-      name: e.name ?? shortName(e.id),
-      description: e.description ?? '',
-      whenToUse: e.when_to_use ?? '',
-      headings: e.headings ?? '',
-      source,
-      thirdParty: THIRD_PARTY.has(source),
+    entries = buildCatalog({ dataDir, inheritClaudeCode: true, file });
+    source = 'legion';
+    toDoc = (e) => docFromEntry(e);
+  } else {
+    let raw;
+    try {
+      raw = JSON.parse(readFileSync(spec, 'utf8'));
+    } catch {
+      throw new UsageError('catalog file is missing or not valid JSON');
+    }
+    if (!Array.isArray(raw)) throw new UsageError('catalog file must hold a JSON array of skills');
+    const { THIRD_PARTY } = await dist('catalog.js');
+    entries = raw.map((e, i) => {
+      if (!e || typeof e.id !== 'string') throw new UsageError(`catalog entry ${i + 1} has no id`);
+      return e;
+    });
+    source = basename(spec);
+    toDoc = (e) => {
+      const src = e.source ?? 'yours';
+      return {
+        id: e.id,
+        name: e.name ?? shortName(e.id),
+        description: e.description ?? '',
+        whenToUse: e.when_to_use ?? '',
+        headings: e.headings ?? '',
+        source: src,
+        thirdParty: THIRD_PARTY.has(src),
+      };
     };
-  });
-  return { source: basename(spec), docs };
+  }
+  const pool = entries.filter(inPool);
+  return {
+    source,
+    docs: pool.map(toDoc),
+    pool: { size: pool.length, on: pool.filter((e) => (e.state ?? 'on') === 'on').length, bySource: countBy(pool, (e) => e.source ?? 'yours') },
+  };
 }
 
 function metrics(rows, k) {
@@ -292,11 +364,29 @@ function metrics(rows, k) {
   };
 }
 
+/** Metrics for a set of rows, plus one block per subset. */
+function withSubsets(rows, k) {
+  const out = metrics(rows, k);
+  for (const s of SUBSETS) out[s] = metrics(rows.filter((r) => r.subset === s), k);
+  return out;
+}
+
+/** Refuses a --json target that would overwrite an input or land in the private folder. Runs before any scoring. */
+function guardJson(opts) {
+  const target = realish(resolve(opts.json));
+  const inputs = [opts.set, opts.negatives].filter((p) => typeof p === 'string').map((p) => realish(resolve(p)));
+  if (inputs.some((p) => samePath(p, target)) || isInside(realish(allowedRoot()), target)) {
+    throw new UsageError('refused: --json must not be the set file, the negatives file or a path inside the private folder');
+  }
+  return target;
+}
+
 async function score(opts) {
   const dist = (rel) => import(pathToFileURL(join(ARMORY_DIST, rel)).href);
   if (!existsSync(join(ARMORY_DIST, 'finder', 'rank.js'))) throw new UsageError('dist is missing: run npm run build:ts first');
   if (typeof opts.set !== 'string') throw new UsageError('score needs --set <file>');
   if (typeof opts.catalog !== 'string') throw new UsageError('score needs --catalog <skills.json|legion>');
+  const jsonTarget = typeof opts.json === 'string' ? guardJson(opts) : null;
   const thresholdName = typeof opts.threshold === 'string' ? opts.threshold : 'balanced';
   const { THRESHOLDS, DEFAULT_K, DEADLINE_MS } = await dist('finder/defaults.js');
   if (!Object.hasOwn(THRESHOLDS, thresholdName)) throw new UsageError('--threshold must be strict, balanced or eager');
@@ -306,9 +396,9 @@ async function score(opts) {
 
   const { rank } = await dist('finder/rank.js');
   const { buildIndex } = await dist('finder/bm25.js');
+  const { resolveName } = await dist('catalog.js');
   const catalog = await loadCatalog(opts.catalog, dist);
   const ix = buildIndex(catalog.docs);
-  const inCatalog = new Set(catalog.docs.map((d) => d.id));
 
   const cases = readJsonl(opts.set, 'set');
   for (const c of cases) if (typeof c.skill !== 'string') throw new UsageError('set row has no skill');
@@ -322,18 +412,22 @@ async function score(opts) {
     return res;
   };
 
+  // A gold id resolves against the pool: a bare name maps to `plugin:name`. If several match, a hit on any of them counts.
   let timeouts = 0;
   const rows = cases.map((c) => {
     const { results, timedOut } = timed(c.prompt);
     if (timedOut) timeouts++;
-    return { skill: c.skill, subset: c.subset ?? 'all', pos: results.findIndex((r) => r.id === c.skill) };
+    const ids = new Set(resolveName(catalog.docs, c.skill).hits.map((h) => h.id));
+    return { skill: c.skill, subset: c.subset ?? 'all', resolved: ids.size > 0, pos: results.findIndex((r) => ids.has(r.id)) };
   });
-  const goldNotInCatalog = cases.filter((c) => !inCatalog.has(c.skill)).length;
+  const covered = rows.filter((r) => r.resolved);
+  const unresolved = [...new Set(rows.filter((r) => !r.resolved).map((r) => r.skill))].sort();
 
-  const setAll = metrics(rows, k);
+  const setCovered = { ...withSubsets(covered, k), timeouts };
+  const setAll = withSubsets(rows, k);
   const perSkill = [...new Set(rows.map((r) => r.skill))].sort().map((skill) => {
     const mine = rows.filter((r) => r.skill === skill);
-    return { skill, cases: mine.length, recallAtK: metrics(mine, k).recallAtK };
+    return { skill, resolved: mine[0].resolved, cases: mine.length, recallAtK: metrics(mine, k).recallAtK };
   });
 
   let negReport = null;
@@ -356,27 +450,30 @@ async function score(opts) {
   const sorted = latencies.slice().sort((a, b) => a - b);
   const p95 = sorted.length === 0 ? null : round(sorted[Math.max(0, Math.ceil(0.95 * sorted.length) - 1)]);
   const report = {
-    catalog: { source: catalog.source, skills: catalog.docs.length },
+    catalog: { source: catalog.source, skills: catalog.docs.length, on: catalog.pool.on, bySource: catalog.pool.bySource },
     threshold: thresholdName,
     minScore,
     k,
-    set: {
-      ...setAll,
-      timeouts,
-      goldNotInCatalog,
-      named: metrics(rows.filter((r) => r.subset === 'named'), k),
-      implicit: metrics(rows.filter((r) => r.subset === 'implicit'), k),
-    },
+    set: setCovered,
+    setAll,
+    unresolved,
     negatives: negReport,
     latency: { samples: sorted.length, p95Ms: p95 },
     perSkill,
   };
 
   const f = (x) => (x === null ? 'n/a' : x.toFixed(3));
-  console.log(`score: catalog ${catalog.source} (${catalog.docs.length} skills), threshold ${thresholdName} (floor ${minScore}), k ${k}`);
-  console.log(`set: ${setAll.cases} cases, ${timeouts} timeouts, ${goldNotInCatalog} gold ids not in catalog`);
-  console.log(`  recall@1 ${f(setAll.recall1)}  recall@3 ${f(setAll.recall3)}  recall@5 ${f(setAll.recall5)}  MRR@5 ${f(setAll.mrr5)}`);
-  console.log(`  named ${report.set.named.cases}: recall@5 ${f(report.set.named.recall5)}   implicit ${report.set.implicit.cases}: recall@5 ${f(report.set.implicit.recall5)}`);
+  const line = (m) => `recall@1 ${f(m.recall1)}  recall@3 ${f(m.recall3)}  recall@5 ${f(m.recall5)}  MRR@5 ${f(m.mrr5)}`;
+  const sources = Object.entries(catalog.pool.bySource).map(([s, n]) => `${s} ${n}`).join(', ');
+  console.log(`score: catalog ${catalog.source}, pool ${catalog.docs.length} skills (${catalog.pool.on} on), threshold ${thresholdName} (floor ${minScore}), k ${k}`);
+  console.log(`pool sources: ${sources === '' ? 'none' : sources}`);
+  console.log(`set: ${rows.length} cases (all), ${covered.length} covered, ${unresolved.length} unresolved gold ids, ${timeouts} timeouts`);
+  console.log(`  covered: ${line(setCovered)}`);
+  console.log(`  all:     ${line(setAll)}`);
+  for (const s of SUBSETS) {
+    console.log(`  ${s}: covered ${setCovered[s].cases} of ${setAll[s].cases}; recall@5 covered ${f(setCovered[s].recall5)}, all ${f(setAll[s].recall5)}`);
+  }
+  if (unresolved.length > 0) console.log(`unresolved gold ids: ${unresolved.join(', ')}`);
   if (negReport) {
     console.log(`negatives: ${negReport.count}, false notes ${negReport.falseNotes} (rate ${f(negReport.falseNoteRate)}), ${negReport.timeouts} timeouts`);
   } else {
@@ -384,13 +481,12 @@ async function score(opts) {
   }
   console.log(`latency: p95 ${p95 === null ? 'n/a' : `${p95} ms`} over ${sorted.length} queries`);
   console.log(`per skill (recall@${k}):`);
-  for (const s of perSkill) console.log(`  ${s.skill}  ${s.cases}  ${f(s.recallAtK)}`);
+  for (const s of perSkill) console.log(`  ${s.skill}  ${s.cases}  ${f(s.recallAtK)}${s.resolved ? '' : '  (unresolved)'}`);
 
-  if (typeof opts.json === 'string') {
-    const target = resolve(opts.json);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(`json written to ${target}`);
+  if (jsonTarget) {
+    mkdirSync(dirname(jsonTarget), { recursive: true });
+    writeFresh(jsonTarget, `${JSON.stringify(report, null, 2)}\n`);
+    console.log(`json written to ${jsonTarget}`);
   }
 }
 
@@ -401,15 +497,13 @@ function parseArgs(argv) {
   const opts = {};
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (!a.startsWith('--')) throw new UsageError(USAGE);
+    if (!a.startsWith('--')) throw new FlagError(USAGE);
     const key = a.slice(2);
+    if (!VALUE_FLAGS.has(key)) throw new FlagError(`unknown flag --${key}\n${USAGE}`);
     const next = rest[i + 1];
-    if (next === undefined || next.startsWith('--')) {
-      opts[key] = true;
-    } else {
-      opts[key] = next;
-      i++;
-    }
+    if (next === undefined || next.startsWith('--')) throw new FlagError(`flag --${key} needs a value\n${USAGE}`);
+    opts[key] = next;
+    i++;
   }
   return { cmd, opts };
 }
@@ -418,10 +512,10 @@ try {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
   if (cmd === 'build') build(opts);
   else if (cmd === 'score') await score(opts);
-  else throw new UsageError(USAGE);
+  else throw new FlagError(USAGE);
 } catch (err) {
   // Only our own fixed messages are printed. Anything else prints its error code, never its message.
   const msg = err instanceof UsageError ? err.message : `failed (${err?.code ?? 'error'})`;
   process.stderr.write(`skill-finder-eval: ${msg}\n`);
-  process.exitCode = 1;
+  process.exitCode = err instanceof FlagError ? 2 : 1;
 }
