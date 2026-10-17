@@ -10,7 +10,7 @@ import type { AgentProfile, ApprovalMode } from '../../shared/types.js';
 import { stricterMode } from '../approvals.js';
 import type { ApprovalBroker } from '../approvals.js';
 import type { ModuleJob } from '../modules.js';
-import type { RunMode } from '../permission-mode.js';
+import type { GateOff, RunMode } from '../permission-mode.js';
 import { BrowserManager } from './manager.js';
 import { checkUrlResolved } from './resolve.js';
 import type { Resolver } from './resolve.js';
@@ -34,6 +34,8 @@ export interface BrowserToolDeps {
   modeOf?(agentId: string, taskId?: string): RunMode | undefined;
   /** One line of Legion-authored status for browser_status (no page content in it). */
   statusLine(taskId: string): string;
+  /** Whether the module-cards gate is off for this run (read with the run's start project; also writes the would-have-asked line). Absent: it is on. */
+  gateOff?: GateOff;
 }
 
 const TOOL = (n: string): string => `mcp__${BROWSER_SERVER_NAME}__${n}`;
@@ -47,6 +49,11 @@ export const BROWSER_PREAMBLE_ON = [
 export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefined, d: BrowserToolDeps): McpSdkServerConfigWithInstance {
   const taskId = job?.taskId ?? 'no-task';
   const mode = (): RunMode => { const m = d.modeOf?.(agent.id, job?.taskId) ?? agent.approval; return job?.ceiling ? stricterMode(m, job.ceiling) : m; };
+  /** No card in `full`, or when the owner turned the module cards off (a ceiling keeps them). */
+  const skipCards = (action: string): boolean => {
+    const off = !!d.gateOff?.('module-cards', { ...(job?.taskId ? { taskId: job.taskId } : {}), agentId: agent.id, action: action.slice(0, 280), ...(job?.ceiling ? { ceiling: job.ceiling } : {}) });
+    return off || mode() === 'full';
+  };
   const origin = job?.origin ? { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } : undefined;
   const taint = () => { try { job?.markTainted?.(); } catch { /* never block a call on bookkeeping */ } };
   const ask = (name: string, summary: string, input: Record<string, unknown>): Promise<boolean> =>
@@ -57,7 +64,7 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
   const guarded = <A>(fn: (a: A) => Promise<ToolResult>) => async (a: A): Promise<ToolResult> => {
     taint();
     const e = d.manager.entry(taskId);
-    e.approveOrigin = async (o, u) => (mode() === 'full' ? true : ask('browser_open', `A click or script moved the page to a new site: ${o}. That request may already have been made; saying no closes the page and returns none of its content. This task already read outside content.`, { url: u.slice(0, 300), newSite: o }));
+    e.approveOrigin = async (o, u) => (skipCards(`browser_open new site ${o}`) ? true : ask('browser_open', `A click or script moved the page to a new site: ${o}. That request may already have been made; saying no closes the page and returns none of its content. This task already read outside content.`, { url: u.slice(0, 300), newSite: o }));
     const run = e.queue.then(() => fn(a), () => fn(a));
     e.queue = run.catch(() => undefined);
     try { return await run; } catch (err) { return failure(err); }
@@ -82,10 +89,10 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
       const fresh = !e.session.origins.has(v.origin);
       if (first) {
         // the one rule (OWNER RULE 2026-10-04): `full` never cards — not even here. The run is tainted either way.
-        const ok = mode() === 'full' ? true : await ask('browser_open', `Open a web page: ${v.url.href.slice(0, 300)}. This task will then count as having read outside content.`, { url: v.url.href, first: true });
+        const ok = skipCards(`browser_open ${v.url.href}`) ? true : await ask('browser_open', `Open a web page: ${v.url.href.slice(0, 300)}. This task will then count as having read outside content.`, { url: v.url.href, first: true });
         if (!ok) return text('The user did not approve opening that page. Nothing was opened.', true);
         e.firstUseApproved = true;
-      } else if (fresh && mode() !== 'full') {
+      } else if (fresh && !skipCards(`browser_open new site ${v.url.origin}`)) {
         const ok = await ask('browser_open', `Go to a new site: ${v.url.origin}. This task already read outside content.`, { url: v.url.href, newSite: v.url.origin });
         if (!ok) return text('The user did not approve that site. Nothing was opened.', true);
       }
@@ -155,7 +162,7 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
     guarded(async (a: { expression: string }) => {
       const e = d.manager.entry(taskId);
       if (!e.firstUseApproved) return text('Open a page first (browser_open).', true);
-      if (mode() !== 'full') {
+      if (!skipCards(`browser_eval ${a.expression}`)) {
         if (a.expression.length > 300) return text('That script is too long to show in full on the approval card (limit 300 characters unless the agent runs in full mode). Use a shorter expression.', true);
         const ok = await ask('browser_eval', `Run a script in the open page: ${clip(a.expression, 300)}`, { expression: a.expression.slice(0, BROWSER_LIMITS.evalExprChars) });
         if (!ok) return text('The user did not approve running that script. Nothing ran.', true);

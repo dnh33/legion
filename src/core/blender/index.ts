@@ -12,7 +12,7 @@ import type { BlenderBackendKind, BlenderMode, BlenderConfig, BlenderInstall, Bl
 import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
-import { resolverMode } from '../permission-mode.js';
+import { gateOff, resolverMode } from '../permission-mode.js';
 import { liveSecrets } from '../kg/index.js';
 import { AuditLog } from './audit.js';
 import type { AuditVerdict } from './audit.js';
@@ -287,6 +287,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}), ...(local ? { local } : {}), beforeRoute: ready,
     // the resolver's live answer for this run (agent mode, project preset, ceiling), so a promotion or a preset change applies on the next guarded call
     modeOf: (id, taskId) => resolverMode(deps.engine, id, taskId),
+    gateOff: (id, a) => gateOff(deps.engine, id, a),
     secrets: () => liveSecrets(deps.config),
     exportDirFor: (a) => { const b = cfg().baseDir; return b ? join(b, 'exports') : join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'); },
     workspaceOf,

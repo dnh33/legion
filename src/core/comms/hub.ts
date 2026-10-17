@@ -11,6 +11,7 @@ import { DEFAULT_COMMS, MAX_ROOM_BUDGET_USD, MIN_ROOM_BUDGET_USD } from '../../s
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { stricterMode, decideGuard } from '../approvals.js';
+import type { GateOff } from '../permission-mode.js';
 import type { RunMode } from '../permission-mode.js';
 import { OVERRIDE_MODELS } from '../bridge.js';
 import type { EventBus } from '../bus.js';
@@ -68,6 +69,8 @@ export interface HubOptions {
   projects?: { get(id: string): { name: string; status: string; members: string[] } | undefined };
   /** The mode an agent's run is judged by now (the engine's resolver: agent mode, project preset, ceiling). Absent: the agent's own stored mode. */
   runModeOf?: (agentId: string, taskId?: string) => RunMode | undefined;
+  /** Whether the module-cards gate is off for this run (read with the run's start project; also writes the would-have-asked line). Absent: it is on. */
+  gateOff?: GateOff;
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
@@ -208,6 +211,7 @@ export class CommsHub {
 
   private readonly visible: (a: AgentProfile) => boolean;
   private readonly runModeOf?: (agentId: string, taskId?: string) => RunMode | undefined;
+  private readonly gateOff?: GateOff;
 
   constructor(o: HubOptions) {
     this.visible = o.isVisible ?? (() => true);
@@ -219,6 +223,7 @@ export class CommsHub {
     this.approve = o.approve;
     this.projects = o.projects;
     this.runModeOf = o.runModeOf;
+    this.gateOff = o.gateOff;
     const floor = o.turnCostFloorUsd ?? o.comms?.turnCostFloorUsd;
     this.turnFloor = typeof floor === 'number' && floor >= 0 ? floor : DEFAULT_TURN_FLOOR_USD;
     this.rooms = new RoomStore(o.dataDir);
@@ -720,6 +725,8 @@ export class CommsHub {
       const own = this.agentMode(sender.id, ctx.taskId);
       const mode = ceiling ? stricterMode(own, ceiling) : own;
       if (!decideGuard(mode).needsCard) return;
+      // module-cards off (an owner choice): no room card. A ceiling keeps it (gateOff ignores the gate then).
+      if (ctx.taskId && this.gateOff?.('module-cards', { taskId: ctx.taskId, agentId: sender.id, action: `${tool} ${clip(summary, 200)}`, ...(ceiling ? { ceiling } : {}) })) return;
       if (!this.approve || !ctx.taskId) throw new CommsError(409, 'There is no way to ask the user for approval from here, so nothing was changed.');
     const now = this.now();
     const recent = (this.roomRequests.get(sender.id) ?? []).filter((t) => now - t < ROOM_REQUESTS_WINDOW_MS);

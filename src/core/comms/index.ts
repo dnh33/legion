@@ -1,7 +1,7 @@
 /** Comms bridge module: rooms, bot-to-bot messages and guard rails. See docs/COMMS-BRIDGE.md. */
 import { normalizeComms } from '../../shared/config.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
-import { resolverMode } from '../permission-mode.js';
+import { gateOff, resolverMode } from '../permission-mode.js';
 import { CommsHub } from './hub.js';
 import type { HubOptions } from './hub.js';
 import { addCommsRoutes } from './routes.js';
@@ -17,6 +17,7 @@ export function createCommsModule(deps: ModuleDeps, opts: { projects?: HubOption
     comms: normalizeComms((deps.config as { comms?: unknown }).comms),
     ...(opts.projects ? { projects: opts.projects } : {}),
     runModeOf: (agentId, taskId) => resolverMode(deps.engine, agentId, taskId),
+    gateOff: (id, a) => gateOff(deps.engine, id, a),
     // a bot's room request is a card the user answers in the app; the broker denies it after 10 minutes or when the task ends
     approve: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_comms__${r.tool}`, r.input, r.origin, { summary: r.summary }),
   });

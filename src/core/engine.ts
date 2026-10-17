@@ -16,8 +16,9 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, LEGION_SERVER_NAMES } from './approvals.js';
+import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, LEGION_SERVER_NAMES } from './approvals.js';
 import { GATES } from '../shared/gates-registry.js';
+import type { GateValue } from '../shared/gates-registry.js';
 import type { ActivityLog } from './activity/index.js';
 import type { RunMode } from './permission-mode.js';
 import { decideGate } from './gates.js';
@@ -1556,6 +1557,37 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const startProjectId = src ? startProjectOf(src) : taskId ? this.projectOf(taskId, agentId)?.id : undefined;
     if (!this.modes) return agent.approval;
     return this.modes.mode({ agentMode: agent.approval, source: agent.approvalSource ?? 'own', ...(startProjectId ? { startProjectId } : {}) });
+  }
+
+  /**
+   * One gate's value for a run, read with the project the run STARTED in (never the stored agent mode), for modules that only know the task:
+   * the GitHub write card, the board delete card, the module cards and the proposals Inbox. A task the engine does not know reads the app
+   * level. Without a gates core every gate is on, as before.
+   */
+  gateFor(taskId: string | undefined, id: string): GateValue {
+    if (!this.gates) return true;
+    const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
+    return this.gates.gate(id, src ? startProjectOf(src) : undefined);
+  }
+
+  /**
+   * A module let something through with no card because a gate is off. One "would have asked" line when the owner's own setting, with no preset
+   * at all, would have asked (`always`: it asks in every setting, like a GitHub write). Advisory: it never changes a decision.
+   */
+  noteGateOff(a: { gateId: string; taskId: string; agentId: string; action: string; always?: boolean }): void {
+    try {
+      if (!this.activity || this.gateFor(a.taskId, a.gateId) !== false) return;
+      const src = this.active.get(a.taskId) ?? this.queue.find((j) => j.taskId === a.taskId);
+      if (!a.always) {
+        const agent = this.store.getAgent(a.agentId);
+        if (!agent || !this.modes?.baseline) return;
+        const ceiling = this.store.getTask(a.taskId)?.origin?.approvalCeiling;
+        const base = this.modes.baseline({ agentMode: agent.approval, source: agent.approvalSource ?? 'own', ...(ceiling ? { ceiling } : {}) });
+        if (!decideGuard(base).needsCard) return;
+      }
+      const projectId = src ? startProjectOf(src) : undefined;
+      this.activity.wouldHaveAsked({ gateId: a.gateId, label: GATES.find((g) => g.id === a.gateId)?.label ?? a.gateId, action: a.action.slice(0, 300), taskId: a.taskId, ...(projectId ? { projectId } : {}), agentId: a.agentId });
+    } catch { /* advisory */ }
   }
 
   /**

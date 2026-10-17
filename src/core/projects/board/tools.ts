@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { BOARD_STATUSES, BOT_STATUSES } from '../../../shared/board.js';
 import type { ModuleJob } from '../../modules.js';
 import { decideGuard, stricterMode } from '../../approvals.js';
+import type { GateOff } from '../../permission-mode.js';
 import type { ModeOf } from '../../approvals.js';
 import type { ApprovalMode } from '../../../shared/types.js';
 import type { ProjectStore } from '../store.js';
@@ -24,7 +25,7 @@ const fail = (e: unknown): ToolResult => ({ content: [{ type: 'text', text: `Err
 /** `askOwner` shows the owner an approval card and resolves with the answer (false: declined or no answer). */
 export type AskOwner = (r: { taskId: string; agentId: string; tool: string; summary: string; input: Record<string, unknown>; origin?: ModuleJob['origin'] }) => Promise<boolean>;
 
-export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The run's LIVE mode from the engine's resolver, so promoting the agent or changing a preset mid-task applies on the next call. */ modeOf?: ModeOf }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
+export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The run's LIVE mode from the engine's resolver, so promoting the agent or changing a preset mid-task applies on the next call. */ modeOf?: ModeOf; /** Whether one permission gate is off for this run (the engine's gate, read with the run's start project); also writes the would-have-asked line. Absent: every gate is on. */ gateOff?: GateOff }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
   /** The run's project, looked up again at every call (archive and membership changes apply at once). */
   const scope = () => {
     const p = deps.projects.forRun(job.projectId, agentId);
@@ -38,11 +39,13 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
    * The one rule (OWNER RULE 2026-10-04): in `full` no guard cards. A ceiling always wins over the agent's own
    * setting, so a run started by another bot or an MCP client still asks whatever the receiver is set to.
    */
-  const askOwner = async (r: { tool: string; summary: string; input: Record<string, unknown> }): Promise<boolean> => {
+  const askOwner = async (r: { tool: string; summary: string; input: Record<string, unknown>; gateId?: string }): Promise<boolean> => {
     const live = deps.modeOf?.(agentId, job.taskId);
     const ceiling = job.ceiling ?? job.origin?.approvalCeiling;
     const effective = ceiling ? stricterMode(live ?? fallbackMode, ceiling) : (live ?? fallbackMode);
     if (!decideGuard(effective).needsCard) return true;
+    // the one gate this card has (board-delete-card): off means the owner chose no card. A ceiling keeps it (gateOff ignores the gate then).
+    if (r.gateId && deps.gateOff?.(r.gateId, { ...(job.taskId ? { taskId: job.taskId } : {}), agentId, action: `${r.tool} ${cardText(r.summary, 200)}`, ...(ceiling ? { ceiling } : {}) })) return true;
     if (!deps.askOwner || !job.taskId) return false;
     return deps.askOwner({
       taskId: job.taskId, agentId, tool: r.tool, summary: r.summary, input: r.input,
@@ -74,8 +77,13 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     },
     async (a) => guard(() => {
       const p = scope();
-      const i = deps.board.propose(p, agentId, a, run());
+      // proposals-inbox off (an owner choice): the item goes straight to the Backlog, still marked as an agent's text. Only the Inbox hop is gone.
+      const gate = { ...(job.taskId ? { taskId: job.taskId } : {}), agentId, action: `propose ${cardText(String(a.title ?? ''), 200)}`, always: true };
+      const direct = !!deps.gateOff?.('proposals-inbox', { ...gate, dry: true });
+      const i = deps.board.propose(p, agentId, a, run(), { direct });
       deps.onChange?.(p.id);
+      if (direct) deps.gateOff?.('proposals-inbox', gate); // the line is written once the item is saved
+      if (direct) return json({ proposed: true, id: i.id, note: 'It is on the board in the Backlog, marked as your text. The owner reviews it before a run on it gets full permissions.' });
       return json({ proposed: true, id: i.id, note: 'It is in the owner\'s Inbox. You cannot start it or change it; the owner may accept, edit or reject it.' });
     }));
   const create = tool('create', 'Create a work item on the board (backlog, doing, review or blocked). You may assign it to a member agent (not to the owner). Text you write is marked as an agent\'s, so the owner reviews it before a run on it gets full permissions. Limited in number and rate. Never put secrets in it.',
@@ -112,7 +120,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
         const item = deps.board.checkBotDelete(p, agentId, a.id, run(), true);
         const summary = `${cardText(agentId, 40)} wants to delete the work item "${cardText(item.title, 80)}" from project "${cardText(p.name ?? p.id, 60)}". It will be gone for good.`;
         // askOwner (the wrapper) decides whether a card is needed at all: `full` never cards
-        const allowed = await askOwner({ tool: 'delete', summary, input: { id: item.id } });
+        const allowed = await askOwner({ tool: 'delete', summary, input: { id: item.id }, gateId: 'board-delete-card' });
         if (!allowed) throw new BoardError(409, job.taskId
           ? 'The owner did not approve this (declined, or no answer in time). Nothing was deleted. Do not ask again unless the owner says so.'
           : 'There is no way to ask the owner from here, so nothing was deleted.');

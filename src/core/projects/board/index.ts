@@ -8,7 +8,7 @@ import type { BoardMarshalStatus, WorkItem } from '../../../shared/board.js';
 import type { Project } from '../../../shared/projects.js';
 import type { TaskOrigin } from '../../../shared/comms.js';
 import type { CoreModule, ModuleDeps } from '../../modules.js';
-import { resolverMode } from '../../permission-mode.js';
+import { gateOff, resolverMode } from '../../permission-mode.js';
 import { HttpError } from '../../server.js';
 import type { Ctx } from '../../server.js';
 import { agentIdVisible } from '../../visibility.js';
@@ -157,7 +157,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     mcpServers: (agent, job): Record<string, McpServerConfig> => {
       // no project (or not an active one this agent belongs to) = no board tool at all
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
-      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id, taskId) => resolverMode(deps.engine, id, taskId), askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
+      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id, taskId) => resolverMode(deps.engine, id, taskId), gateOff: (id, a) => gateOff(deps.engine, id, a), askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
     },
     preamble: (agent, ctx) => {
       const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;

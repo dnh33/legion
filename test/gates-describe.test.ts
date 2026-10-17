@@ -90,10 +90,9 @@ test('N2: Ask to Bypass lists every consequence that loosens, one line each', ()
   const pv = s.preview(P1, { preset: 'bypass' });
   const text = pv.loosening.join('\n');
   assert.match(text, /No permission cards/);
-  for (const id of ['tool-cards', 'github-write-card', 'module-cards', 'board-delete-card', 'digest-hold', 'proposals-inbox', 'gate-rules-ask', 'update-consent']) assert.ok(pv.loosening.some((l) => l.startsWith(`${label(id)}: off.`)), `${id} is named`);
+  for (const id of ['tool-cards', 'github-write-card', 'module-cards', 'board-delete-card', 'digest-hold', 'gate-rules-ask', 'update-consent']) assert.ok(pv.loosening.some((l) => l.startsWith(`${label(id)}: off.`)), `${id} is named`);
   assert.match(text, /Limit retries on one item: the limit goes from 4 to 8/);
   assert.match(text, /Limit the size of a goal: the limit goes from 12 to 24/);
-  assert.match(text, /Proposals go straight to the Backlog/);
   assert.match(text, /Your ask rules are skipped/);
 });
 

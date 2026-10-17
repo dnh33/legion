@@ -579,7 +579,7 @@ export class BoardStore {
   // ------------------------------------------------------------------ Inbox (bot proposals)
 
   /** A member bot proposes an item. It is stored as a pending, untrusted proposal; nothing is live until the owner accepts. */
-  propose(proj: ProjectRef, agentId: string, input: { title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; suggestedAssignee?: unknown }, run: { tainted: boolean }): WorkItem {
+  propose(proj: ProjectRef, agentId: string, input: { title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; suggestedAssignee?: unknown }, run: { tainted: boolean }, opts: { direct?: boolean } = {}): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId)) throw new BoardError(403, 'Only a member of this project can propose items.');
     const title = botText(cleanTitle(input.title), 'The title');
@@ -590,10 +590,11 @@ export class BoardStore {
     if (sug !== undefined && (typeof sug !== 'string' || !proj.members.includes(sug))) throw new BoardError(400, 'suggestedAssignee must be a member agent id');
     const inbox = [...b.items.values()].filter((i) => i.proposal);
     if (b.items.size >= BOARD_LIMITS.itemsPerProject) throw new BoardError(409, 'The board is full; the owner has to clear items first.');
-    if (inbox.length >= BOARD_LIMITS.inboxPerProject) throw new BoardError(409, `The Inbox already holds ${inbox.length} proposals waiting for the owner. Nothing was saved; do not propose more until they are reviewed.`);
-    if (inbox.filter((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId).length >= BOARD_LIMITS.inboxPerAgent) throw new BoardError(409, `You already have ${BOARD_LIMITS.inboxPerAgent} proposals waiting for the owner. Nothing was saved.`);
+    // direct (proposals-inbox is off): the item is a normal Backlog item, so the Inbox caps do not apply. The board size, the write and propose rate limits do.
+    if (!opts.direct && inbox.length >= BOARD_LIMITS.inboxPerProject) throw new BoardError(409, `The Inbox already holds ${inbox.length} proposals waiting for the owner. Nothing was saved; do not propose more until they are reviewed.`);
+    if (!opts.direct && inbox.filter((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId).length >= BOARD_LIMITS.inboxPerAgent) throw new BoardError(409, `You already have ${BOARD_LIMITS.inboxPerAgent} proposals waiting for the owner. Nothing was saved.`);
     const key = (t: string) => t.toLowerCase();
-    if (inbox.some((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId && key(i.title) === key(title))) throw new BoardError(409, 'You already proposed an item with this title; it is waiting for the owner.');
+    if (!opts.direct && inbox.some((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId && key(i.title) === key(title))) throw new BoardError(409, 'You already proposed an item with this title; it is waiting for the owner.');
     this.tick(this.botWrites, agentId, BOARD_LIMITS.botWritesPerWindow, BOARD_LIMITS.proposalWindowMs, 'Too many board writes from you in a short time. Wait a few minutes.');
     this.tick(this.proposals, `${proj.id}|${agentId}`, BOARD_LIMITS.proposalsPerWindow, BOARD_LIMITS.proposalWindowMs, `You may propose at most ${BOARD_LIMITS.proposalsPerWindow} items per ${BOARD_LIMITS.proposalWindowMs / 60000} minutes. Wait, or put the rest in one item.`);
     const by: BoardActor = { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) };
@@ -601,11 +602,11 @@ export class BoardStore {
     let id = '';
     do { id = newId('wi'); } while (b.items.has(id));
     const item: WorkItem = {
-      id, projectId: proj.id, title, description, status: 'backlog', assignee: null, priority, labels, order: 0,
+      id, projectId: proj.id, title, description, status: 'backlog', assignee: null, priority, labels, order: opts.direct ? this.atEnd(b, 'backlog') : 0,
       createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'untrusted',
-      proposal: { ...(sug ? { suggestedAssignee: sug } : {}) }, taskIds: [], roomIds: [], noteIds: [], activity: [],
+      ...(opts.direct ? {} : { proposal: { ...(sug ? { suggestedAssignee: sug } : {}) } }), taskIds: [], roomIds: [], noteIds: [], activity: [],
     };
-    this.note(item, by, 'proposed', run.tainted ? 'Proposed by an agent whose run touched outside content' : 'Proposed by an agent');
+    this.note(item, by, opts.direct ? 'created' : 'proposed', run.tainted ? 'Proposed by an agent whose run touched outside content' : 'Proposed by an agent');
     b.items.set(id, item);
     this.save(b, item);
     return structuredClone(item);
