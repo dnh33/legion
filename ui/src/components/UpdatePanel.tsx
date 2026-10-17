@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import { errText } from '../store';
+import { CHECKOUT_TEXT, closeAndReopenText, depsNotifyText } from '../updatePanelText';
 import { journeyRows, journeyStarted, journeySummary, type JourneyViewLike } from '../updateJourneyView';
 import '../styles/update.css';
 
 /** GET /api/update/status (admin only). Mirrors src/core/updater/index.ts UpdateStatus. */
 interface UpdateStatus {
-  mode: 'apply' | 'checkout' | 'unwritable' | 'unsupported'; keyConfigured: boolean; installed: { version: string };
+  mode: 'apply' | 'checkout' | 'unwritable' | 'unsupported'; platform?: string; keyConfigured: boolean; installed: { version: string };
   settings: { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number; updateWindow: boolean };
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
   available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; canFullInstall?: boolean };
@@ -132,9 +133,9 @@ export function UpdatePanel() {
           <b>Version {a.version} is available</b> <span className="upd-muted">({mb(a.size)}, published {a.publishedAt.slice(0, 10)})</span>{' '}
           <a className="upd-muted" href={`https://github.com/dnh33/legion/releases/tag/v${a.version}`} target="_blank" rel="noreferrer noopener">Release notes</a>
           {!notifyOnly && a.notes && <pre className="upd-notes">{a.notes}</pre>}
-          {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">This is a git checkout. Update it yourself: <code>git pull</code>, <code>npm ci</code>, <code>npm run build</code>. Legion does not run these for you.</p>}
+          {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">{CHECKOUT_TEXT} Legion does not run these for you.</p>}
           {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall && !a.canFullInstall
-            ? <p className="upd-muted">This release changes dependencies, so it cannot be installed from inside Legion. Download the source of the release and run setup.cmd, as for a first install.</p>
+            ? <p className="upd-muted">{depsNotifyText(st.platform)}</p>
             : <p className="upd-muted">This install cannot be updated from inside Legion ({st.mode === 'unwritable' ? 'the folder is not writable' : 'unsupported system'}).</p>)}
           {a.requiresFullInstall && a.canFullInstall && !st.staged && (
             <p className="upd-muted">This release changes dependencies, so the update includes them: a larger download, applied the same way.</p>
@@ -143,11 +144,12 @@ export function UpdatePanel() {
             <div className="upd-actions"><button type="button" className="btn primary" disabled={busy} onClick={() => void installNow()}>Download update</button></div>
           )}
           {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer on the update card.</p>}
-          {st.phase === 'committing' && <p className="upd-muted" role="status">Closing Legion to install the update. Legion restarts to finish, and a window shows each step{'…'}</p>}
+          {st.phase === 'committing' && <p className="upd-muted" role="status">{closeAndReopenText(st.platform) ?? <>Closing Legion to install the update. Legion restarts to finish, and a window shows each step{'…'}</>}</p>}
           {st.phase === 'downloading' && <Progress p={st.progress} />}
           {st.staged && (
             <div className="upd-ready">
               <p><b>Ready to install.</b> {st.readyToApply ? 'Installing now.' : 'Legion installs it by itself once nothing has run for a minute, or you can restart now.'}</p>
+              {closeAndReopenText(st.platform) && <p className="upd-muted">{closeAndReopenText(st.platform)}</p>}
               {st.busy.reasons.length > 0 && <ul className="upd-reasons">{st.busy.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
               <div className="upd-actions">
                 <button type="button" className="btn primary" disabled={busy || !canRestart} title={canRestart ? 'Shows what will stop and asks first' : 'Open the Legion desktop app to install'} onClick={() => void act(async () => { const r = await bridge().updateRestartNow!(); if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The restart did not start.'); })}>{busy ? 'Restarting…' : 'Restart and install'}</button>
@@ -182,7 +184,9 @@ export function UpdatePanel() {
       {st.error && <p className="upd-err" role="alert">{st.error}</p>}
       {err && <p className="upd-err" role="alert">{err}</p>}
       <label className="set-check"><input type="checkbox" checked={st.settings.checkEnabled} disabled={busy} onChange={(e) => void patch({ checkEnabled: e.target.checked })} /> <span>Check for updates on launch and every {st.settings.intervalHours} hours (one request to github.com; nothing else is sent)</span></label>
-      <label className="set-check"><input type="checkbox" checked={st.settings.updateWindow} disabled={busy} onChange={(e) => void patch({ updateWindow: e.target.checked })} /> <span>{UPDATE_WINDOW_TEXT}</span></label>
+      {!closeAndReopenText(st.platform) && (
+        <label className="set-check"><input type="checkbox" checked={st.settings.updateWindow} disabled={busy} onChange={(e) => void patch({ updateWindow: e.target.checked })} /> <span>{UPDATE_WINDOW_TEXT}</span></label>
+      )}
       <label className="set-check"><input type="checkbox" checked={st.settings.autoInstallWhenIdle} disabled={busy || st.mode !== 'apply'} onChange={(e) => { if (!e.target.checked || window.confirm(AUTO_INSTALL_TEXT)) void patch({ autoInstallWhenIdle: e.target.checked }); }} /> <span>{AUTO_INSTALL_TEXT}</span></label>
     </div>
   );
