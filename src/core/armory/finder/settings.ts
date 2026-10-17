@@ -18,7 +18,8 @@ export const FINDER_DEFAULTS: FinderSettings = {
   ranker: 'keyword',
   rerank: false,
   rerankMonthlyUsd: 1,
-  slimListing: false,
+  // On: the paired Task 11d test found no real loss of correct skill calls with the slim listing, at about 36 percent fewer input tokens per call.
+  slimListing: true,
   k: DEFAULT_K,
   threshold: 'balanced',
   chatLine: true,

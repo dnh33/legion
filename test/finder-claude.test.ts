@@ -92,15 +92,15 @@ describe('finder on the Claude path', () => {
     assert.equal(on, off);
   });
 
-  it('adds the slim listing keys only when slimListing is on', async () => {
+  it('adds the slim listing keys by default, and drops them when slimListing is switched off', async () => {
     const rig = await rigWith();
     let o1: Opts; let o2: Opts;
     await drive(rig, PROMPT, async (o) => { o1 = o; });
-    assert.ok(!('skillListingBudgetFraction' in o1.settings) && !('skillListingMaxDescChars' in o1.settings));
-    await rig.call('POST', '/api/armory/finder', { slimListing: true });
+    assert.equal(o1.settings.skillListingBudgetFraction, 0.002, 'on by default');
+    assert.equal(o1.settings.skillListingMaxDescChars, 120);
+    await rig.call('POST', '/api/armory/finder', { slimListing: false });
     await drive(rig, PROMPT, async (o) => { o2 = o; });
-    assert.equal(o2.settings.skillListingBudgetFraction, 0.002);
-    assert.equal(o2.settings.skillListingMaxDescChars, 120);
+    assert.ok(!('skillListingBudgetFraction' in o2.settings) && !('skillListingMaxDescChars' in o2.settings));
   });
 
   it('SubagentStart ranks the subagent prompt captured from the Agent tool call (FIFO by type), else the task text', async () => {

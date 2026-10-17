@@ -20,7 +20,7 @@ test('defaults: a fresh Armory reports the full finder block, and the defaults a
   const out = await rig.call('GET', '/api/armory');
   assert.deepEqual(out.finder, {
     suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1,
-    slimListing: false, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false,
+    slimListing: true, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false,
   });
   assert.deepEqual(FINDER_DEFAULTS, out.finder);
   const onDisk = JSON.parse(readFileSync(armoryFilePath(rig.dataDir), 'utf8'));

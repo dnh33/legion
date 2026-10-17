@@ -18,10 +18,10 @@ const NEGATIVE_MIN_WORDS = 3;
 const SAMPLE_SEED = 20261017;
 const SUBSETS = ['named', 'implicit', 'subagent'];
 const VALUE_FLAGS = new Set([
-  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'model', 'gradecap', 'arms', 'bcount', 'negsample', 'concurrency', 'conds',
+  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'model', 'gradecap', 'arms', 'bcount', 'only', 'negsample', 'concurrency', 'conds',
 ]);
 /** Flags that stand alone. */
-const SWITCH_FLAGS = new Set(['sweep', 'rerank', 'smoke', 'slim-arms', 'grade']);
+const SWITCH_FLAGS = new Set(['sweep', 'rerank', 'smoke', 'slim-arms', 'grade', 'all']);
 const HARNESS_PREFIXES = [
   '<command-name>', '<command-message>', '<local-command', '<task-notification>', '<system-reminder>', 'Caveat: The messages below',
 ];
@@ -983,18 +983,29 @@ async function outcome(opts) {
   const sub = { ...ix, docs: ix.docs.filter((d) => candIds.has(d.id)) };
   const docs = new Map(catalog.docs.map((d) => [d.id, d]));
 
+  // --all: every covered positive and every negative, no length cut, in one seeded random order (a stop at the cap leaves whole pairs and a mix).
+  const allMode = opts.all !== undefined;
   const rowsOf = (file, accept) => readJsonl(file, 'set')
-    .filter((c) => typeof c.skill === 'string' && accept(c) && c.prompt.length <= OUTCOME_MAX_CHARS)
-    .map((c) => ({ prompt: c.prompt, subset: c.subset ?? 'all', gold: new Set(resolveName(candDocs, c.skill).hits.map((h) => h.id)) }))
+    .filter((c) => typeof c.skill === 'string' && accept(c) && (allMode || c.prompt.length <= OUTCOME_MAX_CHARS))
+    .map((c) => {
+      const gold = new Set(resolveName(candDocs, c.skill).hits.map((h) => h.id));
+      if (allMode && typeof c.alt === 'string') for (const h of resolveName(candDocs, c.alt).hits) gold.add(h.id);
+      return { prompt: c.prompt, subset: c.subset ?? 'all', gold, resolved: resolveName(candDocs, c.skill).hits.length > 0 };
+    })
+    .filter((r) => r.resolved)
     .filter((r) => r.gold.size > 0);
-  const poolA = rowsOf(setFiles[0], (c) => c.subset === 'implicit' || c.subset === 'subagent');
-  const poolB = rowsOf(setFiles[1], (c) => c.subset === 'longtail');
-  const negPool = readJsonl(opts.negatives, 'negatives').filter((n) => n.prompt.length <= OUTCOME_MAX_CHARS);
+  const poolA = rowsOf(setFiles[0], (c) => allMode || c.subset === 'implicit' || c.subset === 'subagent');
+  const poolB = rowsOf(setFiles[1], (c) => allMode || c.subset === 'longtail');
+  const negPool = readJsonl(opts.negatives, 'negatives').filter((n) => allMode || n.prompt.length <= OUTCOME_MAX_CHARS);
   const smoke = opts.smoke !== undefined;
   const take = (list, n) => sample(list, smoke ? 1 : n, SAMPLE_SEED);
-  const items = [
-    ...take(poolA, perSet).map((r) => ({ ...r, set: 'A' })),
-    ...take(poolB, opts.bcount === undefined ? perSet : Math.floor(Number(opts.bcount))).map((r) => ({ ...r, set: 'B' })),
+  const onlyNeg = opts.only === 'neg';
+  const drawn = allMode
+    ? sample([...poolA.map((r) => ({ ...r, set: 'A' })), ...poolB.map((r) => ({ ...r, set: 'B' })), ...negPool.map((n) => ({ prompt: n.prompt, set: 'neg', gold: new Set(), subset: 'neg' }))], 1e9, SAMPLE_SEED)
+    : null;
+  const items = drawn ?? [
+    ...(onlyNeg ? [] : take(poolA, perSet).map((r) => ({ ...r, set: 'A' }))),
+    ...(onlyNeg ? [] : take(poolB, opts.bcount === undefined ? perSet : Math.floor(Number(opts.bcount))).map((r) => ({ ...r, set: 'B' }))),
     ...take(negPool, perNeg).map((n) => ({ prompt: n.prompt, set: 'neg', gold: new Set(), subset: 'neg' })),
   ];
   console.log(`outcome: pool ${candDocs.length} switched-on skills; drawn ${items.filter((i) => i.set === 'A').length} from Set A (of ${poolA.length} eligible), ${items.filter((i) => i.set === 'B').length} from Set B (of ${poolB.length}), ${items.filter((i) => i.set === 'neg').length} negatives (of ${negPool.length}); models ${models.join(', ')}; cap ${cap}`);
@@ -1169,7 +1180,27 @@ async function outcome(opts) {
     console.log(`  ${model} paired (A vs B on prompts with both): ${JSON.stringify(summary[model].pairs)}`);
   }
   console.log(`total cost ${round(spent)} of cap ${cap}; ${results.length} records; first record init: ${JSON.stringify(results.find((r) => r.init)?.init ?? null)}`);
-  const report = { cap, spent: round(spent), stopped, ranker: rankerName, k, summary, sampleSizes: { A: items.filter((i) => i.set === 'A').length, B: items.filter((i) => i.set === 'B').length, neg: items.filter((i) => i.set === 'neg').length }, conds, records: results.map((r) => ({ ...r })) };
+  // Paired test of the slim listing against the full one (arms A and S0): exact McNemar on the positives both answered, Wilson intervals.
+  let paired = null;
+  if (armsOf().includes('A') && armsOf().includes('S0')) {
+    const wilson = (x, n) => { if (!n) return [null, null]; const z = 1.96; const p = x / n; const den = 1 + z * z / n; const c = (p + z * z / (2 * n)) / den; const h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den; return [round(c - h), round(c + h)]; };
+    const logC = (n, k) => { let s = 0; for (let i = 1; i <= k; i++) s += Math.log(n - k + i) - Math.log(i); return s; };
+    const mcnemar = (b, c) => { const n = b + c; if (n === 0) return 1; let p = 0; for (let k = 0; k <= Math.min(b, c); k++) p += Math.exp(logC(n, k) - n * Math.LN2); return Math.min(1, 2 * p); };
+    const pos = results.filter((r) => r.model === models[0] && r.cond === 'A' && r.set !== 'neg');
+    const t = { both: 0, aOnly: 0, s0Only: 0, neither: 0 };
+    for (const a of pos) {
+      const s = results.find((x) => x.model === models[0] && x.cond === 'S0' && x.i === a.i);
+      if (!s) continue;
+      if (a.hit && s.hit) t.both++; else if (a.hit) t.aOnly++; else if (s.hit) t.s0Only++; else t.neither++;
+    }
+    const n = t.both + t.aOnly + t.s0Only + t.neither;
+    const negIdx = [...new Set(results.filter((r) => r.set === 'neg' && r.cond === 'S0').map((r) => r.i))].filter((i) => results.some((x) => x.set === 'neg' && x.cond === 'A' && x.i === i));
+    const falseOf = (cond) => negIdx.filter((i) => results.find((x) => x.cond === cond && x.i === i && x.set === 'neg')?.called !== null).length;
+    const aGold = t.both + t.aOnly; const sGold = t.both + t.s0Only;
+    paired = { pairs: n, table: t, goldA: aGold, goldS0: sGold, rateA: n ? round(aGold / n) : null, rateS0: n ? round(sGold / n) : null, diff: n ? round((sGold - aGold) / n) : null, ciA: wilson(aGold, n), ciS0: wilson(sGold, n), mcnemarP: round(mcnemar(t.aOnly, t.s0Only)), negatives: negIdx.length, falseA: falseOf('A'), falseS0: falseOf('S0') };
+    console.log('paired slim test: ' + JSON.stringify(paired));
+  }
+  const report = { paired, cap, spent: round(spent), stopped, ranker: rankerName, k, summary, sampleSizes: { A: items.filter((i) => i.set === 'A').length, B: items.filter((i) => i.set === 'B').length, neg: items.filter((i) => i.set === 'neg').length }, conds, ...(allMode ? {} : { records: results.map((r) => ({ ...r })) }) };
   mkdirSync(dirname(jsonTarget), { recursive: true });
   writeFresh(jsonTarget, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`json written to ${jsonTarget}`);
