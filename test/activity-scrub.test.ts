@@ -36,6 +36,25 @@ test('scrubShell drops curl body flags in every spelling', () => {
   assert.equal(scrubShell('curl -s https://a.com/x'), 'curl -s https://a.com/x');
   assert.equal(scrubShell('curl -f -D - https://a.com/x'), 'curl -f -D - https://a.com/x', 'fail and dump-header flags carry no body');
 });
+test('scrubShell leaves other programs alone: their flags carry no body', () => {
+  for (const cmd of ['ls -ld somepath', 'docker run -d nginx', 'git branch -d old', 'tar -xzf a.tgz -T list.txt', 'Asked: ls -ld /p/src'])
+    assert.equal(scrubShell(cmd), cmd, cmd);
+  assert.equal(scrubShell('ls -ld x && curl -d SECRETVALUE https://a.com'), 'ls -ld x && curl -d <omitted> https://a.com');
+});
+test('scrubShell drops curl and wget logins, headers, cookies and attached values', () => {
+  for (const cmd of ['curl -u usr:SECRETVALUE https://a.com', 'curl --user=usr:SECRETVALUE https://a.com', 'curl -U usr:SECRETVALUE -x http://p https://a.com', 'curl --proxy-user usr:SECRETVALUE https://a.com',
+    'curl -H "Authorization: Bearer SECRETVALUE" https://a.com', 'curl --header=X-Api-Key:SECRETVALUE https://a.com', 'curl -b sid=SECRETVALUE https://a.com', 'curl --cookie "sid=SECRETVALUE" https://a.com',
+    'curl -dtoken=SECRETVALUE https://a.com', 'curl -sdSECRETVALUE https://a.com', 'curl.exe -HX-Key:SECRETVALUE https://a.com', 'Asked: curl -u usr:SECRETVALUE https://a.com',
+    'wget --post-data=k=SECRETVALUE https://a.com', 'wget --header "X-Key: SECRETVALUE" https://a.com', 'wget --password SECRETVALUE https://a.com', 'wget --http-password=SECRETVALUE https://a.com']) {
+    const out = scrubShell(cmd);
+    assert.ok(!out.includes('SECRETVALUE'), cmd + ' -> ' + out);
+  }
+  assert.equal(scrubShell('curl -fsSL https://a.com/x'), 'curl -fsSL https://a.com/x');
+});
+test('scrubLine drops userinfo and query from any scheme', () => {
+  assert.equal(scrubLine('psql postgres://usr:pw1@h:5432/db?sslmode=x'), 'psql postgres://h:5432/db');
+  assert.equal(scrubLine('get ftp://usr:pw1@h/f'), 'get ftp://h/f');
+});
 test('the activity file holds no curl body', () => {
   const log = fresh();
   log.append({ kind: 'card-asked', text: 'Asked: curl -d token=SECRETVALUE https://a.com', taskId: 't' });

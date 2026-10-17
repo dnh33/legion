@@ -71,7 +71,7 @@ test('lines are scrubbed and clipped; a secret-looking token never reaches the f
   const [clipped, scrubbed] = log.read();
   assert.ok(clipped!.text.length <= 400, 'text is cut at 400');
   assert.ok(String(scrubbed!.data!.cmd).length <= 400);
-  assert.match(scrubbed!.text, /redacted/);
+  assert.match(scrubbed!.text, /<omitted>|redacted/, 'the curl header is dropped (scrubShell) or redacted');
 });
 
 test('prune deletes day files older than 30 days and keeps the rest', () => {
