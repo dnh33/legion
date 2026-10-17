@@ -193,3 +193,51 @@ test('the host write_file tool and Windows spellings set the flag', async () => 
     assert.ok((await decide(r, 'npm test', false)).card, 'a trailing dot');
   });
 });
+
+// ---- Task 24: reading password and key files asks by default, with one switch ----
+test('Ask, Accept edits, Smart: Reading .env cards with no Remember; Bypass does not', async () => {
+  const rigs: Array<[string, () => Promise<GatesRig>]> = [
+    ['ask', () => gatesRig({ own: 'ask' })],
+    ['auto-edits', () => gatesRig({ own: 'auto-edits' })],
+    ['smart', () => gatesRig({ preset: 'smart', follow: true })],
+  ];
+  for (const [m, make] of rigs) {
+    const r = await make();
+    try {
+      const p = r.call('Read', { file_path: `${r.projectDir()}/.env` }); await r.tick();
+      assert.equal(r.pending().length, 1, m); assert.equal(r.pending()[0]!.noRemember, true);
+      assert.match(r.pending()[0]!.summary, /^Legion wants to read \.env\. It may hold passwords or keys\.$/);
+      r.answer(false); assert.equal((await p).allow, false);
+    } finally { r.stop(); }
+  }
+  const f = await gatesRig({ own: 'full' });
+  try { assert.equal((await f.call('Read', { file_path: `${f.projectDir()}/.env` })).allow, true); assert.equal(f.pending().length, 0); } finally { f.stop(); }
+});
+test('a shell cat of .env cards in Smart', async () => {
+  await using(async (r) => {
+    const p = r.call('Bash', { command: 'cat .env' }); await r.tick();
+    assert.equal(r.pending().length, 1); r.answer(false); await p;
+  });
+});
+test('the same Read twice in a moment raises one card (memo covers the secret guard)', async () => {
+  await using(async (r) => {
+    const input = { file_path: `${r.projectDir()}/.env` };
+    const a = r.call('Read', input); const b = r.call('Read', input); await r.tick();
+    assert.equal(r.pending().length, 1); r.answer(false); await Promise.all([a, b]);
+  });
+});
+test('secret-file-reads off: no read card, but web calls still ask for the rest of the run', async () => {
+  await using(async (r) => {
+    r.setGateOverride('secret-file-reads', false);
+    r.noteUse('Read', { file_path: `${r.projectDir()}/.env` });
+    assert.equal((await r.call('Read', { file_path: `${r.projectDir()}/.env` })).allow, true); assert.equal(r.pending().length, 0);
+    const p = r.call('WebFetch', { url: 'https://docs.python.org/3/' }); await r.tick(); assert.equal(r.pending().length, 1); r.answer(false); await p;
+  });
+});
+test('a normal read and .env.example never card', async () => {
+  const r = await gatesRig({ own: 'ask' });
+  try {
+    for (const f of ['src/a.ts', '.env.example']) assert.equal((await r.call('Read', { file_path: `${r.projectDir()}/${f}` })).allow, true);
+    assert.equal(r.pending().length, 0);
+  } finally { r.stop(); }
+});

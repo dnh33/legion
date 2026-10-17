@@ -23,6 +23,7 @@ import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
+import { secretReadHit } from './secret-paths.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
 import { loadDocsHosts } from '../shared/docs-hosts.js';
@@ -1410,6 +1411,9 @@ export class Engine {
     }
     if (toolName === 'Skill') { if (this.skillLoadTaints(input)) act.tainted = true; }
     else if (taintsRun(toolName)) act.tainted = true;
+    // a read of a password or key file makes every web call in this run ask; set when the call is seen, whatever the owner answers
+    const secret = secretReadHit(toolName, input && typeof input === 'object' ? input as Record<string, unknown> : {});
+    if (secret) act.web.noteRead(secret);
     this.trackWorkspaceTaint(job, act, toolName, input);
     this.trackBuildEdit(job, act, toolName, input);
     for (const m of this.modules) {
@@ -1583,14 +1587,38 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const hit = this.guardMemo.get(key);
     if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
     if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
-    const card = this.webGuard(job, agent, toolName, input, mode);
-    // (2) protected path: Task 23   (3) secret-file read: Task 24
+    const card = this.webGuard(job, agent, toolName, input, mode)
+      // (2) protected path: Task 23 goes here
+      ?? this.secretReadGuard(job, agent, toolName, input, mode);
     if (!card) return undefined;
     const entry: { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number } = { p: card };
     const done = (): void => { entry.doneAt = Date.now(); };
     card.then(done, done);
     this.guardMemo.set(key, entry);
     return card;
+  }
+
+  /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */
+  private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
+    const hit = secretReadHit(toolName, input);
+    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${basename(hit)}. It may hold passwords or keys.`) : undefined;
+  }
+
+  /** The card every guard raises: no Remember (no tool-wide rule can pass a guard), and the answer is final for this call. */
+  private guardCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, summary: string): Promise<{ allow: boolean; message?: string }> {
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what you needed it for, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this was not done. ${stop}` : `The user has not approved this. ${stop}` };
+    });
   }
 
   /** Guard (1): a new site asks, a built-in docs or approved site opens. Notes an allowed read (host only, never the address) and counts its path. */
