@@ -14,11 +14,19 @@ export class InputChannel implements AsyncIterable<SDKUserMessage> {
   private closed = false;
   /** Messages pushed (the first included) whose answer has not arrived yet. */
   pending = 0;
+  /** While set, the iterator yields nothing: the SDK writes a message to the CLI as soon as it reads it, so a held channel keeps the request back. */
+  private gate: Promise<void> | undefined;
+  private openGate: (() => void) | undefined;
 
-  constructor(first: string) {
+  /** `hold`: keep every message back until release() or close() (a plan-only run waits for its account check). */
+  constructor(first: string, hold = false) {
     this.initialText = first;
+    if (hold) this.gate = new Promise<void>((res) => { this.openGate = res; });
     this.push(first);
   }
+
+  /** Lets the held messages through. A no-op when nothing is held. */
+  release(): void { this.openGate?.(); this.openGate = undefined; }
 
   /** Adds a message; false once the channel is closed (the run is ending, so the caller must start a new one). */
   push(text: string): boolean {
@@ -46,16 +54,22 @@ export class InputChannel implements AsyncIterable<SDKUserMessage> {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.release();
     for (const w of this.waiting.splice(0)) w({ value: undefined, done: true });
   }
 
   [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
     return {
       next: () => {
-        const v = this.queue.shift();
-        if (v) return Promise.resolve({ value: v, done: false });
-        if (this.closed) return Promise.resolve({ value: undefined, done: true });
-        return new Promise((res) => this.waiting.push(res));
+        const take = (): Promise<IteratorResult<SDKUserMessage>> => {
+          const v = this.queue.shift();
+          if (v) return Promise.resolve({ value: v, done: false });
+          if (this.closed) return Promise.resolve({ value: undefined, done: true });
+          return new Promise((res) => this.waiting.push(res));
+        };
+        // a closed channel never delivers what was held
+        if (this.gate && this.openGate) return this.gate.then(() => (this.closed ? { value: undefined, done: true } as IteratorResult<SDKUserMessage> : take()));
+        return take();
       },
       return: () => { this.close(); return Promise.resolve({ value: undefined, done: true }); },
     };

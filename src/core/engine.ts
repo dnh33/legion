@@ -7,7 +7,7 @@ import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
-import { API_BILLING_BLOCKED, apiBillingBlockedText, explainClaudeError } from '../shared/claude-errors.js';
+import { API_BILLING_BLOCKED, PLAN_CHECK_FAILED, PLAN_CHECK_FAILED_TEXT, apiBillingBlockedText, explainClaudeError } from '../shared/claude-errors.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { classifySafe } from '../shared/consequence.js';
 import { liveSecrets } from './kg/index.js';
@@ -103,6 +103,8 @@ export interface EngineDeps {
   /** The gate presets' mode resolver (spec 4.2). Absent: the agent's own mode, as before. */
   modes?: import('./gates-settings/index.js').ModeResolver;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
+  /** How long a plan-only run waits for the account check before it fails closed. Default 20 s. */
+  accountCheckMs?: number;
   background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number };
 }
 
@@ -257,7 +259,9 @@ export function connectorSettings(config: LegionConfig, opts?: { probe?: boolean
 /**
  * "Plan only": a Claude login (not an API key) that may not bill API credits (claude.allowApiBilling off, the default). The flag settings layer
  * beats a user-file env value and apiKeyHelper, and an empty string counts as unset, so every key source Legion can reach is blanked. A key stored
- * by a Console login cannot be blanked by any setting: the start-of-run check in handleMessage catches that one.
+ * by a Console login cannot be blanked by any setting: the account check in planAccountCheck (before the request is sent) catches that one, and the init
+ * message check in handleMessage backs it up. Unknown key sources count as billed: never bill unless the owner allowed it. Stated limit: a bearer token
+ * from an organization's managed settings reports "none", so it passes; the organization's managed settings decide there.
  */
 export function isPlanOnly(config: LegionConfig): boolean {
   return config.claude.auth === 'claude-login' && config.claude.allowApiBilling !== true;
@@ -398,12 +402,14 @@ export class Engine {
   readonly bridge: Bridge;
   private modules: CoreModule[];
   private readonly mcpTracker = new McpStatusTracker();
+  private readonly accountCheckMs: number;
   private readonly bgStallMs: number;
   private readonly bgGraceMs: number;
   private readonly bgMaxHeldMs: number;
   private readonly bgNow: () => number;
 
   constructor(deps: EngineDeps) {
+    this.accountCheckMs = Math.max(1, deps.accountCheckMs ?? 20_000);
     this.bgStallMs = Math.max(1, deps.background?.stallMs ?? BG_STALL_MS);
     this.bgGraceMs = Math.max(1, deps.background?.graceMs ?? BG_GRACE_MS);
     this.bgMaxHeldMs = Math.max(1, deps.background?.maxHeldMs ?? BG_MAX_HELD_MS);
@@ -1154,9 +1160,9 @@ export class Engine {
           ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
           : outcome.errorText || outcome.subtype;
       // An empty API credit balance: say why and how to switch to the Claude plan, and keep what Claude said.
-      const why = explainClaudeError(outcome.errorText, this.config.claude.auth);
+      const why = explainClaudeError(outcome.errorText, this.config.claude.auth, this.config.claude.allowApiBilling === true);
       const shown = why ? `${why}\n\nClaude said: ${text}` : text;
-      this.patchTask(job.taskId, { status: 'error', error: shown,...(act.tainted ? { tainted: true } : {}) });
+      this.patchTask(job.taskId, { status: 'error', error: shown, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
       this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
       // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
@@ -1870,7 +1876,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     // Streaming input: the request is the first message of a stream the person can add to while the run works.
-    const input = new InputChannel(prompt);
+    // Plan only: the request is held back until the account check passes. The SDK writes a message to the CLI the moment it reads it, so a
+    // stored Console key (which no setting can blank) would otherwise bill the first request before Legion could stop the run.
+    const planOnly = isPlanOnly(this.config);
+    const input = new InputChannel(prompt, planOnly);
     act.input = input;
     const q = this.queryFn({ prompt: input, options });
     act.q = q;
@@ -1914,6 +1923,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     }, Math.max(1, Math.min(1000, Math.floor(Math.min(this.bgStallMs, this.bgGraceMs) / 4))));
     watchdog.unref?.();
     try {
+      if (planOnly) {
+        const stop = await this.planAccountCheck(q, aborted);
+        if (stop) return stop;
+        input.release();
+      }
       for (;;) {
         const next = await Promise.race([it.next(), aborted]);
         if (next === 'aborted' || act.cancelled) return { subtype: 'cancelled', isError: false };
@@ -1923,7 +1937,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         // only the run's own messages: a background agent's carry parent_tool_use_id and are not the model answering
         if (held && ['assistant', 'user', 'stream_event'].includes((next.value as any)?.type) && !(next.value as any)?.parent_tool_use_id) turnStarted = true;
         const o = this.handleMessage(job, act, next.value as any);
-        // A plan-only run whose init reports an API key source stops here, before the model is asked anything; the finally below closes the query.
+        // Backstop for the account check: a plan-only run whose init reports an API key source stops here; the finally below closes the query.
         if (o?.subtype === API_BILLING_BLOCKED) return o;
         // each result answers one message; once none are waiting the stream closes and the run ends, unless background agents still work
         if (o) {
@@ -1988,6 +2002,31 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         }
       }
     })().catch(() => undefined);
+  }
+
+  /**
+   * Plan-only start check: the initialize answer (`accountInfo()`) comes before any turn. A key source other than "none" ends the run;
+   * an error or silence fails closed. A query without accountInfo (test fakes; the SDK always has it) skips the check, and the init
+   * message check in handleMessage stays as a backstop. Returns the outcome that ends the run, or undefined to let it go on.
+   */
+  private async planAccountCheck(q: ReturnType<QueryFn>, aborted: Promise<'aborted'>): Promise<Outcome | undefined> {
+    if (typeof (q as any).accountInfo !== 'function') return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const info = await Promise.race([
+        q.accountInfo(),
+        aborted,
+        new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('timed out')), this.accountCheckMs); }),
+      ]);
+      if (info === 'aborted') return { subtype: 'cancelled', isError: false };
+      const source = (info as { apiKeySource?: unknown } | undefined)?.apiKeySource;
+      if (typeof source === 'string' && source !== '' && source !== 'none') return { subtype: API_BILLING_BLOCKED, isError: true, errorText: apiBillingBlockedText(source) };
+      return undefined;
+    } catch {
+      return { subtype: PLAN_CHECK_FAILED, isError: true, errorText: PLAN_CHECK_FAILED_TEXT };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /** Process one SDK message; returns an Outcome for `result` messages. */

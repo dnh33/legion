@@ -154,7 +154,7 @@ function ClaudeSection({ s }: { s: SettingsView }) {
             <button type="button" role="radio" aria-checked={auth === 'claude-login'} className={auth === 'claude-login' ? 'on' : ''} onClick={() => setAuth('claude-login')}>Claude sign-in</button>
             <button type="button" role="radio" aria-checked={auth === 'api-key'} className={auth === 'api-key' ? 'on' : ''} onClick={() => setAuth('api-key')}>API key</button>
           </div>
-          <span className="set-hint">{auth === 'claude-login' ? 'Uses the account you are signed into Claude Code with. Covered by your subscription.' : 'Bills your Anthropic API account per token.'}</span>
+          <span className="set-hint">{auth === 'claude-login' ? (allowApi ? 'Uses the account you are signed into Claude Code with. Runs may bill API credits, as you allowed below.' : 'Uses the account you are signed into Claude Code with. Covered by your subscription.') : 'Bills your Anthropic API account per token.'}</span>
         </div>
         {auth === 'claude-login' && (
           <label className="set-check"><input type="checkbox" checked={allowApi} onChange={(e) => setAllowApi(e.target.checked)} />

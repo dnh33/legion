@@ -91,7 +91,7 @@ const agent = (): AgentProfile => ({
   id: 'a1', name: 'Alpha', emoji: 'A', description: '', systemPrompt: '', model: 'sonnet',
   vm: { enabled: false, size: 'default', idleStopMinutes: 15 }, approval: 'full', mcpServers: ['*'], createdAt: '', updatedAt: '',
 });
-function setup(script: (n: number) => AsyncGenerator<any, void>, over: (c: LegionConfig) => void = () => undefined) {
+function setup(script: (n: number) => AsyncGenerator<any, void>, over: (c: LegionConfig) => void = () => undefined, account: (() => Promise<unknown>) | null = async () => ({ apiKeySource: 'none' }), accountCheckMs?: number) {
   const store = new FakeStore();
   store.agents.set('a1', agent());
   const bus = new EventBus();
@@ -99,16 +99,21 @@ function setup(script: (n: number) => AsyncGenerator<any, void>, over: (c: Legio
   const calls: any[] = [];
   let closed = 0;
   let pulled = 0;
+  const order: string[] = [];
+  let accountCalls = 0;
   const queryFn = ((p: any) => {
     calls.push(p);
     const gen = script(calls.length - 1);
     const q: any = { interrupt: async () => undefined, close: () => { closed++; } };
+    if (account) q.accountInfo = async () => { accountCalls++; const r = await account(); order.push('account'); return r; };
+    // what the SDK does: read the prompt stream at once and write each message to the CLI
+    void (async () => { for await (const _m of p.prompt) order.push('message'); })().catch(() => undefined);
     // counts the messages the engine really took from the stream
     const wrapped = (async function* () { for await (const m of gen) { pulled++; yield m; } })();
     return Object.assign(wrapped, q);
   }) as unknown as QueryFn;
-  const engine = new Engine({ store: store as any, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as any, approvals: new ApprovalBroker(bus), config, queryFn, boatConfigured: () => false });
-  return { calls, engine, store, config, closedN: () => closed, pulledN: () => pulled };
+  const engine = new Engine({ store: store as any, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as any, approvals: new ApprovalBroker(bus), config, queryFn, boatConfigured: () => false, ...(accountCheckMs ? { accountCheckMs } : {}) });
+  return { order, accountN: () => accountCalls, calls, engine, store, config, closedN: () => closed, pulledN: () => pulled };
 }
 const init = (apiKeySource?: string) => ({ type: 'system', subtype: 'init', session_id: 's1', ...(apiKeySource !== undefined ? { apiKeySource } : {}) });
 const ok = { type: 'result', subtype: 'success', is_error: false, result: 'fine', total_cost_usd: 0, num_turns: 1, session_id: 's1' };
@@ -212,4 +217,48 @@ test('explainClaudeError: the claude-login text ends with the switch sentence', 
   const t = explainClaudeError('Credit balance is too low', 'claude-login')!;
   assert.match(t, /Or, to pay with API credits on purpose, turn on Settings -> Claude -> Allow API credit billing\.$/);
   assert.doesNotMatch(explainClaudeError('Credit balance is too low', 'api-key')!, /Allow API credit billing/);
+});
+
+// ---- the account check holds the first message
+test('plan only: the first message is written only after accountInfo resolved', async () => {
+  const s = setup(async function* () { yield init('none'); yield ok; }, undefined, async () => { await new Promise((r) => setTimeout(r, 30)); return { apiKeySource: 'none' }; });
+  const t = await run(s);
+  assert.equal(t.status, 'done');
+  assert.deepEqual(s.order, ['account', 'message']);
+});
+
+test('plan only: accountInfo reports a key source -> no message is ever written, exact text, no escalation', async () => {
+  const s = setup(async function* () { yield init('none'); yield ok; }, undefined, async () => ({ apiKeySource: '/login managed key' }));
+  const t = await run(s);
+  assert.equal(t.status, 'error');
+  assert.equal(t.error, BLOCKED('/login managed key'));
+  assert.equal(s.calls.length, 1);
+  assert.deepEqual(s.order, ['account']);
+});
+
+test('plan only: the account check fails or times out -> fails closed, no message written, no escalation', async () => {
+  const text = 'This run did not start: Legion could not confirm that Claude Code will use your Claude plan (the account check did not answer). Try again. If it keeps happening, open Help -> Doctor.';
+  for (const account of [async () => { throw new Error('boom'); }, () => new Promise<unknown>(() => undefined)]) {
+    const s = setup(async function* () { yield init('none'); yield ok; }, undefined, account, 40);
+    const t = await run(s);
+    assert.equal(t.status, 'error');
+    assert.equal(t.error, text);
+    assert.equal(s.calls.length, 1);
+    assert.equal(s.order.includes('message'), false);
+  }
+});
+
+test('allowApiBilling and api-key mode: accountInfo is not called and the message goes out at once', async () => {
+  for (const over of [(c: LegionConfig) => { c.claude.allowApiBilling = true; }, (c: LegionConfig) => { c.claude.auth = 'api-key'; c.claude.apiKey = 'sk-config'; }]) {
+    const s = setup(async function* () { yield init('ANTHROPIC_API_KEY'); yield ok; }, over, async () => ({ apiKeySource: 'ANTHROPIC_API_KEY' }));
+    assert.equal((await run(s)).status, 'done');
+    assert.equal(s.accountN(), 0);
+    assert.deepEqual(s.order, ['message']);
+  }
+});
+
+test('explainClaudeError: with API billing allowed it does not suggest turning the switch on', () => {
+  const t = explainClaudeError('Credit balance is too low', 'claude-login', true)!;
+  assert.doesNotMatch(t, /Allow API credit billing/);
+  assert.match(t, /add credits in the Claude Console/);
 });
