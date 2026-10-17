@@ -42,12 +42,36 @@ export interface ArmorySkill {
   hiddenText?: boolean;
 }
 
+/** How the skill finder ranks skills. 'local' and 'provider' fall back to 'keyword' while they cannot run (decided at use time). */
+export type FinderRanker = 'keyword' | 'local' | 'provider';
+export type FinderThreshold = 'strict' | 'balanced' | 'eager';
+
+/** The owner's skill finder settings (armory.json `finder`, defaults filled on read). */
+export interface FinderSettings {
+  suggest: boolean;
+  searchTool: boolean;
+  subagents: boolean;
+  ranker: FinderRanker;
+  providerId?: string;
+  providerModel?: string;
+  rerank: boolean;
+  rerankMonthlyUsd: number;
+  slimListing: boolean;
+  /** How many skills the finder suggests, 1 to 5. */
+  k: number;
+  threshold: FinderThreshold;
+  chatLine: boolean;
+  noticeSeen: boolean;
+}
+
 export interface ArmoryData {
   inherit: boolean;
   ccNoticeSeen: boolean;
   pluginRoot: string;
   /** Missing means false. */
   allowSkillShell?: boolean;
+  /** The skill finder settings with the defaults filled in. Missing on an older core. */
+  finder?: FinderSettings;
   skills: ArmorySkill[];
   /** When Claude Code was last asked what it loads (an ISO time), or null. Missing on an older core. */
   discoveredAt?: string | null;

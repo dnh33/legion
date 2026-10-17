@@ -181,6 +181,17 @@ function parseSkills(v: unknown): 'inherit' | string[] | undefined {
 }
 
 /**
+ * The agent's skill count override (AgentProfile.skillFinderK). A whole number from 1 to 5, refused out loud, not clamped.
+ * null clears the override (back to the owner's k). Unlike the owner's route, which clamps.
+ */
+function parseSkillFinderK(v: unknown): number | null | undefined {
+  if (v === null) return null;
+  if (v === undefined) return undefined;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 5) throw new HttpError(400, 'skillFinderK must be a whole number from 1 to 5 (or null to clear it)');
+  return v;
+}
+
+/**
  * The agent shell opt-in (AgentProfile.host, engine.ts buildMcpServers): absent = the agent has no host tools at
  * all. A present `host` must say `enabled` explicitly (an ambiguous half-object could turn the shell on by
  * accident). `timeoutSeconds` mirrors the clamp range of exec/limits.ts (1..3600; 120 is the shipped default),
@@ -224,6 +235,8 @@ function parseAgentFields(b: Record<string, unknown>) {
     connectors: parseConnectors(b.connectors),
     githubWrite: parseGithubWrite(b.githubWrite),
     skills: parseSkills(b.skills),
+    skillFinder: oneOf(b.skillFinder, 'skillFinder', ['inherit', 'on', 'off']),
+    skillFinderK: parseSkillFinderK(b.skillFinderK),
     // null clears the setting back to the default
     taskList: b.taskList === null ? null : oneOf(b.taskList, 'taskList', ['on', 'off']),
   };
@@ -348,6 +361,8 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.connectors?.length ? { connectors: f.connectors } : {}),
       ...(f.githubWrite?.length ? { githubWrite: f.githubWrite } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
+      ...(f.skillFinder ? { skillFinder: f.skillFinder } : {}),
+      ...(typeof f.skillFinderK === 'number' ? { skillFinderK: f.skillFinderK } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
       ...(f.host ? { host: f.host } : {}),
       ...(f.taskList ? { taskList: f.taskList } : {}),
@@ -375,6 +390,8 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.connectors ? { connectors: f.connectors } : {}),
       ...(f.githubWrite ? { githubWrite: f.githubWrite } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
+      ...(f.skillFinder ? { skillFinder: f.skillFinder } : {}),
+      ...(typeof f.skillFinderK === 'number' ? { skillFinderK: f.skillFinderK } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
       // The whole host block is replaced, never merged: the editor always sends enabled + both optional fields.
       ...(f.host !== undefined ? { host: f.host } : {}),
@@ -383,6 +400,7 @@ export function createServer(ctx: CoreContext): Server {
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };
     if (f.taskList === null) delete next.taskList;
+    if (f.skillFinderK === null) delete next.skillFinderK;
     if (f.githubWrite && f.githubWrite.length === 0) delete next.githubWrite;
     const saved = ctx.store.upsertAgent(next);
     ctx.bus.emit({ type: 'agent.updated', agent: saved });

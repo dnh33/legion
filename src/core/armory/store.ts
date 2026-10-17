@@ -14,7 +14,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, wr
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { ARMORY_PLUGIN } from '../../shared/skill-ids.js';
+import type { FinderSettings } from '../../shared/armory-view.js';
 import type { SkillSource } from './discover.js';
+import { cleanFinder } from './finder/settings.js';
 
 export type SkillState = 'on' | 'manual' | 'off';
 export type AgentGrant = 'all' | string[];
@@ -30,6 +32,8 @@ export interface ArmoryFile {
   ccNoticeSeen?: boolean;
   /** Owner switch (2026-10-06): let skills run inline shell commands when they load. Absent = false = blocked. */
   allowSkillShell?: boolean;
+  /** The skill finder's settings. Only the keys the owner set; the defaults are filled in on read (finder/settings.ts). */
+  finder?: Partial<FinderSettings>;
 }
 
 /** Run once, when armory.json does not exist yet: the one-time "choose which Claude Code skills your agents get" notice. */
@@ -64,12 +68,14 @@ function clean(raw: unknown): ArmoryFile | null {
     const agents = r.agents === 'all' ? 'all' as const : Array.isArray(r.agents) ? (r.agents as unknown[]).filter((x): x is string => typeof x === 'string') : undefined;
     skills[id] = { state: r.state as SkillState, source: r.source as SkillSource, ...(typeof r.plugin === 'string' ? { plugin: r.plugin } : {}), ...(agents ? { agents } : {}), ...(typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256) ? { sha256: r.sha256 } : {}) };
   }
+  const finder = cleanFinder(o.finder);
   return {
     version: 1,
     migrations: Array.isArray(o.migrations) ? o.migrations.filter((m): m is string => typeof m === 'string') : [],
     skills,
     ...(typeof o.ccNoticeSeen === 'boolean' ? { ccNoticeSeen: o.ccNoticeSeen } : {}),
     ...(o.allowSkillShell === true ? { allowSkillShell: true } : {}),
+    ...(finder ? { finder } : {}),
   };
 }
 

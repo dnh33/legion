@@ -132,6 +132,10 @@ export interface AgentProfile {
    * A list = only those ids (it narrows, it never turns a skill on). Covers Armory, Claude Code and drill ids.
    */
   skills?: 'inherit' | string[];
+  /** The skill finder for this agent. 'inherit' (default, also when absent) = the owner's settings; 'off' = no suggestions, search tool or subagent hints for this agent; 'on' = suggestions on for this agent. */
+  skillFinder?: 'inherit' | 'on' | 'off';
+  /** How many skills the finder suggests for this agent, a whole number from 1 to 5. Absent = the owner's k. */
+  skillFinderK?: number;
   /** Working directory for local file tools. Absolute. Defaults to LegionConfig.workspaceDir/<id>. */
   cwd?: string;
   /** The agent shell (host shell/file tools). Absent = off. See AgentHostSettings. */

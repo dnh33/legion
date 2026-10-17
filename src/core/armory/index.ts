@@ -29,6 +29,7 @@ import { sdkHandshake } from './handshake.js';
 import type { SdkProbe } from './handshake.js';
 import type { CatalogEntry } from './catalog.js';
 import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, updateArmoryFile, writeSkillFolder, STATES } from './store.js';
+import { applyFinderPatch, FinderInputError, finderFor, finderPatch } from './finder/settings.js';
 import type { SkillRecord, SkillState } from './store.js';
 import { ARMORY_SERVER_NAME, buildArmoryServer } from './tools.js';
 
@@ -242,6 +243,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
           inherit: inherit(),
           ccNoticeSeen: file.ccNoticeSeen === true,
           allowSkillShell: file.allowSkillShell === true,
+          finder: finderFor(file),
           pluginRoot: pluginRoot(deps.dataDir),
           deliveryRoot: deliveryRoot(deps.dataDir),
           foreignFiles: scanSource(deps.dataDir).foreign.length,
@@ -324,6 +326,20 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         updateArmoryFile(deps.dataDir, (f) => { if (b.allow) f.allowSkillShell = true; else delete f.allowSkillShell; });
         log(`armory: owner ${b.allow ? 'allowed' : 'blocked'} inline shell commands in skills`);
         return { allowSkillShell: b.allow };
+      });
+
+      // The skill finder's settings: a partial patch (only the keys sent change). An unknown key or a bad type is a 400 that names
+      // the field; k and the monthly cap are clamped. Admin-only like the other writes here (not on the client list). Returns the full block.
+      add('POST', '/api/armory/finder', (c) => {
+        const b = need(c.body);
+        let patch: Record<string, unknown>;
+        try { patch = finderPatch(b); } catch (e) {
+          if (e instanceof FinderInputError) throw new HttpError(400, e.message);
+          throw e;
+        }
+        const file = updateArmoryFile(deps.dataDir, (f) => { f.finder = applyFinderPatch(f.finder, patch); });
+        log(`armory: owner changed the skill finder (${Object.keys(patch).join(', ') || 'no keys'})`);
+        return finderFor(file);
       });
 
       // {seen:false} brings the notice back (Undo of "Turn all on" from the notice). No body, or seen:true, marks it seen.
