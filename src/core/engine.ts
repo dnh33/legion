@@ -191,9 +191,9 @@ const CLEAN_BUILTINS = new Set([
   'ScheduleWakeup', // schedules the agent's own next turn; returns only a confirmation
   'PushNotification', // notice to the owner's device; nothing comes back into the run
 ]);
-/** File tools that put a run's content on disk, and the input field that names the file. */
 /** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS: the taint and protected-path checks have their own scope). */
 const BUILD_EDIT_EXTRA_FILE_TOOLS: Record<string, string> = { mcp__host__write_file: 'path' };
+/** File tools that put a run's content on disk, and the input field that names the file. */
 const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
 const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
