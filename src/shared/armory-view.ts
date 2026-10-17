@@ -49,8 +49,8 @@ export type FinderThreshold = 'strict' | 'balanced' | 'eager';
 /** The owner's skill finder settings (armory.json `finder`, defaults filled on read). */
 export interface FinderSettings {
   /**
-   * Suggest skills each turn. true and false are the owner's choice. 'auto' (the default) is on only while the local ranker is chosen and
-   * its model is installed, because the keyword ranker alone fails the note-quality bars (see the Task 11 eval).
+   * Suggest skills each turn. false is the default (the owner turned it on or off by choice; the eval found notes too often wrong to start on).
+   * 'auto' is on only while the local ranker is chosen and its model is installed. An old stored value is read as it is.
    */
   suggest: boolean | 'auto';
   searchTool: boolean;

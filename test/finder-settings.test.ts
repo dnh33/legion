@@ -19,7 +19,7 @@ test('defaults: a fresh Armory reports the full finder block, and the defaults a
   const rig = armoryRig();
   const out = await rig.call('GET', '/api/armory');
   assert.deepEqual(out.finder, {
-    suggest: 'auto', searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1,
+    suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1,
     slimListing: false, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false,
   });
   assert.deepEqual(FINDER_DEFAULTS, out.finder);
@@ -136,7 +136,7 @@ test('agent settings: skillFinder is inherit, on or off; skillFinderK is a whole
 });
 
 test("suggest 'auto': read, patched, resolved by the ranker and the model, and overridden per agent", () => {
-  assert.equal(FINDER_DEFAULTS.suggest, 'auto', 'the default is auto');
+  assert.equal(FINDER_DEFAULTS.suggest, false, 'the default is off');
   assert.deepEqual(cleanFinder({ suggest: 'auto' }), { suggest: 'auto' });
   assert.deepEqual(cleanFinder({ suggest: true }), { suggest: true }, 'an old boolean is kept as it is');
   assert.equal(cleanFinder({ suggest: 'maybe' }), undefined);
@@ -151,7 +151,8 @@ test("suggest 'auto': read, patched, resolved by the ranker and the model, and o
   assert.equal(suggestOn({ suggest: false, ranker: 'local' }, true), false, 'an explicit off stays off');
   // a per-agent switch is explicit
   const file = {};
-  assert.equal(finderFor(file).suggest, 'auto');
+  assert.equal(finderFor(file).suggest, false);
+  assert.equal(finderFor({ finder: { suggest: 'auto' } }).suggest, 'auto', 'a stored auto is read as it is');
   assert.equal(finderFor(file, mkAgent('a', { skillFinder: 'on' })).suggest, true);
   assert.equal(finderFor(file, mkAgent('a', { skillFinder: 'off' })).suggest, false);
 });

@@ -15,8 +15,7 @@ export const B = 0.75;
 /**
  * Score floors for the note when keywords ranked the skills (BM25F; the scale follows the size of the catalog). A hit under its floor adds no note.
  * No floor makes the keyword note precise enough (no point meets both bars), so these are the floors with the most recall at a false-note rate
- * of at most 0.15 (balanced), about half of it (strict) and about double (eager). The note is then wrong more often than right: keyword-only
- * suggestions stay off by default (see FINDER_DEFAULTS.suggest).
+ * of at most 0.15 (balanced), about half of it (strict) and about double (eager). The note is then wrong more often than right: suggestions are off by default (see FINDER_DEFAULTS.suggest).
  */
 export const THRESHOLDS = { strict: 40, balanced: 20, eager: 15 } as const;
 

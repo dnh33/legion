@@ -29,7 +29,7 @@ function fakeEmbedder(over: { query?: (signal: AbortSignal) => Promise<Float32Ar
   return { e, calls, queries: () => calls.filter((c) => c.kind === 'query'), passages: () => calls.filter((c) => c.kind === 'passage') };
 }
 
-async function rigWith(emb: Embedder | undefined, settings: Record<string, unknown> = { ranker: 'local', threshold: 'eager' }) {
+async function rigWith(emb: Embedder | undefined, settings: Record<string, unknown> = { suggest: true, ranker: 'local', threshold: 'eager' }) {
   const r = armoryRig({ modOpts: emb ? { finderEmbedder: () => emb } : {} });
   await own(r, { name: 'design-polish', description: 'Polish typography, spacing and colour for pages', body: 'b' });
   await own(r, { name: 'db-tune', description: 'Tune database queries and indexes', body: 'b' });
@@ -226,16 +226,16 @@ describe('the provider ranker', () => {
   });
 });
 
-describe("suggest 'auto' (the default)", () => {
+describe("suggest 'auto' (an owner's choice)", () => {
   it('is off for the keyword ranker, off for the local ranker without its model, and on for the local ranker with it', async () => {
     const f = fakeEmbedder();
     const prompt = 'please polish the typography of these pages';
-    const keyword = await rigWith(f.e, { threshold: 'eager' });
+    const keyword = await rigWith(f.e, { suggest: 'auto', threshold: 'eager' });
     assert.equal(keyword.mod.finderWiring!(keyword.agents.get('alpha')!).suggest, false, 'keyword ranker: auto is off');
     assert.equal(await turn(keyword, prompt), undefined, 'and no note is made');
-    const noModel = await rigWith(undefined, { ranker: 'local', threshold: 'eager' });
+    const noModel = await rigWith(undefined, { suggest: 'auto', ranker: 'local', threshold: 'eager' });
     assert.equal(noModel.mod.finderWiring!(noModel.agents.get('alpha')!).suggest, false, 'local ranker, no model: auto is off');
-    const local = await rigWith(f.e, { ranker: 'local', threshold: 'eager' });
+    const local = await rigWith(f.e, { suggest: 'auto', ranker: 'local', threshold: 'eager' });
     assert.equal(local.mod.finderWiring!(local.agents.get('alpha')!).suggest, true, 'local ranker with a model: auto is on');
     assert.equal(await turn(local, prompt), undefined, 'a cold model (no vectors yet) under auto gives no keyword note');
     await local.mod.finderSettled();
@@ -259,7 +259,7 @@ describe('the raw cosine floor', () => {
     await own(r, { name: 'design-polish', description: 'Polish typography, spacing and colour for pages', body: 'b' });
     await own(r, { name: 'db-tune', description: 'Tune database queries and indexes', body: 'b' });
     await own(r, { name: 'garden-notes', description: 'Helps with garden things', body: 'b' });
-    await r.call('POST', '/api/armory/finder', { ranker: 'local', threshold: 'eager' });
+    await r.call('POST', '/api/armory/finder', { suggest: true, ranker: 'local', threshold: 'eager' });
     await turn(r, 'something vague about the whole thing please');
     await r.mod.finderSettled();
     assert.equal(await turn(r, 'something vague about the whole thing please'), undefined, 'no skill is close enough for a note');

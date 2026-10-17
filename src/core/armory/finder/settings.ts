@@ -12,7 +12,7 @@ import type { AgentProfile } from '../../../shared/types.js';
 import { DEFAULT_K, THRESHOLDS } from './defaults.js';
 
 export const FINDER_DEFAULTS: FinderSettings = {
-  suggest: 'auto',
+  suggest: false,
   searchTool: true,
   subagents: true,
   ranker: 'keyword',
