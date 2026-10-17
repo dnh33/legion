@@ -47,6 +47,8 @@ export interface GatesCore {
   switchedOff(id: string, startProjectId?: string): boolean;
   /** Projects where an agent changed a build or script file and the owner has not yet allowed a build or test command (Smart asks for those). Not a gate: its own store, not signed. */
   buildEdited: BuildEdited;
+  /** The owner's keep list for the environment scrub (names, or NAME* prefixes), read from the signed app file. */
+  envKeep(): string[];
 }
 
 /**
@@ -85,7 +87,7 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
     const preset: Preset = (startProjectId ? store.project(startProjectId).preset : undefined) ?? store.app().preset ?? 'ask';
     return def[preset] !== false;
   };
-  return { store, resolver, gate, switchedOff, buildEdited: createBuildEdited(store.folder) };
+  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder) };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore }

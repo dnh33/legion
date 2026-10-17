@@ -1,0 +1,41 @@
+/**
+ * Keys, tokens and passwords from the owner's environment are not passed to agent commands (gate `env-scrub`, on in every preset).
+ * A name is secret-looking when the plan's pattern matches, when one `_`-separated word of it is a secret word (so TOKENIZERS_PARALLELISM
+ * and KEYBOARD_LAYOUT stay), or when its value is a URL with a password in it. Variables that load code into a process (LD_PRELOAD,
+ * NODE_OPTIONS, ...) are dropped the same way. The owner's keep list (`envKeep` in the signed app file) overrides both.
+ */
+export const SECRET_ENV = /(_TOKEN|_SECRET|_KEY)$|PASSWORD|PASSWD|^AWS_|^(GITHUB_TOKEN|GH_TOKEN)$/i;
+const SECRET_WORDS = new Set(['TOKEN', 'TOKENS', 'SECRET', 'SECRETS', 'KEY', 'KEYS', 'APIKEY', 'PASSWORD', 'PASSWD', 'CREDENTIAL', 'CREDENTIALS']);
+/** A URL with user:password@ in it, e.g. DATABASE_URL=postgres://u:p@host/db (the user part may be empty: redis://:pw@host). */
+const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^\s/:@]*:[^\s/@]+@/i;
+/** Never removed, even when a rule matches (a proxy URL may carry a password; the tools need these to run at all). */
+const NEVER_STRIP = new Set(['PATH', 'PATHEXT', 'PWD', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'COMSPEC', 'TEMP', 'TMP', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY']);
+/** Inherited variables that make a program load someone's code. An owner who needs one adds it to the keep list. */
+const INJECTION = new Set(['LD_PRELOAD', 'LD_AUDIT', 'LD_LIBRARY_PATH', 'NODE_OPTIONS', 'PYTHONSTARTUP', 'PYTHONPATH', 'BASH_ENV', 'ENV', 'PERL5OPT', 'RUBYOPT']);
+/** The cloud logins the CLI needs when it talks to Bedrock, Vertex or Foundry. */
+const PROVIDER = /^(AWS_|AZURE_|GOOGLE_|ANTHROPIC_|CLOUD_ML_)/i;
+
+export interface ScrubOpts { keep?: readonly string[]; providerAuth?: boolean }
+
+/** Keep entries match a name exactly (any case), or by prefix when they end in `*`. */
+const kept = (name: string, keep: readonly string[]): boolean => {
+  const n = name.toUpperCase();
+  return keep.some((k) => (k.endsWith('*') ? n.startsWith(k.slice(0, -1).toUpperCase()) : n === k.toUpperCase()));
+};
+
+const secretLooking = (name: string, value: string | undefined): boolean =>
+  SECRET_ENV.test(name) || name.toUpperCase().split('_').some((w) => SECRET_WORDS.has(w)) || (typeof value === 'string' && URL_WITH_PASSWORD.test(value));
+const injectionClass = (name: string): boolean => { const n = name.toUpperCase(); return INJECTION.has(n) || n.startsWith('DYLD_'); };
+
+export function scrubSecretEnv(env: Record<string, string | undefined>, o: ScrubOpts = {}): Record<string, string | undefined> {
+  const keep = o.keep ?? [];
+  const out: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (!NEVER_STRIP.has(k.toUpperCase()) && !kept(k, keep)) {
+      if (injectionClass(k)) continue;
+      if (secretLooking(k, v) && !(o.providerAuth && PROVIDER.test(k))) continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}

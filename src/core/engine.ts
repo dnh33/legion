@@ -8,6 +8,7 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { scrubSecretEnv, type ScrubOpts } from './env-scrub.js';
 import { classifySafe } from '../shared/consequence.js';
 import { AWAY_COPY } from '../shared/away-copy.js';
 import type { BuildSnapshot } from './gates-settings/build-edited.js';
@@ -271,8 +272,17 @@ export function connectorSettings(config: LegionConfig, opts?: { probe?: boolean
   return config.claude.inheritMcp !== true || opts?.probe ? { settings: { disableClaudeAiConnectors: true } } : {};
 }
 
-export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
+export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; scrub?: false | ScrubOpts }): Record<string, string | undefined> {
+  const raw = scrubHostSessionEnv({ ...process.env });
+  const scrubbing = opts?.scrub !== false;
+  // Default ON, also for probes and callers that pass nothing. The cloud logins stay when the CLI is told to use Bedrock, Vertex or Foundry.
+  const env: Record<string, string | undefined> = scrubbing
+    ? scrubSecretEnv(raw, { ...(opts?.scrub ?? {}), providerAuth: ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]) })
+    : raw;
+  // The CLI keeps its own credentials for its API calls and strips them from the subprocesses it starts (Bash, hooks, stdio MCP servers), so in api-key mode
+  // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.296). Documented side effect: on Linux, Bash then runs in its own PID namespace.
+  // https://code.claude.com/docs/en/env-vars (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
+  if (scrubbing) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {
@@ -295,18 +305,20 @@ const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKE
  * key and token, the boat key, and any variable whose value holds the bearer token or a configured key are left out, so a
  * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Legion's own control
  * variables (the LEGION_ namespace) are left out too. Everything else is kept,
- * including credentials the owner set up for the work itself (a GITHUB_TOKEN for git push): the approval card is the
- * check on those.
+ * except names that look like keys, tokens or passwords (src/core/env-scrub.ts): those are dropped unless the owner keeps them
+ * (`keep`, from the signed envKeep list) or switched the `env-scrub` gate off (`scrub: false`). A GITHUB_TOKEN for git push is
+ * then the owner's choice to add.
  *
  * Known limit, stated rather than hidden: the shell runs as the user, so it can still READ Legion's own files
  * (`~/.legion/config.json`, or LEGION_HOME) where those keys are kept. Only a sandboxed backend closes that.
  */
-export function buildHostShellEnv(config: LegionConfig): Record<string, string> {
+export function buildHostShellEnv(config: LegionConfig, opts?: ScrubOpts & { scrub?: boolean }): Record<string, string> {
   // a section that is not there has no key in it: the named variables are still dropped
   const secrets = [config.authToken, config.claude?.apiKey, config.boat?.apiKey]
     .filter((s): s is string => typeof s === 'string' && s.length >= 8).map((s) => s.toLowerCase());
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...process.env }))) {
+  const host = scrubHostSessionEnv({ ...process.env });
+  for (const [k, v] of Object.entries(opts?.scrub === false ? host : scrubSecretEnv(host, { ...(opts?.keep ? { keep: opts.keep } : {}), ...(opts?.providerAuth ? { providerAuth: true } : {}) }))) {
     if (v === undefined || LEGION_CREDENTIAL_ENV.has(k.toUpperCase())) continue;
     // LEGION_* steers the core itself (LEGION_PORT, LEGION_HOME, LEGION_TEST_MODE, ...): a Legion or a test the agent starts must not inherit it
     if (/^LEGION_/i.test(k)) continue;
@@ -339,7 +351,7 @@ interface Job {
   after?: string[];
 }
 /** What the engine reads of the gates core: the gate values, and (optional, so a bare stub still works) the per-project build-file flag. */
-type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited'>>;
+type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited' | 'envKeep'>>;
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
@@ -1229,7 +1241,7 @@ export class Engine {
         rootDir: this.hostRootOf(agent),
         // a project run's shell also reaches the project folder (decision B6); paths there are given in full
         ...(project ? { extraRoots: [project.folder] } : {}),
-        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
+        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config, this.scrubFor(job)) }),
         // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
         redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),
         envFiles: agent.host.envFiles ?? 'masked',
@@ -1382,6 +1394,16 @@ export class Engine {
     if (!hit) return;
     const pid = startProjectOf(job);
     if (pid && this.gates?.buildEdited) this.gates.buildEdited.set(pid); else act.buildEdited = true;
+  }
+
+  /** What the run's commands may inherit: keys, tokens and passwords are scrubbed unless the owner switched `env-scrub` off for the project the run started in (then everything passes), else the signed keep list applies. */
+  private scrubFor(job: Job): ScrubOpts & { scrub?: boolean } {
+    if (this.gates?.gate('env-scrub', startProjectOf(job)) === false) return { scrub: false };
+    return { keep: this.gates?.envKeep?.() ?? [] };
+  }
+  private childScrubFor(job: Job): { scrub: false | ScrubOpts } {
+    const s = this.scrubFor(job);
+    return { scrub: s.scrub === false ? false : { keep: s.keep ?? [] } };
   }
 
   /** The folder of the project this run started in: where its build files are fingerprinted. */
@@ -1837,7 +1859,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
       includePartialMessages: true,
       abortController: act.ac,
-      env: buildChildEnv(this.config),
+      env: buildChildEnv(this.config, this.childScrubFor(job)),
       // SDK Settings.disableSkillShellExecution (sdk.d.ts:7156): inline shell in skills and slash commands runs before the model sees the text and never
       // reaches canUseTool, so it is replaced by a placeholder unless the owner allowed it in the Armory. Merged into the same flag layer as the connector switch.
       settings: { ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell },

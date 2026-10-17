@@ -133,9 +133,9 @@ test('the host shell never gets Legion\'s own credentials: API keys, the boat ke
     process.env.OWNER_PLAIN = 'ordinary';
     const env = buildHostShellEnv(cfg);
     for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY', 'MY_LEAK_A', 'MY_LEAK_B', 'MY_LEAK_C']) assert.equal(k in env, false, k);
-    // the owner's own tools still work: PATH, and credentials the owner put there for the agent's work (git push)
+    // the owner's own tools still work (PATH, ordinary variables); a secret-looking name is dropped unless the owner keeps it (gates envKeep)
     assert.ok(env.PATH ?? env.Path, 'PATH is kept');
-    assert.equal(env.GITHUB_TOKEN, 'ghp' + '_the_owners_own_token');
+    assert.equal('GITHUB_TOKEN' in env, false, 'secret-looking variables are dropped by default');
     assert.equal(env.OWNER_PLAIN, 'ordinary');
   } finally { for (const k of names) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } }
 });
