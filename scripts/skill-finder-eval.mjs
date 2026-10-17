@@ -18,7 +18,7 @@ const NEGATIVE_MIN_WORDS = 3;
 const SAMPLE_SEED = 20261017;
 const SUBSETS = ['named', 'implicit', 'subagent'];
 const VALUE_FLAGS = new Set([
-  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'model', 'gradecap', 'negsample', 'concurrency', 'conds',
+  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'model', 'gradecap', 'arms', 'bcount', 'negsample', 'concurrency', 'conds',
 ]);
 /** Flags that stand alone. */
 const SWITCH_FLAGS = new Set(['sweep', 'rerank', 'smoke', 'slim-arms', 'grade']);
@@ -994,7 +994,7 @@ async function outcome(opts) {
   const take = (list, n) => sample(list, smoke ? 1 : n, SAMPLE_SEED);
   const items = [
     ...take(poolA, perSet).map((r) => ({ ...r, set: 'A' })),
-    ...take(poolB, perSet).map((r) => ({ ...r, set: 'B' })),
+    ...take(poolB, opts.bcount === undefined ? perSet : Math.floor(Number(opts.bcount))).map((r) => ({ ...r, set: 'B' })),
     ...take(negPool, perNeg).map((n) => ({ prompt: n.prompt, set: 'neg', gold: new Set(), subset: 'neg' })),
   ];
   console.log(`outcome: pool ${candDocs.length} switched-on skills; drawn ${items.filter((i) => i.set === 'A').length} from Set A (of ${poolA.length} eligible), ${items.filter((i) => i.set === 'B').length} from Set B (of ${poolB.length}), ${items.filter((i) => i.set === 'neg').length} negatives (of ${negPool.length}); models ${models.join(', ')}; cap ${cap}`);
@@ -1024,7 +1024,7 @@ async function outcome(opts) {
   if (rankerName === 'local') await withLocalModel(dist, (emb, dataDir) => makeNotes(emb, dataDir));
   else await makeNotes(undefined, undefined);
   const noteOf = (cond, it) => noteFor.get(`${cond}|${it.prompt}`) ?? { text: undefined, ids: [] };
-  const armsOf = () => (slimArms ? ['A', 'S0', 'S'] : ['A', ...conds.map((c) => c.name)]);
+  const armsOf = () => (typeof opts.arms === 'string' ? opts.arms.split(',').filter(Boolean) : slimArms ? ['A', 'S0', 'S'] : ['A', ...conds.map((c) => c.name)]);
   // Built-in commands are probably among the 10 of the 104 the model's list did not show; count the drawn prompts whose gold skills are all built-in.
   console.log(`drawn prompts whose gold skills are all built-in (probably not in the model's list): ${items.filter((i) => i.set !== 'neg' && [...i.gold].every((id) => docs.get(id)?.source === 'claude-builtin')).length}`);
   for (const c of conds) {
@@ -1103,7 +1103,7 @@ async function outcome(opts) {
         const it = items[idx];
         // A and B for one prompt, one after the other, so a stop at the cap leaves whole pairs. Stop before a pair that could pass the cap.
         const avg = callCosts.length ? callCosts.reduce((a, b) => a + b, 0) / callCosts.length : 0.05;
-        if (spent + 2 * avg * 1.5 * concurrency > cap) { stopped = true; return; }
+        if (spent + armsOf().length * avg * 1.5 * concurrency > cap) { stopped = true; return; }
         for (const cond of armsOf()) {
           if (cond !== 'A' && cond !== 'S0' && !noteOf(cond, it).text) {
             // No note at this setting: condition B is the same request as A, so it reuses A's answer and costs nothing.
