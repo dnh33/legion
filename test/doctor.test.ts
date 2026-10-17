@@ -1,12 +1,15 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runDoctor } from '../src/core/doctor.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { QueryFn } from '../src/core/engine.js';
+
+// The Doctor reads the Claude Code settings the runs load: point it at an empty temp folder, never the real one.
+process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'legion-doc-home-'));
 
 function cfg() {
   const c = defaultConfig();
@@ -32,7 +35,7 @@ test('doctor reports signed-in account', async () => {
   assert.match(claude.detail, /a@b\.c/);
   assert.match(claude.detail, /max/);
   assert.equal(seen.closed, 1);
-  assert.equal(seen.opts.env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(seen.opts.env.ANTHROPIC_API_KEY, '');
   assert.equal(checks.find((c) => c.id === 'workspace')!.ok, true);
   assert.equal(checks.find((c) => c.id === 'boat')!.ok, true);
 });
@@ -89,4 +92,65 @@ test('doctor shows the bundled Claude Code version from the initialize response,
   const broken = await detail(mk(async () => { throw new Error('closed'); }));
   assert.equal(broken.ok, true);
   assert.equal(broken.detail, 'a@b.c');
+});
+
+// A Console (API-billed) login passes the email check but bills API credits on every run.
+test('doctor: Console login (API key source) is flagged; a Claude plan stays ok', async () => {
+  let checks = await runDoctor({ config: cfg(), getBoat: () => null, queryFn: fakeQuery(async () => ({ email: 'a@b.c', apiKeySource: '/login managed key' })) });
+  let c = checks.find((x) => x.id === 'claude')!;
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /Runs would bill API credits \(key source: \/login managed key\), so Legion will not start them/);
+  assert.match(c.fix!, /\/logout, then \/login/);
+  checks = await runDoctor({ config: cfg(), getBoat: () => null, queryFn: fakeQuery(async () => ({ email: 'a@b.c', subscriptionType: 'max', apiKeySource: 'ANTHROPIC_API_KEY' })) });
+  assert.equal(checks.find((x) => x.id === 'claude')!.ok, false, 'an API key wins over the plan');
+  checks = await runDoctor({ config: cfg(), getBoat: () => null, queryFn: fakeQuery(async () => ({ email: 'a@b.c', subscriptionType: 'max', apiKeySource: 'none' })) });
+  c = checks.find((x) => x.id === 'claude')!;
+  assert.equal(c.ok, true);
+});
+
+async function withClaudeHome(settings: string | undefined, fn: (dir: string) => Promise<void>) {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-doc-claude-'));
+  const save = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    if (settings !== undefined) writeFileSync(join(dir, 'settings.json'), settings);
+    await fn(dir);
+  } finally {
+    if (save === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = save;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const planQuery = () => fakeQuery(async () => ({ email: 'a@b.c', subscriptionType: 'max', apiKeySource: 'none' }));
+
+test('doctor: an API key in the Claude Code settings is named (never its value) once API billing is allowed; plan only blanks it', async () => {
+  const allow = () => { const c = cfg(); c.claude.allowApiBilling = true; return c; };
+  await withClaudeHome(JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-secret-value' } }), async () => {
+    const c = (await runDoctor({ config: allow(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.equal(c.ok, true);
+    assert.match(c.detail, /Your Claude Code settings set ANTHROPIC_API_KEY; runs bill it, as you allowed in Settings/);
+    assert.doesNotMatch(JSON.stringify(c), /sk-secret-value/);
+    const p = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.equal(p.ok, true, 'plan only: the key is blanked for runs, so it is not a problem');
+  });
+  await withClaudeHome(JSON.stringify({ apiKeyHelper: '/bin/get-key' }), async () => {
+    const c = (await runDoctor({ config: allow(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.equal(c.ok, true);
+    assert.match(c.detail, /set apiKeyHelper/);
+    assert.doesNotMatch(JSON.stringify(c), /get-key/);
+  });
+  await withClaudeHome(JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-x' } }), async () => {
+    const config = allow();
+    config.claude.inheritClaudeCodeSettings = false;
+    const c = (await runDoctor({ config, getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.doesNotMatch(c.detail, /ANTHROPIC_API_KEY/, 'settings the runs do not load are not read');
+  });
+});
+
+test('doctor: corrupt or missing Claude Code settings do not throw or flag', async () => {
+  for (const body of ['{ not json', undefined, '[]', JSON.stringify({ env: { ANTHROPIC_API_KEY: '' } })]) {
+    await withClaudeHome(body, async () => {
+      const c = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+      assert.equal(c.ok, true, String(body));
+    });
+  }
 });

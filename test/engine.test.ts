@@ -122,15 +122,15 @@ test('startTask validation errors', () => {
   assert.throws(() => s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', continueTaskId: 'zz' }), (e: any) => e.status === 404);
 });
 
-test('auth env: claude-login deletes API key vars; api-key sets it', async () => {
+test('auth env: claude-login blanks API key vars; api-key sets it', async () => {
   const saveKey = process.env.ANTHROPIC_API_KEY, saveTok = process.env.ANTHROPIC_AUTH_TOKEN;
   process.env.ANTHROPIC_API_KEY = 'sk-from-shell';
   process.env.ANTHROPIC_AUTH_TOKEN = 'tok';
   try {
     const a = setup(() => happy());
     await a.engine.waitFor(a.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'cli' }).id, 3000);
-    assert.equal('ANTHROPIC_API_KEY' in a.calls[0]!.options.env && a.calls[0]!.options.env.ANTHROPIC_API_KEY !== undefined, false);
-    assert.equal(a.calls[0]!.options.env.ANTHROPIC_AUTH_TOKEN, undefined);
+    assert.equal(a.calls[0]!.options.env.ANTHROPIC_API_KEY, '', 'the shell key is blanked, not passed on');
+    assert.equal(a.calls[0]!.options.env.ANTHROPIC_AUTH_TOKEN, '', 'plan only: blanked');
     // the child env is a plain-object copy of process.env: on Windows its key is "Path" (plain objects are case-sensitive, process.env is not)
     const pathKey = Object.keys(a.calls[0]!.options.env).find((k) => k.toUpperCase() === 'PATH');
     assert.equal(a.calls[0]!.options.env[pathKey ?? 'PATH'], process.env.PATH);
@@ -1566,4 +1566,29 @@ test('a gate ask rule on a connectors tool that is not a carded write still rais
   assert.equal((await pending).behavior, 'deny');
   s.engine.cancel(t.id);
   await s.engine.waitFor(t.id, 3000);
+});
+
+// An empty API credit balance: the run says why and how to switch to the Claude plan, whichever way the text arrives.
+const CREDIT = 'Credit balance is too low';
+for (const [label, script] of [
+  ['errors array', () => (async function* () { yield init(); yield err('error_during_execution', [CREDIT]); })()],
+  ['success subtype with is_error', () => (async function* () { yield init(); yield { type: 'result', subtype: 'success', is_error: true, result: CREDIT, total_cost_usd: 0, num_turns: 1, session_id: 'sess-1' }; })()],
+  ['thrown before any result', () => (async function* () { yield init(); throw new Error(CREDIT); })()],
+] as const) {
+  test(`empty credit balance (${label}): the task error explains it and keeps the original text`, async () => {
+    const s = setup(script, { agent: { model: 'opus' } });
+    const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+    assert.equal(done.status, 'error');
+    assert.match(done.error!, /^Claude Code is billing this run to Anthropic API credits/);
+    assert.match(done.error!, /\n\nClaude said: .*Credit balance is too low/);
+    const line = s.store.msgs.filter((m) => m.role === 'system').map((m) => m.text).find((t) => t.startsWith('Error: '))!;
+    assert.match(line, /^Error: Claude Code is billing this run/);
+    assert.doesNotMatch(line, /Claude said/);
+  });
+}
+
+test('empty credit balance with an API key: the API key wording', async () => {
+  const s = setup(() => (async function* () { yield init(); yield err('error_during_execution', [CREDIT]); })(), { agent: { model: 'opus' }, config: (c) => { c.claude.auth = 'api-key'; c.claude.apiKey = 'sk-test'; } });
+  const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.match(done.error!, /^The API key in Settings -> Claude has no credits left\./);
 });
