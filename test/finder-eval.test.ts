@@ -451,3 +451,35 @@ describe('finder eval: note precision, subsets, the agent pool and the sweep', (
 function readFixtureSkills(): unknown[] {
   return JSON.parse(readFileSync(join(FIXTURES, 'skills.json'), 'utf8')) as unknown[];
 }
+
+describe('finder eval: the outcome command (inputs only; no model is ever called here)', () => {
+  it('refuses a missing --json, a single set file and a malformed --conds before it reads anything or starts Claude Code', () => {
+    const sb = sandbox();
+    const a = join(sb.base, 'a.jsonl');
+    const b = join(sb.base, 'b.jsonl');
+    const neg = join(sb.base, 'neg.jsonl');
+    writeJsonl(a, [{ prompt: 'one two three', skill: 'x', subset: 'implicit' }]);
+    writeJsonl(b, [{ prompt: 'one two three', skill: 'x', subset: 'longtail' }]);
+    writeJsonl(neg, [{ prompt: 'one two three' }]);
+    const out = join(sb.base, 'out.json');
+    const noJson = run(sb, ['outcome', '--set', `${a},${b}`, '--negatives', neg]);
+    assert.equal(noJson.status, 1);
+    assert.match(noJson.out, /--json/);
+    const oneSet = run(sb, ['outcome', '--set', a, '--negatives', neg, '--json', out]);
+    assert.equal(oneSet.status, 1);
+    assert.match(oneSet.out, /setA,setB/);
+    const badConds = run(sb, ['outcome', '--set', `${a},${b}`, '--negatives', neg, '--json', out, '--conds', 'C=high']);
+    assert.equal(badConds.status, 1);
+    assert.match(badConds.out, /--conds/);
+    assert.equal(existsSync(out), false, 'nothing was written');
+  });
+
+  it('refuses a --json inside the private folder, like score', () => {
+    const sb = sandbox();
+    const a = join(sb.base, 'a.jsonl');
+    writeJsonl(a, [{ prompt: 'one two three', skill: 'x', subset: 'implicit' }]);
+    const r = run(sb, ['outcome', '--set', `${a},${a}`, '--negatives', a, '--json', join(sb.privateRoot, 'out.json')]);
+    assert.equal(r.status, 1);
+    assert.match(r.out, /refused/);
+  });
+});

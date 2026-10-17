@@ -18,16 +18,17 @@ const NEGATIVE_MIN_WORDS = 3;
 const SAMPLE_SEED = 20261017;
 const SUBSETS = ['named', 'implicit', 'subagent'];
 const VALUE_FLAGS = new Set([
-  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample',
+  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'negsample', 'concurrency', 'conds',
 ]);
 /** Flags that stand alone. */
-const SWITCH_FLAGS = new Set(['sweep', 'rerank']);
+const SWITCH_FLAGS = new Set(['sweep', 'rerank', 'smoke']);
 const HARNESS_PREFIXES = [
   '<command-name>', '<command-message>', '<local-command', '<task-notification>', '<system-reminder>', 'Caveat: The messages below',
 ];
 const USAGE = 'usage: skill-finder-eval.mjs build --transcripts <dir> --out <folder> | '
   + 'score --set <file[,file]> [--negatives <file>] --catalog <skills.json|legion|sdk> [--pool all|on] [--ranker keyword|local] [--threshold strict|balanced|eager]\n'
-  + '  [--min-score n] [--weight 0-1] [--floor cosine] [--k 1-5] [--sweep] [--rerank --sample n [--margin m]] [--json <file>]';
+  + '  [--min-score n] [--weight 0-1] [--floor cosine] [--k 1-5] [--sweep] [--rerank --sample n [--margin m]] [--json <file>] | '
+  + 'outcome --set <setA,setB> --negatives <file> --json <file> [--ranker keyword|local] [--models haiku,sonnet] [--cap usd] [--conds C=min:floor:weight] [--smoke]';
 
 /** A problem with the inputs. Its message is fixed text that never holds a prompt. Exit code 1. */
 class UsageError extends Error {}
@@ -276,7 +277,7 @@ const SUBSET_ORDER = ['named', 'implicit', 'subagent', 'longtail', 'ambiguous', 
 const KEEP_RANKED = 60;
 /** The pre-registered bars for a default (task 11 notes, stage 2). */
 const BARS = { falseNote: 0.15, precision: 0.5 };
-const KEYWORD_GRID = [0.4, 0.6, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 15, 20];
+const KEYWORD_GRID = [0.4, 0.6, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40];
 const FUSED_GRID = Array.from({ length: 19 }, (_, i) => round(0.3 + i * 0.05));
 const WEIGHT_GRID = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 const FLOOR_GRID = [0, ...Array.from({ length: 21 }, (_, i) => round(0.7 + i * 0.01))];
@@ -831,6 +832,248 @@ async function rerankPass(c) {
   if (c.report.rerank.logLines.length) console.log(`  session notes: ${c.report.rerank.logLines.join('; ')}`);
 }
 
+// ---------- the outcome eval ----------
+
+/** Longest prompt the outcome eval draws, in characters. A long brief costs more in every call and says little more. */
+const OUTCOME_MAX_CHARS = 1500;
+const OUTCOME_SYSTEM = 'Use a skill only if one clearly fits; otherwise answer briefly.';
+
+/**
+ * Does the model call the right skill? Real Claude Code through the SDK, with the owner's own skill listing (the switched-on skills),
+ * one turn, only the Skill tool, and the call is recorded and denied so no skill text loads. Condition A is the listing alone.
+ * Condition B adds the finder's note through a UserPromptSubmit hook, built with the chosen ranker. The prompts are never printed.
+ * Spend: each call's total_cost_usd is that call's own cost (one query per prompt); the run stops before a call that could pass --cap.
+ */
+async function outcome(opts) {
+  const dist = (rel) => import(pathToFileURL(join(ARMORY_DIST, rel)).href);
+  if (!existsSync(join(ARMORY_DIST, 'finder', 'rank.js'))) throw new UsageError('dist is missing: run npm run build:ts first');
+  for (const need of ['set', 'negatives', 'json']) if (typeof opts[need] !== 'string') throw new UsageError(`outcome needs --${need}`);
+  const jsonTarget = guardJson(opts);
+  const setFiles = opts.set.split(',').filter(Boolean);
+  if (setFiles.length !== 2) throw new UsageError('outcome needs --set <setA,setB>');
+  const rankerName = typeof opts.ranker === 'string' ? opts.ranker : 'local';
+  if (!['keyword', 'local'].includes(rankerName)) throw new UsageError('--ranker must be keyword or local');
+  const models = (typeof opts.models === 'string' ? opts.models : 'haiku,sonnet').split(',').filter(Boolean);
+  const cap = opts.cap === undefined ? 5 : Number(opts.cap);
+  const perSet = opts.sample === undefined ? 30 : Math.floor(Number(opts.sample));
+  const perNeg = opts.negsample === undefined ? 20 : Math.floor(Number(opts.negsample));
+  if (!(cap > 0) || !(perSet > 0) || !(perNeg > 0)) throw new UsageError('--cap, --sample and --negsample must be positive numbers');
+  const D = await dist('finder/defaults.js');
+  const num = (name, dflt) => (opts[name] === undefined ? dflt : Number(opts[name]));
+  const k = num('k', D.DEFAULT_K);
+  const minScore = num('min-score', rankerName === 'local' ? D.FUSED_THRESHOLDS.balanced : D.THRESHOLDS.balanced);
+  const weight = num('weight', D.FUSION_WEIGHT);
+  const floor = num('floor', D.RAW_COSINE_FLOOR);
+  const concurrency = Math.max(1, Math.floor(num('concurrency', 3)));
+  // Condition B is the chosen setting; more conditions come from --conds "C=minScore:floor:weight,...".
+  const conds = [{ name: 'B', minScore, floor, weight }];
+  if (typeof opts.conds === 'string') {
+    for (const part of opts.conds.split(',').filter(Boolean)) {
+      const [name, vals] = part.split('=');
+      const [m, fl, w] = (vals ?? '').split(':').map(Number);
+      if (!name || ![m, fl, w].every(Number.isFinite)) throw new UsageError('--conds must look like C=0.75:0.84:0.3');
+      conds.push({ name, minScore: m, floor: fl, weight: w });
+    }
+  }
+
+  const { rank, rankFused } = await dist('finder/rank.js');
+  const { buildIndex } = await dist('finder/bm25.js');
+  const { buildNote } = await dist('finder/note.js');
+  const { resolveName } = await dist('catalog.js');
+  const catalog = await loadCatalog('sdk', dist);
+  const ix = buildIndex(catalog.docs);
+  const candDocs = catalog.docs.filter((d) => catalog.on.has(d.id));
+  const candIds = new Set(candDocs.map((d) => d.id));
+  const sub = { ...ix, docs: ix.docs.filter((d) => candIds.has(d.id)) };
+  const docs = new Map(catalog.docs.map((d) => [d.id, d]));
+
+  const rowsOf = (file, accept) => readJsonl(file, 'set')
+    .filter((c) => typeof c.skill === 'string' && accept(c) && c.prompt.length <= OUTCOME_MAX_CHARS)
+    .map((c) => ({ prompt: c.prompt, subset: c.subset ?? 'all', gold: new Set(resolveName(candDocs, c.skill).hits.map((h) => h.id)) }))
+    .filter((r) => r.gold.size > 0);
+  const poolA = rowsOf(setFiles[0], (c) => c.subset === 'implicit' || c.subset === 'subagent');
+  const poolB = rowsOf(setFiles[1], (c) => c.subset === 'longtail');
+  const negPool = readJsonl(opts.negatives, 'negatives').filter((n) => n.prompt.length <= OUTCOME_MAX_CHARS);
+  const smoke = opts.smoke !== undefined;
+  const take = (list, n) => sample(list, smoke ? 1 : n, SAMPLE_SEED);
+  const items = [
+    ...take(poolA, perSet).map((r) => ({ ...r, set: 'A' })),
+    ...take(poolB, perSet).map((r) => ({ ...r, set: 'B' })),
+    ...take(negPool, perNeg).map((n) => ({ prompt: n.prompt, set: 'neg', gold: new Set(), subset: 'neg' })),
+  ];
+  console.log(`outcome: pool ${candDocs.length} switched-on skills; drawn ${items.filter((i) => i.set === 'A').length} from Set A (of ${poolA.length} eligible), ${items.filter((i) => i.set === 'B').length} from Set B (of ${poolB.length}), ${items.filter((i) => i.set === 'neg').length} negatives (of ${negPool.length}); models ${models.join(', ')}; cap ${cap}`);
+
+  // The finder note for each prompt, made the way the app makes it (tuned ranker, the note builder with its third-party rule).
+  const noteFor = new Map(); // `${cond}|${prompt}` -> { text, ids }
+  const makeNotes = async (emb, dataDir) => {
+    let vecs;
+    if (emb) {
+      const { createVectorCache, passageVectors } = await dist('finder/embed.js');
+      vecs = await passageVectors(emb, createVectorCache(dataDir), candDocs, AbortSignal.timeout(300_000), candDocs.length + 1);
+    }
+    for (const it of items) {
+      let results;
+      if (emb) {
+        const [qv] = await emb.embed([it.prompt], AbortSignal.timeout(60_000), 'query');
+        for (const c of conds) {
+          const res = (rankFused(sub, it.prompt, qv, vecs, { k, maxK: k, minScore: c.minScore, cosineFloor: c.floor, weight: c.weight, deadlineMs: 1e9 }) ?? rank(sub, it.prompt, { k, maxK: k, minScore: D.THRESHOLDS.balanced, deadlineMs: 1e9 })).results;
+          noteFor.set(`${c.name}|${it.prompt}`, { text: buildNote(res, docs), ids: res.map((r) => r.id) });
+        }
+      } else {
+        const res = rank(sub, it.prompt, { k, maxK: k, minScore, deadlineMs: 1e9 }).results;
+        noteFor.set(`B|${it.prompt}`, { text: buildNote(res, docs), ids: res.map((r) => r.id) });
+      }
+    }
+  };
+  if (rankerName === 'local') await withLocalModel(dist, (emb, dataDir) => makeNotes(emb, dataDir));
+  else await makeNotes(undefined, undefined);
+  const noteOf = (cond, it) => noteFor.get(`${cond}|${it.prompt}`);
+  for (const c of conds) {
+    const withNote = items.filter((i) => noteOf(c.name, i).text);
+    console.log(`notes ${c.name} (min ${c.minScore}, floor ${c.floor}, weight ${c.weight}): ${withNote.length} of ${items.length} prompts get a note; it holds the gold skill in ${withNote.filter((i) => i.set !== 'neg' && noteOf(c.name, i).ids.some((id) => i.gold.has(id))).length} of ${withNote.filter((i) => i.set !== 'neg').length} noted positives, and ${withNote.filter((i) => i.set === 'neg').length} negatives get one`);
+  }
+
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const workDir = mkdtempSync(join(tmpdir(), 'finder-outcome-'));
+  const onIds = [...catalog.on];
+  const results = []; // { model, cond, set, prompt index, called, hit, cost, ... } (no prompt text)
+  let spent = 0;
+  let stopped = false;
+  const callCosts = [];
+
+  const oneCall = async (model, cond, it, idx) => {
+    const note = cond === 'A' ? undefined : noteOf(cond, it).text;
+    const rec = { model, cond, set: it.set, i: idx, called: null, calls: 0, cost: 0, noteShown: !!note, fired: 0, init: null, subtype: null, ms: 0 };
+    const t0 = performance.now();
+    const hooks = {
+      PreToolUse: [{ matcher: 'Skill', hooks: [async (input) => {
+        if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'Skill') {
+          rec.calls++;
+          if (rec.called === null) rec.called = String(input.tool_input?.skill ?? '');
+        }
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Recorded by an eval; the skill is not loaded.' } };
+      }] }],
+      ...(note ? { UserPromptSubmit: [{ hooks: [async (input) => {
+        if (input.hook_event_name !== 'UserPromptSubmit') return { continue: true };
+        rec.fired++;
+        return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: note } };
+      }] }] } : {}),
+    };
+    try {
+      const q = query({
+        prompt: it.prompt,
+        options: {
+          model, maxTurns: 1, cwd: workDir, settingSources: ['user'], strictMcpConfig: true, persistSession: false,
+          tools: ['Skill'], skills: onIds,
+          systemPrompt: { type: 'preset', preset: 'claude_code', append: OUTCOME_SYSTEM },
+          // The owner's own hooks are off: they add text that changes from call to call (it breaks the prompt cache, so every call would pay for
+          // the whole listing) and some of them push skill use, which would hide what the finder note does. The hooks passed here still run.
+          settings: { disableSkillShellExecution: true, disableAllHooks: true },
+          hooks, env: { ...process.env },
+        },
+      });
+      for await (const m of q) {
+        if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null };
+        if (m.type === 'assistant' && rec.called === null) {
+          for (const b of m.message?.content ?? []) if (b?.type === 'tool_use' && b.name === 'Skill' && rec.called === null) rec.called = String(b.input?.skill ?? '');
+        }
+        if (m.type === 'result') {
+          rec.cost = typeof m.total_cost_usd === 'number' ? m.total_cost_usd : 0;
+          rec.subtype = m.subtype ?? null;
+          rec.tokens = { input: m.usage?.input_tokens ?? 0, cacheRead: m.usage?.cache_read_input_tokens ?? 0, cacheWrite: m.usage?.cache_creation_input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
+        }
+      }
+    } catch (e) {
+      // The turn limit ends the stream with an error after the result: expected, not a failure.
+      if (rec.subtype === null) rec.error = String(e?.code ?? e?.name ?? 'error');
+    }
+    rec.ms = Math.round(performance.now() - t0);
+    if (rec.called !== null) {
+      const hits = resolveName(candDocs, rec.called).hits.map((h) => h.id);
+      rec.hit = it.set === 'neg' ? false : hits.some((id) => it.gold.has(id)) || it.gold.has(rec.called);
+    } else rec.hit = false;
+    return rec;
+  };
+
+  for (const model of models) {
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const idx = next++;
+        if (idx >= items.length || stopped) return;
+        const it = items[idx];
+        // A and B for one prompt, one after the other, so a stop at the cap leaves whole pairs. Stop before a pair that could pass the cap.
+        const avg = callCosts.length ? callCosts.reduce((a, b) => a + b, 0) / callCosts.length : 0.05;
+        if (spent + 2 * avg * 1.5 * concurrency > cap) { stopped = true; return; }
+        for (const cond of ['A', ...conds.map((c) => c.name)]) {
+          if (cond !== 'A' && !noteOf(cond, it).text) {
+            // No note at this setting: condition B is the same request as A, so it reuses A's answer and costs nothing.
+            const a = results.findLast((r) => r.model === model && r.i === idx && r.cond === 'A');
+            if (a) results.push({ ...a, cond, cost: 0, reusedA: true });
+            continue;
+          }
+          const rec = await oneCall(model, cond, it, idx);
+          spent += rec.cost;
+          if (rec.cost > 0) callCosts.push(rec.cost);
+          results.push(rec);
+          if (spent >= cap) { stopped = true; break; }
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    console.log(`  ${model}: done (${results.filter((r) => r.model === model).length} records), spent so far ${round(spent)}${stopped ? ' (stopped at the cap)' : ''}`);
+    if (stopped) break;
+  }
+  rmSync(workDir, { recursive: true, force: true });
+
+  // ----- the numbers -----
+  const summary = {};
+  const f = (x) => (x === null || x === undefined ? 'n/a' : x.toFixed(3));
+  for (const model of models) {
+    summary[model] = {};
+    for (const cond of ['A', ...conds.map((c) => c.name)]) {
+      const rows = results.filter((r) => r.model === model && r.cond === cond);
+      const blk = {};
+      for (const set of ['A', 'B', 'neg']) {
+        const rs = rows.filter((r) => r.set === set);
+        blk[set] = {
+          n: rs.length, goldFirst: rs.filter((r) => r.hit).length, anySkill: rs.filter((r) => r.called !== null).length,
+          errors: rs.filter((r) => r.error).length, cost: round(rs.reduce((a, r) => a + r.cost, 0)),
+        };
+      }
+      summary[model][cond] = blk;
+    }
+    // Paired view over the prompts that have both answers (A against each other condition).
+    summary[model].pairs = {};
+    for (const c of conds) {
+      const pairs = { both: 0, aOnly: 0, bOnly: 0, neither: 0 };
+      for (const r of results.filter((x) => x.model === model && x.cond === 'A' && x.set !== 'neg')) {
+        const b = results.find((x) => x.model === model && x.cond === c.name && x.i === r.i);
+        if (!b) continue;
+        if (r.hit && b.hit) pairs.both++;
+        else if (r.hit) pairs.aOnly++;
+        else if (b.hit) pairs.bOnly++;
+        else pairs.neither++;
+      }
+      summary[model].pairs[c.name] = pairs;
+    }
+  }
+  console.log('outcome results (x of n = the first Skill call is the gold skill; false = a Skill call on a negative):');
+  for (const model of models) {
+    for (const cond of ['A', ...conds.map((c) => c.name)]) {
+      const b = summary[model][cond];
+      console.log(`  ${model} ${cond}: Set A ${b.A.goldFirst}/${b.A.n} (any skill call ${b.A.anySkill}), Set B ${b.B.goldFirst}/${b.B.n} (any ${b.B.anySkill}), negatives false calls ${b.neg.anySkill}/${b.neg.n}; errors ${b.A.errors + b.B.errors + b.neg.errors}; cost ${round(b.A.cost + b.B.cost + b.neg.cost)}`);
+    }
+    console.log(`  ${model} paired (A vs B on prompts with both): ${JSON.stringify(summary[model].pairs)}`);
+  }
+  console.log(`total cost ${round(spent)} of cap ${cap}; ${results.length} records; first record init: ${JSON.stringify(results.find((r) => r.init)?.init ?? null)}`);
+  const report = { cap, spent: round(spent), stopped, ranker: rankerName, k, summary, sampleSizes: { A: items.filter((i) => i.set === 'A').length, B: items.filter((i) => i.set === 'B').length, neg: items.filter((i) => i.set === 'neg').length }, conds, records: results.map((r) => ({ ...r })) };
+  mkdirSync(dirname(jsonTarget), { recursive: true });
+  writeFresh(jsonTarget, `${JSON.stringify(report, null, 2)}\n`);
+  console.log(`json written to ${jsonTarget}`);
+  void f;
+}
+
 // ---------- command line ----------
 
 function parseArgs(argv) {
@@ -857,6 +1100,7 @@ try {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
   if (cmd === 'build') build(opts);
   else if (cmd === 'score') await score(opts);
+  else if (cmd === 'outcome') await outcome(opts);
   else throw new FlagError(USAGE);
 } catch (err) {
   // Only our own fixed messages are printed. Anything else prints its error code, never its message.
