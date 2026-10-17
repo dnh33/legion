@@ -1,0 +1,14 @@
+This update installs by itself.
+
+Claude login uses your Claude plan
+If Claude Code on your computer was set up to pay per use from Anthropic API credits (a Claude Console sign-in, or an API key in your Claude Code settings), Legion could bill those credits even when you meant to use your Claude Pro or Max plan. When the credits ran out, runs failed with "credit balance is too low".
+
+Now Claude login means your Claude plan only. Legion switches off every API key Claude Code could pick up, and a run that would still bill API credits does not start. It tells you why and how to switch: run claude in a terminal, type /logout, then /login and choose your Claude account.
+
+If you pay with API credits on purpose, turn on Settings, Claude, Allow API credit billing.
+
+Also:
+- Help, Doctor now says which kind of login Legion uses, and flags a login that bills API credits.
+- A run that hits an empty credit balance explains the cause and the fix, under what Claude said.
+
+Full detail in CHANGELOG.md.
