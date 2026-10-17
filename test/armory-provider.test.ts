@@ -40,11 +40,14 @@ function tools(r: Awaited<ReturnType<typeof rig>>, agentId: string) {
 }
 
 describe('armory tools for provider agents', () => {
-  it('are served to a provider run only, never to a Claude run', async () => {
+  it('are served to a provider run only; a Claude run gets the search tool and nothing else', async () => {
     const r = await rig();
-    assert.deepEqual(r.mod.mcpServers!(r.agents.get('alpha')!, { taskId: 't', runtime: 'claude', taint: () => false } as ModuleJob), {});
-    assert.deepEqual(r.mod.mcpServers!(r.agents.get('alpha')!), {});
-    assert.deepEqual(tools(r, 'alpha').names, ['armory_skill', 'armory_skills']);
+    const claude = r.mod.mcpServers!(r.agents.get('alpha')!, { taskId: 't', runtime: 'claude', taint: () => false } as ModuleJob);
+    assert.deepEqual(Object.keys(claude), ['legion_armory']);
+    assert.deepEqual(Object.keys((claude.legion_armory as any).instance._registeredTools), ['armory_find']);
+    const provider = r.mod.mcpServers!(r.agents.get('alpha')!, { taskId: 't', runtime: 'provider', taint: () => false } as ModuleJob);
+    assert.deepEqual(Object.keys((provider.legion_armory as any).instance._registeredTools).sort(), ['armory_find', 'armory_skill', 'armory_skills']);
+    assert.deepEqual(tools(r, 'alpha').names, ['armory_find', 'armory_skill', 'armory_skills']);
   });
 
   it('list only what is on for this agent and has text: not manual, off, a built-in or another agent\'s skill', async () => {

@@ -16,7 +16,7 @@ import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentProfile } from '../../shared/types.js';
 import { agentSkillsAllow, armoryId, drillId } from '../../shared/skill-ids.js';
 import { HttpError } from '../server.js';
-import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
+import type { CoreModule, FinderWiring, ModuleDeps, ModuleJob, TurnContext, TurnNote } from '../modules.js';
 import { CONTEXT_DIRNAME } from '../house/context.js';
 import { listSkills } from '../house/skills.js';
 import { ArmoryInputError, buildSkillMd, prepareImport, reviewImport, sanitizeSkillMd } from './files.js';
@@ -30,8 +30,18 @@ import type { SdkProbe } from './handshake.js';
 import type { CatalogEntry } from './catalog.js';
 import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, updateArmoryFile, writeSkillFolder, STATES } from './store.js';
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch } from './finder/settings.js';
+import { buildIndex, scoreIndex } from './finder/bm25.js';
+import type { FinderIndex } from './finder/bm25.js';
+import { DEADLINE_MS, THRESHOLDS } from './finder/defaults.js';
+import { docFromEntry } from './finder/doc.js';
+import type { FinderDoc } from './finder/doc.js';
+import { buildNote, buildProviderNote } from './finder/note.js';
+import { rank } from './finder/rank.js';
+import { createUsageStore, skillIdOfLoad } from './finder/usage.js';
+import { oneLine } from '../kg/text.js';
 import type { SkillRecord, SkillState } from './store.js';
-import { ARMORY_SERVER_NAME, buildArmoryServer } from './tools.js';
+import { ARMORY_SERVER_NAME, buildArmoryServer, buildFindServer, providerSkills } from './tools.js';
+import type { FindFn, FindHit } from './tools.js';
 
 export { ARMORY_SERVER_NAME } from './tools.js';
 export { access, buildCatalog, loadTaints, refusedCommand } from './catalog.js';
@@ -74,6 +84,20 @@ export const SKILL_WARN_ABOVE = 40;
 export const MAX_BULK = 1000;
 
 const MAX_READ = 512_000;
+
+/**
+ * The ids a Claude run is given for one agent: on for it, delivered when the skill is the owner's own, and not hidden by an
+ * off `<plugin>:<same name>` skill. `claudeSkills` and the skill finder both use this, so the two lists cannot differ.
+ */
+export function onSkillIds(agent: AgentProfile, all: readonly CatalogEntry[], delivered: ReadonlySet<string>): string[] {
+  const owns = (e: CatalogEntry): boolean => e.source === 'yours' || e.source === 'imported';
+  // A bare id also matches `<plugin>:<same name>`: when such a skill is not on for this agent, the bare id stays out of the list.
+  const shadowsOff = (e: CatalogEntry): boolean => !e.id.includes(':') && all.some((o) => o.id.includes(':') && o.name === e.id && access(o, agent) !== 'on');
+  return all.filter((e) => access(e, agent) === 'on' && (!owns(e) || delivered.has(e.name)) && !shadowsOff(e)).map((e) => e.id);
+}
+
+const MIN_WORDS = 3;
+const MAX_FIND_DESCRIPTION = 200;
 
 export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): ArmoryModule {
   const log = opts.log ?? (() => undefined);
@@ -142,6 +166,49 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     if (list.length) log(`armory: ${list.length} file(s) in the Armory folder are not skills and are never given to an agent: ${list.slice(0, 8).join(', ')}`);
   };
 
+  // The finder's index, built from the catalog and kept as long as the catalog array is the same one. It covers every skill; a call
+  // drops the ones this agent may not use before it scores (the idf is counted over the whole set, which is fine for ranking).
+  let fx: { entries: CatalogEntry[]; docs: Map<string, FinderDoc>; ix: FinderIndex } | undefined;
+  const finderIndex = (): { docs: Map<string, FinderDoc>; ix: FinderIndex } => {
+    const entries = catalog();
+    if (!fx || fx.entries !== entries) {
+      const list = entries.map((e) => docFromEntry(e));
+      fx = { entries, docs: new Map(list.map((d) => [d.id, d] as const)), ix: buildIndex(list) };
+    }
+    return fx;
+  };
+  /** The ids the finder may name for this agent and runtime: the exact list the run is given. */
+  const candidateIds = (agent: AgentProfile, runtime: 'claude' | 'provider'): Set<string> => {
+    const all = catalog();
+    if (runtime === 'provider') return new Set(providerSkills(all, agent).map((e) => e.id));
+    const d = syncDelivery(deps.dataDir, new Set(all.filter((e) => owned(e) && !e.unsafeReason).map((e) => e.name)));
+    return new Set(onSkillIds(agent, all, d.delivered));
+  };
+  const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
+  let usage: ReturnType<typeof createUsageStore> | undefined;
+  const usageStore = () => (usage ??= createUsageStore(deps.dataDir));
+  // Per task: what was suggested and what was loaded, to count the ignored ones when the run ends.
+  const suggestedBy = new Map<string, Set<string>>();
+  const loadedBy = new Map<string, Set<string>>();
+
+  /** A search over the agent's own skill set. No score floor, up to 10 results. A third-party skill comes back without any description. */
+  const findFor = (agent: AgentProfile, runtime: 'claude' | 'provider'): FindFn => (query, limit): FindHit[] => {
+    const cand = candidateIds(agent, runtime);
+    const { docs, ix } = finderIndex();
+    const boost = usageStore().boostFor(agent.id);
+    const hits = scoreIndex({ ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) }, query);
+    return [...hits].map(([id, h]) => ({ id, score: h.score * boost(id) }))
+      .filter((h) => h.score > 0)
+      .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, limit)
+      .map(({ id, score }) => {
+        const doc = docs.get(id);
+        const thirdParty = !doc || doc.thirdParty;
+        const description = thirdParty || !doc ? '' : oneLine(doc.description).slice(0, MAX_FIND_DESCRIPTION).trimEnd();
+        return { id, score, thirdParty, ...(description ? { description } : {}) };
+      });
+  };
+
   const view = (e: CatalogEntry) => ({
     id: e.id, name: e.name, description: e.description, source: e.source,
     groupKind: groupKindOf(e), command: commandOf(e),
@@ -186,9 +253,57 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     catalog,
 
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
-      // Claude agents have the skills natively; only a provider run needs the tools.
-      if (job?.runtime !== 'provider') return {};
-      return { [ARMORY_SERVER_NAME]: buildArmoryServer(agent, job, catalog) };
+      const searchTool = finderSettings(agent).searchTool;
+      // A Claude agent has the skills natively: its server carries only the search. A provider run gets the list and load tools too.
+      if (job?.runtime !== 'provider') return searchTool ? { [ARMORY_SERVER_NAME]: buildFindServer(job, findFor(agent, 'claude')) } : {};
+      return { [ARMORY_SERVER_NAME]: buildArmoryServer(agent, job, catalog, searchTool ? findFor(agent, 'provider') : undefined) };
+    },
+
+    finderWiring(agent: AgentProfile): FinderWiring {
+      const f = finderSettings(agent);
+      return { suggest: f.suggest, subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank };
+    },
+
+    async turnNote(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined> {
+      const f = finderSettings(agent);
+      if (!f.suggest || (ctx.subagentType !== undefined && !f.subagents)) return undefined;
+      if (ctx.prompt.trim().split(/\s+/).filter(Boolean).length < MIN_WORDS) return undefined;
+      const cand = candidateIds(agent, ctx.runtime);
+      if (!cand.size) return undefined;
+      const { docs, ix } = finderIndex();
+      const { results } = rank({ ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) }, ctx.prompt, {
+        k: f.k, minScore: THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost: usageStore().boostFor(agent.id),
+      });
+      const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(results, docs);
+      if (!text) return undefined;
+      const suggested = results.map((r) => r.id);
+      usageStore().noteSuggested(agent.id, suggested);
+      const seen = suggestedBy.get(ctx.taskId) ?? new Set<string>();
+      for (const id of suggested) seen.add(id);
+      suggestedBy.set(ctx.taskId, seen);
+      return { text, suggested, why: results };
+    },
+
+    onToolUse(agentId: string, taskId: string, toolName: string, input?: unknown) {
+      const raw = skillIdOfLoad(toolName, input);
+      if (!raw) return;
+      const { hits, ambiguous } = resolveName(catalog(), raw);
+      if (ambiguous || hits.length !== 1) return;
+      const id = hits[0]!.id;
+      usageStore().noteLoaded(agentId, id);
+      const set = loadedBy.get(taskId) ?? new Set<string>();
+      set.add(id);
+      loadedBy.set(taskId, set);
+    },
+
+    onTaskEnd(task, agent) {
+      const sug = suggestedBy.get(task.id);
+      const loaded = loadedBy.get(task.id);
+      suggestedBy.delete(task.id);
+      loadedBy.delete(task.id);
+      if (!sug) return;
+      const passed = [...sug].filter((id) => !loaded?.has(id));
+      if (passed.length) usageStore().noteIgnored(agent.id, passed);
     },
 
     claudeSkills(agent: AgentProfile) {
@@ -196,11 +311,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       // What the SDK is given is built by Legion from the owned skills (sanitised, .md only), never the source folder itself.
       const d = syncDelivery(deps.dataDir, new Set(all.filter((e) => owned(e) && !e.unsafeReason).map((e) => e.name)));
       noteForeign(d.foreign);
-      // A bare id also matches `<plugin>:<same name>`: when such a skill is not on for this agent, the bare id stays out of the list.
-      const shadowsOff = (e: CatalogEntry): boolean => !e.id.includes(':') && all.some((o) => o.id.includes(':') && o.name === e.id && access(o, agent) !== 'on');
-      const skills = all
-        .filter((e) => access(e, agent) === 'on' && (!owned(e) || d.delivered.has(e.name)) && !shadowsOff(e))
-        .map((e) => e.id);
+      const skills = onSkillIds(agent, all, d.delivered);
       return { skills, plugins: d.delivered.size ? [d.root] : [] };
     },
 

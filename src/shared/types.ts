@@ -228,6 +228,14 @@ export interface BoatHealthView {
 export type TaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 export type TaskSource = 'ui' | 'mcp' | 'cli' | 'agent' | 'bot';
 
+/** One skill-finder note given to a run: what was suggested, what the agent then loaded, and why each skill ranked. */
+export interface SkillTurn {
+  at: string;
+  suggested: string[];
+  loaded: string[];
+  why: { id: string; score: number; matched: string[] }[];
+}
+
 export interface Task {
   id: string;
   agentId: string;
@@ -263,6 +271,8 @@ export interface Task {
   origin?: TaskOrigin;
   /** Sticky: a connector gateway call reached the connector in this task. Its tool rows, text and result are withheld from bearer-token callers and it cannot be continued from an MCP client. */
   usedConnectors?: boolean;
+  /** The skill finder's notes for this task, newest last (at most 50). */
+  skillTurns?: SkillTurn[];
   /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
   tainted?: boolean;
   /** Final assistant text of the latest run. */

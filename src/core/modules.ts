@@ -6,6 +6,7 @@ import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { AgentProfile, ApprovalMode, Task } from '../shared/types.js';
 import type { Handler } from './server.js';
+import type { Ranked } from './armory/finder/rank.js';
 
 export type RouteAdder = (method: string, pattern: string, handler: Handler, status?: number) => void;
 
@@ -51,6 +52,32 @@ export interface TaskEndOutcome {
   projectId?: string;
 }
 
+/** A short note a module hands the engine for one turn (the skill finder's list). The engine delivers it as hook context, never in the system prompt. */
+export interface TurnNote {
+  text: string;
+  /** The ids the note names, best first. */
+  suggested: string[];
+  why: Ranked[];
+}
+
+/** What the engine tells a module about one turn it may add a note to. */
+export interface TurnContext {
+  /** The text to rank: the task's own words, never the sender header of a bot message. */
+  prompt: string;
+  taskId: string;
+  runtime: 'claude' | 'provider';
+  /** Set for a subagent's start: its agent type. */
+  subagentType?: string;
+}
+
+/** The finder switches the engine needs to wire a run, as a module reports them for one agent. */
+export interface FinderWiring {
+  suggest: boolean;
+  subagents: boolean;
+  slimListing: boolean;
+  rerank: boolean;
+}
+
 export interface CoreModule {
   id: string;
   /**
@@ -78,6 +105,10 @@ export interface CoreModule {
    * `skills` array (omitted would mean "everything"), so a build with no module that answers gets `[]`.
    */
   claudeSkills?(agent: AgentProfile): { skills: string[]; plugins: string[] };
+  /** A note for one turn, or undefined. Never throws into the engine; the engine also bounds the wait. */
+  turnNote?(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined>;
+  /** Which finder hooks and settings this agent's run gets. The first module that answers decides; none means no finder. */
+  finderWiring?(agent: AgentProfile): FinderWiring;
   /** Whether the owner allowed skills to run inline shell commands (Armory switch). The engine blocks it unless some module says true. */
   skillShellAllowed?(): boolean;
   /** Whether loading the skill named `id` (the Skill tool's `input.skill`) taints the run. No module answering means yes. */
