@@ -4,7 +4,7 @@
  * Append-only JSON lines, one file per day (`<dataDir>/activity/<yyyy-mm-dd>.jsonl`), kept 30 days.
  *
  * It is a record the agents must not rewrite, so the module lists the folder as a protected path (file tools and the shell guard).
- * Lines never carry a secret: every text passes the log redactor (`redact`: `scrubSecrets` plus the exact values the core holds, plus URL
+ * Lines never carry a secret: every text first loses address userinfo, query strings and fragments and curl body flags (`scrubLine`), then passes the log redactor (`redact`: `scrubSecrets` plus the exact values the core holds, plus URL
  * query strings) and is cut at 400 characters. Writing never throws: a full or read-only disk loses the line, never the run.
  *
  * The "last used" record of an approved site is NOT kept here (this log forgets after 30 days): the web module keeps its own file.
@@ -43,7 +43,18 @@ const STATUS_MAX = 20_000;
 
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 /** Redacts first on a bounded head, then cuts: a token must never be cut in half and slip past the rules. */
-const clean = (s: unknown, n: number): string => clip(redact(String(s).slice(0, n * 5)), n);
+/** Curl-style flags whose argument is a request body or an uploaded file (separate or `=` attached, quoted or bare). Case matters: `-D` dumps headers, `-f` fails. */
+const BODY_FLAG = /(^|\s)(-[a-zA-Z]*[dFT]|--data(?:-raw|-binary|-urlencode|-ascii)?|--form(?:-string)?|--upload-file|--json)(?:=|\s+)("(?:\\.|[^"\\])*"|'[^']*'|\S+)/g;
+export const scrubShell = (s: string): string => s.replace(BODY_FLAG, (_m, pre: string, flag: string) => `${pre}${flag} <omitted>`);
+/** An address without its userinfo, query string and fragment. Text that is not an address comes back as it was. */
+export function scrubUrl(u: string): string {
+  try { const x = new URL(u); x.username = ''; x.password = ''; x.search = ''; x.hash = ''; return x.toString().replace(/\/$/, u.endsWith('/') ? '/' : ''); } catch { return u; }
+}
+const URL_IN_TEXT = /https?:\/\/\S+/gi;
+const TRAILING = /[.,;:!?)\]}>'"]+$/;
+/** Every address in a line is cut down to scheme, host and path, and curl body flags are dropped, before the log redactor runs. */
+export const scrubLine = (s: string): string => scrubShell(s).replace(URL_IN_TEXT, (m) => { const tail = TRAILING.exec(m)?.[0] ?? ''; return scrubUrl(m.slice(0, m.length - tail.length)) + tail; });
+const clean = (s: unknown, n: number): string => clip(redact(scrubLine(String(s).slice(0, n * 5))), n);
 const dayOf = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 const isKind = (k: unknown): k is ActivityKind => typeof k === 'string' && (ACTIVITY_KINDS as readonly string[]).includes(k);
 
