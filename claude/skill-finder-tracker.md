@@ -30,4 +30,8 @@ build every step P1-P9 (owner, 2026-10-17: "the FULL AND COMPLETE THING").
 | P9 review + live check + PR | not started | |
 
 ## Numbers (figures only; never paste prompts here)
-_none yet_
+Task 11 eval round (figures only; the full tables are in the SDD folder, task-11-report.md). Agent pool = the 104 switched-on skills.
+- Keyword, no floor meets the bars (false-note <= 0.15, note precision >= 0.50). Best false-note-bounded floor (20): Set A recall@3 0.052, Set B 0.000, precision 0.161, false-note 0.077.
+- Local model: the bars are met only at a note rate of about 1 percent (fused 0.95, weight 0.8, cosine floor 0.88): Set A 0.000, Set B 0.021, precision 0.667, false-note 0.010. Before tuning, with no cut: keyword 0.326 / 0.226, local 0.296 / 0.323.
+- Rerank margin 0.2 (small gain). Outcome eval, first Skill call is the gold skill: Haiku A 7/30 (Set A) and 2/30 (Set B), the same with the note; Sonnet 12/30 and 6/26, the same with the note. False Skill calls on negatives: Haiku 1/20, Sonnet not run (cap).
+- Defaults written: suggest 'auto' (on only with the local ranker and its model), slim listing stays off.
