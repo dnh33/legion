@@ -92,3 +92,8 @@ export function chooseTipLayout(a: Box, size: { w: number; h: number }, win: { w
   }
   return { mode: 'inline' };
 }
+
+/** The "What's new" button in Settings exists only when this version brings at least one tip. */
+export function hasTipsFor(version: string, releases: ReadonlyArray<{ version: string; tips: readonly unknown[] }>): boolean {
+  return !!version && releases.some((r) => r.version === version && r.tips.length > 0);
+}

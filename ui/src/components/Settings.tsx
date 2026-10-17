@@ -23,6 +23,8 @@ import { SpendingSection } from '../away/SpendingSection';
 import { AccessibilitySection } from '../a11y/AccessibilitySection';
 import { NAV, groupNav } from './settingsNav';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
+import { RELEASES } from '../whatsnew/releases';
+import { hasTipsFor } from '../whatsnew/tipsLogic';
 
 export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
@@ -823,7 +825,7 @@ function TipsRow({ version }: { version: string }) {
         <input type="checkbox" checked={enabled} onChange={(e) => setTipsEnabled(e.target.checked)} />
         <span><b>Show tips after updates</b><em>A few short notes about what changed, shown once when it is quiet. You can end them at any time.</em></span>
       </label>
-      <button type="button" className="btn sm" disabled={!version} onClick={() => { if (replayTips(version)) { toast('The tips show as you open each page.'); closeSettings(); } else toast('This version has no tips.'); }}>What's new</button>
+      {hasTipsFor(version, RELEASES) && <button type="button" className="btn sm" onClick={() => { if (replayTips(version)) { toast('The tips show as you open each page.'); closeSettings(); } }}>What's new</button>}
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { RELEASES, tipsFor } from '../ui/src/whatsnew/releases.js';
-import { decideStart, endTour, isIdle, nextTip, pickTip, placeTip, chooseTipLayout, startTour, tipDone } from '../ui/src/whatsnew/tipsLogic.js';
+import { decideStart, hasTipsFor, endTour, isIdle, nextTip, pickTip, placeTip, chooseTipLayout, startTour, tipDone } from '../ui/src/whatsnew/tipsLogic.js';
 import { markSeen, readEnabled, readSeen, writeEnabled } from '../ui/src/whatsnew/tipsStorage.js';
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
@@ -245,5 +245,18 @@ describe('layout: a floating tip never covers a control or the page heading', ()
   it('ignores empty obstacle boxes', () => {
     const l = chooseTipLayout(tabs, size, win, 'bottom', [{ left: 0, top: 0, w: 0, h: 0 }]);
     assert.equal(l.mode, 'float');
+  });
+});
+
+describe('the What is new button', () => {
+  it('shows only when this version brings at least one tip', () => {
+    const rel = [{ version: '1.0.0', tips: [{}] }, { version: '1.1.0', tips: [] }];
+    assert.equal(hasTipsFor('1.0.0', rel), true);
+    assert.equal(hasTipsFor('1.1.0', rel), false);
+    assert.equal(hasTipsFor('9.9.9', rel), false);
+    assert.equal(hasTipsFor('', rel), false);
+  });
+  it('Settings gates the button on it', () => {
+    assert.match(src('components/Settings.tsx'), /hasTipsFor\(version, RELEASES\)/);
   });
 });
