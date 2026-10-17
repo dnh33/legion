@@ -342,3 +342,112 @@ describe('finder eval: gold ids and the pool', () => {
     assert.match(r.out, /ghost-skill/);
   });
 });
+
+describe('finder eval: note precision, subsets, the agent pool and the sweep', () => {
+  const POOL = [
+    { id: 'acme:garden-planner', name: 'garden-planner', description: 'Plan a vegetable garden layout and sowing dates for spring.', source: 'claude-plugin' },
+    { id: 'widget-audit', name: 'widget-audit', description: 'Audit storefront product pages for missing alt text and broken links.' },
+    { id: 'ledger-reconcile', name: 'ledger-reconcile', description: 'Match bank payout lines against open invoices and flag mismatched totals.' },
+  ];
+  const GARDEN = 'Plan my vegetable garden layout and sowing dates';
+  const LEDGER = 'Match the payout lines against open invoices and flag mismatched totals';
+
+  function scoreJson(sb: Sandbox, rows: unknown[], extra: string[] = [], pool: unknown[] = POOL): { report: Record<string, any>; out: string } {
+    const catalog = join(sb.base, 'pool.json');
+    const set = join(sb.base, 'set.jsonl');
+    const jsonPath = join(sb.base, 'report.json');
+    writeFileSync(catalog, JSON.stringify(pool));
+    writeJsonl(set, rows);
+    const r = run(sb, ['score', '--set', set, '--catalog', catalog, '--min-score', '0.1', '--json', jsonPath, ...extra]);
+    assert.equal(r.status, 0, r.out);
+    return { report: JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>, out: r.out };
+  }
+
+  it('reports the note rate on positives and the note precision (a shown note holds the gold skill)', () => {
+    const sb = sandbox();
+    const { report } = scoreJson(sb, [
+      { prompt: GARDEN, skill: 'garden-planner', subset: 'implicit' },
+      { prompt: 'Audit the storefront product pages for broken links', skill: 'widget-audit', subset: 'implicit' },
+      { prompt: LEDGER, skill: 'widget-audit', subset: 'implicit' }, // a note is shown, but it holds the wrong skill
+      { prompt: 'zebra quartz nebula', skill: 'widget-audit', subset: 'implicit' }, // no note at all
+    ]);
+    assert.equal(report.set.cases, 4);
+    assert.equal(report.set.noteRate, 0.75);
+    assert.equal(report.set.notePrecision, 0.6667);
+    assert.equal(report.set.recall3, 0.5);
+  });
+
+  it('counts a hit on the alt skill of an ambiguous case, and reports Set B subsets', () => {
+    const sb = sandbox();
+    const { report } = scoreJson(sb, [
+      { prompt: GARDEN, skill: 'widget-audit', alt: 'garden-planner', subset: 'ambiguous' },
+      { prompt: GARDEN, skill: 'widget-audit', subset: 'longtail' },
+      { prompt: LEDGER, skill: 'ledger-reconcile', subset: 'long' },
+    ]);
+    assert.equal(report.set.ambiguous.cases, 1);
+    assert.equal(report.set.ambiguous.recall3, 1);
+    assert.equal(report.set.longtail.cases, 1);
+    assert.equal(report.set.longtail.recall3, 0);
+    assert.equal(report.set.long.recall3, 1);
+    assert.equal(report.set.cases, 3);
+  });
+
+  it('--pool on ranks only the switched-on skills and resolves gold ids among them', () => {
+    const sb = sandbox();
+    const pool = POOL.map((e) => (e.id === 'widget-audit' ? { ...e, state: 'off' } : e));
+    const { report } = scoreJson(sb, [
+      { prompt: GARDEN, skill: 'garden-planner', subset: 'implicit' },
+      { prompt: 'Audit the storefront product pages for broken links', skill: 'widget-audit', subset: 'implicit' },
+    ], ['--pool', 'on'], pool);
+    assert.equal(report.catalog.skills, 3);
+    assert.equal(report.catalog.ranked, 2);
+    assert.equal(report.set.cases, 1, 'a gold skill that is off is not covered');
+    assert.deepEqual(report.unresolved, ['widget-audit']);
+  });
+
+  it('scores several sets in one run, one block each, and the mean recall of the sets', () => {
+    const sb = sandbox();
+    const a = join(sb.base, 'setA.jsonl');
+    const b = join(sb.base, 'setB.jsonl');
+    writeJsonl(a, [{ prompt: GARDEN, skill: 'garden-planner', subset: 'implicit' }]);
+    writeJsonl(b, [{ prompt: GARDEN, skill: 'widget-audit', subset: 'longtail' }]);
+    const catalog = join(sb.base, 'pool.json');
+    writeFileSync(catalog, JSON.stringify(POOL));
+    const jsonPath = join(sb.base, 'two.json');
+    const r = run(sb, ['score', '--set', `${a},${b}`, '--catalog', catalog, '--min-score', '0.1', '--json', jsonPath]);
+    assert.equal(r.status, 0, r.out);
+    const report = JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>;
+    assert.deepEqual(Object.keys(report.sets), ['setA', 'setB']);
+    assert.equal(report.sets.setA.covered.recall3, 1);
+    assert.equal(report.sets.setB.covered.recall3, 0);
+    assert.equal(report.decisionStats.recall, 0.5);
+  });
+
+  it('--sweep walks the keyword floors, applies the bars and checks the best point on the real ranker', () => {
+    const sb = sandbox();
+    const neg = join(sb.base, 'negatives.jsonl');
+    writeJsonl(neg, [{ prompt: 'zebra quartz nebula' }, { prompt: 'Descale the kettle with citric acid' }]);
+    const { report, out } = scoreJson(sb, readRows(join(FIXTURES, 'cases.jsonl')), ['--sweep', '--negatives', neg], readFixtureSkills());
+    assert.equal(report.sweep.points, 20);
+    assert.ok(report.sweep.feasible > 0, 'the fixture must have a floor that meets the bars');
+    assert.equal(report.sweep.checked.identical, report.sweep.checked.prompts);
+    assert.match(out, /sweep: 20 points/);
+    // The best point is the one with the most recall among the points that meet both bars.
+    const ok = (report.sweep.all as Array<Record<string, number>>).filter((p) => p.falseNoteRate! <= 0.15 && p.precision! >= 0.5);
+    assert.equal(report.sweep.best.recall, Math.max(...ok.map((p) => p.recall!)));
+  });
+
+  it('refuses --ranker provider, an unknown ranker, --rerank without --sample, and takes no value for --sweep', () => {
+    const sb = sandbox();
+    const base = ['score', '--set', join(FIXTURES, 'cases.jsonl'), '--catalog', join(FIXTURES, 'skills.json')];
+    for (const extra of [['--ranker', 'provider'], ['--ranker', 'loud'], ['--rerank'], ['--pool', 'some']]) {
+      const r = run(sb, [...base, ...extra]);
+      assert.equal(r.status, 1, `${extra.join(' ')}: ${r.out}`);
+    }
+    assert.equal(run(sb, [...base, '--sweep']).status, 0);
+  });
+});
+
+function readFixtureSkills(): unknown[] {
+  return JSON.parse(readFileSync(join(FIXTURES, 'skills.json'), 'utf8')) as unknown[];
+}
