@@ -26,7 +26,7 @@ import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
-import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { MAX_READABLE, criticalDeleteRead, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
 import { isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
@@ -62,7 +62,7 @@ import { projectSection } from './projects/prompt.js';
 import { renderCapabilities } from './agent-facts.js';
 import { renderTeamwork } from './teamwork.js';
 import type { ProjectStore } from './projects/store.js';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { CARDED_CONNECTOR_WRITES } from './connectors/gateway.js';
 
 /** On Windows the agent shell and Git Bash read `/tmp` as the user's temp folder: gates check both spellings there. */
@@ -341,6 +341,8 @@ interface Active {
   shellMoved?: boolean;
   /** The folder(s) the run's Claude shell may be in after its last call, when the guard could follow them. */
   shellCwds?: string[];
+  /** The folder Claude's shell is in after its last call, as the project-folder delete check followed it (null: lost; absent: still where the run started). */
+  critCwd?: string | null;
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
   projectAtStart?: string;
   /** For an outside helper's run: the project it helps (its cap and deny rules bind the run although the run is not in it). */
@@ -1441,6 +1443,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
       if (opts.card === false) return undefined;
+      // the project folder or a folder above it: a card in every mode but Full, a refusal in Full (read from the folder the shell is in)
+      const critical = this.criticalDeleteTarget(job, agent, toolName, input, command, kind);
+      if (critical) return this.criticalDeleteDecision(job, agent, toolName, input, command, critical);
       // Legion's own data folder: a command that changes it (or may, by a path built at run time) needs the owner's card in every mode but Full
       // (Task 17 folds this into the askGuards pipeline)
       const folderCard = this.dataFolderCard(job, agent, toolName, input, command, kind);
@@ -1468,6 +1473,46 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (allowed) return { allow: true };
       const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
       return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
+    });
+  }
+
+  /**
+   * What a command deletes that holds the run's project: the project folder, the working folder, a folder above either, a glob
+   * directly under one, or the home folder (Claude Code's critical paths). Read from the folder the shell is in: Claude's shell
+   * keeps its folder between calls, so the folder a `cd` moved to is where the NEXT command is read; Legion's host shell takes one per call.
+   */
+  private criticalDeleteTarget(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): string | undefined {
+    const keeps = !toolName.startsWith('mcp__host__');
+    const act = this.active.get(job.taskId);
+    const start = this.gateCwd(agent, toolName, input);
+    const folder = this.projectOf(job.taskId, agent.id)?.folder;
+    const carried = keeps && act ? act.critCwd : undefined;
+    let r: ReturnType<typeof criticalDeleteRead>;
+    try {
+      r = criticalDeleteRead(command, kind, { cwd: carried === undefined ? start : carried ?? undefined, roots: folder ? [folder] : [], home: homedir() });
+    } catch (e) { if (keeps && act) act.critCwd = null; throw e; }
+    if (keeps && act) act.critCwd = r.cwd ?? null;
+    return r.reason ? (r.target ?? 'the project folder') : undefined;
+  }
+
+  /** The card (every mode but Full) or the refusal (Full, or a ceiling that lifts nothing) for a delete of what holds the project. A ceiling never loosens it. */
+  private criticalDeleteDecision(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, target: string): Promise<{ allow: boolean; message?: string }> {
+    const mode = this.modeNow(job, agent);
+    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
+      return Promise.resolve({ allow: false, message: `Not run: this command deletes ${target}, which holds the project. With full access such a command is refused rather than asked about. If it really must go, tell the user and let them delete it.` });
+    }
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary: `This command deletes ${target}, which holds your project.\n${shown}\nYou are asked in every approval mode. Allow it only if you mean to delete it.`,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (it deletes ${target}). ${stop}` : `The user has not approved this command (it deletes ${target}). ${stop}` };
     });
   }
 

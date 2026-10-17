@@ -721,6 +721,12 @@ class Stage {
     for (let j = i + 1; j < this.ws.length && out.length < 4; j++) { const w = this.ws[j]!; if (!w.startsWith('-') && !(slashOptions && this.sw[j])) out.push(w); }
     return out;
   }
+  /** Every plain word after word i (no options), up to the end of the stage. */
+  targetsAfter(i: number, slashOptions: boolean): string[] {
+    const out: string[] = [];
+    for (let j = i + 1; j < this.ws.length; j++) { const w = this.ws[j]!; if (!w.startsWith('-') && !(slashOptions && this.sw[j])) out.push(w); }
+    return out;
+  }
   has(pred: (w: string) => boolean, from = 0): boolean { for (let j = from; j < this.ws.length; j++) if (pred(this.ws[j]!)) return true; return false; }
   /** Whether this stage RUNS a delete: at a command position, or inside a script block, ForEach-Object or xargs. */
   runsDelete(): boolean {
@@ -1146,4 +1152,149 @@ function psStage(stage: string, all: string, depth: number): string | undefined 
     if (inner) return inner;
   }
   return undefined;
+}
+
+/* ---------- the project folder and the folders above it ---------- */
+
+/**
+ * Where a command runs. `cwd`: the folder the shell is in (absent: not known). `roots`: the project's folders. `extras`: further
+ * working folders, of which only a glob directly under one counts, not the folder itself. `home`: the person's home folder.
+ */
+export interface CriticalWhere { cwd?: string; roots: string[]; extras?: string[]; home: string }
+/** What reading a command found: why it is critical (`reason`, and `target` for a card), and the folder the shell is in after it (absent: lost). */
+export interface CriticalRead { reason?: string; target?: string; cwd?: string }
+
+/** A path in the one form paths are compared in: lower case, forward slashes, Git Bash /d/x as d:/x, dots folded, no trailing slash. */
+function plainPath(p: string): string {
+  let t = windowsPath(p.toLowerCase()).replace(/\\/g, '/').replace(/(?!^)\/{2,}/g, '/');
+  const drive = /^\/(?:cygdrive\/|mnt\/)?([a-z])(\/.*)?$/.exec(t);
+  if (drive) t = `${drive[1]}:${drive[2] ?? ''}`;
+  return collapseDots(t);
+}
+
+/** Only dots and slashes: `.`, `..`, `./`, `../..`, or nothing in front of a glob. These name "here" or "above here" whatever folder here is. */
+const HERE_ONLY = /^(?:\.{1,2}(?:[\\/]+\.{1,2})*)?[\\/]*$/;
+const HOME_WORD = /^(?:~|\$home|\$\{home\}|%userprofile%|\$env:userprofile)(?=[\\/]|$)(.*)$/;
+
+/** The folder a delete word names: its plain path (and whether it is a glob over that folder's contents), 'unknown-here' for a relative word with no known folder, undefined for a word to skip. */
+function criticalTarget(word: string, cwd: string | undefined, home: string): { path: string; glob: boolean } | 'unknown-here' | undefined {
+  let w = word.split(ESCAPED_SPACE).join(' ').replace(/^-(?:literal)?path:/, '').replace(/^[\\/]{2}[?.][\\/]/, '');
+  const h = HOME_WORD.exec(w);
+  if (h) { if (!home) return undefined; w = home.replace(/[\\/]+$/, '') + h[1]!; }
+  // a path built when the command runs is the unjudgeable rule's business, not this one's
+  else if (/[$`%{]/.test(w)) return undefined;
+  if (!w) return undefined;
+  const g = /^(?:(.*)[\\/])?(\*|\.\*|\*\.\*)$/.exec(w);
+  const base = g ? (g[1] ?? '.') : w;
+  if (/^(?:[a-z]:|[\\/])/i.test(base) || (g && g[1] === '')) return { path: plainPath(base === '' ? '/' : base), glob: !!g };
+  if (cwd === undefined) return HERE_ONLY.test(base) ? 'unknown-here' : undefined;
+  return { path: plainPath(`${cwd}/${base}`), glob: !!g };
+}
+
+/** A folder's parents as written (D:\work\app: D:\work, D:\), in the separator the folder was written with. */
+function parentsOf(shown: string): string[] {
+  const sep = shown.includes('\\') ? '\\' : '/';
+  const segs = shown.split(/[\\/]+/).filter(Boolean);
+  const lead = /^[\\/]/.test(shown) ? sep : '';
+  const out: string[] = [];
+  for (let k = segs.length - 1; k >= 0; k--) {
+    const head = segs.slice(0, k).join(sep);
+    out.push(k === 0 ? lead : /^[a-z]:$/i.test(head) ? head + sep : lead + head);
+  }
+  return out.filter(Boolean);
+}
+
+/** The folder the shell is in after a cd (or pushd), or undefined when it cannot be followed. */
+function movedTo(target: string | undefined, cwd: string | undefined, home: string, shell: ShellKind): string | undefined {
+  if (target === undefined) return shell === 'sh' && home ? plainPath(home) : cwd;
+  if (target === '-') return undefined;
+  const t = criticalTarget(target, cwd, home);
+  return t && t !== 'unknown-here' && !t.glob ? t.path : undefined;
+}
+
+/**
+ * Reads a command for a delete of the project folder or a folder above it (see criticalDelete). Same readers as the refusal:
+ * segments, stages, delete verbs at command positions, the text of a shell's -c. It follows `cd` through the line and hands back
+ * the folder the shell is in afterwards, so the next call of a shell that keeps its folder is read from there.
+ */
+export function criticalDeleteRead(raw: string, shell: ShellKind, where: CriticalWhere, depth = 0): CriticalRead {
+  const cmd = unglue(ansiC(prepare(raw, shell)));
+  const text = shell === 'sh' && /\\ /.test(cmd) ? cmd.replace(/\\ /g, ESCAPED_SPACE) : cmd;
+  const home = where.home;
+  const homeNorm = home ? plainPath(home) : '';
+  // the folders that matter, as written (for the message) and compared (lower case)
+  const selves = new Map<string, { shown: string; what: string }>();
+  for (const r of where.roots) if (r) selves.set(plainPath(r), { shown: r, what: 'the project folder' });
+  if (where.cwd && !selves.has(plainPath(where.cwd))) selves.set(plainPath(where.cwd), { shown: where.cwd, what: 'the working folder' });
+  const parents = new Map<string, string>();
+  for (const { shown } of selves.values()) for (const p of parentsOf(shown)) if (!selves.has(plainPath(p))) parents.set(plainPath(p), p);
+  const extras = new Map<string, string>();
+  for (const e of where.extras ?? []) if (e) extras.set(plainPath(e), e);
+
+  const judge = (word: string, cwd: string | undefined): { target: string; reason: string } | undefined => {
+    const t = criticalTarget(word, cwd, home);
+    if (!t) return undefined;
+    if (t === 'unknown-here') return { target: 'the folder the shell is in', reason: 'it deletes the folder the shell is in, which may be the project folder' };
+    const here = selves.get(t.path);
+    const parent = parents.get(t.path);
+    if (t.glob) {
+      const shown = here?.shown ?? parent ?? extras.get(t.path);
+      if (shown) return { target: `everything in ${shown}`, reason: `it deletes everything in ${shown}${here || parent ? ', which holds the project' : ''}` };
+    } else if (here) return { target: `${here.what} ${here.shown}`, reason: `it deletes ${here.what} ${here.shown}` };
+    else if (parent) return { target: parent, reason: `it deletes ${parent}, a folder that holds the project` };
+    // the home folder, also by its 8.3 short name (C:\Users\DANIEL~1)
+    const short = /^[a-z]:\/users\/[^/]{1,6}~\d+$/.test(t.path) && /^[a-z]:\/users\//.test(homeNorm);
+    if (t.path === homeNorm || short) return { target: t.glob ? 'everything in your home folder' : 'your home folder', reason: `it deletes ${t.glob ? 'everything in ' : ''}your home folder` };
+    return undefined;
+  };
+
+  let cwd = where.cwd;
+  let found: { target: string; reason: string } | undefined;
+  const slashFor = (st: Stage, i: number): boolean => shell !== 'sh' && CMD_SWITCH_VERBS.has(program(st.ws[i]!));
+  for (const segment of splitOutside(text, SEGMENTS, shell)) {
+    for (const stage of splitOutside(segment, PIPE, shell)) {
+      const st = new Stage(argWords(stage, shell));
+      const c = st.at(CD_VERBS)[0];
+      if (c !== undefined) { cwd = movedTo(st.targetsAfter(c, slashFor(st, c))[0], cwd, home, shell); continue; }
+      if (st.at(new Set(['popd'])).length) { cwd = undefined; continue; }
+      for (const i of st.at(DELETE_VERBS)) for (const w of st.targetsAfter(i, slashFor(st, i))) found ??= judge(w, cwd);
+      // find with -delete (or -exec rm) and nothing narrowing it: its start paths are what it deletes
+      const deletes = st.has((w) => w === '-delete') || st.ws.some((w, k) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(st.ws[k + 1] ?? '')));
+      if (deletes && !st.has((w) => FIND_FILTERS.has(w))) {
+        for (const i of st.at(new Set(['find']))) {
+          const starts = st.ws.slice(i + 1).findIndex((w) => /^[-!(]/.test(w));
+          for (const w of st.ws.slice(i + 1, starts < 0 ? undefined : i + 1 + starts)) found ??= judge(w, cwd);
+        }
+      }
+      // robocopy /MIR or /PURGE: the destination loses what the source does not have
+      if (st.has((w) => w === '/mir' || w === '/purge')) for (const i of st.at(new Set(['robocopy']))) { const dest = st.targetsAfter(i, true)[1]; if (dest) found ??= judge(dest, cwd); }
+      if (depth < 2) {
+        // a shell's -c text is a command of its own, in its shell, read from where the line has got to
+        const pos = commandPositions(st.ws);
+        for (const [n, i] of pos.entries()) {
+          if (!/\s/.test(st.ws[i]!)) continue;
+          const inner = criticalDeleteRead(st.ws[i]!, shellOf(n > 0 ? program(st.ws[pos[n - 1]!]!) : '', shell), { ...where, cwd }, depth + 1);
+          if (inner.reason) found ??= { target: inner.target ?? '', reason: inner.reason };
+        }
+      }
+      if (found) return { reason: found.reason, target: found.target, ...(cwd ? { cwd } : {}) };
+    }
+  }
+  if (depth < 2) for (const t of new Set(substitutions(text, shell))) {
+    const inner = criticalDeleteRead(t, shell, { ...where, cwd }, depth + 1);
+    if (inner.reason) return { reason: inner.reason, ...(inner.target ? { target: inner.target } : {}), ...(cwd ? { cwd } : {}) };
+  }
+  // a cd inside a subshell does not move the shell that runs the next call: not followed, so the folder is lost
+  if (/\(\s*(?:cd|chdir|pushd|set-location|sl)\b/i.test(text)) cwd = undefined;
+  return cwd ? { cwd } : {};
+}
+
+/**
+ * Why a command deletes the project folder or a folder above it, else undefined (Claude Code's critical paths: the working
+ * folder and its parents, and a glob directly under a working folder; the home folder and its 8.3 name). Pure, no I/O. The
+ * card or the refusal around it is the engine's. Targets beyond this reading (a path built at run time, a delete whose
+ * target arrives on stdin, a script file) are the unjudgeable rule's business or a known limit of reading text.
+ */
+export function criticalDelete(cmd: string, shell: ShellKind, where: CriticalWhere): string | undefined {
+  return criticalDeleteRead(cmd, shell, where).reason;
 }
