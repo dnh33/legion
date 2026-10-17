@@ -1261,17 +1261,29 @@ const builtWord = (w: string, shell: ShellKind): boolean =>
   /[$`]/.test(w) || /%[^%\s]+%/.test(w) || (shell === 'cmd' && /![^!\s]+!/.test(w)) || w.startsWith('~') || w.startsWith('(') || (shell !== 'sh' && /[{}]/.test(w));
 /** A line that sets the home folder's variable: then ~ and $HOME are not the home. */
 const SETS_HOME = /(?:^|[\s;&|(])(?:export\s+|set\s+"?)?(?:home|userprofile)=|\$(?:env:)?(?:home|userprofile)\s*=/i;
+/** A line that sets the shell's folder variables: then $PWD is not the folder the shell is in, and `cd -` goes where OLDPWD was set to. */
+const SETS_CWD = /(?:^|[\s;&|(])(?:export\s+|set\s+"?)?(?:pwd|oldpwd|cd)=|\$(?:env:)?(?:pwd|oldpwd)\s*=/i;
+/** A line that redefines cd (a function, an alias, doskey; the data-folder guard's pattern): a cd then does whatever it was made to do. */
+const NAV_NAMES = '(?:cd|chdir|pushd|popd|set-location|sl|push-location|pop-location)';
+const REDEFINES_CD = new RegExp(`(?:^|[\\s;&|(){}])(?:function\\s+${NAV_NAMES}\\b|${NAV_NAMES}\\s*\\(\\s*\\)|alias\\s+${NAV_NAMES}=|(?:set-alias|sal|new-alias|nal)\\s+(?:-name\\s+)?${NAV_NAMES}\\b|doskey\\s+${NAV_NAMES}=)`, 'i');
+/** A path written as an option's value: -Path:x and -LiteralPath:x anywhere; in PowerShell any -Name:value (-Pa:, -LP:, -PSPath:), except $true and $false. */
+function colonValue(a: Arg, shell: ShellKind): { w: string; raw: string } | undefined {
+  const m = (shell === 'pwsh' ? /^-[a-z]+:/ : /^-(?:literal)?path:/).exec(a.w);
+  if (!m) return undefined;
+  const w = a.w.slice(m[0].length);
+  return w && !/^\$(?:true|false)$/.test(w) ? { w, raw: a.raw.slice(Math.max(0, a.raw.indexOf(':') + 1)) } : undefined;
+}
 
 /** Where a word points: an absolute path as parts; relative parts when no folder is known; 'here' (dots only, or ..) with no folder; 'could' when reading cannot say. */
 type Resolved = { segs: string[] } | { rel: string[] } | 'here' | 'could';
-function resolveWord(word: string, raw: string, shell: ShellKind, cwd: string | undefined, home: string, homeSet: boolean): Resolved {
+function resolveWord(word: string, raw: string, shell: ShellKind, cwd: string | undefined, home: string, homeSet: boolean, cwdSet = false): Resolved {
   let w = word.split(ESCAPED_SPACE).join(' ');
   const here = CWD_WORD.exec(raw.split(ESCAPED_SPACE).join(' ')) ?? CWD_WORD.exec(w);
-  if (here) { if (cwd === undefined) return 'here'; w = cwd + here[1]!; }
+  if (here) { if (cwdSet) return 'could'; if (cwd === undefined) return 'here'; w = cwd + here[1]!; }
   else {
     const h = HOME_WORD.exec(w);
     if (h) { if (!home || homeSet) return 'could'; w = (home.replace(/[\\/]+$/, '') + h[1]!).toLowerCase(); }
-    else if (builtWord(w, shell)) return 'could';
+    else if (builtWord(w, shell) || /\(/.test(raw) || /\)./.test(raw)) return 'could';
   }
   // device paths: \\?\D:\x and \\.\D:\x are D:\x, \\?\UNC\host\share is \\host\share; a volume GUID or anything else cannot be placed
   const dev = /^[\\/]{2}[?.][\\/](.*)$/.exec(w);
@@ -1305,11 +1317,12 @@ function relativeCouldReach(rel: readonly string[], selves: ReadonlyArray<readon
 /** A target of a delete: the word (cleaned) and as written (for $(pwd) and (Get-Location) forms). */
 interface Word { w: string; raw: string }
 /** The words after word i that a delete or cd takes as paths: no options, except PowerShell's -Path:x and -LiteralPath:x (the value is the path). */
-function pathWords(args: readonly Arg[], i: number, slashOptions: boolean): Word[] {
+function pathWords(args: readonly Arg[], i: number, slashOptions: boolean, shell: ShellKind): Word[] {
   const out: Word[] = [];
   for (let j = i + 1; j < args.length; j++) {
     const a = args[j]!;
-    if (/^-(?:literal)?path:/.test(a.w)) { out.push({ w: a.w.replace(/^-(?:literal)?path:/, ''), raw: a.raw.replace(/^-(?:literal)?path:/, '') }); continue; }
+    const v = colonValue(a, shell);
+    if (v) { out.push(v); continue; }
     if (a.w.startsWith('-') || (slashOptions && a.sw) || !a.w) continue;
     out.push({ w: a.w, raw: a.raw });
   }
@@ -1322,7 +1335,8 @@ function cdWord(args: readonly Arg[], i: number, shell: ShellKind): Word | 'none
     const a = args[j]!;
     const w = a.w;
     if (!w || (shell !== 'sh' && w === '/d')) continue;
-    if (/^-(?:literal)?path:/.test(w)) return { w: w.replace(/^-(?:literal)?path:/, ''), raw: a.raw.replace(/^-(?:literal)?path:/, '') };
+    const v = colonValue(a, shell);
+    if (v) return v;
     if (w === '-path' || w === '-literalpath') { const n = args[j + 1]; return n ? { w: n.w, raw: n.raw } : 'lost'; }
     if (w === '-') return { w, raw: w };
     if (w === '--') { const n = args[j + 1]; return n ? { w: n.w, raw: n.raw } : 'none'; }
@@ -1377,6 +1391,8 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
   const text = shell === 'sh' && /\\ /.test(cmd) ? cmd.replace(/\\ /g, ESCAPED_SPACE) : cmd;
   const home = where.home;
   const homeSet = SETS_HOME.test(text);
+  const cwdSet = SETS_CWD.test(text);
+  const redefined = REDEFINES_CD.test(text);
   const known = [...where.roots, ...(where.cwd ? [where.cwd] : []), ...(home ? [home] : []), ...(where.extras ?? [])].filter(Boolean);
   const show = (segs: readonly string[]) => shownAs(joinSegs(segs), known);
   const roots = where.roots.filter(Boolean).map((r) => segsOf(plainPath(r)));
@@ -1435,14 +1451,14 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
       }
     }
     if (cands === undefined) {
-      const res = resolveWord(word, rawWord, shell, undefined, home, homeSet);
+      const res = resolveWord(word, rawWord, shell, undefined, home, homeSet, cwdSet);
       if (res === 'could') return could(word);
       if (res === 'here') return unknownHere;
       if ('rel' in res) return relativeCouldReach(res.rel, [...roots, ...(homeSegs ? [homeSegs] : [])]) ? unknownHere : undefined;
       return judgeAbs(res.segs, undefined, word);
     }
     for (const c of cands) {
-      const res = resolveWord(word, rawWord, shell, c.p, home, homeSet);
+      const res = resolveWord(word, rawWord, shell, c.p, home, homeSet, cwdSet);
       if (res === 'could' || res === 'here') return could(word);
       if ('segs' in res) { const h = judgeAbs(res.segs, c.base, word); if (h) return h; }
     }
@@ -1450,7 +1466,7 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
   };
   /** The folder a cd word moves a candidate to (plain), or undefined when it cannot be followed. */
   const cdTo = (word: Word, cwd: string | undefined): string | undefined => {
-    const res = resolveWord(word.w, word.raw, shell, cwd, home, homeSet);
+    const res = resolveWord(word.w, word.raw, shell, cwd, home, homeSet, cwdSet);
     if (typeof res === 'string' || !('segs' in res) || res.segs.some((s) => GLOB_SEG.test(s))) return undefined;
     return joinSegs(res.segs);
   };
@@ -1460,12 +1476,18 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
   let before: Cand[] | undefined | null = null;
   const stack: Array<Cand[] | undefined> = [];
   // a cd replaces the folder only when the next command runs only if it worked (`cd x && …`) and nothing on the line can skip
-  // it or undo it (a `||`, a subshell); otherwise the folder before stays a candidate
-  const unsure = /\|\|/.test(maskQuotes(text, shell)) || /\(\s*(?:cd|chdir|pushd|set-location|sl|push-location)\b/i.test(text) || /\bcdpath=/i.test(text);
+  // it (a `||`); otherwise the folder before stays a candidate. A subshell's folder ends at its `)`: the folders before it come back
+  const unsure = /\|\|/.test(maskQuotes(text, shell)) || /\bcdpath=/i.test(text);
+  const subshells: Array<Cand[] | undefined> = [];
   const slashFor = (args: readonly Arg[], i: number): boolean => shell !== 'sh' && CMD_SWITCH_VERBS.has(program(args[i]!.w));
   const inner = (t: string, k: ShellKind) => { const r = readCritical(t, k, where, cands, depth + 1, history); if (r.hit) hit ??= r.hit; };
 
   for (const { part: segment, sep } of splitKeepingSeps(text, SEGMENTS, shell)) {
+    // brackets that open a subshell or group here (not $( or a call's), and how many of this segment's `)` close one
+    const masked = maskQuotes(segment, shell);
+    const opens = (masked.match(/(?:^|[\s;&|])\(/g) ?? []).length;
+    const closes = (masked.match(/\)/g) ?? []).length - ((masked.match(/\(/g) ?? []).length - opens);
+    for (let k = 0; k < opens; k++) subshells.push(cands);
     const stageTexts = splitOutside(segment, PIPE, shell);
     const stages = stageTexts.map((t) => argWords(t, shell));
     for (const [s, args] of stages.entries()) {
@@ -1480,17 +1502,21 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
         if (pop !== undefined) next = union(cands, stack.pop());
         else {
           if (['pushd', 'push-location'].includes(program(ws[c!]!))) stack.push(cands);
-          const word = /\bcdpath=/i.test(text) ? 'lost' : cdWord(args, c!, shell);
+          // CDPATH or a redefined cd: where it goes is not read
+          const word = /\bcdpath=/i.test(text) || redefined ? 'lost' : cdWord(args, c!, shell);
+          const toHome = home && !homeSet ? cands?.map((x) => ({ ...x, p: plainPath(home) })) : undefined;
           if (word === 'lost') next = undefined;
-          else if (word === 'none') next = shell === 'cmd' ? cands : shell === 'sh' ? (home ? cands?.map((x) => ({ ...x, p: plainPath(home) })) : undefined) : union(cands, cands?.map((x) => ({ ...x, p: plainPath(home) })));
-          else if (word.w === '-') next = before === null ? (history ? cands : undefined) : before;
+          else if (word === 'none') next = shell === 'cmd' ? cands : shell === 'sh' ? toHome : union(cands, toHome);
+          else if (word.w === '-') next = cwdSet ? undefined : before === null ? (history ? cands : undefined) : before;
           else if (cands === undefined) { const to = cdTo(word, undefined); next = to ? [{ p: to }] : undefined; }
           else {
             const moves = cands.map((x) => { const to = cdTo(word, x.p); return to ? { ...x, p: to } : undefined; });
             next = moves.every(Boolean) ? (moves as Cand[]) : undefined;
           }
         }
-        const sure = sep === '&&' && !unsure && stages.length === 1 && pop === undefined;
+        // cmd's cd to another drive without /d sets that drive's folder but stays where it is
+        const crossDrive = shell === 'cmd' && c !== undefined && !args.some((a) => a.w === '/d') && !!next?.some((n, k) => cands?.[k] && n.p.slice(0, 2) !== cands[k]!.p.slice(0, 2));
+        const sure = sep === '&&' && !unsure && !crossDrive && stages.length === 1 && pop === undefined;
         before = cands;
         cands = next === undefined ? undefined : sure ? next : union(cands, next);
         moved = next?.[next.length - 1]?.p;
@@ -1505,7 +1531,7 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
         if (k < ws.length && CRIT_DELETE_VERBS.has(program(ws[k]!))) verbs.push(k);
       }
       for (const i of verbs) {
-        const targets = pathWords(args, i, slashFor(args, i));
+        const targets = pathWords(args, i, slashFor(args, i), shell);
         for (const t of targets) hit ??= judge(t.w, t.raw);
         // PowerShell: a delete with no path deletes what the command before the pipe hands it
         if (!targets.length && s > 0 && (shell === 'pwsh' || program(ws[i]!) === 'remove-item' || program(ws[i]!) === 'ri') && PS_PIPE_DELETES.has(program(ws[i]!))) hit ??= piped(stages[s - 1]!);
@@ -1527,7 +1553,7 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
         }
       }
       // robocopy /MIR or /PURGE: the destination loses what the source does not have
-      if (st.has((w) => w === '/mir' || w === '/purge')) for (const i of st.at(new Set(['robocopy']))) { const dest = pathWords(args, i, true)[1]; if (dest) hit ??= judge(dest.w, dest.raw); }
+      if (st.has((w) => w === '/mir' || w === '/purge')) for (const i of st.at(new Set(['robocopy']))) { const dest = pathWords(args, i, true, shell)[1]; if (dest) hit ??= judge(dest.w, dest.raw); }
       if (depth < 2) {
         // a shell's -c text (bash -lc, sh -ic and other clusters with c; PowerShell's -Command and its short forms; cmd /c /k /r) is a command of its own
         const pos = commandPositions(ws);
@@ -1539,8 +1565,12 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
         }
       }
     }
+    // a subshell ends: the shell may be back where it was before it (PowerShell and cmd brackets do not scope: the union keeps both)
+    for (let k = 0; k < closes && subshells.length; k++) cands = union(subshells.pop(), cands);
   }
   if (depth < 2) for (const t of new Set(substitutions(text, shell))) inner(t, shell);
+  // a redefined cd stays redefined in a shell that keeps its state: the folder is not known after this line
+  if (redefined) cands = undefined;
   return { ...(hit ? { hit } : {}), ...(cands ? { cands } : {}), ...(moved ? { moved } : {}) };
 
   /** What a pipeline hands Remove-Item: what Get-ChildItem lists (a glob over its folder), what Get-Item names, else not known. */
@@ -1548,14 +1578,15 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
     const st = new Stage([...prev]);
     const list = st.at(LIST_VERBS)[0];
     const item = st.at(GET_ITEM)[0];
-    if (item !== undefined) { const ps = pathWords(prev, item, false); return ps.length ? ps.map((p) => judge(p.w, p.raw)).find(Boolean) : judge('.', '.'); }
+    if (item !== undefined) { const ps = pathWords(prev, item, false, shell); return ps.length ? ps.map((p) => judge(p.w, p.raw)).find(Boolean) : judge('.', '.'); }
     if (list === undefined) return could('what the command before the pipe hands it');
     const paths: Word[] = [];
     let filter: string | undefined;
     for (let j = list + 1; j < prev.length; j++) {
       const w = prev[j]!.w;
       if (!w) continue;
-      if (/^-(?:literal)?path:/.test(w)) { paths.push({ w: w.replace(/^-(?:literal)?path:/, ''), raw: prev[j]!.raw.replace(/^-(?:literal)?path:/, '') }); continue; }
+      const v = colonValue(prev[j]!, shell);
+      if (v) { paths.push(v); continue; }
       if (w === '-path' || w === '-literalpath') { const n = prev[++j]; if (n) paths.push({ w: n.w, raw: n.raw }); continue; }
       if (w === '-filter' || w === '-include') { filter = prev[++j]?.w; continue; }
       if (GCI_VALUES.has(w)) { j++; continue; }

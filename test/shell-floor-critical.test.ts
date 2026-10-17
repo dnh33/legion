@@ -258,6 +258,15 @@ test('the ruling\'s minor items: package runners (M-3), cd.. (M-4), comma lists,
   assert.match(r.reason ?? '', /D:\\Work\\App/, 'the project folder as the owner wrote it');
 });
 
+test('fix round 1 review: expressions, -Name:value forms, folder variables set on the line, a redefined cd, cmd cd to another drive', () => {
+  for (const c of ['Remove-Item (Get-Item .).Parent -Recurse', 'Remove-Item @(gci) -Recurse -Force', 'Remove-Item (gci) -Recurse', 'Remove-Item -Pa:. -Recurse', 'Remove-Item -LP:.. -Recurse', 'Remove-Item -PSPath:.. -Recurse', 'Set-Location -Pa:..; Remove-Item app -Recurse']) assert.ok(hit(c, 'pwsh'), c);
+  for (const c of ['PWD=D:/work; rm -rf "$PWD/app"', 'HOME=D:/work; cd && rm -rf app', 'cd() { :; }; cd .. && rm -rf ../app']) assert.ok(hit(c), c);
+  assert.ok(criticalDelete('OLDPWD=D:/work; cd - && rm -rf app', 'sh', { ...where, cwds: ['d:/work/app'] }));
+  assert.ok(hit('cd C:\\a\\b && rd /s /q ..\\..\\work\\app', 'cmd'), 'cmd does not change drive without /d');
+  assert.equal(hit('(cd build && rm -rf *)'), undefined, 'a closing bracket alone is not an expression');
+  assert.equal(hit('Remove-Item .\\dist -Recurse:$true -ErrorAction:SilentlyContinue', 'pwsh'), undefined);
+});
+
 test('ordinary deletes stay free in Bypass (false-positive suite)', async () => {
   await using({ preset: 'bypass', follow: true }, async (r) => {
     const sub = `${fwd(r)}/build`;
