@@ -10,6 +10,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { mcnemar, round, runSkillCall, sample, wilson, writeFresh } from './lib/finder-shared.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ARMORY_DIST = join(REPO, 'dist', 'src', 'core', 'armory');
@@ -75,16 +76,6 @@ function guardOut(out) {
   const target = realish(resolve(out));
   if (!isInside(realish(allowedRoot()), target)) throw new UsageError(`refused: --out must be inside ${allowedRoot()}`);
   return target;
-}
-
-/** Writes a fresh file: an existing file or planted link at the path is removed first, and 'wx' refuses to follow anything that appears. */
-function writeFresh(path, data) {
-  try {
-    unlinkSync(path);
-  } catch (e) {
-    if (e?.code !== 'ENOENT') throw e;
-  }
-  writeFileSync(path, data, { flag: 'wx' });
 }
 
 // ---------- transcript reading ----------
@@ -165,28 +156,6 @@ function namedIn(prompt, id) {
 /** The user typed the skill as a slash command (full id or short name). Such a pair is not a model choice, so it is dropped. */
 function typedDrop(prompt, id) {
   return new RegExp(`^/(${escapeRe(id)}|${escapeRe(shortName(id))})(?=\\s|$)`, 'iu').test(prompt);
-}
-
-function mulberry32(seed) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** A seeded Fisher-Yates shuffle, then the first n. The same input and seed always give the same list. */
-function sample(list, n, seed) {
-  const arr = list.slice();
-  const rnd = mulberry32(seed);
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr.slice(0, n);
 }
 
 // ---------- build ----------
@@ -270,7 +239,6 @@ function build(opts) {
 
 // ---------- score ----------
 
-const round = (x) => Math.round(x * 10000) / 10000;
 const mean = (xs) => (xs.length === 0 ? null : round(xs.reduce((s, x) => s + x, 0) / xs.length));
 const SUBSET_ORDER = ['named', 'implicit', 'subagent', 'longtail', 'ambiguous', 'long'];
 /** The longest ranked list kept per prompt for the sweeps. The note shows at most 5, so the floors cannot reach deeper than this in practice. */
@@ -1054,50 +1022,10 @@ async function outcome(opts) {
   const oneCall = async (model, cond, it, idx) => {
     const note = cond === 'A' || cond === 'S0' ? undefined : noteOf(cond, it).text;
     const rec = { model, cond, set: it.set, i: idx, called: null, calls: 0, cost: 0, noteShown: !!note, fired: 0, init: null, subtype: null, ms: 0 };
-    const t0 = performance.now();
-    const hooks = {
-      PreToolUse: [{ matcher: 'Skill', hooks: [async (input) => {
-        if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'Skill') {
-          rec.calls++;
-          if (rec.called === null) rec.called = String(input.tool_input?.skill ?? '');
-        }
-        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Recorded by an eval; the skill is not loaded.' } };
-      }] }],
-      ...(note ? { UserPromptSubmit: [{ hooks: [async (input) => {
-        if (input.hook_event_name !== 'UserPromptSubmit') return { continue: true };
-        rec.fired++;
-        return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: note } };
-      }] }] } : {}),
-    };
-    try {
-      const q = query({
-        prompt: it.prompt,
-        options: {
-          model, maxTurns: 1, cwd: workDir, settingSources: ['user'], strictMcpConfig: true, persistSession: false,
-          tools: ['Skill'], skills: onIds,
-          systemPrompt: { type: 'preset', preset: 'claude_code', append: OUTCOME_SYSTEM },
-          // The owner's own hooks are off: they add text that changes from call to call (it breaks the prompt cache, so every call would pay for
-          // the whole listing) and some of them push skill use, which would hide what the finder note does. The hooks passed here still run.
-          settings: { disableSkillShellExecution: true, disableAllHooks: true, ...(cond === 'S0' || cond === 'S' ? { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 } : {}) },
-          hooks, env: { ...process.env },
-        },
-      });
-      for await (const m of q) {
-        if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null };
-        if (m.type === 'assistant' && rec.called === null) {
-          for (const b of m.message?.content ?? []) if (b?.type === 'tool_use' && b.name === 'Skill' && rec.called === null) rec.called = String(b.input?.skill ?? '');
-        }
-        if (m.type === 'result') {
-          rec.cost = typeof m.total_cost_usd === 'number' ? m.total_cost_usd : 0;
-          rec.subtype = m.subtype ?? null;
-          rec.tokens = { input: m.usage?.input_tokens ?? 0, cacheRead: m.usage?.cache_read_input_tokens ?? 0, cacheWrite: m.usage?.cache_creation_input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
-        }
-      }
-    } catch (e) {
-      // The turn limit ends the stream with an error after the result: expected, not a failure.
-      if (rec.subtype === null) rec.error = String(e?.code ?? e?.name ?? 'error');
-    }
-    rec.ms = Math.round(performance.now() - t0);
+    Object.assign(rec, await runSkillCall(query, {
+      model, prompt: it.prompt, cwd: workDir, note, skills: onIds, append: OUTCOME_SYSTEM,
+      settings: cond === 'S0' || cond === 'S' ? { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 } : {},
+    }));
     if (rec.called !== null) {
       const hits = resolveName(candDocs, rec.called).hits.map((h) => h.id);
       rec.hit = it.set === 'neg' ? false : hits.some((id) => it.gold.has(id)) || it.gold.has(rec.called);
@@ -1183,9 +1111,6 @@ async function outcome(opts) {
   // Paired test of the slim listing against the full one (arms A and S0): exact McNemar on the positives both answered, Wilson intervals.
   let paired = null;
   if (armsOf().includes('A') && armsOf().includes('S0')) {
-    const wilson = (x, n) => { if (!n) return [null, null]; const z = 1.96; const p = x / n; const den = 1 + z * z / n; const c = (p + z * z / (2 * n)) / den; const h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den; return [round(c - h), round(c + h)]; };
-    const logC = (n, k) => { let s = 0; for (let i = 1; i <= k; i++) s += Math.log(n - k + i) - Math.log(i); return s; };
-    const mcnemar = (b, c) => { const n = b + c; if (n === 0) return 1; let p = 0; for (let k = 0; k <= Math.min(b, c); k++) p += Math.exp(logC(n, k) - n * Math.LN2); return Math.min(1, 2 * p); };
     const pos = results.filter((r) => r.model === models[0] && r.cond === 'A' && r.set !== 'neg');
     const t = { both: 0, aOnly: 0, s0Only: 0, neither: 0 };
     for (const a of pos) {
