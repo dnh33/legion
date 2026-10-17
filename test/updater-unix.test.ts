@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
-import { createUpdaterModule, installMode, INSTALL_MARKER_FILE, type UpdaterModule } from '../src/core/updater/index.js';
+import { createUpdaterModule, installMode, INSTALL_MARKER_FILE, CHECKOUT_NOTICE, checkoutNotice, type UpdaterModule } from '../src/core/updater/index.js';
 import { parseRoute, planRelease, unixDepsText, UNIX_DEPS_TEXT } from '../src/core/updater/deps-change.js';
 import { buildJob, commitMatches, windowShown } from '../src/core/updater/main-logic.js';
 import { CODE_SET, FULL_PACKAGE_SET, windowLaunchPlan } from '../src/core/updater/apply.js';
@@ -16,7 +16,7 @@ import { Store } from '../src/core/store.js';
 import { ApprovalBroker } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import type { ModuleDeps, RouteAdder } from '../src/core/modules.js';
-import { CHECKOUT_TEXT, closeAndReopenText, depsNotifyText } from '../ui/src/updatePanelText.js';
+import { CHECKOUT_TEXT, checkoutText, closeAndReopenText, depsNotifyText } from '../ui/src/updatePanelText.js';
 import { LOCK, makeKey, makeRelease, startFakeServer, type FakeServer, type Release } from './updater-helpers.js';
 
 const HEAD = 'a'.repeat(40);
@@ -137,6 +137,10 @@ test('the update window is win32 only: the plan is none and the window is not sh
 test('panel text: hand-made clones are told to fetch tags and check out the tag, never git pull; Mac and Linux get the installer line and the close-and-reopen line', () => {
   assert.equal(CHECKOUT_TEXT, 'This is a git checkout. Update it yourself: git fetch --tags, check out the new tag, then npm ci and npm run build.');
   assert.doesNotMatch(CHECKOUT_TEXT, /git pull/);
+  assert.equal(checkoutText('win32'), CHECKOUT_TEXT, 'Windows keeps its line');
+  assert.equal(checkoutText('linux'), `${CHECKOUT_TEXT} Installed with the installer? Run it again instead.`);
+  assert.equal(checkoutNotice('win32'), CHECKOUT_NOTICE);
+  assert.equal(checkoutNotice('darwin'), checkoutText('darwin'), 'the 409 and the panel say the same');
   assert.equal(depsNotifyText('linux'), UNIX_DEPS_TEXT, 'the panel copy equals the core copy');
   assert.equal(depsNotifyText('darwin'), UNIX_DEPS_TEXT);
   assert.equal(depsNotifyText('linux', 'from the core'), 'from the core', 'the core text (with --dir) wins when the status carries it');

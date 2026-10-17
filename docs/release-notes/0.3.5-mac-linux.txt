@@ -1,11 +1,17 @@
 Draft block for the 0.3.5 release notes (docs/release-notes/0.3.5.txt) and the changelog. Not final.
 
+--- First lines of the GitHub release body (a 0.3.4 panel on Mac or Linux hides the manifest notes and only links here, so this must be at the top) ---
+
+On Mac or Linux? Close Legion, then run the installer once more: curl -fsSL https://getlegion.xyz | sh
+If you installed with --dir, add it again: curl -fsSL https://getlegion.xyz | sh -s -- --dir '<your folder>'
+Do not use git pull: it does not move your install. Your data in ~/.legion stays. After that, Legion updates itself.
+
 --- 0.3.5 notes ---
 
 Mac and Linux now update themselves
 Mac and Linux now update themselves (CI-rehearsed on macOS arm64 and Intel and Linux x64 and arm64; not hand-tested on a real Mac).
 
-Installed on a Mac or Linux before 0.3.5? Close Legion, then run the installer once more: curl -fsSL https://getlegion.xyz | sh
+Installed on a Mac or Linux before 0.3.5? Close Legion, then run the installer once more: curl -fsSL https://getlegion.xyz | sh (with --dir, add it again: ... | sh -s -- --dir '<your folder>')
 Do not use git pull: it does not move your install. Your data in ~/.legion stays. After that, Legion updates itself.
 
 If you go back to an older version
@@ -13,4 +19,4 @@ Going back to a version older than 0.3.5 can mean pasting your provider keys aga
 
 --- One line for the v0.3.0 release body (add at release time) ---
 
-On Mac or Linux? Run curl -fsSL https://getlegion.xyz | sh once to get a Legion that updates itself. Your data in ~/.legion stays.
+On Mac or Linux? Close Legion, then run curl -fsSL https://getlegion.xyz | sh once to get a Legion that updates itself. Your data in ~/.legion stays.

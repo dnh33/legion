@@ -9,6 +9,9 @@ const WIN_DEPS = 'This release changes dependencies, so it cannot be installed f
 /** `coreText` is the words the core sends in the status; it carries --dir when this install is not in the installer's default folder. */
 export const depsNotifyText = (platform: string | undefined, coreText?: string): string => (platform === undefined || platform === 'win32' ? WIN_DEPS : coreText || UNIX_DEPS);
 
+/** The git-checkout line; off Windows it also points an installer-made clone back to the installer. */
+export const checkoutText = (platform: string | undefined): string => (platform === undefined || platform === 'win32' ? CHECKOUT_TEXT : `${CHECKOUT_TEXT} Installed with the installer? Run it again instead.`);
+
 /** Off Windows there is no update window: the app just closes and reopens. Undefined on Windows, which shows its window. */
 export const closeAndReopenText = (platform: string | undefined): string | undefined =>
   platform === undefined || platform === 'win32' ? undefined : 'Legion will close and reopen to finish the update. There is no update window on this system.';

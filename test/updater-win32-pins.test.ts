@@ -69,7 +69,7 @@ test('pin commitMatches win32: both name sets are accepted, and the sets themsel
   const c = (names?: readonly string[]) => ({ installDir: install, stagedDir: join(install, '.update', 'staging', '0.3.5', 'x'), from: '0.3.4', to: '0.3.5', ...(names ? { names } : {}) });
   assert.ok(cm(c(), install, W));
   assert.ok(cm(c(CODE_SET), install, W));
-  if (process.platform === 'win32') assert.ok(cm(c(FULL_PACKAGE_SET), install, W));
+  assert.ok(cm(c(FULL_PACKAGE_SET), install, W));
   assert.ok(isKnownNameSet(FULL_PACKAGE_SET));
   assert.deepEqual([...CODE_SET], ['dist', 'dist-ui', 'assets', 'scripts', 'licenses', 'package.json', 'package-lock.json', 'build-info.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'setup.cmd', 'setup-yes.cmd', 'start-legion.cmd']);
   assert.deepEqual([...FULL_PACKAGE_SET], [...CODE_SET, 'node_modules', 'runtime']);

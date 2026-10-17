@@ -30,6 +30,8 @@ export type InstallMode = 'apply' | 'checkout' | 'unwritable' | 'unsupported';
 export const INSTALL_MARKER_FILE = '.legion-install.json';
 /** The text a hand-made clone is shown, and the answer to install() on one. Legion runs none of these steps. */
 export const CHECKOUT_NOTICE = 'This is a git checkout. Update it yourself: git fetch --tags, check out the new tag, then npm ci and npm run build.';
+/** Off Windows a clone the installer made can land here too (its HEAD was moved by hand), and the fix there is to run the installer again. */
+export const checkoutNotice = (platform: NodeJS.Platform): string => (platform === 'win32' ? CHECKOUT_NOTICE : `${CHECKOUT_NOTICE} Installed with the installer? Run it again instead.`);
 
 /**
  * Whether the folder the installer made is still the one the marker describes. The marker is an accident guard, not a security boundary
@@ -310,7 +312,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     },
 
     async install(o = {}): Promise<{ ok: boolean; declined?: boolean }> {
-      if (mode !== 'apply') throw new HttpError(409, mode === 'checkout' ? CHECKOUT_NOTICE : 'This install cannot be updated from inside Legion.');
+      if (mode !== 'apply') throw new HttpError(409, mode === 'checkout' ? checkoutNotice(platform) : 'This install cannot be updated from inside Legion.');
       const a = available?.manifest;
       if (!a) throw new HttpError(409, 'There is no verified update to install. Check for updates first.');
       const plan = planRelease(a, platform);

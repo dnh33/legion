@@ -297,7 +297,7 @@ On Windows the script downloads the latest release from GitHub over HTTPS, check
 curl -fsSL https://getlegion.xyz | sh
 ```
 
-Do not use `git pull`: it does not move your install. Your data in `~/.legion` stays. After that, Legion updates itself.
+Do not use `git pull`: it does not move your install. If you installed with `--dir`, add it again: `curl -fsSL https://getlegion.xyz | sh -s -- --dir '<your folder>'`. Your data in `~/.legion` stays. After that, Legion updates itself.
 
 ### Windows, from a release (recommended)
 

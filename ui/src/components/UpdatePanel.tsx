@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import { errText } from '../store';
-import { CHECKOUT_TEXT, closeAndReopenText, depsNotifyText } from '../updatePanelText';
+import { checkoutText, closeAndReopenText, depsNotifyText } from '../updatePanelText';
 import { journeyRows, journeyStarted, journeySummary, type JourneyViewLike } from '../updateJourneyView';
 import '../styles/update.css';
 
@@ -133,7 +133,7 @@ export function UpdatePanel() {
           <b>Version {a.version} is available</b> <span className="upd-muted">({mb(a.size)}, published {a.publishedAt.slice(0, 10)})</span>{' '}
           <a className="upd-muted" href={`https://github.com/dnh33/legion/releases/tag/v${a.version}`} target="_blank" rel="noreferrer noopener">Release notes</a>
           {!notifyOnly && a.notes && <pre className="upd-notes">{a.notes}</pre>}
-          {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">{CHECKOUT_TEXT} Legion does not run these for you.</p>}
+          {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">{checkoutText(st.platform)} Legion does not run these for you.</p>}
           {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall && !a.canFullInstall
             ? <p className="upd-muted">{depsNotifyText(st.platform, st.depsText)}</p>
             : <p className="upd-muted">This install cannot be updated from inside Legion ({st.mode === 'unwritable' ? 'the folder is not writable' : 'unsupported system'}).</p>)}

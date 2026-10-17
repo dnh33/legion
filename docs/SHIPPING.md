@@ -13,7 +13,7 @@ remote `cloud`. Everything else under `D:\bots` is a worktree of it, a build scr
 > **An install folder must never be a git worktree of the repository.**
 
 If `%LOCALAPPDATA%\Programs\Legion\.git` exists, Legion refuses to self-update — by design, and correctly. It will
-say *"This is a git checkout. Update it yourself: `git pull`, `npm ci`, `npm run build`."* and the
+say *"This is a git checkout. Update it yourself: git fetch --tags, check out the new tag, then npm ci and npm run build."* (older builds said `git pull`, which does not move a tag-based install) and the
 "install updates automatically" control will be dead.
 
 That is not a bug to work around. It is the updater telling the truth: an app that lives inside a working copy of
@@ -198,8 +198,7 @@ agent session; pass the path.
 ### 7. THE GATE — mandatory, must end in "Pre-flight passed"
 
 ```
-gh release download v<previous> -R dnh33/legion -p legion-update-manifest-2.json -D D:/bots/legion-prev-<previous>
-node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v> --prev-manifest D:/bots/legion-prev-<previous>/legion-update-manifest-2.json [--stone-lock <package-lock.json of v0.3.0>]
+node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v> --prev-tag v<previous> [--stone-lock <package-lock.json of v0.3.0>]
 node scripts/release-verify.mjs   --dir D:/bots/legion-pkg-<v> [--stone-lock <package-lock.json of v0.3.0>]
 ```
 
@@ -245,7 +244,22 @@ Also dispatch `install.yml` against the release and check that `install-unix` is
 
 The rehearsal runs on CI runners with a throwaway key and a mock keychain. It cannot show Gatekeeper or quarantine prompts, a launch from Finder, the Dock icon or a real login keychain. Put this line in the release notes of any release that touches the Mac or Linux updater: "Mac and Linux now update themselves (CI-rehearsed on macOS arm64 and Intel and Linux x64 and arm64; not hand-tested on a real Mac)." Do not drop the last clause until someone has run it on a real Mac.
 
-The preflight also checks the dependency rule for these installs: pass the previous release's manifest (`--prev-manifest <file>`, or `--prev-deps-sha256 <hex>`). A release newer than 0.3.5 that needs a full install gets a warning saying Mac and Linux users will get the "run the installer again" notice. A manifest that says `requiresFullInstall: false` while its dependency hash differs from the previous release's fails.
+The preflight also checks the dependency rule for these installs: pass the previous release's lock with `--prev-tag v<previous>` (read with `git show v<previous>:package-lock.json`, so that tag must be in your checkout) or `--prev-lock <file>`. It compares the dependency hash of the new release's lock (from `app.zip`) with the previous lock's, the same hash the updater uses: each lock's own version is ignored. The manifest's `depsSha256` is the raw file hash and changes on every release, so it is not used. A release newer than 0.3.5 that needs a full install gets a warning saying Mac and Linux users will get the "run the installer again" notice. A manifest that says `requiresFullInstall: false` while the dependency hash differs from the previous release's fails. Never set `requiresFullInstall` for a release whose dependency hash is unchanged: it would send every Windows user the full package and every Mac and Linux user a notice instead of the automatic update.
+
+#### Live walk, Mac and Linux (needs a real Linux machine or VM; a real Mac if one exists)
+
+CI cannot show these. Do them with the draft or prerelease, before the release is Latest, and record the result in the release PR.
+
+For 0.3.5:
+
+1. Install the published release from github.com: `curl -fsSL https://github.com/dnh33/legion/releases/download/v0.3.5/install.sh | sh -s -- --version 0.3.5`. (Latest is still 0.3.4 until the flip, so `--version` is needed.) Check `.legion-install.json` in the folder (`schema 1`, `manager install.sh`, `dir` = the real path, `head` = `git rev-parse HEAD`), that `.git/HEAD` is the bare sha, and that Settings, Updates shows mode `apply`, no update-window checkbox, and the "close and reopen" line.
+2. Convert a real github.com 0.3.4 clone: install 0.3.4 the old way (`--version 0.3.4` with the 0.3.4 `install.sh`), then run the 0.3.5 installer over it with Legion closed. Check the marker appears, `git status` is empty and the panel changes from the git-checkout notice to apply mode. Also run it once while Legion is open: it must stop with "Legion is running from ...".
+3. After the flip: the site serves the same `install.sh` as the release (step 10: `curl -fsSL https://getlegion.xyz | sha256sum`).
+
+For 0.3.6 (the first release a Mac or Linux install can apply by itself):
+
+4. A rehearsal that starts from the published v0.3.5: install v0.3.5 from github.com, then update it to the 0.3.6 candidate (the `live:v0.3.5` baseline planned in M3, not built yet). It is required before 0.3.6 is Latest.
+5. Click "Restart and install" in the panel once on a real desktop (the CI rehearsal starts the update through the API; the panel button and its dialog were never clicked on Mac or Linux), and start Legion once through `~/.local/bin/legion` from the Dock or Finder to check PATH.
 
 ### 7b. THE FULL SUITE MUST BE GREEN BEFORE `main` IS TOUCHED
 
