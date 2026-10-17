@@ -51,23 +51,24 @@ export function resolverMode(engine: { runModeOf?(agentId: string, taskId?: stri
   try { return engine.runModeOf(agentId, taskId); } catch { return 'ask'; }
 }
 
-/**
- * Whether one permission gate is off for this run, for a guard that raises its own card (the GitHub write, the board delete, the browser, Blender
- * and room cards). The gate is read with the run's START project. Only an explicit `false` says off: no engine, a throw or a missing answer reads as on,
- * so a failed lookup keeps the card. A run with an approval ceiling (a bot or an app woke it) keeps its card whatever the gate says. When it is off,
- * the activity log gets one "would have asked" line.
- */
-/** `gateOff` bound to an engine: what a module's deps carry. */
+/** What a module's deps carry: `gateOff` bound to an engine. */
 export type GateOff = (gateId: string, a: { taskId?: string; agentId: string; action: string; ceiling?: RunMode; always?: boolean; dry?: boolean }) => boolean;
 
+/**
+ * Whether a guard that raises its own card (the GitHub write, the board delete, the browser, Blender and room cards, the proposal Inbox) may skip
+ * it. The gate is read with the run's START project and judged like tool cards: an explicit owner override skips it for every agent, a preset
+ * alone (Bypass) only for a run whose mode is full (Engine.cardOffFor). No engine, a throw or a missing answer keeps the card. A run with an
+ * approval ceiling (a bot or an app woke it) keeps its card whatever the gate says. When the card is skipped the activity log gets one
+ * "would have asked" line, if the agent's own setting (or `always`) would have asked.
+ */
 export function gateOff(
-  engine: { gateFor?(taskId: string | undefined, id: string): unknown; noteGateOff?(a: { gateId: string; taskId: string; agentId: string; action: string; always?: boolean }): void } | undefined,
+  engine: { cardOffFor?(taskId: string | undefined, id: string, agentId: string): unknown; noteGateOff?(a: { gateId: string; taskId: string; agentId: string; action: string; always?: boolean }): void } | undefined,
   gateId: string,
   a: { taskId?: string; agentId: string; action: string; ceiling?: RunMode; always?: boolean; /** Only read the gate; write no line. */ dry?: boolean },
 ): boolean {
   try {
-    if (!engine?.gateFor || a.ceiling) return false;
-    if (engine.gateFor(a.taskId, gateId) !== false) return false;
+    if (!engine?.cardOffFor || a.ceiling) return false;
+    if (engine.cardOffFor(a.taskId, gateId, a.agentId) !== true) return false;
     if (a.taskId && !a.dry) engine.noteGateOff?.({ gateId, taskId: a.taskId, agentId: a.agentId, action: a.action, ...(a.always ? { always: true } : {}) });
     return true;
   } catch { return false; }

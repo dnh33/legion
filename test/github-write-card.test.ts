@@ -25,10 +25,10 @@ import { gatesRig } from './gates-rig.js';
 import type { GatesRig } from './gates-rig.js';
 import { tempDir } from './tmp-cleanup.js';
 
-interface Opt { preset?: Preset; overrides?: Record<string, boolean>; ceiling?: RunMode; signedIn?: boolean; grant?: string[]; /** Wraps the real engine (it gets the data folder), to act at the moment the gate is read. */ wrap?: (engine: any, dir: string) => any; noEngine?: boolean }
+interface Opt { /** the agent follows its project (default) or keeps its own mode, Ask */ follow?: boolean; preset?: Preset; overrides?: Record<string, boolean>; ceiling?: RunMode; signedIn?: boolean; grant?: string[]; /** Wraps the real engine (it gets the data folder), to act at the moment the gate is read. */ wrap?: (engine: any, dir: string) => any; noEngine?: boolean }
 
 async function mk(o: Opt = {}) {
-  const g: GatesRig = await gatesRig({ ...(o.preset ? { preset: o.preset } : {}), follow: true, ...(o.overrides ? { overrides: o.overrides } : {}) });
+  const g: GatesRig = await gatesRig({ ...(o.preset ? { preset: o.preset } : {}), follow: o.follow ?? true, ...(o.overrides ? { overrides: o.overrides } : {}) });
   const dir = tempDir('legion-ghcard-');
   setTicked(dir, 'o/r', true);
   const sent: string[] = [];
@@ -40,7 +40,7 @@ async function mk(o: Opt = {}) {
     request: async (path: string): Promise<GhResponse> => { sent.push(path); return { status: 201, json: { id: 1, html_url: 'u' }, rate: { limit: 5000, remaining: 4999, resetAt: '' } }; },
     connection: async () => ({}),
   };
-  const agent = mkAgent('alpha', { name: 'Mira', connectors: ['github'], githubWrite: o.grant ?? ['o/r'], approval: 'ask', mcpServers: ['*'] });
+  const agent = mkAgent('a1', { name: 'Mira', connectors: ['github'], githubWrite: o.grant ?? ['o/r'], approval: 'ask', mcpServers: ['*'] });
   const engine = o.wrap ? o.wrap(g.engine, dir) : g.engine;
   const deps = { dataDir: dir, approvals: broker, ...(o.noEngine ? {} : { engine }), store: { getAgent: () => agent, getTask: () => undefined } } as unknown as ModuleDeps;
   const mod = createConnectorsModule(deps, { keys: new ConnectorKeyring(), client: () => api as never, writeApp: () => (o.signedIn === false ? undefined : { api: api as never, can: () => 'yes' }) });
@@ -90,7 +90,7 @@ test('an owner override turns the card off in an Ask project; a ceiling keeps it
 test('no engine or a failed gate lookup: the card stays', async () => {
   const r = await mk({ noEngine: true });
   try { await r.call('github_comment', comment); assert.equal(r.cards.length, 1); } finally { r.g.stop(); }
-  assert.equal(gateOff({ gateFor: () => { throw new Error('x'); } }, 'github-write-card', { taskId: 't', agentId: 'a', action: 'x' }), false);
+  assert.equal(gateOff({ cardOffFor: () => { throw new Error('x'); } }, 'github-write-card', { taskId: 't', agentId: 'a', action: 'x' }), false);
 });
 
 test('off still fails on an unticked repo, an ungranted agent, an unsigned app, an oversized argument', async () => {
@@ -107,7 +107,7 @@ test('off still fails on an unticked repo, an ungranted agent, an unsigned app, 
 
 test('off still runs recheck() before sending: a switch turned off meanwhile stops the write', async () => {
   // with no card there is no waiting, so the switch is turned off right when the gate is read: the last moment before the send
-  const r = await mk({ preset: 'bypass', wrap: (e, dir) => ({ gateFor: (t: string, id: string) => { setTicked(dir, 'o/r', false); return e.gateFor(t, id); }, noteGateOff: (a: unknown) => e.noteGateOff(a) }) });
+  const r = await mk({ preset: 'bypass', wrap: (e, dir) => ({ cardOffFor: (t: string, id: string, a: string) => { setTicked(dir, 'o/r', false); return e.cardOffFor(t, id, a); }, noteGateOff: (a: unknown) => e.noteGateOff(a) }) });
   try {
     const out = await r.call('github_comment', comment);
     assert.equal(out.isError, true, out.text);
@@ -132,4 +132,18 @@ test('no destructive verb is ever offered: merge, push, delete, branch are not t
 test('only the registry and the gateway wiring name github-write-card in src', () => {
   const hits = execFileSync('rg', ['-l', 'github-write-card', 'src'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean).map((p) => p.replace(/\\/g, '/')).sort();
   assert.deepEqual(hits, ['src/core/connectors/gateway.ts', 'src/shared/gates-registry.ts']);
+});
+
+test('I1: an agent the owner set to Ask still gets the card in a Bypass project; an agent that follows Bypass does not; an explicit override covers both', async () => {
+  const own = await mk({ preset: 'bypass', follow: false });
+  try { await own.call('github_comment', comment); assert.equal(own.cards.length, 1, 'own-Ask agent keeps the card in Bypass'); assert.deepEqual(own.lines(), []); } finally { own.g.stop(); }
+  const follow = await mk({ preset: 'bypass', follow: true });
+  try { await follow.call('github_comment', comment); assert.equal(follow.cards.length, 0, 'a follower of Bypass: no card'); } finally { follow.g.stop(); }
+  const sw = await mk({ preset: 'ask', follow: false, overrides: { 'github-write-card': false } });
+  try { await sw.call('github_comment', comment); assert.equal(sw.cards.length, 0, 'an explicit switch-off covers an own-Ask agent'); assert.equal(sw.lines().length, 1); } finally { sw.g.stop(); }
+});
+
+test('I3: a ceiling keeps the GitHub card in a Bypass project too', async () => {
+  const c = await mk({ preset: 'bypass', ceiling: 'ask' });
+  try { await c.call('github_comment', comment); assert.equal(c.cards.length, 1); } finally { c.g.stop(); }
 });

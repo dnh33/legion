@@ -19,7 +19,7 @@ import { createBoardModule } from '../src/core/projects/board/index.js';
 import { gateOff } from '../src/core/permission-mode.js';
 import { PRESETS } from '../src/shared/gates-registry.js';
 import type { Preset } from '../src/shared/gates-registry.js';
-import type { ApprovalRequest, LegionEvent } from '../src/shared/types.js';
+import type { ApprovalRequest, LegionEvent, RunMode } from '../src/shared/types.js';
 import type { RoomRequest } from '../src/core/comms/hub.js';
 import { fakeResolver, startFakeCdp } from './browser-fakes.js';
 import { agent as blAgent, connectTools, GOOD_SCRIPT, rig as blenderRig } from './blender-helpers.js';
@@ -28,7 +28,7 @@ import { gatesRig, pause } from './gates-rig.js';
 import type { GatesRig } from './gates-rig.js';
 import { tempDir } from './tmp-cleanup.js';
 
-type Surface = { name: string; fire(r: GatesRig): Promise<boolean> };
+type Surface = { name: string; fire(r: GatesRig, ceiling?: RunMode): Promise<boolean> };
 const DNS = fakeResolver({ 'a.test': ['93.184.216.34'] });
 
 const presetRig = (preset: Preset, overrides?: Record<string, boolean>) => gatesRig({ preset, follow: true, ...(overrides ? { overrides } : {}) });
@@ -48,22 +48,22 @@ async function mcp(cfg: any) {
 }
 
 /** The board of the rig's project, with a leader and one item to delete. */
-function boardOf(r: GatesRig) {
+function boardOf(r: GatesRig, ceiling?: RunMode) {
   const dir = tempDir('legion-gates-board-');
   const board = new BoardStore(join(dir, 'board'), () => 0);
   const proj = r.projects.forRun(r.project.id, 'a1')!;
   board.setLeader(proj, 'a1');
   const item = board.botCreate(proj, 'a1', { title: 'Old idea' }, { tainted: false });
   const mod = createBoardModule({ config: {} as any, store: r.store as any, bus: new EventBus(), engine: r.engine, approvals: r.approvals, dataDir: dir, bsvEnabled: () => false }, { projects: r.projects, board });
-  const job = { taskId: r.task.id, taint: () => false, projectId: r.project.id } as any;
+  const job = { taskId: r.task.id, taint: () => false, projectId: r.project.id, ...(ceiling ? { ceiling } : {}) } as any;
   const cfg = mod.mcpServers!(r.agent, job).legion_board;
   return { board, proj, item, cfg };
 }
 
 const deleteSurface: Surface = {
   name: 'board delete',
-  async fire(r) {
-    const b = boardOf(r);
+  async fire(r, ceiling) {
+    const b = boardOf(r, ceiling);
     const t = await mcp(b.cfg);
     const p = t.call('delete', { id: b.item.id });
     await pause(40);
@@ -76,7 +76,7 @@ const deleteSurface: Surface = {
 
 const browserSurface: Surface = {
   name: 'browser first page',
-  async fire(r) {
+  async fire(r, ceiling) {
     const fake = await startFakeCdp({ pages: { 'https://a.test/': { title: 'Home', text: 'hi' } } });
     const bus = new EventBus();
     const approvals = new ApprovalBroker(bus);
@@ -91,7 +91,7 @@ const browserSurface: Surface = {
       },
     }));
     try {
-      const job = { taskId: r.task.id, taint: () => false, markTainted: () => undefined } as any;
+      const job = { taskId: r.task.id, taint: () => false, markTainted: () => undefined, ...(ceiling ? { ceiling } : {}) } as any;
       const cfg = buildBrowserServer(r.agent, job, { manager, guard: () => ({}), resolve: DNS, approvals, secrets: () => [], statusLine: () => '', modeOf: (id, tid) => engineOf(r).runModeOf(id, tid), gateOff: (id, a) => gateOff(r.engine, id, a) });
       const t = await mcp(cfg);
       await t.call('browser_open', { url: 'https://a.test/' });
@@ -103,10 +103,10 @@ const browserSurface: Surface = {
 
 const blenderSurface: Surface = {
   name: 'Blender exec',
-  async fire(r) {
+  async fire(r, ceiling) {
     const rg = blenderRig({ extra: { modeOf: (id: string, tid?: string) => engineOf(r).runModeOf(id, tid), gateOff: (id: string, a: any) => gateOff(r.engine, id, a) } as never });
     rg.decision.value = false;
-    const job = { ...rg.job, taskId: r.task.id };
+    const job = { ...rg.job, taskId: r.task.id, ...(ceiling ? { ceiling } : {}) };
     const t = await connectTools(rg, blAgent('a1'), job);
     await t.call('blender_exec', { script: GOOD_SCRIPT, purpose: 'make a cube', mode: 'live' });
     await t.close();
@@ -116,10 +116,10 @@ const blenderSurface: Surface = {
 
 const roomSurface: Surface = {
   name: 'room request',
-  async fire(r) {
+  async fire(r, ceiling) {
     const seen: RoomRequest[] = [];
-    const h = makeHarness({ hub: { approve: async (q: RoomRequest) => { seen.push(q); return false; }, runModeOf: (_id: string, tid?: string) => engineOf(r).runModeOf('a1', tid), gateOff: (id: string, a: any) => gateOff(r.engine, id, a) } as never });
-    await h.hub.botCreateRoom('zealot', { name: 'Crew', members: ['scout'] }, { taskId: r.task.id }).catch(() => undefined);
+    const h = makeHarness({ hub: { approve: async (q: RoomRequest) => { seen.push(q); return false; }, runModeOf: (_id: string, tid?: string) => engineOf(r).runModeOf('a1', tid), gateOff: (id: string, a: any) => gateOff(r.engine, id, { ...a, agentId: 'a1' }) /* the harness sender is zealot; the rig run belongs to a1 */ } as never });
+    await h.hub.botCreateRoom('zealot', { name: 'Crew', members: ['scout'] }, { taskId: r.task.id, ...(ceiling ? { ceiling } : {}) }).catch(() => undefined);
     return seen.length > 0;
   },
 };
@@ -160,7 +160,7 @@ test('gateOff: a ceiling keeps the card, no engine and a failed lookup read as o
     assert.equal(gateOff(r.engine, 'module-cards', { taskId: r.task.id, agentId: 'a1', action: 'x', ceiling: 'ask' }), false, 'a ceiling wins');
     assert.equal(gateOff(r.engine, 'module-cards', { taskId: r.task.id, agentId: 'a1', action: 'x' }), true);
     assert.equal(gateOff(undefined, 'module-cards', { agentId: 'a1', action: 'x' }), false, 'no engine: on');
-    assert.equal(gateOff({ gateFor: () => { throw new Error('x'); } }, 'module-cards', { taskId: 't', agentId: 'a1', action: 'x' }), false, 'a failed lookup keeps the card');
+    assert.equal(gateOff({ cardOffFor: () => { throw new Error('x'); } }, 'module-cards', { taskId: 't', agentId: 'a1', action: 'x' }), false, 'a failed lookup keeps the card');
   } finally { r.stop(); }
 });
 
@@ -227,5 +227,84 @@ test('the board limits and the per-bot rate limits still apply when the inbox is
     assert.equal(errs.slice(0, 3).some((e) => e), false, 'the first few go through');
     assert.ok(errs.includes(true), 'the proposal rate limit stops a flood');
     assert.equal((await b.call('propose', { title: 's', description: '-----BEGIN PRIVATE KEY-----' })).isError, true, 'the secret check still applies');
+  } finally { r.stop(); }
+});
+
+
+// ---- fix round 1: the same rule as tool cards (only an explicit owner override removes a card below the agent's own setting)
+
+const SURFACES = [deleteSurface, browserSurface, blenderSurface, roomSurface];
+
+test('I1: an agent the owner set to Ask keeps its delete, browser, Blender and room cards in a Bypass project; an agent that follows Bypass gets none', async () => {
+  for (const s of SURFACES) {
+    const own = await gatesRig({ preset: 'bypass' }); // own mode Ask, does not follow the project
+    try { assert.equal(await s.fire(own), true, `${s.name}: own-Ask agent in Bypass keeps its card`); } finally { own.stop(); }
+    const follow = await presetRig('bypass');
+    try { assert.equal(await s.fire(follow), false, `${s.name}: a follower gets no card`); } finally { follow.stop(); }
+  }
+  // an explicit override in an Ask project covers the agent that set itself to Ask
+  for (const s of SURFACES) {
+    const r = await gatesRig({ preset: 'ask', overrides: { 'module-cards': false, 'board-delete-card': false } });
+    try { assert.equal(await s.fire(r), false, `${s.name}: explicit override, no card`); } finally { r.stop(); }
+  }
+});
+
+test('I2: Bypass writes the would-have-asked line for the board delete, browser, Blender and room cards', async () => {
+  for (const s of SURFACES) {
+    const r = await presetRig('bypass');
+    try {
+      assert.equal(await s.fire(r), false);
+      const t = lines(r);
+      assert.ok(t.length >= 1, `${s.name}: a line is written (${t.join(' | ')})`);
+      assert.match(t[0]!, s === deleteSurface ? /^Would have asked: .*, because Ask before a board item is deleted is off$/ : /^Would have asked: [^]*, because Ask before browser, Blender and room actions is off$/, s.name);
+    } finally { r.stop(); }
+    const on = await presetRig('ask');
+    try { await s.fire(on); assert.deepEqual(lines(on), [], `${s.name}: none while the card is on`); } finally { on.stop(); }
+  }
+});
+
+const proposeSurface: Surface = {
+  name: 'propose',
+  async fire(r, ceiling) {
+    const b = boardOf(r, ceiling);
+    const t = await mcp(b.cfg);
+    await t.call('propose', { title: 'Maybe this' });
+    return b.board.view(b.proj).inbox.some((i) => i.title === 'Maybe this'); // true = it waited in the Inbox (the card-equivalent)
+  },
+};
+
+test('I3 and M7: a run another bot or an outside app started (an Ask ceiling) keeps the card at all five sites, and the Inbox at propose', async () => {
+  for (const s of [...SURFACES, proposeSurface]) {
+    const ov = { 'module-cards': false, 'board-delete-card': false, 'proposals-inbox': false };
+    const askProject = await gatesRig({ preset: 'ask', follow: true, overrides: ov });
+    try { assert.equal(await s.fire(askProject, 'ask'), true, `${s.name}: ceiling beats an explicit switch-off`); } finally { askProject.stop(); }
+    if (s === proposeSurface) continue; // the Inbox is on in every preset; only an override turns it off
+    const bypass = await presetRig('bypass');
+    try { assert.equal(await s.fire(bypass, 'ask'), true, `${s.name}: ceiling beats a Bypass project`); } finally { bypass.stop(); }
+  }
+});
+
+test('M1 and M2: the gate is read with the START project; a task the engine does not know reads as on', async () => {
+  const r = await gatesRig({ preset: 'ask', follow: true, app: 'bypass' });
+  try {
+    const other = r.projects.setMembers(r.projects.create({ name: 'Other', instructions: '' }).id, ['a1']);
+    r.core.store.patchProject(other.id, { preset: 'bypass' });
+    r.store.getTask(r.task.id)!.projectId = other.id; // the task now lives in a Bypass project; the run STARTED in the Ask one
+    assert.equal(engineOf(r).gateFor(r.task.id, 'module-cards'), true, 'start project (Ask) wins over the live project (Bypass)');
+    assert.equal(engineOf(r).cardOffFor(r.task.id, 'module-cards', 'a1'), false);
+    assert.equal(engineOf(r).gateFor('no-such-task', 'module-cards'), true, 'unknown task: fail closed');
+    assert.equal(engineOf(r).gateFor(undefined, 'module-cards'), true, 'no task: fail closed');
+    assert.equal(engineOf(r).cardOffFor('no-such-task', 'module-cards', 'a1'), false);
+  } finally { r.stop(); }
+});
+
+test('M4: with module-cards off the shell floor and the deny rules still apply', async () => {
+  const r = await gatesRig({ preset: 'ask', follow: true, overrides: { 'module-cards': false } });
+  try {
+    r.setRules([{ id: 'gr_deny', enabled: true, then: 'deny', when: { tools: ['Edit'] }, label: 'gr_deny', source: 'user' } as never]);
+    const floor = await r.run('Bash', { command: 'rm -rf /' });
+    assert.equal(floor.allow, false, 'the shell floor refuses');
+    const rule = await r.run('Edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' });
+    assert.equal(rule.allow, false, 'the deny rule applies');
   } finally { r.stop(); }
 });

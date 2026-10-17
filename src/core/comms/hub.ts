@@ -724,9 +724,11 @@ export class CommsHub {
       const ceiling = ctx.ceiling ?? ctx.origin?.approvalCeiling;
       const own = this.agentMode(sender.id, ctx.taskId);
       const mode = ceiling ? stricterMode(own, ceiling) : own;
+      // module-cards off (an owner choice, or Bypass for a run in full): no room card. A ceiling keeps it (gateOff ignores the gate then).
+      // Asked BEFORE the full-mode return so Bypass writes its would-have-asked line too.
+      const cardsOff = !!ctx.taskId && !!this.gateOff?.('module-cards', { taskId: ctx.taskId, agentId: sender.id, action: `${tool} ${clip(summary, 200)}`, ...(ceiling ? { ceiling } : {}) });
       if (!decideGuard(mode).needsCard) return;
-      // module-cards off (an owner choice): no room card. A ceiling keeps it (gateOff ignores the gate then).
-      if (ctx.taskId && this.gateOff?.('module-cards', { taskId: ctx.taskId, agentId: sender.id, action: `${tool} ${clip(summary, 200)}`, ...(ceiling ? { ceiling } : {}) })) return;
+      if (cardsOff) return;
       if (!this.approve || !ctx.taskId) throw new CommsError(409, 'There is no way to ask the user for approval from here, so nothing was changed.');
     const now = this.now();
     const recent = (this.roomRequests.get(sender.id) ?? []).filter((t) => now - t < ROOM_REQUESTS_WINDOW_MS);

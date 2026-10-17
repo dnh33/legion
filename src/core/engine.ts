@@ -1561,13 +1561,27 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /**
    * One gate's value for a run, read with the project the run STARTED in (never the stored agent mode), for modules that only know the task:
-   * the GitHub write card, the board delete card, the module cards and the proposals Inbox. A task the engine does not know reads the app
-   * level. Without a gates core every gate is on, as before.
+   * the GitHub write card, the board delete card, the module cards and the proposals Inbox. A task the engine does not know (or no task) reads
+   * as ON: a lookup that cannot find the run's start project must never fall back to a looser app setting. Without a gates core every gate is on.
    */
   gateFor(taskId: string | undefined, id: string): GateValue {
     if (!this.gates) return true;
     const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
-    return this.gates.gate(id, src ? startProjectOf(src) : undefined);
+    if (!src) return true;
+    return this.gates.gate(id, startProjectOf(src));
+  }
+
+  /**
+   * Whether a module that raises its own card may skip it, by the same rule as tool cards (see GatesCore.switchedOff): only an explicit owner override
+   * removes a card below what the agent's own setting asks. A preset alone (Bypass) silences the agents that follow it, that is, a run whose
+   * mode resolves to full; an agent the owner set to Ask keeps its card. The caller handles ceilings (a ceiling always keeps the card).
+   */
+  cardOffFor(taskId: string | undefined, id: string, agentId: string): boolean {
+    if (!this.gates || this.gateFor(taskId, id) !== false) return false;
+    const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
+    if (!src) return false;
+    if (this.gates.switchedOff(id, startProjectOf(src))) return true;
+    return this.runModeOf(agentId, taskId) === 'full';
   }
 
   /**

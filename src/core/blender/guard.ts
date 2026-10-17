@@ -283,12 +283,12 @@ export class BlenderGuard {
   private localRoot(): string { const b = this.d.config().baseDir; return b ? join(b, 'local') : join(this.d.dataDir, 'blender', 'local'); }
   private localExportDir(taskId: string): string { return this.d.localExportDir ? this.d.localExportDir(taskId) : join(this.localRoot(), safeSegment(taskId), 'exports'); }
 
-  /** blender_exec. Never throws. */
-  /** True when the owner turned the module cards off for this run (the gate is read with the run's start project; a ceiling keeps the card). */
+  /** True when the module cards are off for this run (the gate is read with the run's start project; a ceiling keeps the card). */
   private cardsOff(agent: AgentProfile, job: ModuleJob | undefined, taskId: string, action: string): boolean {
     return !!this.d.gateOff?.('module-cards', { agentId: agent.id, taskId, action: action.slice(0, 280), ...(job?.ceiling ? { ceiling: job.ceiling } : {}) });
   }
 
+  /** blender_exec. Never throws. */
   async exec(agent: AgentProfile, job: ModuleJob | undefined, args: { script: string; purpose?: string; mode?: RequestedMode }): Promise<ToolResult> {
     const cfg = this.d.config();
     const taskId = job?.taskId ?? 'no-task';

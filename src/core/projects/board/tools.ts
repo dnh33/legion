@@ -43,9 +43,11 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     const live = deps.modeOf?.(agentId, job.taskId);
     const ceiling = job.ceiling ?? job.origin?.approvalCeiling;
     const effective = ceiling ? stricterMode(live ?? fallbackMode, ceiling) : (live ?? fallbackMode);
+    // the one gate this card has (board-delete-card): off means the owner chose no card (an explicit switch-off, or a preset for a run in full).
+    // A ceiling keeps it (gateOff ignores the gate then). Asked BEFORE the full-mode return so Bypass writes its would-have-asked line too.
+    const gateIsOff = !!r.gateId && !!deps.gateOff?.(r.gateId, { ...(job.taskId ? { taskId: job.taskId } : {}), agentId, action: `${r.tool} ${cardText(r.summary, 200)}`, ...(ceiling ? { ceiling } : {}) });
     if (!decideGuard(effective).needsCard) return true;
-    // the one gate this card has (board-delete-card): off means the owner chose no card. A ceiling keeps it (gateOff ignores the gate then).
-    if (r.gateId && deps.gateOff?.(r.gateId, { ...(job.taskId ? { taskId: job.taskId } : {}), agentId, action: `${r.tool} ${cardText(r.summary, 200)}`, ...(ceiling ? { ceiling } : {}) })) return true;
+    if (gateIsOff) return true;
     if (!deps.askOwner || !job.taskId) return false;
     return deps.askOwner({
       taskId: job.taskId, agentId, tool: r.tool, summary: r.summary, input: r.input,
@@ -78,7 +80,8 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     async (a) => guard(() => {
       const p = scope();
       // proposals-inbox off (an owner choice): the item goes straight to the Backlog, still marked as an agent's text. Only the Inbox hop is gone.
-      const gate = { ...(job.taskId ? { taskId: job.taskId } : {}), agentId, action: `propose ${cardText(String(a.title ?? ''), 200)}`, always: true };
+      const ceiling = job.ceiling ?? job.origin?.approvalCeiling;
+      const gate = { ...(job.taskId ? { taskId: job.taskId } : {}), agentId, action: `propose ${cardText(String(a.title ?? ''), 200)}`, always: true, ...(ceiling ? { ceiling } : {}) };
       const direct = !!deps.gateOff?.('proposals-inbox', { ...gate, dry: true });
       const i = deps.board.propose(p, agentId, a, run(), { direct });
       deps.onChange?.(p.id);
