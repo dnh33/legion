@@ -16,7 +16,7 @@ import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const MAX_TOKENS = 128;
-const CHUNK = 8;
+const CHUNK = 2;
 const MODEL_FILE = 'model_qint8_avx512_vnni.onnx';
 
 type Kind = 'query' | 'passage';
@@ -103,6 +103,8 @@ async function pump(): Promise<void> {
       try {
         const from = job.done.length;
         job.done.push(...(await embedChunk(job.texts.slice(from, from + CHUNK), job.kind)));
+        // The model runs synchronously, so without this the event loop never reads a query that arrives mid-batch.
+        await new Promise<void>((r) => setImmediate(r));
         if (job.done.length >= job.texts.length) { queue.splice(queue.indexOf(job), 1); send({ id: job.id, vectors: job.done }); }
       } catch (e) {
         queue.splice(queue.indexOf(job), 1);
