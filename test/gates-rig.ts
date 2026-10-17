@@ -105,11 +105,24 @@ export async function gatesRig(o: RigOptions = {}) {
     const act = (r.engine as unknown as { active: Map<string, unknown> }).active.get(task.id);
     (engine['noteToolUse']!.call(r.engine, job, act, toolName, `u${++n}`, input) as void);
   };
+  /** A second run of the same agent, starting in the same project (or the project named): its own task and `Active`, the same engine and gates core. Each call to it is judged on its own job. */
+  const freshRun = async (fo: { projectId?: string } = {}) => {
+    const t = r.start('a1', 'again');
+    await pause(120);
+    const j = { taskId: t.id, agentId: 'a1', prompt: 'again', choice: 'auto', projectAtStart: fo.projectId ?? r.project.id, trigger: 'ui' } as never;
+    const callAs = (toolName: string, input: Record<string, unknown>): Promise<Decision> =>
+      (engine['toolDecider']!.call(r.engine, j, a1) as (t2: string, i: Record<string, unknown>) => Promise<Decision>)(toolName, input);
+    const noteAs = (toolName: string, input: Record<string, unknown>): void => {
+      const act = (r.engine as unknown as { active: Map<string, unknown> }).active.get(t.id);
+      (engine['noteToolUse']!.call(r.engine, j, act, toolName, `u${++n}`, input) as void);
+    };
+    return { task: t, call: callAs, noteUse: noteAs, stop: () => r.engine.cancel(t.id) };
+  };
   /** Lets an open card run out its time. Build the rig with `approvalTimeoutMs`. */
   const advanceApprovalTimeout = async (): Promise<void> => { await pause((o.approvalTimeoutMs ?? 0) + 40); };
   /** The activity log's lines for this rig, newest first. */
   const activityRead = (q?: Parameters<ActivityLog['read']>[0]) => r.activity!.read(q);
-  return { ...r, activityRead, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
+  return { ...r, activityRead, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
 }
 export type GatesRig = Awaited<ReturnType<typeof gatesRig>>;
 

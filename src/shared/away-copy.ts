@@ -21,6 +21,10 @@ export const AWAY_COPY = {
     proposal: 'Written after outside content',
     unknown: 'Unknown effect, check it',
   },
+  card: {
+    /** The first line of a Smart card for a build or test command, once an agent changed a build or script file in the project. */
+    buildEdited: 'This command runs code in your project, and an agent changed a build or script file in this project.',
+  },
   queue: {
     slot: (running: number, cap: number): string => `Waiting for a free slot (${running} of ${cap} running in all projects)`,
     budget: 'Waiting for the budget',

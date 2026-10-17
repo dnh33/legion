@@ -16,6 +16,8 @@ import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
 import { DENY_LINE, GATES, GATES_DIGEST_HEADER, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../shared/gates-registry.js';
 import type { GateValue, Preset } from '../../shared/gates-registry.js';
+import { createBuildEdited } from './build-edited.js';
+import type { BuildEdited } from './build-edited.js';
 import { makeSigner } from './sign.js';
 import { GatesError, GatesStore, PRESET_NAME } from './store.js';
 import type { ActivityLog } from '../activity/index.js';
@@ -43,6 +45,8 @@ export interface GatesCore {
    * that turns the cards off is the owner's explicit word for every agent of the project.
    */
   switchedOff(id: string, startProjectId?: string): boolean;
+  /** Projects where an agent changed a build or script file and the owner has not yet allowed a build or test command (Smart asks for those). Not a gate: its own store, not signed. */
+  buildEdited: BuildEdited;
 }
 
 /**
@@ -81,7 +85,7 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
     const preset: Preset = (startProjectId ? store.project(startProjectId).preset : undefined) ?? store.app().preset ?? 'ask';
     return def[preset] !== false;
   };
-  return { store, resolver, gate, switchedOff };
+  return { store, resolver, gate, switchedOff, buildEdited: createBuildEdited(store.folder) };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore }

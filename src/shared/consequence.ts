@@ -14,7 +14,7 @@
 import { refuseCatastrophic, unjudgeableCommand } from '../core/exec/shell-floor.js';
 import { AWAY_COPY } from './away-copy.js';
 
-export type ConsequenceTag = 'spends' | 'leaves' | 'deletes' | 'irreversible' | 'edits' | 'reads' | 'decides' | 'unknown' | 'net';
+export type ConsequenceTag = 'spends' | 'leaves' | 'deletes' | 'irreversible' | 'edits' | 'reads' | 'decides' | 'unknown' | 'net' | 'runs-code';
 export type ConsequenceLevel = 0 | 1 | 2 | 3;
 export interface Consequence { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; certain: boolean }
 
@@ -79,8 +79,9 @@ interface ProgramRule extends Sub {
   subs?: Record<string, Sub>;
 }
 
-const LOCAL = (): Consequence => rule(1, [], C.localRun);
-const LOCALSUB: Sub = { level: 1, tags: [], chip: C.localRun };
+/** A local build or test run: level 1, tagged `runs-code` so Smart asks for it once an agent changed a build or script file (needsApproval). */
+const LOCAL = (): Consequence => rule(1, ['runs-code'], C.localRun);
+const LOCALSUB: Sub = { level: 1, tags: ['runs-code'], chip: C.localRun };
 const SCRIPTS_OK = /^(test|build|lint|typecheck|check|format)$/;
 /** `npm|pnpm|yarn run <script>`: only the listed script names; extra flags or any other name stay unknown. */
 const runScript = (args: string[]): Consequence | undefined => {
@@ -89,7 +90,7 @@ const runScript = (args: string[]): Consequence | undefined => {
 };
 const pkgManager = (): ProgramRule => ({ level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--script-shell', '--node-options'], subs: {
   publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' },
-  test: { level: 1, tags: [], chip: C.localRun },
+  test: LOCALSUB,
   run: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: runScript },
 } });
 
@@ -212,7 +213,7 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
   npm: pkgManager(), yarn: pkgManager(), pnpm: pkgManager(),
   npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a.length === 2 && a[0] === 'tsc' && a[1] === '--noEmit' ? LOCAL() : undefined) },
   node: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a[0] === '--test' ? LOCAL() : undefined) },
-  pytest: { level: 1, tags: [], chip: C.localRun, unknownFlags: ['-p', '--pyargs'] },
+  pytest: { level: 1, tags: ['runs-code'], chip: C.localRun, unknownFlags: ['-p', '--pyargs'] },
   cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--config', '-z'], subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: LOCALSUB, build: LOCALSUB, check: LOCALSUB } },
   go: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['-exec', '--exec', '-toolexec', '--toolexec', '-vettool', '--vettool'], subs: { test: LOCALSUB, build: LOCALSUB, vet: LOCALSUB } },
   gh: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { release: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },

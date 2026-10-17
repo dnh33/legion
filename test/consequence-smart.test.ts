@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifySafe } from '../src/shared/consequence.js';
-import { needsApproval } from '../src/core/approvals.js';
+import { decideGuard, needsApproval } from '../src/core/approvals.js';
 
 // [command, smart asks?]  Smart cards exactly level 3 (spec 4.3). 40 rows: the copy on the Gates page matches this table.
 const ROWS: Array<[string, boolean]> = [
@@ -40,4 +40,37 @@ test('flags that run another program make the call unknown (level 3), per tool f
     'npm test --node-options=--require=./x', 'node --node-options=--require=./x --test a.js', 'NODE_OPTIONS=--require=./x npm test',
   ];
   for (const command of cmds) assert.equal(classifySafe({ kind: 'approval', toolName: 'Bash', input: { command } }).level, 3, command);
+});
+
+const level1 = ['npm test', 'npm run build', 'pnpm test', 'npx tsc --noEmit', 'node --test dist/test/a.test.js', 'pytest', 'cargo test', 'go test ./...'];
+test('every level-1 local run carries the runs-code tag; git status does not', () => {
+  for (const command of level1) assert.ok(classifySafe({ kind: 'approval', toolName: 'Bash', input: { command }, projectFolders: ['C:/p'] }).tags.includes('runs-code'), command);
+  assert.equal(classifySafe({ kind: 'approval', toolName: 'Bash', input: { command: 'git status' }, projectFolders: ['C:/p'] }).tags.includes('runs-code'), false);
+});
+test('Smart: a level-1 local run asks once buildEdited is true, and never before', () => {
+  for (const command of level1) {
+    const c = classifySafe({ kind: 'approval', toolName: 'Bash', input: { command }, projectFolders: ['C:/p'] });
+    assert.equal(needsApproval('smart', 'Bash', { consequence: c }), false, command);
+    assert.equal(needsApproval('smart', 'Bash', { consequence: c, buildEdited: false }), false, command);
+    assert.equal(needsApproval('smart', 'Bash', { consequence: c, buildEdited: true }), true, command);
+  }
+});
+test('a compound command that includes a local run asks once buildEdited is true', () => {
+  const c = classifySafe({ kind: 'approval', toolName: 'Bash', input: { command: 'git status && npm test' }, projectFolders: ['C:/p'] });
+  assert.equal(needsApproval('smart', 'Bash', { consequence: c }), false);
+  assert.equal(needsApproval('smart', 'Bash', { consequence: c, buildEdited: true }), true);
+});
+test('buildEdited does not make other level-1 or level-2 commands ask', () => {
+  for (const command of ['git status', 'git diff', 'ls -la', 'cat package.json', 'mkdir out']) {
+    const c = classifySafe({ kind: 'approval', toolName: 'Bash', input: { command }, projectFolders: ['C:/p'] });
+    assert.equal(needsApproval('smart', 'Bash', { consequence: c, buildEdited: true }), false, command);
+  }
+});
+test('Ask and Accept edits ignore buildEdited (they card every command already)', () => {
+  const c = classifySafe({ kind: 'approval', toolName: 'Bash', input: { command: 'npm test' }, projectFolders: ['C:/p'] });
+  for (const m of ['ask', 'auto-edits'] as const) assert.equal(needsApproval(m, 'Bash', { consequence: c, buildEdited: false }), true);
+});
+test('module guards (decideGuard) never read the flag', () => {
+  const c = classifySafe({ kind: 'approval', toolName: 'Bash', input: { command: 'npm test' }, projectFolders: ['C:/p'] });
+  assert.equal(decideGuard('smart', c).needsCard, false);
 });

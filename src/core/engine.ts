@@ -9,6 +9,8 @@ import type {
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { classifySafe } from '../shared/consequence.js';
+import { AWAY_COPY } from '../shared/away-copy.js';
+import { isBuildFile } from '../shared/build-files.js';
 import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
@@ -108,7 +110,7 @@ export interface EngineDeps {
   /** The gate presets' mode resolver (spec 4.2). Absent: the agent's own mode, as before. */
   modes?: import('./gates-settings/index.js').ModeResolver;
   /** The gate values (spec 4): the permission gates the engine owns are read per call, for the project the run started in. Absent: every gate is on, as before. */
-  gates?: Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'>;
+  gates?: GatesRead;
   /** The activity log: what a gate that is off let through is written here as a "would have asked" line. Absent: no lines. */
   activity?: ActivityLog;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
@@ -333,10 +335,14 @@ interface Job {
   /** "Queue after it": the agent's other live tasks in this project at enqueue time. The job waits until none of them is live. */
   after?: string[];
 }
+/** What the engine reads of the gates core: the gate values, and (optional, so a bare stub still works) the per-project build-file flag. */
+type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited'>>;
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
+  /** A build or script file was changed in this run. Used only when the run has no project (with a project the flag lives in the gates core, per project). */
+  buildEdited?: boolean;
   /** Claude Code's shell keeps its folder between calls: set once a call ran a `cd` the data-folder guard could not prove stays outside the protected set. */
   shellMoved?: boolean;
   /** The folder(s) the run's Claude shell may be in after its last call, when the guard could follow them. */
@@ -393,7 +399,7 @@ export class Engine {
   private readonly projects?: ProjectStore;
   private readonly away?: AwayHooks;
   private readonly modes?: import('./gates-settings/index.js').ModeResolver;
-  private readonly gates?: Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'>;
+  private readonly gates?: GatesRead;
   private readonly activity?: ActivityLog;
   private readonly queue: Job[] = [];
   /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
@@ -1341,9 +1347,44 @@ export class Engine {
     if (toolName === 'Skill') { if (this.skillLoadTaints(input)) act.tainted = true; }
     else if (taintsRun(toolName)) act.tainted = true;
     this.trackWorkspaceTaint(job, act, toolName, input);
+    this.trackBuildEdit(job, act, toolName, input);
     for (const m of this.modules) {
       try { m.onToolUse?.(job.agentId, job.taskId, toolName); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Smart asks for build and test commands once an agent changed a build or script file (Task 27). A file tool whose target is one, or a shell
+   * command that may write (level 2 or more) and names one, flags the run's start project; with no project the run itself carries the flag.
+   * A command that only reads such a file is level 1 and sets nothing. Stricter by design: a command that names the file and writes elsewhere also sets it.
+   */
+  private trackBuildEdit(job: Job, act: Active, toolName: string, input: unknown): void {
+    const o = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    let hit = false;
+    const field = WRITE_FILE_TOOLS[toolName];
+    if (field) {
+      hit = typeof o[field] === 'string' && o[field] !== '' && isBuildFile(TaintedPaths.resolvePath(this.agentCwd(job.agentId), o[field] as string));
+    } else if (SHELL_TOOLS.has(toolName) && typeof o.command === 'string') {
+      const folder = this.projectOf(job.taskId, job.agentId)?.folder ?? this.agentCwd(job.agentId);
+      hit = o.command.split(/[\s;&|<>()"'`=,]+/).some((t) => t !== '' && isBuildFile(t)) && classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }).level >= 2;
+    }
+    if (!hit) return;
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) this.gates.buildEdited.set(pid); else act.buildEdited = true;
+  }
+
+  /** Whether an agent changed a build or script file in the project this run started in, and no build or test command was allowed since. */
+  private buildEditedFor(job: Job): boolean {
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) return this.gates.buildEdited.has(pid);
+    return this.active.get(job.taskId)?.buildEdited === true;
+  }
+
+  /** The owner allowed the card the flag caused: the flag goes, for the project (or for a run with no project). */
+  private clearBuildEdited(job: Job): void {
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) this.gates.buildEdited.clear(pid);
+    else { const act = this.active.get(job.taskId); if (act) act.buildEdited = false; }
   }
 
   /**
@@ -1685,15 +1726,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
       // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
       const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
-      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}) })) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
+      const buildEdited = mode === 'smart' && this.buildEditedFor(job);
+      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}), ...(buildEdited ? { buildEdited } : {}) })) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
+      // the flag is what made this card (Smart would have run it): say why, and let only the owner's allow clear the flag. No Remember: a standing rule would skip the flag for good.
+      const flagCard = buildEdited && gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}) });
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(
         job.taskId, agent.id, toolName, input,
         o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-        { onTimeout: (ms) => { timedOut = true; waited = ms; }, ...this.askExtras(job, agent, toolName, input) },
+        { onTimeout: (ms) => { timedOut = true; waited = ms; }, ...this.askExtras(job, agent, toolName, input), ...(flagCard ? { noRemember: true, summary: `${AWAY_COPY.card.buildEdited}\n${summarizeToolInput(toolName, input)}` } : {}) },
       );
-      if (allowed) return { allow: true };
+      if (allowed) { if (flagCard) this.clearBuildEdited(job); return { allow: true }; }
       // The tool_use already set the mood to 'hacking'; after a deny nothing else would move it until the run ends, so the Relic
       // would read "Executing" for a call that never ran. Skip it once the run is cancelled or over (cancel denies open cards too).
       const live = this.active.get(job.taskId);
