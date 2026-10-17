@@ -174,8 +174,6 @@ interface Live {
   closed: boolean;
   ready: boolean;
   pending?: Pending;
-  /** The cumulative cost the last result carried. A request books the difference. */
-  lastTotal: number;
   served: number;
   said: string;
   inbox: SDKUserMessage[];
@@ -197,6 +195,7 @@ export class RerankSession {
   private failures = 0;
   private backoffUntil = 0;
   private lastReason: string | undefined;
+  private disposed = false;
 
   constructor(private readonly o: RerankSessionOpts) {}
 
@@ -215,7 +214,7 @@ export class RerankSession {
   /** The ids to use, best first, or undefined to keep the fused order. Never rejects. */
   async pick(a: RerankAsk): Promise<string[] | undefined> {
     try {
-      if (a.candidates.length === 0) return undefined;
+      if (this.disposed || a.candidates.length === 0) return undefined;
       if (this.now().getTime() < this.backoffUntil) return undefined;
       const live = this.live;
       if (!live) { this.start(a.monthlyUsd); return undefined; }
@@ -238,6 +237,12 @@ export class RerankSession {
     if (this.live) this.closeLive(this.live);
   }
 
+  /** Closes the session for good: no later turn starts a CLI. For module dispose. */
+  dispose(): void {
+    this.disposed = true;
+    this.close();
+  }
+
   /** Reserves the estimate in the month's spend. Undefined when the month would pass the cap. */
   private reserve(monthlyUsd: number): string | undefined {
     const month = monthKey(this.now());
@@ -249,6 +254,7 @@ export class RerankSession {
   }
 
   private start(monthlyUsd: number): void {
+    if (this.disposed) return;
     const launch = this.o.launch();
     if (!launch) return;
     const month = this.reserve(monthlyUsd);
@@ -267,7 +273,7 @@ export class RerankSession {
       ...(launch.executablePath ? { pathToClaudeCodeExecutable: launch.executablePath } : {}),
       abortController: ac,
     };
-    const live = { closed: false, ready: false, lastTotal: 0, served: 0, said: '', inbox: [], ended: false, ac } as unknown as Live;
+    const live = { closed: false, ready: false, served: 0, said: '', inbox: [], ended: false, ac } as unknown as Live;
     async function* input(): AsyncGenerator<SDKUserMessage> {
       for (;;) {
         if (live.inbox.length) { yield live.inbox.shift()!; continue; }
@@ -331,8 +337,8 @@ export class RerankSession {
   private onResult(live: Live, m: Record<string, unknown>): void {
     const est = this.o.reserveUsd ?? RERANK_RESERVE_USD;
     const total = typeof m.total_cost_usd === 'number' && Number.isFinite(m.total_cost_usd) ? m.total_cost_usd : undefined;
-    const delta = total === undefined ? undefined : Math.max(0, total - live.lastTotal);
-    if (total !== undefined) live.lastTotal = Math.max(live.lastTotal, total);
+    // On a streaming session each result's total_cost_usd is the cost of that turn alone, not a running total.
+    const delta = total === undefined ? undefined : Math.max(0, total);
     const p = live.pending;
     if (!p) return;
     live.pending = undefined;

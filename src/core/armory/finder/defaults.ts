@@ -16,9 +16,9 @@ export const DEADLINE_MS = 50;
 export const RERANK_DEADLINE_MS = 2500;
 /** How long the engine waits for a turn's note before it goes on without one. */
 export const TURN_TIMEOUT_MS = DEADLINE_MS * 4;
-export const RERANK_TURN_TIMEOUT_MS = 3000;
+export const RERANK_TURN_TIMEOUT_MS = 3300;
 /** Shown next to the rerank setting (Task 12). */
-export const RERANK_LATENCY_NOTE = 'Adds up to about 2 seconds before each reply while it ranks close calls.';
+export const RERANK_LATENCY_NOTE = 'Adds up to about 2.5 seconds before each reply while it ranks close calls.';
 
 /** How many skills the note lists, unless you set another k. */
 export const DEFAULT_K = 3;
@@ -60,7 +60,7 @@ export const RERANK_RESERVE_USD = 0.002;
 /** The warm session is closed and restarted after this many reranks, or after this long without one. */
 export const RERANK_RECYCLE_AFTER = 10;
 export const RERANK_IDLE_MS = 10 * 60_000;
-/** After this many failures in a row (a timeout counts) no session is started for RERANK_BACKOFF_MS. */
+/** After this many failures in a row (an error or an invalid answer; a timeout does not count) no session is started for RERANK_BACKOFF_MS. */
 export const RERANK_FAILS_BEFORE_BACKOFF = 3;
 export const RERANK_BACKOFF_MS = 60_000;
 /** How long a fresh session may take to answer its warm-up message. */

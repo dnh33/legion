@@ -23,15 +23,14 @@ interface Reply { text?: string; cost?: number; afterMs?: number; never?: boolea
 interface Made { options: any; messages: string[]; closed: boolean }
 
 /**
- * A fake streaming query: it reads each user message as it arrives and answers it as `script` says. `cost` is what that answer adds;
- * the result messages carry the running total, like the real session. Records every session it makes.
+ * A fake streaming query: it reads each user message as it arrives and answers it as `script` says. `cost` is what that turn cost;
+ * a result's total_cost_usd is per turn on a streaming session, not a running total. Records every session it makes.
  */
 function fakeSessions(script: (n: number, text: string, made: Made) => Reply = () => ({ text: '[]' })) {
   const made: Made[] = [];
   const queryFn: RerankQuery = (a) => {
     const rec: Made = { options: a.options, messages: [], closed: false };
     made.push(rec);
-    let total = 0;
     let n = 0;
     const gen = (async function* () {
       for await (const m of a.prompt as AsyncIterable<any>) {
@@ -42,9 +41,8 @@ function fakeSessions(script: (n: number, text: string, made: Made) => Reply = (
         if (r.never) await new Promise<void>(() => undefined);
         if (r.afterMs) await sleep(r.afterMs);
         if (r.throws) throw new Error('boom');
-        total += r.cost ?? 0;
         yield { type: 'assistant', message: { content: [{ type: 'text', text: r.text ?? '' }] } };
-        yield { type: 'result', subtype: r.error ? 'error_during_execution' : 'success', is_error: !!r.error, result: r.text ?? '', total_cost_usd: total };
+        yield { type: 'result', subtype: r.error ? 'error_during_execution' : 'success', is_error: !!r.error, result: r.text ?? '', total_cost_usd: r.cost ?? 0 };
       }
     })();
     return Object.assign(gen, { close: () => { rec.closed = true; } });
@@ -232,6 +230,18 @@ describe('rerank: the warm session', () => {
     assert.equal(f.made[0]!.closed, true);
   });
 
+  it('after dispose a turn never starts a CLI, and dispose closes the one that runs', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions();
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    s.dispose();
+    assert.equal(f.made[0]!.closed, true);
+    assert.equal(await s.pick(ask()), undefined);
+    assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made.length, 1, 'no new session');
+  });
+
   it('close() closes the child, and the next turn may start a new session', async () => {
     const dir = tempDir('legion-rerank-');
     const f = fakeSessions();
@@ -350,6 +360,29 @@ describe('rerank: spend', () => {
     assert.ok(near(readSpend(dir)[thisMonth()], 0.0012 + 0.002), 'the request holds its reservation while it runs');
     await p;
     assert.ok(near(readSpend(dir)[thisMonth()], 0.0012 + 0.0007), 'the month adds the difference between the two cumulative totals');
+    s.close();
+  });
+
+  it('books each result as the cost of that turn alone, so growing per-turn costs reach the cap at the right time', async () => {
+    const dir = tempDir('legion-rerank-');
+    const costs = [0.00055, 0.00087, 0.00093, 0.00099];
+    const f = fakeSessions((n) => ({ text: '["a"]', cost: costs[n] }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    for (let i = 1; i < 4; i++) assert.deepEqual(await s.pick(ask()), ['a']);
+    assert.ok(near(readSpend(dir)[thisMonth()], costs.reduce((a, b) => a + b, 0)), 'the sum of the four turns, not a sum of running totals');
+    // 0.00334 spent: a request fits a cap of 0.0054 (0.00334 + 0.002) but not 0.0053.
+    assert.equal(await s.pick(ask({ monthlyUsd: 0.0053 })), undefined);
+    assert.deepEqual(await s.pick(ask({ monthlyUsd: 0.0054 })), ['a']);
+    s.close();
+  });
+
+  it('a result cheaper than its reservation refunds the difference', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions(() => ({ text: '[]', cost: 0.0004 }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    assert.ok(near(readSpend(dir)[thisMonth()], 0.0004));
     s.close();
   });
 

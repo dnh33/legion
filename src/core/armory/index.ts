@@ -354,7 +354,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     finderSettled: () => filling ?? Promise.resolve(),
 
     // Stops the local model's helper process, if one is running.
-    async dispose() { rerank.close(); model.dispose(); },
+    async dispose() { rerank.dispose(); model.dispose(); },
 
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
       const searchTool = finderSettings(agent).searchTool;
@@ -396,7 +396,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       // The optional Haiku rerank: only when the top scores are close. Its answer is ids from this list, or undefined (keep the order).
       // The best raw BM25 is read here, not from rank(), because the margin normalises keyword scores by it (the fused path does not need it).
       if (wantRerank && wide.length >= 2) {
-        const best = fused ? 0 : Math.max(0, ...[...scoreIndex(sub, ctx.prompt).values()].map((h) => h.score));
+        // Reused from the ranking above: the best BM25 among the kept results (a no-boost tie is the same as the best of all candidates).
+        const best = fused ? 0 : Math.max(0, ...wide.map((r) => r.bm25));
         if (isCloseMatch(rerankScores(wide, fused, best))) {
           const ids = await rerank.pick({
             text: ctx.prompt,

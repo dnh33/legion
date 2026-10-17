@@ -11,7 +11,7 @@ import { buildIndex, scoreIndex } from '../src/core/armory/finder/bm25.js';
 import { rank } from '../src/core/armory/finder/rank.js';
 import { buildNote, buildProviderNote } from '../src/core/armory/finder/note.js';
 import type { Ranked } from '../src/core/armory/finder/rank.js';
-import { DEADLINE_MS, DEFAULT_K, RERANK_DEADLINE_MS, RERANK_TURN_TIMEOUT_MS, THRESHOLDS } from '../src/core/armory/finder/defaults.js';
+import { DEADLINE_MS, DEFAULT_K, EMBED_QUERY_BUDGET_MS, RERANK_DEADLINE_MS, RERANK_TURN_TIMEOUT_MS, THRESHOLDS } from '../src/core/armory/finder/defaults.js';
 import { tempDir } from './tmp-cleanup.js';
 
 function mkEntry(over: Partial<CatalogEntry> & { id: string }): CatalogEntry {
@@ -281,7 +281,7 @@ describe('rank gates', () => {
     assert.equal(DEFAULT_K, 3);
     assert.equal(DEADLINE_MS, 50);
     assert.equal(RERANK_DEADLINE_MS, 2500);
-    assert.ok(RERANK_TURN_TIMEOUT_MS > RERANK_DEADLINE_MS, 'the engine waits longer than the rerank may take');
+    assert.ok(RERANK_TURN_TIMEOUT_MS > EMBED_QUERY_BUDGET_MS + DEADLINE_MS + RERANK_DEADLINE_MS, 'the engine waits longer than the embed budget, the rank and the rerank together');
   });
 });
 
