@@ -35,7 +35,7 @@ test('doctor reports signed-in account', async () => {
   assert.match(claude.detail, /a@b\.c/);
   assert.match(claude.detail, /max/);
   assert.equal(seen.closed, 1);
-  assert.equal(seen.opts.env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(seen.opts.env.ANTHROPIC_API_KEY, '');
   assert.equal(checks.find((c) => c.id === 'workspace')!.ok, true);
   assert.equal(checks.find((c) => c.id === 'boat')!.ok, true);
 });
@@ -99,7 +99,7 @@ test('doctor: Console login (API key source) is flagged; a Claude plan stays ok'
   let checks = await runDoctor({ config: cfg(), getBoat: () => null, queryFn: fakeQuery(async () => ({ email: 'a@b.c', apiKeySource: '/login managed key' })) });
   let c = checks.find((x) => x.id === 'claude')!;
   assert.equal(c.ok, false);
-  assert.match(c.detail, /Signed in, but runs bill API credits \(key source: \/login managed key\), not a Claude plan/);
+  assert.match(c.detail, /Runs would bill API credits \(key source: \/login managed key\), so Legion will not start them/);
   assert.match(c.fix!, /\/logout, then \/login/);
   checks = await runDoctor({ config: cfg(), getBoat: () => null, queryFn: fakeQuery(async () => ({ email: 'a@b.c', subscriptionType: 'max', apiKeySource: 'ANTHROPIC_API_KEY' })) });
   assert.equal(checks.find((x) => x.id === 'claude')!.ok, false, 'an API key wins over the plan');
@@ -122,24 +122,27 @@ async function withClaudeHome(settings: string | undefined, fn: (dir: string) =>
 }
 const planQuery = () => fakeQuery(async () => ({ email: 'a@b.c', subscriptionType: 'max', apiKeySource: 'none' }));
 
-test('doctor: an API key in the Claude Code settings is flagged by name, never by value', async () => {
+test('doctor: an API key in the Claude Code settings is named (never its value) once API billing is allowed; plan only blanks it', async () => {
+  const allow = () => { const c = cfg(); c.claude.allowApiBilling = true; return c; };
   await withClaudeHome(JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-secret-value' } }), async () => {
-    const c = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
-    assert.equal(c.ok, false);
-    assert.match(c.detail, /Your Claude Code settings set ANTHROPIC_API_KEY, so runs bill that key instead of your Claude plan/);
+    const c = (await runDoctor({ config: allow(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.equal(c.ok, true);
+    assert.match(c.detail, /Your Claude Code settings set ANTHROPIC_API_KEY; runs bill it, as you allowed in Settings/);
     assert.doesNotMatch(JSON.stringify(c), /sk-secret-value/);
+    const p = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.equal(p.ok, true, 'plan only: the key is blanked for runs, so it is not a problem');
   });
   await withClaudeHome(JSON.stringify({ apiKeyHelper: '/bin/get-key' }), async () => {
-    const c = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
-    assert.equal(c.ok, false);
+    const c = (await runDoctor({ config: allow(), getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
+    assert.equal(c.ok, true);
     assert.match(c.detail, /set apiKeyHelper/);
     assert.doesNotMatch(JSON.stringify(c), /get-key/);
   });
   await withClaudeHome(JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-x' } }), async () => {
-    const config = cfg();
+    const config = allow();
     config.claude.inheritClaudeCodeSettings = false;
     const c = (await runDoctor({ config, getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude')!;
-    assert.equal(c.ok, true, 'settings the runs do not load are not read');
+    assert.doesNotMatch(c.detail, /ANTHROPIC_API_KEY/, 'settings the runs do not load are not read');
   });
 });
 

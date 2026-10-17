@@ -122,15 +122,15 @@ test('startTask validation errors', () => {
   assert.throws(() => s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', continueTaskId: 'zz' }), (e: any) => e.status === 404);
 });
 
-test('auth env: claude-login deletes API key vars; api-key sets it', async () => {
+test('auth env: claude-login blanks API key vars; api-key sets it', async () => {
   const saveKey = process.env.ANTHROPIC_API_KEY, saveTok = process.env.ANTHROPIC_AUTH_TOKEN;
   process.env.ANTHROPIC_API_KEY = 'sk-from-shell';
   process.env.ANTHROPIC_AUTH_TOKEN = 'tok';
   try {
     const a = setup(() => happy());
     await a.engine.waitFor(a.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'cli' }).id, 3000);
-    assert.equal('ANTHROPIC_API_KEY' in a.calls[0]!.options.env && a.calls[0]!.options.env.ANTHROPIC_API_KEY !== undefined, false);
-    assert.equal(a.calls[0]!.options.env.ANTHROPIC_AUTH_TOKEN, undefined);
+    assert.equal(a.calls[0]!.options.env.ANTHROPIC_API_KEY, '', 'the shell key is blanked, not passed on');
+    assert.equal(a.calls[0]!.options.env.ANTHROPIC_AUTH_TOKEN, '', 'plan only: blanked');
     // the child env is a plain-object copy of process.env: on Windows its key is "Path" (plain objects are case-sensitive, process.env is not)
     const pathKey = Object.keys(a.calls[0]!.options.env).find((k) => k.toUpperCase() === 'PATH');
     assert.equal(a.calls[0]!.options.env[pathKey ?? 'PATH'], process.env.PATH);

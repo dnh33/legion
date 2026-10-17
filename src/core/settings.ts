@@ -112,6 +112,10 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
       if (typeof c.inheritMcp !== 'boolean') throw new SettingsError('claude.inheritMcp must be a boolean');
       o.inheritMcp = c.inheritMcp;
     }
+    if (c.allowApiBilling !== undefined) {
+      if (typeof c.allowApiBilling !== 'boolean') throw new SettingsError('claude.allowApiBilling must be a boolean');
+      o.allowApiBilling = c.allowApiBilling;
+    }
     if (c.maxTurns !== undefined) {
       if (typeof c.maxTurns !== 'number' || !Number.isInteger(c.maxTurns) || c.maxTurns < 1 || c.maxTurns > 1000) throw new SettingsError('claude.maxTurns must be an integer 1-1000');
       o.maxTurns = c.maxTurns;
@@ -201,7 +205,7 @@ export class SettingsService {
       claude: {
         auth: c.claude.auth, apiKeySet: !!c.claude.apiKey, ...(c.claude.apiKey ? { apiKeyHint: hint(c.claude.apiKey) } : {}),
         ...(c.claude.executablePath ? { executablePath: c.claude.executablePath } : {}),
-        inheritClaudeCodeSettings: c.claude.inheritClaudeCodeSettings, inheritMcp: c.claude.inheritMcp === true, maxTurns: c.claude.maxTurns,
+        inheritClaudeCodeSettings: c.claude.inheritClaudeCodeSettings, inheritMcp: c.claude.inheritMcp === true, allowApiBilling: c.claude.allowApiBilling === true, maxTurns: c.claude.maxTurns,
         ...(budgetCap(c.claude.maxBudgetUsd) !== undefined ? { maxBudgetUsd: c.claude.maxBudgetUsd } : {}),
       },
       boat: {

@@ -8,13 +8,13 @@ import { configPath } from '../shared/config.js';
 import type { DoctorCheck, LegionConfig } from '../shared/types.js';
 import type { BoatClient } from './boat.js';
 import { CLAUDE_NOT_CONFIGURED, type BoatHealth } from './boat-health.js';
-import { buildChildEnv, connectorSettings } from './engine.js';
+import { buildChildEnv, connectorSettings, isPlanOnly, planOnlySettings } from './engine.js';
 import type { QueryFn } from './engine.js';
 import { claudeHomeDir } from './armory/discover.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
 
-const API_BILLING_FIX = 'To use your Claude Pro or Max plan: run claude in a terminal, type /logout, then /login and choose your Claude account. If your Claude Code settings set ANTHROPIC_API_KEY or apiKeyHelper, remove it. Or keep it and make sure the Console account has credits.';
+const PLAN_ONLY_FIX = 'To use your Claude plan: run claude in a terminal, type /logout, then /login and choose your Claude account. Or turn on Settings -> Claude -> Allow API credit billing.';
 
 /** The name (never the value) of the first billing key the user's Claude Code settings.json sets, if any. Missing or corrupt files give undefined. */
 function billingKeyInSettings(): string | undefined {
@@ -46,7 +46,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
-      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), ...connectorSettings(config, { probe: true }), abortController: ac,
+      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), settings: planOnlySettings(config, connectorSettings(config, { probe: true }).settings), abortController: ac,
       // Pinned: an omitted mode starts auto mode on third-party providers (SDK 0.3.286). A probe leaves no session file.
       permissionMode: 'default', persistSession: false,
     };
@@ -60,15 +60,21 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
     if (config.claude.auth === 'claude-login' && !info?.email && !info?.subscriptionType && (!info?.apiProvider || info.apiProvider === 'firstParty')) {
       return { ok: false, detail: 'No signed-in Claude account found', fix: SIGN_IN_FIX };
     }
+    let billNote = '';
     if (config.claude.auth === 'claude-login') {
       // A key source other than "none" means runs bill API credits, even when a Claude plan is also signed in.
       const source = info?.apiKeySource;
-      if (source && source !== 'none') {
-        return { ok: false, detail: `Signed in, but runs bill API credits (key source: ${source}), not a Claude plan`, fix: API_BILLING_FIX };
+      const billed = !!source && source !== 'none';
+      if (isPlanOnly(config)) {
+        // Plan only: the keys in Claude Code settings are blanked for runs, so only a source the blanks cannot reach (a stored Console key) fails here.
+        if (billed) return { ok: false, detail: `Runs would bill API credits (key source: ${source}), so Legion will not start them`, fix: PLAN_ONLY_FIX };
+      } else {
+        // API billing allowed: say so, and keep the key names in the settings files as information.
+        // Settings the runs load but this probe does not (it runs with settingSources: []).
+        const name = config.claude.inheritClaudeCodeSettings ? billingKeyInSettings() : undefined;
+        const parts = [billed ? `Signed in; runs bill API credits (key source: ${source}), as you allowed in Settings` : '', name ? `Your Claude Code settings set ${name}; runs bill it, as you allowed in Settings` : ''].filter(Boolean);
+        billNote = parts.join('. ');
       }
-      // Settings the runs load but this probe does not (it runs with settingSources: []).
-      const name = config.claude.inheritClaudeCodeSettings ? billingKeyInSettings() : undefined;
-      if (name) return { ok: false, detail: `Your Claude Code settings set ${name}, so runs bill that key instead of your Claude plan`, fix: API_BILLING_FIX };
     }
     // Which Claude Code is bundled (SDK 0.3.296 reports it in the initialize response). Best effort: never fails the check.
     let version = '';
@@ -78,7 +84,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
       if (typeof init?.claude_code_version === 'string' && init.claude_code_version) version = `Claude Code ${init.claude_code_version}`;
     } catch { /* an older CLI or a closed query: the version is simply not shown */ }
     clearTimeout(vt);
-    return { ok: true, detail: [who || `provider: ${info?.apiProvider ?? 'unknown'}`, version].filter(Boolean).join(', ') };
+    return { ok: true, detail: [[who || `provider: ${info?.apiProvider ?? 'unknown'}`, version].filter(Boolean).join(', '), billNote].filter(Boolean).join('. ') };
   } catch (e) {
     return { ok: false, detail: `Claude probe failed: ${e instanceof Error ? e.message : String(e)}`, fix: SIGN_IN_FIX };
   } finally {

@@ -486,6 +486,11 @@ export interface LegionConfig {
      * claude.ai connectors are not loaded. On: a run also gets the MCP servers and claude.ai connectors from your Claude Code setup.
      */
     inheritMcp: boolean;
+    /**
+     * Default false (absent). Claude login uses your Claude plan only: API keys and key helpers are blanked for every run, and a run whose key source
+     * is not "none" does not start. On: runs may bill API credits (a Console login, or a key in your Claude Code settings).
+     */
+    allowApiBilling?: boolean;
     /** Max agentic turns per run before the router escalates / stops. A stopped run can be continued in the same session. */
     maxTurns: number;
     /** Optional spend cap per run, in USD (the SDK's maxBudgetUsd). Absent = no cap. */
@@ -578,6 +583,7 @@ export interface SettingsView {
     executablePath?: string;
     inheritClaudeCodeSettings: boolean;
     inheritMcp: boolean;
+    allowApiBilling: boolean;
     maxTurns: number;
     /** The spend cap per run in USD; absent when there is none. */
     maxBudgetUsd?: number;
@@ -603,7 +609,7 @@ export interface SettingsView {
 
 /** PATCH /api/settings body. Omitted fields are unchanged; apiKey: *** clears a key. */
 export interface SettingsPatch {
-  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; inheritMcp?: boolean; maxTurns?: number; maxBudgetUsd?: number | null };
+  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; inheritMcp?: boolean; allowApiBilling?: boolean; maxTurns?: number; maxBudgetUsd?: number | null };
   boat?: { apiKey?: string | null; baseUrl?: string; rates?: { small?: number | null; default?: number | null; large?: number | null }; currency?: string };
   mcpServers?: Record<string, McpServerEntry>;
   /** Omitted fields are unchanged; contextWindowOverride: null means "derive the window per model". */

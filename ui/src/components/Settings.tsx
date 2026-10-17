@@ -117,14 +117,15 @@ function ClaudeSection({ s }: { s: SettingsView }) {
   const [exec, setExec] = useState(c.executablePath ?? '');
   const [inherit, setInherit] = useState(c.inheritClaudeCodeSettings);
   const [inheritMcp, setInheritMcp] = useState(c.inheritMcp);
+  const [allowApi, setAllowApi] = useState(c.allowApiBilling);
   const [turns, setTurns] = useState(String(c.maxTurns));
   const [budget, setBudget] = useState(c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRm, setConfirmRm] = useState(false);
-  const reset = () => { setAuth(c.auth); setKey(''); setExec(c.executablePath ?? ''); setInherit(c.inheritClaudeCodeSettings); setInheritMcp(c.inheritMcp); setTurns(String(c.maxTurns)); setBudget(c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd)); setError(null); };
+  const reset = () => { setAuth(c.auth); setKey(''); setExec(c.executablePath ?? ''); setInherit(c.inheritClaudeCodeSettings); setInheritMcp(c.inheritMcp); setAllowApi(c.allowApiBilling); setTurns(String(c.maxTurns)); setBudget(c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd)); setError(null); };
   useEffect(reset, [JSON.stringify(c)]);
-  const dirty = auth !== c.auth || key !== '' || exec !== (c.executablePath ?? '') || inherit !== c.inheritClaudeCodeSettings || inheritMcp !== c.inheritMcp || turns !== String(c.maxTurns) || budget.trim() !== (c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd));
+  const dirty = auth !== c.auth || key !== '' || exec !== (c.executablePath ?? '') || inherit !== c.inheritClaudeCodeSettings || inheritMcp !== c.inheritMcp || allowApi !== c.allowApiBilling || turns !== String(c.maxTurns) || budget.trim() !== (c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd));
 
   const save = async () => {
     const n = Number(turns);
@@ -134,7 +135,7 @@ function ClaudeSection({ s }: { s: SettingsView }) {
     if (cap !== null && (!Number.isFinite(cap) || cap < 0.05 || cap > 1000 || Math.abs(cap * 100 - Math.round(cap * 100)) > 1e-6)) { setError('The spend limit must be an amount from 0.05 to 1000 dollars, or empty for no limit.'); return; }
     if (auth === 'api-key' && !key && !c.apiKeySet) { setError('Paste an Anthropic API key to use API key mode.'); return; }
     setBusy(true); setError(null);
-    const patch: SettingsPatch = { claude: { auth, inheritClaudeCodeSettings: inherit, inheritMcp, maxTurns: n, maxBudgetUsd: cap, executablePath: exec.trim() || null, ...(key ? { apiKey: key.trim() } : {}) } };
+    const patch: SettingsPatch = { claude: { auth, inheritClaudeCodeSettings: inherit, inheritMcp, allowApiBilling: allowApi, maxTurns: n, maxBudgetUsd: cap, executablePath: exec.trim() || null, ...(key ? { apiKey: key.trim() } : {}) } };
     try { await saveSettings(patch); setKey(''); } catch (e) { setError(errText(e)); }
     setBusy(false);
   };
@@ -155,6 +156,10 @@ function ClaudeSection({ s }: { s: SettingsView }) {
           </div>
           <span className="set-hint">{auth === 'claude-login' ? 'Uses the account you are signed into Claude Code with. Covered by your subscription.' : 'Bills your Anthropic API account per token.'}</span>
         </div>
+        {auth === 'claude-login' && (
+          <label className="set-check"><input type="checkbox" checked={allowApi} onChange={(e) => setAllowApi(e.target.checked)} />
+            <span><b>Allow API credit billing</b><em>Claude login uses your Claude plan only. Turn this on if you pay through an Anthropic Console account or an API key in your Claude Code settings: runs then bill those API credits.</em></span></label>
+        )}
         <Field id="claude-key" label="Anthropic API key" hint={<>Status: <b>{keyNote(c.apiKeySet, c.apiKeyHint)}</b>. The key is stored in your config file and never shown again.</>}>
           <div className="set-inline">
             <input id="claude-key" type="password" autoComplete="off" spellCheck={false} value={key} disabled={auth !== 'api-key'} onChange={(e) => setKey(e.target.value)}

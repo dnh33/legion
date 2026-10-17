@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Claude login now means your Claude plan only.** Legion switches off every API key Claude Code could pick up, and a run that would bill Anthropic API credits does not start. It tells you why and how to use your plan. If you pay with API credits on purpose, turn on Settings, Claude, Allow API credit billing. Help, Doctor shows which case you are in.
+
 ## [0.3.2] - 2026-10-16
 
 0.3.1 was held back after an update problem, so for most people this update also brings everything listed under 0.3.1. It installs by itself. From 0.3.0 it is a larger download, about 285 MB: Legion closes for about a minute and reopens by itself. If you open it early, press Update again.

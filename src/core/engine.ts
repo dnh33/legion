@@ -7,7 +7,7 @@ import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
-import { explainClaudeError } from '../shared/claude-errors.js';
+import { API_BILLING_BLOCKED, apiBillingBlockedText, explainClaudeError } from '../shared/claude-errors.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { classifySafe } from '../shared/consequence.js';
 import { liveSecrets } from './kg/index.js';
@@ -254,12 +254,30 @@ export function connectorSettings(config: LegionConfig, opts?: { probe?: boolean
   return config.claude.inheritMcp !== true || opts?.probe ? { settings: { disableClaudeAiConnectors: true } } : {};
 }
 
+/**
+ * "Plan only": a Claude login (not an API key) that may not bill API credits (claude.allowApiBilling off, the default). The flag settings layer
+ * beats a user-file env value and apiKeyHelper, and an empty string counts as unset, so every key source Legion can reach is blanked. A key stored
+ * by a Console login cannot be blanked by any setting: the start-of-run check in handleMessage catches that one.
+ */
+export function isPlanOnly(config: LegionConfig): boolean {
+  return config.claude.auth === 'claude-login' && config.claude.allowApiBilling !== true;
+}
+
+/** Merges the plan-only blanks into the run's flag settings (`base`: connector and skill-shell flags, all kept). A copy of `base` otherwise. */
+export function planOnlySettings(config: LegionConfig, base: Settings = {}): Settings {
+  return isPlanOnly(config) ? { ...base, env: { ...base.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' }, apiKeyHelper: '' } : { ...base };
+}
+
 export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {
     env.ANTHROPIC_API_KEY = config.claude.apiKey;
+  } else if (isPlanOnly(config)) {
+    // empty counts as unset for Claude Code, and keeps a settings-file value from filling the gap
+    env.ANTHROPIC_API_KEY = '';
+    env.ANTHROPIC_AUTH_TOKEN = '';
   } else {
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
@@ -1568,7 +1586,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       env: buildChildEnv(this.config),
       // SDK Settings.disableSkillShellExecution (sdk.d.ts:7156): inline shell in skills and slash commands runs before the model sees the text and never
       // reaches canUseTool, so it is replaced by a placeholder unless the owner allowed it in the Armory. Merged into the same flag layer as the connector switch.
-      settings: { ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell },
+      settings: planOnlySettings(this.config, { ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell }),
       // Runs before every tool executes (also in bypass mode), so taint is set before the tool can act on outside content.
       hooks: {
         PreToolUse: [
@@ -1905,6 +1923,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         // only the run's own messages: a background agent's carry parent_tool_use_id and are not the model answering
         if (held && ['assistant', 'user', 'stream_event'].includes((next.value as any)?.type) && !(next.value as any)?.parent_tool_use_id) turnStarted = true;
         const o = this.handleMessage(job, act, next.value as any);
+        // A plan-only run whose init reports an API key source stops here, before the model is asked anything; the finally below closes the query.
+        if (o?.subtype === API_BILLING_BLOCKED) return o;
         // each result answers one message; once none are waiting the stream closes and the run ends, unless background agents still work
         if (o) {
           outcome = o;
@@ -1975,6 +1995,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const taskId = job.taskId;
     switch (msg?.type) {
       case 'system': {
+        if (msg.subtype === 'init' && isPlanOnly(this.config) && typeof msg.apiKeySource === 'string' && msg.apiKeySource !== '' && msg.apiKeySource !== 'none') {
+          return { subtype: API_BILLING_BLOCKED, isError: true, errorText: apiBillingBlockedText(msg.apiKeySource) };
+        }
         if (msg.subtype === 'init' && typeof msg.session_id === 'string') {
           // Set now, not when the run ends: a crash, a restart or a thrown error must still leave the task continuable.
           act.reached = true;

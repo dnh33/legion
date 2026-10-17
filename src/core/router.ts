@@ -1,5 +1,6 @@
 /** Auto model routing + escalation. */
 import { USAGE_LIMIT_ERROR_PREFIXES, ORG_POLICY_LIMIT_PREFIXES } from '@anthropic-ai/claude-agent-sdk';
+import { API_BILLING_BLOCKED } from '../shared/claude-errors.js';
 import type { ConcreteModel, ModelChoice } from '../shared/types.js';
 
 export interface RouteDecision { model: ConcreteModel; reason: string; prompt: string }
@@ -25,7 +26,7 @@ const ESCALATE_SUBTYPES = new Set(['error_during_execution']);
 // Running out of turns is not Sonnet failing: the task pauses and continues on the same model. Escalating would hand Opus
 // a second full turn budget on the same session, doubling the cost without asking. The same goes for the spend limit:
 // Opus would get a fresh cap and spend more than the owner allowed.
-const NEVER_ESCALATE_SUBTYPES = new Set(['error_max_turns', 'error_max_budget_usd']);
+const NEVER_ESCALATE_SUBTYPES = new Set(['error_max_turns', 'error_max_budget_usd', API_BILLING_BLOCKED]);
 
 export function routeModel(prompt: string, choice: ModelChoice, ctx?: { priorModel?: ConcreteModel }): RouteDecision {
   // "/model <value>" forces any model; "/model auto" just means "let the router decide" for this message.
