@@ -37,6 +37,11 @@ export const DEFAULT_K = 3;
  * The fused score is `w * cosineNorm + (1 - w) * bm25Norm`, both 0..1 over the candidates.
  */
 export const FUSION_WEIGHT = 0.8;
+/**
+ * The weight for the search tool (armory_find), which has no floor and so needs the best order with no cut: the weight with the most mean
+ * recall@3 over Set A and Set B with no cut (agent pool, task 11: 0.335 at 0.4 against 0.261 at the note weight).
+ */
+export const SEARCH_FUSION_WEIGHT = 0.4;
 /** Score floors for the note when embeddings ranked the skills (the fused score, 0..1). */
 export const FUSED_THRESHOLDS = { strict: 1.05, balanced: 0.95, eager: 0.9 } as const;
 /**

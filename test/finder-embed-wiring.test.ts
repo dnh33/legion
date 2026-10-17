@@ -271,3 +271,28 @@ describe('the raw cosine floor', () => {
     assert.ok(out.includes('design-polish') && out.includes('db-tune'), `the search still lists the closest skills: ${out}`);
   });
 });
+
+describe('the search weight', () => {
+  it('armory_find fuses with its own weight, not the note weight', async () => {
+    // The message says "typography" (a keyword hit on design-polish) but its vector points at the database axis.
+    const toDb: Embedder = { id: 'fake-db', async embed(texts, _s, kind) { return texts.map((t) => (kind === 'query' ? Float32Array.from([0, 1, 0]) : vecOf(t))); } };
+    const mk = async (tune: Record<string, number>) => {
+      const r = armoryRig({ modOpts: { finderEmbedder: () => toDb, finderTuning: { ...MECHANISM_TUNING, ...tune } } });
+      await own(r, { name: 'design-polish', description: 'Polish typography, spacing and colour for pages', body: 'b' });
+      await own(r, { name: 'db-tune', description: 'Tune database queries and indexes', body: 'b' });
+      await r.call('POST', '/api/armory/finder', { ranker: 'local' });
+      const job = { taskId: 't', runtime: 'claude', taint: () => false, markTainted: () => undefined } as unknown as ModuleJob;
+      const srv = r.mod.mcpServers!(r.agents.get('alpha')!, job)[ARMORY_SERVER_NAME] as any;
+      const ask = async () => (await srv.instance._registeredTools.armory_find.handler({ query: 'typography', limit: 5 }, {})).content.map((c: any) => c.text).join('\n') as string;
+      await ask();
+      await r.mod.finderSettled();
+      return ask();
+    };
+    // Note weight 1 (all vector) and search weight 0 (all keywords): the search follows the keywords.
+    const out = await mk({ weight: 1, searchWeight: 0 });
+    assert.ok(out.indexOf('design-polish') >= 0 && (out.indexOf('db-tune') < 0 || out.indexOf('design-polish') < out.indexOf('db-tune')), out);
+    // Swapped: the search follows the vector.
+    const swapped = await mk({ weight: 0, searchWeight: 1 });
+    assert.ok(swapped.indexOf('db-tune') >= 0 && (swapped.indexOf('design-polish') < 0 || swapped.indexOf('db-tune') < swapped.indexOf('design-polish')), swapped);
+  });
+});

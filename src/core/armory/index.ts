@@ -33,7 +33,7 @@ import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, upd
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch, suggestOn } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
-import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
+import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, SEARCH_FUSION_WEIGHT, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
 import { cachedPassages, createVectorCache, MAX_NEW_PASSAGES, passageVectors } from './finder/embed.js';
 import type { Embedder, VectorCache } from './finder/embed.js';
 import { createFinderModel } from './finder/model.js';
@@ -90,6 +90,8 @@ export interface FinderTuning {
   thresholds: Readonly<Record<FinderThreshold, number>>;
   fusedThresholds: Readonly<Record<FinderThreshold, number>>;
   weight: number;
+  /** The weight for the search tool. */
+  searchWeight: number;
   cosineFloor: number;
   rerankMargin: number;
 }
@@ -143,7 +145,7 @@ const FIND_EMBED_BUDGET_MS = 2000;
 
 export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): ArmoryModule {
   const log = opts.log ?? (() => undefined);
-  const tune: FinderTuning = { thresholds: THRESHOLDS, fusedThresholds: FUSED_THRESHOLDS, weight: FUSION_WEIGHT, cosineFloor: RAW_COSINE_FLOOR, rerankMargin: RERANK_MARGIN, ...(opts.finderTuning ?? {}) };
+  const tune: FinderTuning = { thresholds: THRESHOLDS, fusedThresholds: FUSED_THRESHOLDS, weight: FUSION_WEIGHT, searchWeight: SEARCH_FUSION_WEIGHT, cosineFloor: RAW_COSINE_FLOOR, rerankMargin: RERANK_MARGIN, ...(opts.finderTuning ?? {}) };
   const ttl = opts.ttlMs ?? 5000;
   const probe = opts.sdkProbe ?? sdkHandshake;
   const retryMs = opts.retryMs ?? 300_000;
@@ -328,7 +330,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     if (emb) {
       const st = await embedState(emb, docsOf(docs, cand), query, FIND_EMBED_BUDGET_MS);
       // The search has no floor: a search that names the closest skills is useful even when none is close enough for a note.
-      const fused = st ? rankFused(sub, query, st.qv, st.vecs, { k: limit, maxK: limit, minScore: 0, cosineFloor: -1, weight: tune.weight, deadlineMs: DEADLINE_MS, boost }) : null;
+      const fused = st ? rankFused(sub, query, st.qv, st.vecs, { k: limit, maxK: limit, minScore: 0, cosineFloor: -1, weight: tune.searchWeight, deadlineMs: DEADLINE_MS, boost }) : null;
       if (fused && !fused.timedOut) ordered = fused.results.map((r) => ({ id: r.id, score: r.score }));
     }
     ordered ??= [...scoreIndex(sub, query)].map(([id, h]) => ({ id, score: h.score * boost(id) }))

@@ -69,7 +69,7 @@ export const noRerank: RerankQuery = () => { throw new Error('no Haiku rerank in
 export const MECHANISM_TUNING = {
   thresholds: { strict: 4, balanced: 2, eager: 0.8 },
   fusedThresholds: { strict: 0.75, balanced: 0.6, eager: 0.45 },
-  weight: 0.6, cosineFloor: 0, rerankMargin: 0.15,
+  weight: 0.6, searchWeight: 0.6, cosineFloor: 0, rerankMargin: 0.15,
 } as const;
 
 export function armoryRig(o: { inherit?: boolean; cc?: CcFixture; agents?: AgentProfile[]; sdkProbe?: SdkProbe; modOpts?: Partial<ArmoryOptions> } = {}): ArmoryRig {
