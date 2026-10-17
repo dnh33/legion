@@ -24,6 +24,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
 import { secretReadHit } from './secret-paths.js';
+import { WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
 import { loadDocsHosts } from '../shared/docs-hosts.js';
@@ -203,8 +204,6 @@ const CLEAN_BUILTINS = new Set([
 ]);
 /** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS: the taint and protected-path checks have their own scope). */
 const BUILD_EDIT_EXTRA_FILE_TOOLS: Record<string, string> = { mcp__host__write_file: 'path' };
-/** File tools that put a run's content on disk, and the input field that names the file. */
-const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
 const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 /** Legion's own in-process tools that still return outside content: a VM's output. */
@@ -1588,7 +1587,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
     if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
     const card = this.webGuard(job, agent, toolName, input, mode)
-      // (2) protected path: Task 23 goes here
+      ?? this.protectedPathGuard(job, agent, toolName, input, mode)
       ?? this.secretReadGuard(job, agent, toolName, input, mode);
     if (!card) return undefined;
     const entry: { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number } = { p: card };
@@ -1596,6 +1595,24 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     card.then(done, done);
     this.guardMemo.set(key, entry);
     return card;
+  }
+
+  /**
+   * Guard (2): a change to Git internals and hooks, editor and agent settings, shell startup files or package manager settings asks, in every mode
+   * but Full. The switch is the `protected-path-cards` gate. A file target is resolved against the agent's folder; inside the project folder (or the
+   * agent's own) it is tested relative to that folder, so a project that lives under a folder with a protected name is not carded on every write.
+   */
+  private protectedPathGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (mode === 'full' || this.gates?.gate('protected-path-cards', startProjectOf(job)) === false) return undefined;
+    const folder = this.projectOf(job.taskId, agent.id)?.folder ?? this.agentCwd(agent.id);
+    const cwd = this.gateCwd(agent, toolName, input);
+    const resolveTarget = (t: string): string => {
+      const abs = resolve(cwd, nativePath(t));
+      const rel = folder ? relative(resolve(folder), abs) : undefined;
+      return rel !== undefined && rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : abs;
+    };
+    const hit = protectedWriteHit(toolName, input, this.askExtras(job, agent, toolName, input).consequence.level, resolveTarget);
+    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to change ${hit}. A change there can run code the next time you use Git, or change what an agent may do.`) : undefined;
   }
 
   /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */

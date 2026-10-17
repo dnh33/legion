@@ -4,6 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { tempDir } from './tmp-cleanup.js';
 import { gatesRig } from './gates-rig.js';
 import type { GatesRig } from './gates-rig.js';
 import { createGatesCore } from '../src/core/gates-settings/index.js';
@@ -240,4 +242,76 @@ test('a normal read and .env.example never card', async () => {
     for (const f of ['src/a.ts', '.env.example']) assert.equal((await r.call('Read', { file_path: `${r.projectDir()}/${f}` })).allow, true);
     assert.equal(r.pending().length, 0);
   } finally { r.stop(); }
+});
+
+// ---- Task 23: writes to Git internals, hooks, editor/agent settings, shell startup and package manager files always ask ----
+test('Smart: a Write to .git/hooks cards even with a Gates allow rule; a Write to src runs', async () => {
+  await using(async (r) => {
+    r.setRules([{ id: 'gr_a', enabled: true, then: 'allow', when: { tools: ['Write'] }, label: 'Allow Write', source: 'user' } as GateRule]);
+    const p = r.call('Write', { file_path: `${r.projectDir()}/.git/hooks/pre-commit`, content: 'x' }); await r.tick();
+    assert.equal(r.pending().length, 1); assert.equal(r.pending()[0]!.noRemember, true);
+    assert.equal(r.pending()[0]!.summary, 'Legion wants to change .git. A change there can run code the next time you use Git, or change what an agent may do.');
+    r.answer(false);
+    const d = await p; assert.equal(d.allow, false); assert.doesNotMatch(d.message ?? '', /instead/i); // the shared guard wording says "another way" only to forbid it
+    assert.equal((await r.call('Write', { file_path: `${r.projectDir()}/src/a.ts`, content: 'x' })).allow, true); assert.equal(r.pending().length, 0);
+  });
+});
+test('Ask, Accept edits and Smart all card a protected write; Bypass does not', async () => {
+  const rigs: Array<[string, () => Promise<GatesRig>]> = [
+    ['ask', () => gatesRig({ own: 'ask' })],
+    ['auto-edits', () => gatesRig({ own: 'auto-edits' })],
+    ['smart', () => gatesRig({ preset: 'smart', follow: true })],
+  ];
+  for (const [m, make] of rigs) {
+    const r = await make();
+    try {
+      const p = r.call('Edit', { file_path: `${r.projectDir()}/.claude/settings.json` }); await r.tick();
+      assert.equal(r.pending().length, 1, m); assert.equal(r.pending()[0]!.noRemember, true, m); r.answer(false); assert.equal((await p).allow, false, m);
+    } finally { r.stop(); }
+  }
+  const f = await gatesRig({ own: 'full' });
+  try { assert.equal((await f.call('Edit', { file_path: `${f.projectDir()}/.claude/settings.json` })).allow, true); assert.equal(f.pending().length, 0); } finally { f.stop(); }
+});
+test('Smart: a shell command that copies into .git/hooks cards; git status does not', async () => {
+  await using(async (r) => {
+    const p = r.call('Bash', { command: 'cp x .git/hooks/pre-commit' }); await r.tick(); assert.equal(r.pending().length, 1); r.answer(false); await p;
+    assert.equal((await r.call('Bash', { command: 'git status' })).allow, true); assert.equal(r.pending().length, 0);
+  });
+});
+test('Smart: git config core.hooksPath cards at any level', async () => {
+  await using(async (r) => {
+    const p = r.call('Bash', { command: 'git config core.hooksPath .evil' }); await r.tick(); assert.equal(r.pending().length, 1); r.answer(false); await p;
+  });
+});
+test('a relative target is resolved against the agent folder; a path outside the folder is tested in full', async () => {
+  await using(async (r) => {
+    r.agent.cwd = r.projectDir();
+    const p = r.call('Write', { file_path: '.git/hooks/pre-commit', content: 'x' }); await r.tick(); assert.equal(r.pending().length, 1); r.answer(false); await p;
+    const q = r.call('Write', { file_path: join(homedir(), '.bashrc'), content: 'x' }); await r.tick(); assert.equal(r.pending().length, 1);
+    assert.match(r.pending()[0]!.summary, /^Legion wants to change \.bashrc\./); r.answer(false); await q;
+    // a relative path that hits nothing protected raises no protected-path card (the ordinary Smart card for a relative path may still show)
+    const s = r.call('Write', { file_path: 'src/b.ts', content: 'x' }); await r.tick();
+    assert.ok(!r.pending().some((c) => /^Legion wants to change/.test(c.summary))); while (r.pending().length) r.answer(true); assert.equal((await s).allow, true);
+  });
+});
+test('a project that itself lives under a protected folder name does not card every write', async () => {
+  const r = await gatesRig({ own: 'ask' });
+  try {
+    const inner = join(tempDir('legion-prot-'), '.config', 'git', 'proj');
+    mkdirSync(inner, { recursive: true });
+    r.projects.setFolder(r.project.id, inner); r.agent.cwd = inner;
+    // the folder sits under .config/git: a write inside it is tested relative to it, so it raises only the ordinary Ask card
+    const ok = r.call('Write', { file_path: join(inner, 'src', 'a.ts'), content: 'x' }); await r.tick();
+    assert.ok(!r.pending().some((c) => /change \.config\/git/.test(c.summary)), 'no protected-path card for the folder the project lives in');
+    while (r.pending().length) r.answer(true);
+    await ok;
+    const p = r.call('Write', { file_path: join(inner, '.git', 'hooks', 'x'), content: 'x' }); await r.tick();
+    assert.ok(r.pending().some((c) => /change \.git\./.test(c.summary)), 'a protected name inside the project still cards'); while (r.pending().length) r.answer(false); await p;
+  } finally { r.stop(); }
+});
+test('protected-path-cards off in a Smart project: no guard card', async () => {
+  await using(async (r) => {
+    r.setGateOverride('protected-path-cards', false);
+    assert.equal((await r.call('Write', { file_path: `${r.projectDir()}/.git/hooks/pre-commit`, content: 'x' })).allow, true); assert.equal(r.pending().length, 0);
+  });
 });
