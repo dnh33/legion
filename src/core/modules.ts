@@ -96,6 +96,12 @@ export interface CoreModule {
   /** Extra system-prompt text for this agent (appended after the Legion preamble). `ctx` is absent outside a run. */
   preamble?(agent: AgentProfile, ctx?: PreambleContext): string;
   /**
+   * Per-prompt context for a run's first user turn: it travels with that turn (hook context on Claude, in front of the prompt on
+   * other providers), never in the system prompt, so the prompt cache holds. The engine joins every module's answer and wraps the
+   * call in try/catch. Same ctx as `preamble`. Sync.
+   */
+  turnContext?(agent: AgentProfile, ctx: PreambleContext): string | undefined;
+  /**
    * Fired synchronously for every tool_use the engine sees in a run (once per tool_use id), before the tool's result.
    * `input` is the tool's input when the engine has it (absent when the stream did not carry one).
    */

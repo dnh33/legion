@@ -100,6 +100,22 @@ describe('the note on a provider run', () => {
   });
 });
 
+describe('turn context on a provider run', () => {
+  it('goes in front of the sent prompt, never in the system message; the stored message stays raw', async () => {
+    const r = await rig();
+    // a stub module: this tests the engine's channel and order, not the library's content (the Claude path tests that)
+    const brief = { id: 'brief', preamble: () => 'STABLE LINE', turnContext: () => '<kg-briefing>BRIEF-MARK</kg-briefing>' };
+    const { t, store, reqs } = await providerRun(r, PROMPT, { modules: [r.mod, brief] });
+    assert.equal(t.status, 'done');
+    const last = userMsg(reqs[0]!);
+    assert.ok(last.startsWith('<kg-briefing>BRIEF-MARK</kg-briefing>\n\n' + NOTE_HEAD), last.slice(0, 120));
+    assert.ok(last.endsWith(PROMPT), 'the raw prompt comes last');
+    assert.match(systemMsg(reqs[0]!), /STABLE LINE/);
+    assert.doesNotMatch(systemMsg(reqs[0]!), /BRIEF-MARK/);
+    assert.deepEqual(store.listMessages(t.id).filter((m) => m.role === 'user').map((m) => m.text), [PROMPT]);
+  });
+});
+
 describe('armory_find on a provider run', () => {
   it('returns only on skills, and third-party matches carry no text', async () => {
     const r = await rig();

@@ -1394,6 +1394,15 @@ export class Engine {
     return out;
   }
 
+  /** Per-prompt context from every module that gives some, joined; undefined when none does. Never throws into the engine. */
+  private moduleTurnContext(agent: AgentProfile, ctx: PreambleContext): string | undefined {
+    const parts: string[] = [];
+    for (const m of this.modules) {
+      try { const t = m.turnContext?.(agent, ctx); if (t) parts.push(t); } catch { /* ignore */ }
+    }
+    return parts.length ? parts.join('\n\n') : undefined;
+  }
+
   /** One tool_use seen (in the message stream or by the PreToolUse hook; whichever comes first wins): taint, then tell modules. */
   private noteToolUse(job: Job, act: Active, toolName: string, toolUseId?: string, input?: unknown, inSubagent = false): void {
     if (toolUseId) {
@@ -1617,6 +1626,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const skillSet = this.moduleSkills(agent);
     const allowSkillShell = this.skillShellAllowed();
     const maxBudgetUsd = this.perRunBudget(job);
+    // per-prompt context (the library briefing): built from this run's prompt, sent with its first user turn (see addTurnHooks)
+    const turnText = (): string | undefined => this.moduleTurnContext(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) });
     const options: Options = {
       model,
       cwd,
@@ -1767,31 +1778,39 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         return text ? { hookSpecificOutput: { hookEventName: 'SessionStart' as const, additionalContext: text } } : { continue: true };
       }] }];
     }
-    if (finder.suggest) this.addFinderHooks(options, job, agent, act, finder);
+    // the user-turn hook carries the briefing (any module with turnContext) and the finder's note; the subagent hooks stay finder-only
+    if (finder.suggest || this.modules.some((m) => m.turnContext !== undefined)) this.addTurnHooks(options, job, agent, act, finder, turnText);
     return options;
   }
 
   /**
-   * The skill finder's hooks. A note goes in as hook context for one turn, never into the system prompt. Any failure means no note.
-   * UserPromptSubmit: the first fire ranks the task's own words (its input holds the sender header too); a later fire is a message
-   * the person sent mid-run and ranks its own text. SubagentStart ranks what the model asked the subagent to do.
+   * The per-turn hooks. Context goes in as hook context for one turn, never into the system prompt. Any failure means none.
+   * UserPromptSubmit: on the run's first user turn, the per-run briefing (once per run, as the old preamble was), then the finder's
+   * note when the finder suggests. The finder ranks the task's own words (its input holds the sender header too); a later fire is a
+   * message the person sent mid-run and ranks its own text. Wake-ups and system events get neither.
+   * SubagentStart ranks what the model asked the subagent to do (finder only). The briefing never goes to a subagent.
    */
-  private addFinderHooks(options: Options, job: Job, agent: AgentProfile, act: Active, finder: FinderWiring): void {
+  private addTurnHooks(options: Options, job: Job, agent: AgentProfile, act: Active, finder: FinderWiring, briefing: () => string | undefined): void {
     const none = { continue: true as const };
     let firstRanked = false;
+    let briefed = false;
     options.hooks!.UserPromptSubmit = [{ hooks: [async (input) => {
       if (input.hook_event_name !== 'UserPromptSubmit' || !this.finderLive(act, job.taskId)) return none;
       try {
         // Wake-ups and system events are not something the person wrote.
         if (input.source && input.source !== 'user' && input.source !== 'sdk') return none;
-        const text = firstRanked ? input.prompt : (act.rankText ?? input.prompt);
-        firstRanked = true;
-        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude' }, this.turnWaitMs(finder));
-        if (!note) return none;
-        return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: note.text } };
+        const parts: string[] = [];
+        if (!briefed) { briefed = true; const b = briefing(); if (b) parts.push(b); }
+        if (finder.suggest) {
+          const text = firstRanked ? input.prompt : (act.rankText ?? input.prompt);
+          firstRanked = true;
+          const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude' }, this.turnWaitMs(finder));
+          if (note) parts.push(note.text);
+        }
+        return parts.length ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: parts.join('\n\n') } } : none;
       } catch { return none; }
     }] }];
-    if (!finder.subagents) return;
+    if (!finder.suggest || !finder.subagents) return;
     options.hooks!.PreToolUse!.push({ matcher: 'Agent|Task', hooks: [async (input) => {
       if (input.hook_event_name !== 'PreToolUse' || !this.finderLive(act, job.taskId)) return none;
       const ti = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input as Record<string, unknown> : {};
@@ -1898,12 +1917,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const finder = this.finderWiring(agent);
     const rankText = act.rankText;
     const note = finder.suggest && rankText ? await this.liveTurnNote(agent, act, { prompt: rankText, taskId, runtime: 'provider' }, this.turnWaitMs(finder)) : undefined;
+    // the library briefing (turnContext) goes with this turn too, in front of the note: per-prompt, so never in the system prompt
+    const runCtx: PreambleContext = { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) };
+    const briefing = this.moduleTurnContext(agent, runCtx);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts
       systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
         + '\n\n' + renderTeamwork(allServers)
-        + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) })
+        + this.modulePreamble(agent, runCtx)
         + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
@@ -1911,7 +1933,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : '')
         // the project's own rules and folder, last, as on the Claude path (council A5: provider runs had none)
         + (projectHere ? '\n\n' + projectSection({ name: projectHere.name, instructions: projectHere.instructions, folder: projectHere.folder }, { files: agent.host?.enabled === true }) : ''),
-      prompt: note ? note.text + '\n\n' + prompt : prompt, stored: this.store.listMessages(taskId),
+      prompt: [briefing, note?.text, prompt].filter(Boolean).join('\n\n'), stored: this.store.listMessages(taskId),
       taskListText: () => renderForModel(this.taskLists.load(taskId)),
       servers, external,
       authorize: decide,

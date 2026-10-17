@@ -148,15 +148,16 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
         });
       } catch { /* a failed episode must never disturb the engine */ }
     },
-    preamble: (agent, ctx) => {
-      if (!ctx) return KG_PREAMBLE;
+    // The system prompt carries only the static part, so it is the same on every run and the prompt cache holds.
+    preamble: () => KG_PREAMBLE,
+    // The per-run briefing goes with the first user turn (CoreModule.turnContext), built from the same inputs as before.
+    turnContext: (agent, ctx) => {
       try {
         const parts = getGraph().briefingParts(agent.id, {
           projectKey: basename(agent.cwd || join(deps.config.workspaceDir, agent.id)), prompt: ctx.prompt.slice(0, 500), ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
         });
-        const briefing = renderBriefing(parts);
-        return briefing ? `${KG_PREAMBLE}\n\n${briefing}` : KG_PREAMBLE;
-      } catch { return KG_PREAMBLE; }
+        return renderBriefing(parts) || undefined;
+      } catch { return undefined; }
     },
     routes: (add) => addKgRoutes(add, {
       graph: getGraph, bsvEnabled: deps.bsvEnabled, seedPath: opts.seedPath,

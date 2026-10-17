@@ -371,22 +371,27 @@ test('taint follows room and DM messages: a tainted sender wakes a tainted task;
 // ---------------------------------------------------------------- module seam
 
 test('seam: mcpServers(agent, job), preamble(agent, ctx), onToolUse and onTaskEnd are called by the engine', async () => {
-  const seen = { jobs: [] as ModuleJob[], ctxs: [] as PreambleContext[], tools: [] as string[], ends: [] as Array<{ task: Task; outcome: TaskEndOutcome }>, taintAtServers: [] as boolean[] };
+  const seen = { jobs: [] as ModuleJob[], ctxs: [] as PreambleContext[], turnCtxs: [] as PreambleContext[], tools: [] as string[], ends: [] as Array<{ task: Task; outcome: TaskEndOutcome }>, taintAtServers: [] as boolean[] };
   const spy: CoreModule = {
     id: 'spy',
     mcpServers: (_a, job) => { if (job) { seen.jobs.push(job); seen.taintAtServers.push(job.taint()); } return {}; },
     preamble: (_a, ctx) => { if (ctx) seen.ctxs.push(ctx); return 'SPY LINE'; },
+    turnContext: (_a, ctx) => { seen.turnCtxs.push(ctx); return 'SPY TURN'; },
     onToolUse: (agentId, taskId, name) => { seen.tools.push(`${agentId}:${taskId.slice(0, 5)}:${name}`); },
     onTaskEnd: (task, _agent, outcome) => { seen.ends.push({ task, outcome }); },
   };
   const broken: CoreModule = { id: 'broken', onToolUse: () => { throw new Error('boom'); }, onTaskEnd: () => { throw new Error('boom'); } };
   let taintLater: boolean | undefined;
+  let turnHook = '';
   const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () {
     yield init('a1');
     yield toolUse('Read', 'tu_1');
     yield toolUse('Read', 'tu_1'); // duplicate id: reported once
     yield toolUse('Bash', 'tu_2');
     taintLater = seen.jobs[0]!.taint();
+    // the user turn fires while the run is live, as the SDK does
+    const hook = c.options.hooks.UserPromptSubmit[0].hooks[0];
+    turnHook = (await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'hello there', source: 'user' }, undefined, { signal: new AbortController().signal }))?.hookSpecificOutput?.additionalContext ?? '';
     yield ok('done', 'a1');
   })(), { modules: [spy, broken] });
   const t = await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'hello there', source: 'bot', origin: { ...BOT_ASK, approvalCeiling: 'auto-edits' } }));
@@ -402,6 +407,11 @@ test('seam: mcpServers(agent, job), preamble(agent, ctx), onToolUse and onTaskEn
   assert.equal(ctx.taskId, t.id);
   assert.equal(ctx.tainted, false);
   assert.match(s.calls[0]!.options.systemPrompt.append, /SPY LINE/);
+  assert.equal(seen.turnCtxs.length, 1, 'turnContext is called once per user turn, with ctx');
+  assert.equal(seen.turnCtxs[0]!.prompt, 'hello there');
+  assert.equal(seen.turnCtxs[0]!.taskId, t.id);
+  assert.equal(turnHook, 'SPY TURN', 'the turn context reaches the user turn');
+  assert.doesNotMatch(s.calls[0]!.options.systemPrompt.append, /SPY TURN/, 'and never the system prompt');
   assert.deepEqual(seen.tools.map((x) => x.split(':')[2]), ['Read', 'Bash']);
   assert.equal(seen.ends.length, 1, 'onTaskEnd fires once per run; a throwing module does not break the run');
   assert.equal(seen.ends[0]!.task.status, 'done');

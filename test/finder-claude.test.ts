@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { isLegionTool } from '../src/core/approvals.js';
 import { createUsageStore } from '../src/core/armory/finder/usage.js';
+import { HUMAN } from '../src/core/kg/types.js';
 import { init, ok, setup, toolUse, waitDone } from './library-fakes.js';
 import { armoryRig, md, own } from './armory-rig.js';
 import type { CcFixture } from './armory-rig.js';
@@ -47,7 +48,9 @@ describe('finder on the Claude path', () => {
     assert.ok(!seen.hooks.PreToolUse.some((h: any) => h.matcher === 'Agent|Task'));
     await rig.call('POST', '/api/armory/finder', { suggest: false });
     await drive(rig, PROMPT, async (o) => { seen = o; });
-    assert.ok(!seen.hooks.UserPromptSubmit && !seen.hooks.SubagentStart);
+    // the library briefing still needs the user-turn hook; the finder's own hooks are gone
+    assert.ok(seen.hooks.UserPromptSubmit && !seen.hooks.SubagentStart);
+    assert.ok(!seen.hooks.PreToolUse.some((h: any) => h.matcher === 'Agent|Task'));
   });
 
   it('names a matching on-skill and never an off or manual one; third-party shows no description', async () => {
@@ -73,6 +76,24 @@ describe('finder on the Claude path', () => {
     });
     assert.equal(outs[0], undefined);
     assert.match(outs[1]!, /invoice-pdf-export/);
+  });
+
+  it('with a note and a library briefing, both ride the first turn hook, briefing first', async () => {
+    const rig = await rigWith();
+    let text: string | undefined;
+    const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () {
+      yield init('s' + c.n);
+      text = ctxOf(await fire(c.options, 'UserPromptSubmit', { prompt: PROMPT }));
+      yield ok('done', 's' + c.n);
+    })(), { modules: [rig.mod] });
+    s.graph.upsertNode(HUMAN, { title: 'Always check invoice totals', tags: ['trigger:always'], body: 'check the totals' });
+    await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: PROMPT, source: 'ui' }));
+    assert.ok(text?.startsWith('<kg-briefing>'), 'the briefing comes first');
+    assert.match(text!, /Always check invoice totals/);
+    const close = '</kg-briefing>';
+    const after = text!.slice(text!.indexOf(close) + close.length);
+    assert.ok(after.startsWith('\n\n'), 'a blank line, then the note');
+    assert.match(after, /legion-armory:invoice-pdf-export/);
   });
 
   it('skips prompts with fewer than 3 words', async () => {

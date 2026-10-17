@@ -1,5 +1,5 @@
 /**
- * The per-run library briefing: a small `<kg-briefing>` block appended to a bot's system prompt. It is built from
+ * The per-run library briefing: a small `<kg-briefing>` block sent with a bot's first user turn, never in the system prompt. It is built from
  * Graph.briefingParts, which only ever returns trusted material (see there), and is hard-capped at 1,200 chars.
  * Synchronous, no model call, no tool call.
  */
