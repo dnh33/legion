@@ -60,3 +60,7 @@ test('PERMISSION_GATE_IDS is exactly the permission family', () => {
   assert.deepEqual([...PERMISSION_GATE_IDS], GATES.filter((g) => g.family === 'permission').map((g) => g.id));
   assert.ok(PERMISSION_GATE_IDS.includes('tool-cards')); assert.ok(!PERMISSION_GATE_IDS.includes('rail-shell-floor')); assert.ok(!PERMISSION_GATE_IDS.includes('qa-evidence'));
 });
+
+test('update consent is not part of any preset: Bypass changes agent cards only, never how Legion updates', () => {
+  for (const p of PRESETS) assert.equal(gateValue('update-consent', { app: { version: 1, preset: p } }), true, p);
+});
