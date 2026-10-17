@@ -53,112 +53,170 @@ Outcome:
 - **Flag (benchmark rule):** per-turn automatic suggestions are in no established harness, only
   in community plugins. The model-driven search tool is established practice. So both ship as separate options.
 
+
+## Scope: the full thing (owner, 2026-10-17)
+The owner wants the complete feature built. Nothing below is "later, if the numbers allow".
+The eval measures and tunes defaults and thresholds. It never decides whether a part is built.
+The one sequencing rule is the updater: a new native dependency ships in its own release
+(see "Releases").
+
 ## Design
-**1. Two ways to find a skill, each switchable.**
+**1. Three ways to find a skill, each switchable.**
 - **Suggest each turn (automatic).** Before the model reads the prompt, Legion ranks the agent's
   enabled skills against it. The top matches go in as a short advisory note: "Skills that may
   fit this request: X: <description>. Load one with the Skill tool if it applies."
-- **Search tool (the model asks).** A new tool `armory_find(query)` returns the top 5 with
-  descriptions. On the Claude path it is a `legion_armory` tool. On the provider path it sits
-  next to `armory_skills` and `armory_skill`.
+- **Search tool (the model asks).** `armory_find(query, limit?)` returns the top matches with
+  descriptions and scores. It is on the `legion_armory` server for both the Claude and provider paths.
+- **Subagents.** A `SubagentStart` hook gives each subagent its own suggestions for its task
+  (subagents ignore the `skills` list; the Skill gate at `engine.ts:1578` still applies).
 
 **2. Where the note goes (cache-safe).**
-- **Claude path:** an SDK `UserPromptSubmit` hook returns `additionalContext`. The note travels
-  with the user turn, not in the system prompt.
-- **Provider path:** the note is prepended to that turn's user prompt (`host.prompt`), never to `systemPrompt`.
+- **Claude path:** an SDK `UserPromptSubmit` hook returns `additionalContext`, so the note
+  travels with the user turn. The system prompt stays byte-identical across turns.
+- **Provider path:** the note is prepended to that turn's user prompt (`host.prompt`), never `systemPrompt`.
 - **Bot-to-bot runs:** rank `decision.prompt` only, not the sender header.
+- **Knowledge-graph recall, same fix:** today `modulePreamble` puts per-prompt KG hits in the
+  system prompt (`engine.ts:1537`). If P1 confirms it breaks the cache, move the per-prompt part
+  of the KG briefing to the same user-turn channel. The stable part stays in the system prompt.
 
-**3. Candidates = what the Armory already allows.** The finder ranks only the skills that are
-'on' for that agent: `access(e, agent) === 'on'`, the same set as `moduleSkills` and
-`providerSkills`. It can never suggest an off or manual skill. This is a security test.
+**3. Candidates = what the Armory allows.** Rank only skills 'on' for that agent
+(`access(e, agent) === 'on'`, the same set as `moduleSkills` and `providerSkills`). An off or
+manual skill is never suggested or returned. Security test on both paths.
 
-**4. Ranker v1: BM25, no new dependencies.** It reuses `kg/text.ts` tokenize and stemming.
-- **Fields:** id/name tokens (weight high), description, `when_to_use` (parse it in the catalog
-  if it isn't parsed yet).
-- **Usage prior:** skills this owner actually loads get a small boost, learned from Legion's own
-  Skill tool events, stored locally.
-- **Gates:** a score threshold (0 matches means no note), k ≤ 3, and a 50 ms deadline (on overrun, no note).
-- **Pure module:** `src/core/armory/finder.ts`.
-- Being code-only keeps the updater path simple. Embeddings (a deps release) and a Haiku rerank
-  come later, and only if the P1 numbers show a gap.
+**4. The ranker: three stages, all built.**
+- **Stage 1: BM25 (always on, in-process).**
+  - Reuse `kg/text.ts` tokenize and stemming.
+  - **Fields:** id/name (high weight), description, `when_to_use` (parse it in the catalog), headings of the SKILL.md body (low weight).
+- **Stage 2: embeddings (hybrid with BM25).**
+  - **Local (default when installed):**
+    - Runtime: a small ONNX embedding model (multilingual, so Danish prompts match English skills).
+    - The model downloads on first enable into the Legion data folder, with a checksum check.
+    - Vectors are cached per skill content hash, so only changed skills re-embed.
+    - The query embeds in-process. No server to keep running.
+  - **Provider embeddings (option):** an embeddings endpoint of a provider the owner already set
+    up. Off by default; turning it on says plainly that prompts leave the machine.
+  - **Fusion:** a weighted score, not plain rank fusion (a community router measured RRF worse
+    than embeddings alone). The weights come from P1.
+- **Stage 3: Haiku rerank (option).**
+  - It runs only when the top scores are close (an ambiguity margin from P1), on the top 8, and returns the top 3.
+  - It has a hard deadline, and on a timeout it falls back to stage 2.
+  - The UI shows its cost per turn, with a monthly cap that comes from the existing spend controls.
+- **Learning:**
+  - Each agent keeps its own usage record, stored locally.
+  - A suggested skill that is loaded gets a boost. One that is suggested and ignored again and again gets a small penalty.
+  - Skills the owner loads by hand also count.
+- **Gates:**
+  - A score threshold (below it, no note).
+  - k between 1 and 5.
+  - Deadlines: 50 ms without the rerank, 2 s with it.
+  - Any failure means no note, never a broken turn.
+- **Index:** rebuilt with the Armory catalog (cache at `armory/index.ts:91`). Re-index only on content-hash change.
+- **Module:** `src/core/armory/finder/` (`index.ts`, `bm25.ts`, `embed.ts`, `rerank.ts`, `usage.ts`), with pure functions where possible.
 
 **5. Taint (security). One rule on both paths.**
-- The note carries a description only for the owner's own skills and for built-ins.
-- Third-party skills (`THIRD_PARTY` in `catalog.ts`) appear as id plus "(third-party)", with no
-  description text, so a suggestion never taints a run. This still holds when the slim listing
-  is on and the note is the only place a description appears.
+- The note carries a description only for the owner's own skills and built-ins.
+- Third-party skills (`THIRD_PARTY`, `catalog.ts`) appear as id plus "(third-party)", with no
+  description text, so a suggestion never taints a run. This also holds with the slim listing on.
 - `armory_find` taints exactly as `armory_skills` does when it returns third-party text.
+- Haiku rerank input includes third-party descriptions: that call runs in its own isolated
+  context with no tools, and its output is only skill ids (validated against the candidate set).
 - **Tests:**
-  - With the slim listing on and only third-party matches, the note holds no third-party
-    text and the run stays untainted, on both paths.
+  - With the slim listing on and only third-party matches, the run stays untainted on both paths.
   - `armory_find` taints when it returns third-party text.
+  - A rerank that returns an id outside the candidate set is dropped.
 
-**6. A slim listing (optional, off until P1 proves it).** When this is on, Claude runs get a smaller
-listing via `settings.skillListingBudgetFraction` / `skillListingMaxDescChars`. Names stay
-listed. The finder carries the descriptions.
+**6. Slim listing (built).** Claude runs get a smaller listing via
+`settings.skillListingBudgetFraction` / `skillListingMaxDescChars`. Names stay listed; the finder
+carries the descriptions. Its default (on or off) is set from P1: on if Set B recall@3 with the
+finder is at least the full listing's.
 
-**7. Options (Settings → Armory → "Skill finder"), following the existing settings recipe.**
-- **Suggest each turn:** on by default, with a one-time notice.
-- **Search tool:** on.
-- **Slim listing:** off.
-- **Suggestions per turn:** 1 to 3, default 3.
-- **Show suggestions in chat:** a quiet line under the turn, no side stripe.
-- v1 is global. A per-agent override comes later.
+**7. Options. Every behaviour is skippable on first contact and switchable off.**
+- **Settings → Armory → "Skill finder" (global):**
+  - Suggest each turn
+  - Search tool
+  - Subagent suggestions
+  - Ranker (keyword / keyword + local embeddings / + provider embeddings)
+  - Haiku rerank
+  - Slim listing
+  - Suggestions per turn (1 to 5)
+  - Threshold (preset: strict / balanced / eager)
+  - Show suggestions in chat
+- **Agent editor → Skills → Finder:** "Same as the Armory" (default), or per-agent on/off and k.
+- **Test box in the Armory:** type a prompt and see the ranked skills, the scores and why
+  (matched words, embedding score, usage boost). The owner can tune it here, and it is the debug view.
+- **Chat:** a quiet line under the turn ("Suggested: impeccable, ux-heuristics · loaded:
+  impeccable"), no side stripe. Click it to see why.
+- **First contact:** a one-time notice with Keep / Turn off. The local model download asks first and shows its size.
 
 ## Steps
-- **P0. Worktree and durable docs (first action after approval).**
+- **P0. Worktree and durable docs.**
   - **DONE 2026-10-17.** Worktree `D:/bots/legion-wt-finder`, branch `feat/skill-finder` off
-    `main` 47582700. This plan and `claude/skill-finder-tracker.md` are committed.
+    `main` 47582700. This plan and `claude/skill-finder-tracker.md` are committed and pushed.
   - **Legion is public, and the eval sets are the owner's own prompts.** They NEVER go in the repo.
-    - Build them into `claude/skill-finder-private/`, which is gitignored on this branch.
+    - Build them into `claude/skill-finder-private/` (gitignored on this branch).
     - Copy the finished sets to Aetherkeep `06-projects/legion/skill-finder/`.
-    - The prior-art report with its sources is already at Aetherkeep
-      `06-projects/legion/skill-finder/prior-art-2026-10-17.md`.
-  - The repo gets only a small synthetic fixture (`test/fixtures/skill-finder/`), invented prompts only.
-  - The "What exists" section above, verified on `main`, is the code map.
-- **P1. Eval before code.**
-  - A script `scripts/skill-finder-eval.mjs` builds the gold set from the transcripts. Each item is the
-    user prompt before a Skill call the model chose. User-typed `/name` calls are excluded,
-    and so are prompts that name the skill (those go in a separate subset). Negatives are
-    prompts with no Skill call.
-  - **Set B, the long tail.** Set A only holds skills the full listing already found, so it
-    cannot show the core benefit. Set B has 30 to 50 prompts for enabled skills with zero
-    invocations. A Sonnet agent writes them as realistic requests from each skill's
-    description, without copying its keywords. The owner spot-checks 10 through the question UI.
-  - **Metrics:** recall@1/3/5, MRR, false-note rate on negatives and p95 latency, reported
-    separately for Set A and Set B.
-  - **Cache check:** compare `cache_read_input_tokens` across resumed turns, to measure the
-    knowledge-graph preamble's effect. Real runs only, ≤ $1, Haiku.
-  - **Gate:** if BM25 recall@3 is below 0.70 on either set, stop and re-plan the ranker
-    (embeddings) with the owner.
-  - **Before P2:** close the gap on how the remaining established harness handles this (one opened source),
-    under the big-four rule.
-- **P2. `finder.ts` + unit tests:** ranking, threshold, deadline, never an off skill, `when_to_use` parsing.
-- **P3. Claude path wiring:**
-  - add the `UserPromptSubmit` hook in `buildOptions`;
-  - add `armory_find` to the Armory server;
-  - record the suggestions on the task;
-  - write an engine test that asserts the hook is present and the system prompt `append` is unchanged by the finder.
-  - A live probe confirms the hook fires for SDK prompts and that the note reaches the model (Haiku, ≤ $0.50).
-- **P4. Provider path:** add the note to `host.prompt` and `armory_find`, with taint tests in `test/armory-provider.test.ts`.
-- **P5. Settings and UI:**
-  - add the fields to `shared/types.ts`, `shared/config.ts`, `core/settings.ts`, `ui/src/armory/ArmorySection.tsx` and `ui/dev/mock-server.mjs`;
-  - show the suggestion line in chat.
-- **P6. Review and live check:** `legion-adversarial-pr-review` (it touches taint),
-  `legion-live-render-check` for the UI, `legion-update-path-check` (code-only), then the PR.
-- **P7 (separate plan, if the numbers call for it):** embeddings ranker, Haiku rerank, the slim listing turned on by default.
+    - The prior art with its sources is at Aetherkeep `06-projects/legion/skill-finder/prior-art-2026-10-17.md`.
+  - The repo gets only an invented fixture (`test/fixtures/skill-finder/`).
+- **P1. Eval harness (an instrument, not a gate).**
+  - `scripts/skill-finder-eval.mjs` builds the sets from the owner's transcripts.
+    - **Set A:** the prompt before each Skill call the model chose. Exclude user-typed `/name` calls. Prompts that name the skill form their own subset.
+    - **Set B (long tail):** 30 to 50 prompts for enabled skills that were never invoked. A
+      Sonnet agent writes them from each skill's description without copying its keywords. The
+      owner spot-checks 10 through the question UI.
+    - **Negatives:** prompts with no Skill call.
+  - **Metrics, per ranker stage and per set:** recall@1/3/5, MRR, false-note rate, p95 latency, Haiku cost per turn.
+  - **Output:** the defaults (fusion weights, threshold presets, rerank margin, slim-listing default) are written to a committed config with the public-fixture numbers.
+  - **Cache check:** `cache_read_input_tokens` across resumed turns, with and without the KG preamble (Haiku, ≤ $1).
+  - Close the research gap on the remaining established harness (one opened source).
+- **P2. Finder core** (`src/core/armory/finder/`): BM25, catalog `when_to_use` parsing, usage store, gates. Unit tests.
+- **P3. Embeddings:**
+  - Local runtime plus model download (checksum, size prompt, progress) and the vector cache.
+  - The provider embeddings option.
+  - Hybrid fusion.
+  - Tests with a fake embedder.
+  - A live check in the packaged Electron app (native module loads, model downloads, query < 50 ms).
+- **P4. Haiku rerank:** isolated call, margin trigger, deadline, id validation, cost meter and cap. Tests with a fake model, plus a live probe (≤ $0.50).
+- **P5. Claude path wiring:**
+  - Add the `UserPromptSubmit` hook and the `SubagentStart` hook, `armory_find` on the Armory server, the slim-listing settings, and the suggestions recorded on the task.
+  - Engine test: hooks present, system prompt `append` unchanged by the finder.
+  - Live probe: the hook fires for SDK prompts and the agent loads a suggested skill.
+- **P6. Provider path:** the note in `host.prompt` and `armory_find`. Taint tests in `test/armory-provider.test.ts`.
+- **P7. KG recall to the user turn** (if P1 confirmed the cache break): move the per-prompt KG hits. Engine test plus a cache re-measure.
+- **P8. Settings and UI:**
+  - All the options in section 7, via the settings recipe: `shared/types.ts`, `shared/config.ts`, `core/settings.ts`, `ui/src/armory/ArmorySection.tsx`, the agent editor and `ui/dev/mock-server.mjs`.
+  - The test box, the chat line with its "why", and the first-contact notice.
+  - UI agents invoke `impeccable` first.
+- **P9. Review and live check:**
+  - `legion-adversarial-pr-review` (taint, download, rerank isolation).
+  - `legion-live-render-check` for every UI piece.
+  - `legion-update-path-check`.
+  - The live walk before anything is marked Latest.
+
+## Releases (updater rule: users never reinstall)
+- Everything is built and tested on this branch together.
+- **Release 1 (code-only):**
+  - BM25, Haiku rerank, provider embeddings, the hooks, `armory_find`, the slim listing, KG recall, all UI;
+  - any updater change Release 2 needs.
+- **Release 2 (deps):** the local embedding runtime, after the full-install rehearsal from the
+  live release. Its UI options are present in Release 1 but marked "needs update".
+- If `legion-update-path-check` shows the runtime can ship code-only (pure WASM, no native
+  module), the two releases merge into one.
 
 ## Verification
 - `npm run typecheck` plus the touched test files locally. GitHub CI is the full gate.
-- Eval report committed (public fixture numbers). Private-set numbers go in the tracker as figures only.
-- Live: a Claude agent gets "make this page feel premium". The note names the design skills, and the
-  agent loads one. Check Legion `logs/` after each run.
-- Negative: an agent with impeccable off never sees it suggested. A provider run with only
-  third-party matches stays untainted.
-- Cache: turn 2 of a resumed task still shows `cache_read_input_tokens` > 0 with the finder on.
+- The eval report, committed with the public fixture numbers. Private numbers go in the tracker as figures only.
+- **Live:**
+  - A Claude agent gets "make this page feel premium". The note names the design skills, and the agent loads one.
+  - A Danish prompt finds the same skills (embeddings on).
+  - Check Legion `logs/` after each run.
+- **Negative:**
+  - An agent with impeccable off never sees it suggested.
+  - A provider run with only third-party matches stays untainted.
+  - A forged rerank id is dropped.
+- **Cache:** turn 2 of a resumed task shows `cache_read_input_tokens` > 0 with every finder option on.
 
 ## Unverified now
-- Whether the SDK fires `UserPromptSubmit` for `query()` prompts (P3 probe).
+- Whether the SDK fires `UserPromptSubmit` and `SubagentStart` for `query()` runs (P5 probe).
 - Whether the catalog parses `when_to_use`.
-- The real BM25 recall on the owner's prompts (P1).
-- Whether the knowledge-graph preamble already breaks the cache (P1).
+- Which ONNX runtime loads in Legion's packaged Electron, and whether it can ship code-only (P3).
+- Whether the KG preamble already breaks the cache (P1).
