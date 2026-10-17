@@ -8,6 +8,7 @@ Now Claude login means your Claude plan only. Legion switches off every API key 
 If you pay with API credits on purpose, turn on Settings, Claude, Allow API credit billing.
 
 Also:
+- Runs of your lead agent no longer fail with "JSON schema is invalid".
 - Help, Doctor now says which kind of login Legion uses, and flags a login that bills API credits.
 - A run that hits an empty credit balance explains the cause and the fix, under what Claude said.
 
