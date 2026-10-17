@@ -66,8 +66,11 @@ export interface CoreModule {
   disallowedTools?(agent: AgentProfile): string[];
   /** Extra system-prompt text for this agent (appended after the Legion preamble). `ctx` is absent outside a run. */
   preamble?(agent: AgentProfile, ctx?: PreambleContext): string;
-  /** Fired synchronously for every tool_use the engine sees in a run (once per tool_use id), before the tool's result. */
-  onToolUse?(agentId: string, taskId: string, toolName: string): void;
+  /**
+   * Fired synchronously for every tool_use the engine sees in a run (once per tool_use id), before the tool's result.
+   * `input` is the tool's input when the engine has it (absent when the stream did not carry one).
+   */
+  onToolUse?(agentId: string, taskId: string, toolName: string, input?: unknown): void;
   /** Fired once when a run ends (done, error or cancelled), after the task's final status is saved. Never throws into the engine. */
   onTaskEnd?(task: Task, agent: AgentProfile, outcome: TaskEndOutcome): void;
   /**

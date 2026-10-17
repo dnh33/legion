@@ -1316,7 +1316,7 @@ export class Engine {
     else if (taintsRun(toolName)) act.tainted = true;
     this.trackWorkspaceTaint(job, act, toolName, input);
     for (const m of this.modules) {
-      try { m.onToolUse?.(job.agentId, job.taskId, toolName); } catch { /* ignore */ }
+      try { m.onToolUse?.(job.agentId, job.taskId, toolName, input); } catch { /* ignore */ }
     }
   }
 
