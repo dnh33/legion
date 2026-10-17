@@ -1,6 +1,6 @@
 /**
  * The Gates view-model: sentences, chips, presets and the dry-run tester's model. Pure functions and constants
- * only — the same strings the Settings surface renders and stores as GateRule.label, so what the owner reads IS
+ * only, the same strings the Settings surface renders and stores as GateRule.label, so what the owner reads IS
  * the rule. The tester calls the real decideGate; it runs nothing.
  */
 import { decideGate } from '../../../src/core/gates.js';
@@ -92,14 +92,14 @@ export function ruleNeedsHost(when: GateWhen): boolean {
   return (when.tools ?? []).some((t) => t === 'host' || t.startsWith('mcp__host__'));
 }
 
-/** True when no agent a rule affects has the host shell on — the card says so instead of pretending to act. */
+/** True when no agent a rule affects has the host shell on, the card says so instead of pretending to act. */
 export function ruleHostless(when: GateWhen, agents: readonly Pick<{ id: string; host?: { enabled?: boolean } }, 'id' | 'host'>[]): boolean {
   if (!ruleNeedsHost(when)) return false;
   const scope = when.agents?.length ? agents.filter((a) => when.agents!.includes(a.id)) : agents;
   return !scope.some((a) => a.host?.enabled === true);
 }
 
-/** The consequence line under "Then": computed from the rule and the agent's real mode — never a made-up number. */
+/** The consequence line under "Then": computed from the rule and the agent's real mode, never a made-up number. */
 export function consequenceLine(then: GateVerdict, mode: ApprovalMode): string {
   if (then === 'deny') return 'Applies in every mode, Full included. It is the one class that survives Full access.';
   if (then === 'ask') return mode === 'full'
@@ -162,15 +162,5 @@ export const VERDICT_TEXT: Record<GateTestResult['verdict'], string> = {
   baseline: 'BASELINE (no rule matched; your agent\u2019s mode decides)',
 };
 
-/** The locked rails: decided before rules, visible so a rule can never look like it failed silently. */
-export const GATE_RAILS: ReadonlyArray<{ title: string; why: string }> = [
-  { title: 'Connector writes always ask', why: 'A connector gateway write raises its own card in every mode, Full included. No rule can loosen or tighten it.' },
-  { title: 'Web access after connector data asks', why: 'A tainted run that already read GitHub data asks before WebFetch/WebSearch: that data can walk out with the request.' },
-  { title: 'A run started by another bot is never loosened', why: 'Its approval ceiling lets rules only make it stricter; an "allow" rule is ignored there (confused-deputy guard).' },
-  { title: 'Full access never shows a card', why: 'One rule, no exceptions (2026-10-04): in Full a guard never asks. Ask rules are off there; Block rules still apply.' },
-  { title: 'Rules never hand over tools', why: 'The host shell and connectors stay per-agent opt-ins in the agent editor. A rule only shapes when a call asks.' },
-  { title: 'Some cards stay click-only', why: 'Blender cards cannot be answered from the keyboard, whatever the rules say.' },
-];
-
 /** The empty state's teaching line: mode first, gates on top. */
-export const GATES_EMPTY = 'Your agents\u2019 approval mode decides the default. Gates adjust it for one agent, one command, or one project \u2014 Block rules apply even to Full access; Ask rules never fire there.';
+export const GATES_EMPTY = 'Your agents’ approval mode decides the default. Gates adjust it for one agent, one command or one project. Block rules apply even to Full access; Ask rules do not.';

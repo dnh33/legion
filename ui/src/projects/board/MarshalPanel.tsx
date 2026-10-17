@@ -7,7 +7,7 @@ import type { MarshalDraft } from './marshalLogic';
 import './board.css';
 
 /**
- * The Marshal's own view: what runs and why that bot, what is blocked and why, what is next — plus the
+ * The Marshal's own view: what runs and why that bot, what is blocked and why, what is next, plus the
  * switch that starts it and the two bounds it works to. Presentational: the store loads the status and the
  * panel hands a whole config back through `onSave`, so this component decides nothing and fetches nothing.
  */
@@ -19,7 +19,7 @@ export function MarshalPanel({ view, busy, readOnly, onSave }: {
 }) {
   const cfg = view?.marshal;
   const [draft, setDraft] = useState<MarshalDraft>(() => draftOf(cfg));
-  // re-seed from what the CORE says whenever the stored config changes (a save, or another window) — never while typing
+  // re-seed from what the CORE says whenever the stored config changes (a save, or another window), never while typing
   const stored = `${cfg?.enabled}|${cfg?.waveSize}|${cfg?.stallMinutes}`;
   useEffect(() => { setDraft(draftOf(cfg)); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
   const errors = draftErrors(draft);

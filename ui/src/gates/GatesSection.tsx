@@ -4,10 +4,11 @@ import type { Project } from '../../../src/shared/projects';
 import { dismissGateSuggestion, errText, loadGateSuggestions, rememberGate, saveSettings, useStore } from '../store';
 import { Icon } from '../components/icons';
 import {
-  CONTEXT_CHIPS, GATE_PRESETS, GATE_RAILS, GATES_EMPTY, MODE_TEXT, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
+  CONTEXT_CHIPS, GATE_PRESETS, GATES_EMPTY, MODE_TEXT, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
   consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
   type GateTestResult,
 } from './gatesLogic';
+import { railRows } from './presetsLogic';
 import './gates.css';
 
 const THEN_BADGE: Record<GateVerdict, { text: string }> = {
@@ -63,7 +64,7 @@ function Chips({ label, hint, items, onAdd, onRemove, placeholder }: {
   );
 }
 
-/** Who / What / Where / Then, with the live sentence at the top — the same string that becomes the stored label. */
+/** Who / What / Where / Then, with the live sentence at the top, the same string that becomes the stored label. */
 export function GateBuilder({ draft, setDraft, agents, projects, projectOf, mode, onCancel, onSave, saveLabel }: {
   draft: Draft; setDraft: (d: Draft) => void;
   agents: readonly AgentProfile[]; projects: readonly Project[]; projectOf: (id: string) => string; mode: ApprovalMode;
@@ -175,7 +176,7 @@ const TEST_TOOLS = [
 ] as const;
 
 /**
- * "Try it": type a command, pick an agent, see the verdict the SAME decideGate would return — the rules exactly
+ * "Try it": type a command, pick an agent, see the verdict the SAME decideGate would return, the rules exactly
  * as stored, nothing executed (a dry run of the real decision).
  */
 export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agents: readonly AgentProfile[] }) {
@@ -233,14 +234,14 @@ export function GateTestOut({ result }: { result: GateTestResult }) {
   );
 }
 
-/** The locked rails, with the reason each exists — so a rule never looks like it failed silently. */
+/** The locked rails, with the reason each exists, so a rule never looks like it failed silently. */
 export function GateRails() {
   return (
     <div className="set-card gate-rails" aria-label="Rails (locked)">
       <h4><Icon name="shield" size={13} /> Locked rails</h4>
       <p className="muted-s">These are decided before rules and cannot be changed here. Every one of them is stricter than any rule could make it.</p>
       <ul>
-        {GATE_RAILS.map((r) => <li key={r.title}><b>{r.title}</b><span className="muted-s">{r.why}</span></li>)}
+        {railRows().map((r) => <li key={r.id}><b>{r.label}</b><span className="muted-s">{r.protects}</span></li>)}
       </ul>
     </div>
   );
@@ -282,7 +283,7 @@ export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
 /**
  * Settings -> Gates: sentence rule cards, the Who/What/Where/Then builder, the dry-run tester and the locked
  * rails. Every action saves straight away (the same pattern as Settings -> MCP): the next tool call picks the
- * change up — no restart.
+ * change up, no restart.
  */
 export function GatesSection({ s }: { s: SettingsView }) {
   const agents = useStore((st) => st.agents);

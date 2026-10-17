@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
 import {
-  GATE_PRESETS, GATE_RAILS, MODE_TEXT, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
+  GATE_PRESETS, MODE_TEXT, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
 } from '../ui/src/gates/gatesLogic.js';
+import { railRows } from '../ui/src/gates/presetsLogic.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const AGENTS = [
@@ -149,7 +150,7 @@ test('render: an empty Gates section teaches the layering and offers the tester,
     assert.match(html, /Try it/);
     assert.match(html, /Nothing runs/);
     assert.match(html, /Rails — locked|Rails/);
-    for (const rail of GATE_RAILS) assert.ok(html.includes(rail.title), `rail shown: ${rail.title}`);
+    for (const rail of railRows()) assert.ok(html.includes(rail.label), `rail shown: ${rail.label}`);
     assert.equal(saved.length, 0, 'rendering decides nothing and saves nothing');
   } finally { cleanup(); }
 });
