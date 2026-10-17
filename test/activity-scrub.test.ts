@@ -64,6 +64,16 @@ test('scrubShell: a value-taking flag before a secret one does not hide it (-XPO
   assert.equal(scrubShell('curl -XDELETE -H "X-Key: S" https://x'), 'curl -XDELETE -H <omitted> https://x');
   assert.equal(scrubShell('curl -w "%{http_code}" -o out -L -A agent -e ref -m 5 -x http://p https://x'), 'curl -w "%{http_code}" -o out -L -A agent -e ref -m 5 -x http://p https://x');
 });
+test('scrubShell reads PowerShell web calls, a curl after a wget, and curl TLS passwords', () => {
+  for (const cmd of ['Invoke-WebRequest -Uri https://x -Headers @{ Authorization = "Bearer SECRETVALUE"; X = 1 }', 'irm https://x -Method Post -Body \'{"k":"SECRETVALUE"}\'',
+    'iwr https://x -headers:@{k="SECRETVALUE"}', 'Invoke-RestMethod https://x -Head @{k=\'SECRETVALUE\'}', 'curl -Headers @{k="SECRETVALUE"} https://x', 'irm https://x -Token SECRETVALUE',
+    'iwr https://x -Form @{f="SECRETVALUE"}', 'wget -q x $(curl -u a:SECRETVALUE y)', 'sh -c "wget -q x; curl -u a:SECRETVALUE y"', 'curl --tlspassword SECRETVALUE x', 'curl --ftp-account SECRETVALUE x']) {
+    const out = scrubShell(cmd);
+    assert.ok(!out.includes('SECRETVALUE'), JSON.stringify(cmd) + ' -> ' + out);
+  }
+  assert.equal(scrubShell('irm https://x -Method Get -ContentType application/json -OutFile o.json'), 'irm https://x -Method Get -ContentType application/json -OutFile o.json');
+  assert.equal(scrubShell('$h = @{ a = 1; b = 2 }; ls -ld x'), '$h = @{ a = 1; b = 2 }; ls -ld x');
+});
 test('scrubUrl cuts a malformed address by hand: no userinfo, no query', () => {
   assert.equal(scrubUrl('mongodb://usr:pw1@h1:27017,h2:27017/db?replicaSet=r'), 'mongodb://h1:27017,h2:27017/db');
   assert.equal(scrubUrl('postgres://usr:pw1@h:abc/db'), 'postgres://h:abc/db');

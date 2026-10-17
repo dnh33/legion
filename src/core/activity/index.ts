@@ -46,7 +46,11 @@ const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1)
 /** curl and wget long options whose value is a body, an uploaded file, a login, a password, a header or a cookie (after a space or `=`). */
 const SECRET_LONG = new Set(['--data', '--data-raw', '--data-binary', '--data-urlencode', '--data-ascii', '--form', '--form-string', '--upload-file', '--json', '--user', '--proxy-user',
   '--pass', '--proxy-pass', '--cert', '--proxy-cert', '--header', '--proxy-header', '--cookie', '--oauth2-bearer',
+  '--tlspassword', '--proxy-tlspassword', '--ftp-account',
   '--post-data', '--post-file', '--body-data', '--body-file', '--password', '--http-password', '--proxy-password', '--ftp-password']);
+/** PowerShell web parameters with a secret value (`-Headers @{...}`, `-Body`, `-Credential`, `-Token`, `-Form`). Case does not matter, and PowerShell takes any unique start of a name. */
+const PS_SECRET = ['headers', 'body', 'credential', 'token', 'form', 'proxycredential'];
+const psSecret = (name: string): boolean => name.length >= 3 && PS_SECRET.some((p) => p.startsWith(name.toLowerCase()));
 /** curl's short options that take a value (its manual). The value of one marked secret is dropped; any other ends the cluster and its value is kept. Case matters: `-D` dumps headers. */
 const CURL_TAKES_VALUE = new Set('AbcCdDeEFHKmoPQrtTuUwxXYyz');
 const CURL_SECRET = new Set('bdEFHTuU');
@@ -56,16 +60,17 @@ const continuation = (s: string, i: number): number => {
   return s[i + 1] === '\n' ? 2 : s[i + 1] === '\r' && s[i + 2] === '\n' ? 3 : 0;
 };
 const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
-/** The words of a command as [start, end) offsets: quotes keep spaces in, a continuation counts as space, an unclosed quote runs to the end. */
+/** The words of a command as [start, end) offsets: quotes and PowerShell's `@{ ... }` keep spaces in, a continuation counts as space, an unclosed quote or brace runs to the end. */
 function words(s: string): Array<[number, number]> {
   const out: Array<[number, number]> = []; let i = 0;
   while (i < s.length) {
     for (;;) { const k = isSpace(s[i]) ? 1 : continuation(s, i); if (k === 0 || i >= s.length) break; i += k; }
     if (i >= s.length) break;
-    const start = i; let q: string | undefined;
-    while (i < s.length && (q !== undefined || (!isSpace(s[i]) && continuation(s, i) === 0))) {
+    const start = i; let q: string | undefined; let depth = 0;
+    while (i < s.length && (q !== undefined || depth > 0 || (!isSpace(s[i]) && continuation(s, i) === 0))) {
       const c = s[i]!;
       if (q !== undefined) { if (c === '\\' && q === '"') i++; else if (c === q) q = undefined; } else if (c === '"' || c === "'") q = c;
+      else if (c === '{') depth++; else if (c === '}' && depth > 0) depth--;
       i++;
     }
     out.push([start, Math.min(i, s.length)]);
@@ -84,6 +89,11 @@ function scrubWebArgs(tail: string, curl: boolean): string {
       if (eq >= 0) cuts.push([a + eq + 1, b, '<omitted>']); else if (next(k)) k++;
       continue;
     }
+    const ps = /^-([a-z]+)(:?)/i.exec(w);
+    if (ps && psSecret(ps[1]!)) {
+      if (ps[2] && ps[0].length < w.length) cuts.push([a + ps[0].length, b, '<omitted>']); else if (next(k)) k++;
+      continue;
+    }
     if (!curl || w.length < 2 || w[0] !== '-') continue;
     for (let j = 1; j < w.length; j++) {
       if (!CURL_TAKES_VALUE.has(w[j]!)) continue;
@@ -96,31 +106,38 @@ function scrubWebArgs(tail: string, curl: boolean): string {
   for (const [a, b, t] of cuts.reverse()) out = out.slice(0, a) + t + out.slice(b);
   return out;
 }
-/** The program word in one command segment, so `ls -ld` and `docker run -d` keep their flags. */
-const WEB_TOOL = /(^|[\s"'`(=/\\])(curl|wget)(?:\.exe)?(?=[\s"'`)]|$)/i;
+/** The program word in one command segment, so `ls -ld` and `docker run -d` keep their flags. PowerShell's web commands count too. */
+const WEB_TOOL = /(^|[\s"'`(=/\\])(curl|wget|invoke-webrequest|iwr|invoke-restmethod|irm)(?:\.exe)?(?=[\s"'`)]|$)/i;
+const WEB_TOOLS = new RegExp(WEB_TOOL.source, 'gi');
 /** A line cut at `;`, `|`, `&` and newlines outside quotes (not at a continued line or a redirect like `2>&1`); separators stay as pieces, so joining gives the line back. */
 function segments(s: string): string[] {
-  const out: string[] = []; let cur = ''; let q: string | undefined;
+  const out: string[] = []; let cur = ''; let q: string | undefined; let depth = 0;
   for (let i = 0; i < s.length; i++) {
     const c = s[i]!;
     if (q) { cur += c; if (c === '\\' && q === '"' && i + 1 < s.length) cur += s[++i]; else if (c === q) q = undefined; continue; }
     const k = continuation(s, i);
     if (k > 0) { cur += s.slice(i, i + k); i += k - 1; continue; }
     if (c === '"' || c === "'") { q = c; cur += c; continue; }
+    // a `;` inside PowerShell's @{ a = 1; b = 2 } does not end the command
+    if (c === '{') depth++; else if (c === '}' && depth > 0) depth--;
     const redirect = c === '&' && (s[i - 1] === '>' || s[i + 1] === '>');
-    if (!redirect && (c === ';' || c === '|' || c === '&' || c === '\n')) { out.push(cur, c); cur = ''; continue; }
+    if (depth === 0 && !redirect && (c === ';' || c === '|' || c === '&' || c === '\n')) { out.push(cur, c); cur = ''; continue; }
     cur += c;
   }
   out.push(cur);
   return out;
 }
-/** Drops the bodies, logins, headers and cookies of curl and wget calls; every other command in the line is kept as written. */
+/**
+ * Drops the bodies, logins, headers and cookies of curl, wget and PowerShell web calls; every other command in the line is kept as written.
+ * curl's short letters are read when any curl appears in the segment (`wget x $(curl -u a:b y)` is one segment).
+ */
 export const scrubShell = (s: string): string => segments(s).map((seg) => {
   const m = WEB_TOOL.exec(seg);
   if (!m) return seg;
   let at = m.index + m[0].length;
   if ((m[1] === '"' || m[1] === "'") && seg[at] === m[1]) at++; // "curl" written in quotes
-  return seg.slice(0, at) + scrubWebArgs(seg.slice(at), m[2]!.toLowerCase() === 'curl');
+  const curl = [...seg.matchAll(WEB_TOOLS)].some((x) => x[2]!.toLowerCase() === 'curl');
+  return seg.slice(0, at) + scrubWebArgs(seg.slice(at), curl);
 }).join('');
 /** An address without its userinfo, query string and fragment. Text that is not an address comes back as it was. */
 export function scrubUrl(u: string): string {
