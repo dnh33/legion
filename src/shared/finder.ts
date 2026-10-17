@@ -30,6 +30,11 @@ export interface FinderModelPin {
   approxBytes: number;
   /** Where the sources live, for the card. */
   sources: string[];
+  /**
+   * The hosts a download may touch: the pinned addresses and every redirect they really lead to. An entry matches that host and
+   * its subdomains. A download that is sent anywhere else is refused before a byte is read.
+   */
+  allowedHosts: string[];
   files: FinderModelFile[];
 }
 
@@ -46,6 +51,10 @@ export const FINDER_MODEL_PIN: FinderModelPin = {
     'https://github.com/microsoft/onnxruntime',
     'https://github.com/huggingface/tokenizers.js',
   ],
+  // Found with one HEAD request per pinned address, redirects followed by hand: jsdelivr answers itself; huggingface.co sends the
+  // big files to its CDN (seen: us.aws.cdn.hf.co, a region name in front of cdn.hf.co, so the whole cdn.hf.co domain is allowed)
+  // and answers tokenizer_config.json with a redirect to another path on huggingface.co. Other regions were not observed.
+  allowedHosts: ['cdn.jsdelivr.net', 'huggingface.co', 'cdn.hf.co'],
   files: [
     { name: 'ort.wasm.min.mjs', url: `${ORT}/ort.wasm.min.mjs`, bytes: 50126, sha256: '219e6a1fc8a9938268d18efca3c91d310bd2f4a59bbd13744df5b2b7fc6cee3b', role: 'runtime' },
     { name: 'ort-wasm-simd-threaded.mjs', url: `${ORT}/ort-wasm-simd-threaded.mjs`, bytes: 24381, sha256: 'e13f7f94fc51b4ca72b12faeb1ee95f4ace6dfbc8939bc718aabdc0a27c4299b', role: 'runtime' },
@@ -56,6 +65,18 @@ export const FINDER_MODEL_PIN: FinderModelPin = {
     { name: 'tokenizer_config.json', url: `${HF}/tokenizer_config.json`, bytes: 443, sha256: 'a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b', role: 'tokenizer-config' },
   ],
 };
+
+/** Whether a download address is https and on one of the pin's allowed hosts (the host itself or a subdomain of it). */
+export function finderHostOk(url: string, pin: Pick<FinderModelPin, 'allowedHosts'> = FINDER_MODEL_PIN): boolean {
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  return pin.allowedHosts.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
+/** The text shown when a model file no longer matches its pin. */
+export const FINDER_MODEL_TAMPERED = 'The model files changed on your computer. Remove the model and get it again.';
 
 /** The state the model routes report. */
 export interface FinderModelStatus {

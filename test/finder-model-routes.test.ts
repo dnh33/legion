@@ -3,7 +3,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { gate, isClientRoute } from '../src/core/admin.js';
 import { armoryRig } from './armory-rig.js';
-import { fakePorts, PIN } from './finder-model-fakes.js';
+import { fileURLToPath } from 'node:url';
+import { createFinderModel } from '../src/core/armory/finder/model.js';
+import { FINDER_MODEL_TAMPERED } from '../src/shared/finder.js';
+import type { FinderModelPin } from '../src/shared/finder.js';
+import { fakePorts, PIN, sha } from './finder-model-fakes.js';
 
 const ROUTES: [string, string][] = [['GET', '/api/armory/finder/model'], ['POST', '/api/armory/finder/model/get'], ['DELETE', '/api/armory/finder/model']];
 
@@ -55,7 +59,7 @@ describe('the finder model routes', () => {
     await r.call('POST', '/api/armory/finder/model/get');
     assert.ok(card);
     assert.ok(card.files.every((x) => card!.summary.includes(x.url) && card!.summary.includes(x.sha256)));
-    assert.ok(/0\.7 GB/.test(card.summary) && /MIT/.test(card.summary));
+    assert.ok(/about 1 GB of memory/.test(card.summary) && /MIT/.test(card.summary));
   });
 
   it('get with an approval installs; status says ready with the size; remove returns it to not-installed', async () => {
@@ -96,5 +100,24 @@ describe('the finder model routes', () => {
     release(false);
     assert.equal((await first).denied, true);
     assert.equal((await r.call('GET', '/api/armory/finder/model')).state, 'not-installed');
+  });
+});
+
+describe('a model file that changed after the download', () => {
+  it('the helper refuses it: the state is an error with the plain text, keywords take over, and removing the model clears it', async () => {
+    const pin: FinderModelPin = { ...PIN, files: [{ name: 'tamper', url: 'https://cdn.example.com/tamper', bytes: 3, sha256: sha('abc'), role: 'runtime' }] };
+    const f = fakePorts({ serve: () => 'abc' });
+    const model = createFinderModel({ dataDir: '/data' }, { ports: f.ports, pin, approve: async () => true, worker: { workerPath: fileURLToPath(new URL('./finder-fake-worker.js', import.meta.url)) } });
+    try {
+      assert.equal((await model.get()).ok, true);
+      assert.equal(model.status().state, 'ready');
+      const emb = model.embedder()!;
+      await assert.rejects(emb.embed(['x'], new AbortController().signal), /does not match/);
+      assert.deepEqual(model.status(), { state: 'error', error: FINDER_MODEL_TAMPERED });
+      assert.equal(FINDER_MODEL_TAMPERED, 'The model files changed on your computer. Remove the model and get it again.');
+      assert.equal(model.ready(), false);
+      assert.equal(model.embedder(), undefined, 'the finder gets no embedder, so it ranks by keywords');
+      assert.deepEqual(model.remove(), { state: 'not-installed' });
+    } finally { model.dispose(); }
   });
 });

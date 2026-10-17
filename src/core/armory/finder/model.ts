@@ -3,9 +3,10 @@
  * (a helper process, see local-model.ts) once the files are there. Nothing here starts on its own: a download needs the owner's
  * click and an approval, and an agent has no route to it.
  */
+import { statSync } from 'node:fs';
 import { createGetBlenderPorts } from '../../blender/system.js';
 import type { ApprovalBroker } from '../../approvals.js';
-import { FINDER_MODEL_ASKER, FINDER_MODEL_PIN, FINDER_MODEL_TOOL } from '../../../shared/finder.js';
+import { FINDER_MODEL_ASKER, FINDER_MODEL_PIN, FINDER_MODEL_TAMPERED, FINDER_MODEL_TOOL } from '../../../shared/finder.js';
 import type { FinderModelPin, FinderModelStatus } from '../../../shared/finder.js';
 import type { Embedder } from './embed.js';
 import { getModel, installedBytes, modelDirFor, readInstalled, removeModel } from './get-model.js';
@@ -43,16 +44,19 @@ const READY_MEMO_MS = 10_000;
 
 export function createFinderModel(deps: { dataDir: string; approvals?: Pick<ApprovalBroker, 'request'> }, o: FinderModelOpts = {}): FinderModel {
   const pin = o.pin ?? FINDER_MODEL_PIN;
-  const ports = o.ports ?? createGetBlenderPorts();
+  const ports: GetModelPorts = o.ports ?? { ...createGetBlenderPorts(), size: (p) => { try { return statSync(p).size; } catch { return undefined; } } };
   const log = o.log ?? (() => undefined);
   let getting = false;
   let progress = 0;
   let lastError: string | undefined;
   let memo: { at: number; ok: boolean } | undefined;
   let local: LocalEmbedder | undefined;
+  // Set when the helper found a file that no longer matches its pin. The finder then uses keywords until the model is removed and fetched again.
+  let tampered = false;
 
   const installed = () => readInstalled(ports, deps.dataDir, pin);
   const ready = (): boolean => {
+    if (tampered) return false;
     const t = Date.now();
     if (memo && t - memo.at < READY_MEMO_MS) return memo.ok;
     const ok = installed() !== null;
@@ -61,6 +65,7 @@ export function createFinderModel(deps: { dataDir: string; approvals?: Pick<Appr
   };
   const status = (): FinderModelStatus => {
     if (getting) return { state: 'downloading', progress };
+    if (tampered) return { state: 'error', error: FINDER_MODEL_TAMPERED };
     const rec = installed();
     if (rec) return { state: 'ready', bytes: installedBytes(rec) };
     return lastError ? { state: 'error', error: lastError } : { state: 'not-installed' };
@@ -88,13 +93,18 @@ export function createFinderModel(deps: { dataDir: string; approvals?: Pick<Appr
     remove() {
       stopHelper();
       removeModel(ports, deps.dataDir);
-      lastError = undefined; memo = undefined;
+      lastError = undefined; memo = undefined; tampered = false;
       log('armory: the skill finder model was removed');
       return status();
     },
     embedder() {
       if (!ready()) return undefined;
-      local ??= createLocalModel({ modelDir: modelDirFor(deps.dataDir, pin), id: pin.id, ...(o.worker ?? {}) });
+      local ??= createLocalModel({
+        modelDir: modelDirFor(deps.dataDir, pin), id: pin.id,
+        files: pin.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256 })),
+        onIntegrity: (why) => { tampered = true; memo = undefined; log(`armory: the skill finder model was refused: ${why}`); },
+        ...(o.worker ?? {}),
+      });
       return local;
     },
     helper: () => local,

@@ -1,7 +1,12 @@
 /** The local embedder's helper process, with a FAKE worker script: spawn, answer, idle exit, restart, failure, and killing only its own child. */
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FINDER_MODEL_PIN } from '../src/shared/finder.js';
+import { tempDir } from './tmp-cleanup.js';
 import { createLocalModel } from '../src/core/armory/finder/local-model.js';
 import type { LocalEmbedder } from '../src/core/armory/finder/local-model.js';
 
@@ -117,9 +122,95 @@ describe('local model helper process', () => {
     assert.equal((await m.embed(['y'], sig())).length, 1);
   });
 
+  it('the helper gets a minimal environment, no inherited node options, and the pin in its arguments', async () => {
+    process.env.LEGION_TEST_SECRET = 'do-not-pass-me';
+    try {
+      const files = [{ name: 'a.bin', bytes: 3, sha256: 'ab'.repeat(32) }];
+      const m = createLocalModel({ modelDir: '/models/x', id: 'fake', workerPath: FAKE, files });
+      made.push(m);
+      const seen = await m.embed(['env'], sig()).then(() => '', (e: Error) => e.message);
+      assert.ok(seen.startsWith('ENV:'), seen);
+      const got = JSON.parse(seen.slice(4)) as { env: string[]; execArgv: string[]; argv: string[] };
+      const names = got.env.map((n) => n.toLowerCase()).sort();
+      assert.ok(!names.includes('legion_test_secret'), 'your variables are not passed on');
+      assert.ok(names.includes('electron_run_as_node') && names.includes('path'), names.join(','));
+      // Windows adds its own session defaults (home, user name, windir...) to any new process; none of them is yours to pass on.
+      const allowed = new Set(['path', 'systemroot', 'temp', 'tmp', 'electron_run_as_node', 'homedrive', 'homepath', 'logonserver', 'systemdrive', 'userdomain', 'username', 'userprofile', 'windir']);
+      assert.deepEqual(names.filter((n) => !allowed.has(n)), [], 'only the allowed names and the Windows session defaults');
+      assert.deepEqual(got.execArgv, []);
+      assert.equal(got.argv[0], '/models/x');
+      assert.deepEqual(JSON.parse(got.argv[1]!), files);
+    } finally { delete process.env.LEGION_TEST_SECRET; }
+  });
+
+  it('a helper that reports a failed integrity check fails the request, calls onIntegrity once, and the embedder stays off', async () => {
+    const why: string[] = [];
+    const m = createLocalModel({ modelDir: '/models/x', id: 'fake', workerPath: FAKE, files: [{ name: 'tamper', bytes: 1, sha256: 'a'.repeat(64) }], onIntegrity: (w) => why.push(w) });
+    made.push(m);
+    await assert.rejects(m.embed(['x'], sig()), /does not match its sha256/);
+    assert.deepEqual(why, ['tamper does not match its sha256.']);
+    await assert.rejects(m.embed(['y'], sig()), /switched off/);
+    assert.equal(why.length, 1);
+  });
+
   it('a worker script that does not exist fails the request, not the caller', async () => {
     const m = createLocalModel({ modelDir: '/m', id: 'x', workerPath: fileURLToPath(new URL('./no-such-worker.js', import.meta.url)) });
     made.push(m);
     await assert.rejects(m.embed(['x'], sig()), /stopped|could not start/);
+  });
+});
+
+
+describe('the real helper script checks every pinned file before it loads anything', () => {
+  const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
+  /** A folder with all seven pinned names and small contents, and a pin that matches them. No model is needed: the check comes first. */
+  function folder(): { dir: string; files: { name: string; bytes: number; sha256: string }[] } {
+    const dir = tempDir('finder-real-worker-');
+    mkdirSync(dir, { recursive: true });
+    const files = FINDER_MODEL_PIN.files.map((f) => {
+      const body = Buffer.from('content of ' + f.name);
+      writeFileSync(join(dir, f.name), body);
+      return { name: f.name, bytes: body.length, sha256: sha(body) };
+    });
+    return { dir, files };
+  }
+  const run = async (dir: string, files: { name: string; bytes: number; sha256: string }[]): Promise<{ error: string; why: string[] }> => {
+    const why: string[] = [];
+    const m = createLocalModel({ modelDir: dir, id: 'real', files, timeoutMs: 20_000, onIntegrity: (w) => why.push(w) });
+    made.push(m);
+    const error = await m.embed(['hello'], sig(), 'query').then(() => '', (e: Error) => e.message);
+    return { error, why };
+  };
+
+  it('a file with the right size and a wrong hash is refused, and the text names the file', async () => {
+    const { dir, files } = folder();
+    const name = 'ort-wasm-simd-threaded.mjs';
+    const orig = files.find((f) => f.name === name)!;
+    writeFileSync(join(dir, name), Buffer.from('X'.repeat(orig.bytes)));
+    const r = await run(dir, files);
+    assert.match(r.error, /ort-wasm-simd-threaded\.mjs does not match its sha256/);
+    assert.equal(r.why.length, 1);
+  });
+
+  it('a file with the wrong size, and a missing file, are refused', async () => {
+    const a = folder();
+    writeFileSync(join(a.dir, 'tokenizer.json'), 'longer than before, by a lot');
+    assert.match((await run(a.dir, a.files)).error, /tokenizer\.json has the wrong size/);
+    const b = folder();
+    rmSync(join(b.dir, 'tokenizer_config.json'));
+    assert.match((await run(b.dir, b.files)).error, /tokenizer_config\.json is missing/);
+  });
+
+  it('a pin that leaves out a file the worker needs is refused', async () => {
+    const { dir, files } = folder();
+    const r = await run(dir, files.filter((f) => f.name !== 'tokenizers.min.mjs'));
+    assert.match(r.error, /tokenizers\.min\.mjs is not in the pin/);
+    assert.equal(r.why.length, 1);
+  });
+
+  it('no pin at all is refused', async () => {
+    const { dir } = folder();
+    const r = await run(dir, []);
+    assert.match(r.error, /cannot be checked/);
   });
 });

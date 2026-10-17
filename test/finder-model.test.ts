@@ -1,9 +1,12 @@
 /** The skill finder's model download: approval first, each file's hash before the next, nothing recorded on a failure. Fake ports only. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { approvalFor, getModel, modelDirFor, readInstalled, removeModel, finderRoot } from '../src/core/armory/finder/get-model.js';
-import { FINDER_MODEL_PIN } from '../src/shared/finder.js';
+import { createGetBlenderPorts } from '../src/core/blender/system.js';
+import { FINDER_MODEL_PIN, finderHostOk } from '../src/shared/finder.js';
 import type { FinderModelPin } from '../src/shared/finder.js';
 import { CONTENT, fakePorts, PIN } from './finder-model-fakes.js';
 
@@ -36,7 +39,8 @@ describe('finder model download', () => {
     }
     assert.ok(text.includes(modelDirFor('/data', PIN)), 'folder');
     assert.ok(text.includes('MIT'), 'licence');
-    assert.ok(text.includes('0.7 GB'), 'memory');
+    assert.ok(text.includes('about 1 GB of memory while it is active'), 'memory');
+    assert.ok(/about \d+ MB to download/.test(text), 'download size');
     assert.deepEqual(card.hosts, ['cdn.example.com', 'models.example.com']);
     assert.ok(!text.includes(String.fromCharCode(0x2014)), 'no em dash');
   });
@@ -129,6 +133,75 @@ describe('finder model download', () => {
     removeModel(f.ports, '/data');
     assert.deepEqual(f.keys(), [join(finderRoot('/data'), 'usage.json').replace(/\\/g, '/')], 'only the usage record is left');
     assert.equal(readInstalled(f.ports, '/data', PIN), null);
+  });
+});
+
+describe('finder model hosts and sizes', () => {
+  it('readInstalled does not believe a file whose size differs from the pin', async () => {
+    const f = fakePorts();
+    await getModel(f.ports, { dataDir: '/data', pin: PIN, approve: async () => true });
+    assert.ok(readInstalled(f.ports, '/data', PIN));
+    const key = f.keys().find((k) => k.endsWith('/m.onnx'))!;
+    f.files.set(key, CONTENT['m.onnx']! + 'x');
+    assert.equal(readInstalled(f.ports, '/data', PIN), null, 'one byte more');
+    f.files.set(key, CONTENT['m.onnx']!.slice(1));
+    assert.equal(readInstalled(f.ports, '/data', PIN), null, 'one byte less');
+  });
+
+  it('the download is given a host check, and a port that applies it refuses a redirect elsewhere', async () => {
+    const f = fakePorts();
+    const seen: Array<(u: string) => boolean> = [];
+    f.ports.download = async (_url, _dest, o) => {
+      if (!o.urlOk) throw new Error('no urlOk was passed');
+      seen.push(o.urlOk);
+      if (!o.urlOk('https://evil.example/steal.bin')) throw new Error('Refusing to download: the address is not on the expected host.');
+      return { sha256: 'x', bytes: 1 };
+    };
+    const r = await getModel(f.ports, { dataDir: '/data', pin: PIN, approve: async () => true });
+    assert.equal(r.ok, false);
+    assert.match(r.steps.at(-1)!.detail, /not on the expected host/);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0]!('https://cdn.example.com/a.mjs'), true);
+    assert.deepEqual(f.keys(), []);
+  });
+
+  it('the real download refuses a redirect to another host, and follows one to an allowed host', async () => {
+    const realFetch = globalThis.fetch;
+    const asked: string[] = [];
+    globalThis.fetch = (async (input: unknown) => {
+      const u = String(input);
+      asked.push(u);
+      if (u.startsWith('https://huggingface.co/')) return new Response(null, { status: 302, headers: { location: 'https://evil.example/model.onnx' } });
+      if (u.startsWith('https://cdn.jsdelivr.net/')) return new Response(null, { status: 302, headers: { location: 'https://us.aws.cdn.hf.co/x/file' } });
+      return new Response('abc', { status: 200 });
+    }) as typeof fetch;
+    const dest = join(tmpdir(), `finder-dl-${process.pid}-${Date.now()}.bin`);
+    try {
+      const dl = createGetBlenderPorts().download as (url: string, dest: string, o: { maxBytes: number; urlOk: (u: string) => boolean }) => Promise<{ sha256: string; bytes: number }>;
+      const urlOk = (u: string): boolean => finderHostOk(u, FINDER_MODEL_PIN);
+      await assert.rejects(dl('https://huggingface.co/a/b', dest, { maxBytes: 100, urlOk }), /not on the expected host/);
+      assert.deepEqual(asked, ['https://huggingface.co/a/b'], 'the other host was never asked');
+      asked.length = 0;
+      const ok = await dl('https://cdn.jsdelivr.net/a', dest, { maxBytes: 100, urlOk });
+      assert.equal(ok.bytes, 3);
+      assert.deepEqual(asked, ['https://cdn.jsdelivr.net/a', 'https://us.aws.cdn.hf.co/x/file']);
+    } finally { globalThis.fetch = realFetch; rmSync(dest, { force: true }); rmSync(dest + '.part', { force: true }); }
+  });
+
+  it('finderHostOk takes the pinned hosts and their subdomains only, over https', () => {
+    for (const f of FINDER_MODEL_PIN.files) assert.equal(finderHostOk(f.url), true, f.url);
+    for (const ok of ['https://us.aws.cdn.hf.co/a', 'https://eu.aws.cdn.hf.co/a', 'https://huggingface.co/a', 'https://cdn.jsdelivr.net/a']) assert.equal(finderHostOk(ok), true, ok);
+    for (const bad of ['https://evil.example/a', 'http://huggingface.co/a', 'https://huggingface.co.evil.example/a', 'https://evilhuggingface.co/a', 'https://hf.co/a', 'https://jsdelivr.net/a', 'ftp://huggingface.co/a', 'not a url']) assert.equal(finderHostOk(bad), false, bad);
+  });
+
+  it('a pin with an address off its allowed hosts is refused before any card', async () => {
+    const f = fakePorts();
+    let asked = false;
+    const bad: FinderModelPin = { ...PIN, files: [{ ...PIN.files[0]!, url: 'https://evil.example/a.mjs' }] };
+    const r = await getModel(f.ports, { dataDir: '/data', pin: bad, approve: async () => { asked = true; return true; } });
+    assert.equal(r.ok, false);
+    assert.equal(asked, false);
+    assert.deepEqual(f.log, []);
   });
 });
 

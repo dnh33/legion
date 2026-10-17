@@ -1,7 +1,7 @@
 /**
  * The skill finder's local embedder: an Embedder backed by a helper process (embed-worker.js) that holds the downloaded model.
  *
- * The model needs about 0.7 GB, so it never runs in Legion's own process. The helper starts on the first request, stops after
+ * The model needs about 1 GB, so it never runs in Legion's own process. The helper starts on the first request, stops after
  * `idleMs` without one, and starts again on the next request. Legion kills only the child it started, through its own handle:
  * when it is idle, on dispose and when you remove the model. Any error, exit or timeout rejects the request, and the finder then
  * ranks that turn by keywords alone.
@@ -23,6 +23,13 @@ export interface LocalModelOpts {
   idleMs?: number;
   /** A request that gets no answer in this time fails, in ms. Default 60 s. */
   timeoutMs?: number;
+  /**
+   * The pinned files (name, size, sha256). They go to the helper in argv, and it refuses to load unless every file in the folder
+   * matches. Without them the helper cannot start.
+   */
+  files?: { name: string; bytes: number; sha256: string }[];
+  /** Called once when the helper found a file that does not match its pin. */
+  onIntegrity?: (why: string) => void;
 }
 
 export interface LocalEmbedder extends Embedder {
@@ -38,6 +45,18 @@ export interface LocalEmbedder extends Embedder {
 
 const DEFAULT_WORKER = fileURLToPath(new URL('./embed-worker.js', import.meta.url));
 const STDERR_KEEP = 2000;
+/** The only variables the helper gets: it loads downloaded code, so it sees none of your keys or settings. */
+const CHILD_ENV_KEYS = ['PATH', 'SystemRoot', 'TEMP', 'TMP'];
+function childEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const k of CHILD_ENV_KEYS) {
+    // Windows names are not case sensitive (Path, PATH).
+    const hit = Object.keys(process.env).find((n) => n.toLowerCase() === k.toLowerCase());
+    if (hit && process.env[hit] !== undefined) env[hit] = process.env[hit];
+  }
+  env.ELECTRON_RUN_AS_NODE = '1';
+  return env;
+}
 
 interface Pending { resolve(v: Float32Array[]): void; reject(e: Error): void; timer: NodeJS.Timeout; off?: () => void }
 
@@ -69,17 +88,25 @@ export function createLocalModel(o: LocalModelOpts): LocalEmbedder {
 
   const start = (): ChildProcess => {
     stderr = '';
-    const c = fork(o.workerPath ?? DEFAULT_WORKER, [o.modelDir], {
+    const c = fork(o.workerPath ?? DEFAULT_WORKER, [o.modelDir, JSON.stringify(o.files ?? [])], {
       execPath: process.execPath,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      execArgv: [],
+      env: childEnv(),
       serialization: 'advanced',
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       windowsHide: true,
     });
     c.stderr?.on('data', (d: Buffer) => { stderr = (stderr + d.toString('utf8')).slice(-STDERR_KEEP); });
     c.on('message', (m: unknown) => {
-      const r = m as { id?: unknown; vectors?: unknown; error?: unknown; fatal?: unknown };
-      if (typeof r?.fatal === 'string') { if (child === c) { child = undefined; failAll(`The local model could not start: ${r.fatal}`); } return; }
+      const r = m as { id?: unknown; vectors?: unknown; error?: unknown; fatal?: unknown; integrity?: unknown };
+      if (typeof r?.fatal === 'string') {
+        if (child === c) {
+          child = undefined;
+          failAll(`The local model could not start: ${r.fatal}`);
+          if (r.integrity === true) { disposed = true; o.onIntegrity?.(r.fatal); }
+        }
+        return;
+      }
       if (typeof r?.id !== 'number') return;
       const p = pending.get(r.id);
       if (!p) return; // answered after the caller gave up

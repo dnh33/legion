@@ -11,10 +11,15 @@
  */
 import { join } from 'node:path';
 import type { GetBlenderPorts } from '../../blender/get-blender.js';
-import { FINDER_MODEL_PIN } from '../../../shared/finder.js';
+import { FINDER_MODEL_PIN, finderHostOk } from '../../../shared/finder.js';
 import type { FinderModelPin } from '../../../shared/finder.js';
 
-export type GetModelPorts = Pick<GetBlenderPorts, 'download' | 'mkdirp' | 'exists' | 'readText' | 'writeText' | 'rename' | 'removeDir' | 'removeFile' | 'now'>;
+export type GetModelPorts = Pick<GetBlenderPorts, 'mkdirp' | 'exists' | 'readText' | 'writeText' | 'rename' | 'removeDir' | 'removeFile' | 'now'> & {
+  /** The Blender download, which also refuses any address (first or redirect) that `urlOk` does not allow. */
+  download(url: string, dest: string, opts: { maxBytes: number; urlOk?: (url: string) => boolean }): Promise<{ sha256: string; bytes: number }>;
+  /** The size of a file in bytes, or undefined when it is not there. */
+  size(p: string): number | undefined;
+};
 
 export interface InstalledRecord {
   id: string;
@@ -54,6 +59,7 @@ function pinProblem(pin: FinderModelPin): string {
   for (const f of pin.files) {
     if (!HEX64.test(f.sha256)) return `The hash for ${f.name} is not recorded, so Legion will not download it.`;
     if (!/^https:\/\//i.test(f.url)) return `The address for ${f.name} is not https.`;
+    if (!finderHostOk(f.url, pin)) return `The address for ${f.name} is not on an allowed host.`;
     if (!/^[A-Za-z0-9._-]+$/.test(f.name)) return `The file name ${f.name.slice(0, 40)} is not allowed.`;
     if (!Number.isFinite(f.bytes) || f.bytes <= 0) return `The size for ${f.name} is not recorded.`;
   }
@@ -61,7 +67,8 @@ function pinProblem(pin: FinderModelPin): string {
 }
 
 export function approvalFor(pin: FinderModelPin, dataDir: string): GetModelApproval {
-  const mb = Math.round(pin.approxBytes / (1024 * 1024));
+  // Rounded to 5 MB: "about" is the honest word, and the exact size of every file is in the list below.
+  const mb = Math.round(pin.approxBytes / (1024 * 1024) / 5) * 5;
   const folder = modelDirFor(dataDir, pin);
   const hosts = [...new Set(pin.files.map((f) => new URL(f.url).hostname))];
   const list = pin.files.map((f) => `${f.name}: ${f.url} (${(f.bytes / (1024 * 1024)).toFixed(1)} MB, sha256 ${f.sha256})`).join('; ');
@@ -69,23 +76,23 @@ export function approvalFor(pin: FinderModelPin, dataDir: string): GetModelAppro
     id: pin.id, revision: pin.revision,
     files: pin.files.map((f) => ({ name: f.name, url: f.url, bytes: f.bytes, sha256: f.sha256 })),
     hosts, totalMb: mb, folder, license: pin.license, sources: pin.sources,
-    summary: `Download the skill finder's language model (${pin.id}, about ${mb} MB) from ${hosts.join(' and ')}. `
+    summary: `Download the skill finder's language model (${pin.id}, about ${mb} MB to download) from ${hosts.join(' and ')}. `
       + `Legion checks every file against its sha256 before it uses it, and keeps the files in ${folder}. Files: ${list}. `
       + `Licences: ${pin.license} (sources: ${pin.sources.join(', ')}). `
-      + 'The model runs on your computer in a helper process that stops when it is idle, and uses about 0.7 GB of memory while it is active. '
+      + 'The model runs on your computer in a helper process that stops when it is idle, and uses about 1 GB of memory while it is active. '
       + 'You can remove it again in Settings.',
   };
 }
 
-/** The install on disk, or null. Believed only when the record matches the pin and every pinned file is there. */
-export function readInstalled(ports: Pick<GetModelPorts, 'readText' | 'exists'>, dataDir: string, pin: FinderModelPin = FINDER_MODEL_PIN): InstalledRecord | null {
+/** The install on disk, or null. Believed only when the record matches the pin and every pinned file is there with its pinned size. */
+export function readInstalled(ports: Pick<GetModelPorts, 'readText' | 'exists' | 'size'>, dataDir: string, pin: FinderModelPin = FINDER_MODEL_PIN): InstalledRecord | null {
   const text = ports.readText(installedFile(dataDir));
   if (!text) return null;
   let o: Partial<InstalledRecord>;
   try { o = JSON.parse(text) as Partial<InstalledRecord>; } catch { return null; }
   if (!o || o.id !== pin.id || o.revision !== pin.revision || !Array.isArray(o.files)) return null;
   const dir = modelDirFor(dataDir, pin);
-  if (!pin.files.every((f) => ports.exists(join(dir, f.name)))) return null;
+  if (!pin.files.every((f) => ports.exists(join(dir, f.name)) && ports.size(join(dir, f.name)) === f.bytes)) return null;
   return { id: o.id, revision: o.revision, files: o.files, at: typeof o.at === 'string' ? o.at : '' };
 }
 
@@ -122,7 +129,7 @@ export async function getModel(
     o.onProgress?.(0);
     for (let i = 0; i < pin.files.length; i++) {
       const f = pin.files[i]!;
-      const got = await ports.download(f.url, join(stage, f.name), { maxBytes: f.bytes + 4096 });
+      const got = await ports.download(f.url, join(stage, f.name), { maxBytes: f.bytes, urlOk: (u) => finderHostOk(u, pin) });
       if (got.sha256.toLowerCase() !== f.sha256 || got.bytes !== f.bytes) {
         cleanup();
         return fail('hash', `${f.name} does not match the pinned sha256 (got ${got.sha256.slice(0, 12)}..., expected ${f.sha256.slice(0, 12)}...). Nothing was installed.`);
