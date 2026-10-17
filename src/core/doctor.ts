@@ -14,6 +14,8 @@ import { claudeHomeDir } from './armory/discover.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
 
+const MANAGED_KEY_NOTE = "Your organization's managed settings give Claude this key, and Legion cannot turn it off. Ask your admin to add credits or give you a Claude seat, or turn on Allow API credit billing.";
+
 const PLAN_ONLY_FIX = 'To use your Claude plan: run claude in a terminal, type /logout, then /login and choose your Claude account. Or turn on Settings -> Claude -> Allow API credit billing.';
 
 /** The name (never the value) of the first billing key the user's Claude Code settings.json sets, if any. Missing or corrupt files give undefined. */
@@ -67,7 +69,12 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
       const billed = !!source && source !== 'none';
       if (isPlanOnly(config)) {
         // Plan only: the keys in Claude Code settings are blanked for runs, so only a source the blanks cannot reach (a stored Console key) fails here.
-        if (billed) return { ok: false, detail: `Runs would bill API credits (key source: ${source}), so Legion will not start them`, fix: PLAN_ONLY_FIX };
+        if (billed) {
+          // Legion blanks ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and apiKeyHelper in the flag settings, which outrank every user, project and local file. A key still
+          // reported from one of those two sources therefore comes from the managed settings layer, the only one above them. A stored Console key ('/login managed key') is a different case.
+          const managed = source === 'ANTHROPIC_API_KEY' || source === 'apiKeyHelper';
+          return { ok: false, detail: `Runs would bill API credits (key source: ${source}), so Legion will not start them${managed ? `. ${MANAGED_KEY_NOTE}` : ''}`, fix: PLAN_ONLY_FIX };
+        }
       } else {
         // API billing allowed: say so, and keep the key names in the settings files as information.
         // Settings the runs load but this probe does not (it runs with settingSources: []).

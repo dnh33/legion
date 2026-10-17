@@ -185,3 +185,14 @@ test('doctor: no environment note when billing is allowed, in API key mode, or w
   await withEnv({ ANTHROPIC_API_KEY: '  ', ANTHROPIC_AUTH_TOKEN: undefined }, async () => { assert.equal(await envNote(cfg()), undefined); });
 });
 
+// S5: under plan only both keys are blanked in the flag settings, so a key source that is still reported comes from a layer Legion cannot blank.
+test('doctor: a key from the managed settings layer says so and that Legion cannot turn it off', async () => {
+  for (const apiKeySource of ['ANTHROPIC_API_KEY', 'apiKeyHelper']) {
+    const q = fakeQuery(async () => ({ email: 'a@b.c', apiKeySource }));
+    const c = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: q })).find((x) => x.id === 'claude')!;
+    assert.equal(c.ok, false);
+    assert.match(c.detail, /Your organization's managed settings give Claude this key, and Legion cannot turn it off\. Ask your admin to add credits or give you a Claude seat, or turn on Allow API credit billing\./);
+  }
+  const stored = (await runDoctor({ config: cfg(), getBoat: () => null, queryFn: fakeQuery(async () => ({ email: 'a@b.c', apiKeySource: '/login managed key' })) })).find((x) => x.id === 'claude')!;
+  assert.doesNotMatch(stored.detail, /organization/, 'a stored Console key is not a managed setting');
+});
