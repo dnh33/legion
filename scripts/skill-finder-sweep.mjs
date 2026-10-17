@@ -32,6 +32,9 @@ const GEN_MODEL = 'haiku';
 const JUDGE_MODEL = 'sonnet';
 const FETCH_CONCURRENCY = 8;
 const PROBE_CONCURRENCY = 3;
+const FIRST_CALL_USD = 0.005;
+/** A full run with fewer real negatives than this measures nothing about false calls, so the job fails. */
+const MIN_NEGATIVES = 50;
 /** Share of the cap that prompt writing and judging may use, so the arms always get most of it. */
 const PREP_SHARE = 0.35;
 
@@ -421,7 +424,8 @@ export async function runArms({ query, spend, items, homes, model = 'haiku', con
       const idx = next++;
       if (idx >= items.length || stopped) return;
       const it = items[idx];
-      const avg = costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : 0.05;
+      // Before the first answer, a Haiku call is about $0.004 (measured in the Task 11 outcome runs); 0.05 stopped every small run.
+      const avg = costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : FIRST_CALL_USD;
       if (!spend.fits(2 * avg * 1.5 * concurrency)) { stopped = true; return; }
       const home = homes.get(it.size);
       for (const arm of ['A', 'S']) {
@@ -560,6 +564,7 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, ca
     const summary = renderSummary({ rows, decision, catalog, prompts, spend, cap, stopped, smoke });
     const result = {
       seed: SEED, smoke, rule: THRESHOLD_RULE, cap, spentUsd: round(spend.spent), calls: spend.calls, stoppedAtCap: stopped,
+      armCalls: records.length, armAnswered: records.filter((r) => r.error === null).length,
       catalog: { source: catalog.source, ...catalog.counts }, prompts: prompts.stats, sizes: rows, decision,
     };
     return { summary, result };
@@ -589,6 +594,9 @@ async function main() {
   const { summary, result } = await runSweep({ query, fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, smoke: opts.smoke === true, ...(cap ? { cap } : {}) });
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+  // A run that measured nothing must not look green.
+  if (result.armAnswered === 0) { process.stderr.write('skill-finder-sweep: no arm call was answered\n'); process.exitCode = 1; }
+  else if (!result.smoke && result.prompts.negKept < MIN_NEGATIVES) { process.stderr.write(`skill-finder-sweep: only ${result.prompts.negKept} negatives kept, need ${MIN_NEGATIVES}\n`); process.exitCode = 1; }
   writeFileSync(resolve(opts.json ?? 'sweep-result.json'), `${JSON.stringify(result, null, 2)}\n`);
 }
 
