@@ -8,7 +8,7 @@ import type { FinderDoc } from '../src/core/armory/finder/doc.js';
 import { cosine, createVectorCache, MAX_NEW_PASSAGES, passageText, passageVectors, vectorsPath } from '../src/core/armory/finder/embed.js';
 import type { EmbedKind, Embedder } from '../src/core/armory/finder/embed.js';
 import { rank, rankFused } from '../src/core/armory/finder/rank.js';
-import { FUSED_THRESHOLDS, FUSION_WEIGHT } from '../src/core/armory/finder/defaults.js';
+import { FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR } from '../src/core/armory/finder/defaults.js';
 import { tempDir } from './tmp-cleanup.js';
 
 const doc = (id: string, description: string, over: Partial<FinderDoc> = {}): FinderDoc =>
@@ -231,6 +231,28 @@ describe('rankFused', () => {
     assert.equal(lifted.results[0]!.id, 'postgres');
     const floored = rankFused(ix, q, [0.7, 0.7], vecs, { ...base, minScore: 5 })!;
     assert.deepEqual(floored.results, []);
+  });
+
+  it('drops a skill whose raw cosine is under the floor, whatever its fused score', () => {
+    // The message sits between design and postgres; min-max would give the closer one a full cosine score.
+    const q = 'typography';
+    const open = rankFused(ix, q, [0.7, 0.7], vecs, { ...base, k: 5, cosineFloor: 0 })!;
+    const best = open.results[0]!;
+    assert.ok(best.cosine! > 0.7 && best.score > 0.5 && open.results.length === 3);
+    const shut = rankFused(ix, q, [0.7, 0.7], vecs, { ...base, k: 5, cosineFloor: 0.9 })!;
+    assert.deepEqual(shut.results, [], 'a floor above every cosine leaves no result');
+    const mid = rankFused(ix, q, [0.7, 0.7], vecs, { ...base, k: 5, cosineFloor: 0.75 })!;
+    assert.deepEqual(mid.results.map((x) => x.id), ['luxury']);
+  });
+
+  it('the floor ignores a skill that has no vector yet, and defaults to RAW_COSINE_FLOOR', () => {
+    const partial = new Map(vecs); partial.delete('security');
+    const q = 'find injection leaked secrets';
+    const r = rankFused(ix, q, [0.6, 0.8], partial, { ...base, k: 5, cosineFloor: 0.99 })!;
+    assert.deepEqual(r.results.map((x) => x.id), ['security'], 'a keyword hit with no vector is not judged by a cosine it does not have');
+    const dflt = rankFused(ix, 'typography', [0.7, 0.7], vecs, { ...base, k: 5 })!;
+    const same = rankFused(ix, 'typography', [0.7, 0.7], vecs, { ...base, k: 5, cosineFloor: RAW_COSINE_FLOOR })!;
+    assert.deepEqual(dflt.results, same.results);
   });
 
   it('returns null with fewer than two vectors, so the caller uses keywords', () => {

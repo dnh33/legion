@@ -35,8 +35,14 @@ export const FUSED_THRESHOLDS = { strict: 0.75, balanced: 0.6, eager: 0.45 } as 
  * nothing fits the message, and the floor would never say no. Cosines of the e5 model sit close together, so the spread is small.
  */
 export const COSINE_MIN_SPREAD = 0.05;
-/** The same for keywords: a best score under the balanced floor does not count as a full match. */
-export const BM25_MIN_SPREAD = THRESHOLDS.balanced;
+/** The same for keywords: a best keyword score under this does not count as a full match. Its own value: it does not move with the keyword floors. */
+export const BM25_MIN_SPREAD = 2;
+/**
+ * A skill whose raw cosine to the message is under this gets no note, whatever its fused score. The fused score is min-max over the
+ * candidates, so the best skill always scores high; the e5 cosines of unrelated text still sit in a band, and this floor is the only
+ * absolute test of fit. A skill with no vector yet is not judged by it.
+ */
+export const RAW_COSINE_FLOOR = 0;
 /** How long the finder waits for the message's embedding before it uses keywords for that turn. */
 export const EMBED_QUERY_BUDGET_MS = 300;
 /** How long the engine waits for a turn's note when embeddings are on. */

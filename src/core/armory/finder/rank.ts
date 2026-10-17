@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { scoreIndex } from './bm25.js';
 import type { FinderIndex } from './bm25.js';
 import { cosine } from './embed.js';
-import { BM25_MIN_SPREAD, COSINE_MIN_SPREAD, DEFAULT_K, FUSION_WEIGHT } from './defaults.js';
+import { BM25_MIN_SPREAD, COSINE_MIN_SPREAD, DEFAULT_K, FUSION_WEIGHT, RAW_COSINE_FLOOR } from './defaults.js';
 
 export interface RankOpts {
   /** How many results to keep. Clamped to 1..5; NaN gives the default. */
@@ -62,6 +62,8 @@ export interface FuseOpts extends RankOpts {
   weight?: number;
   /** The most results the cut may keep. Default 5; a search tool asks for more. */
   maxK?: number;
+  /** A skill with a vector and a raw cosine under this is dropped. Default RAW_COSINE_FLOOR. */
+  cosineFloor?: number;
 }
 
 /** (x - lo) / max(hi - lo, minSpread): min-max, except a narrow spread is not stretched, so a message that fits nothing stays low. */
@@ -80,6 +82,7 @@ export function rankFused(
   const start = now();
   const overdue = (): boolean => now() - start > opts.deadlineMs;
   const w = Number.isFinite(opts.weight) ? Math.min(1, Math.max(0, opts.weight!)) : FUSION_WEIGHT;
+  const floor = Number.isFinite(opts.cosineFloor) ? opts.cosineFloor! : RAW_COSINE_FLOOR;
 
   const ids = ix.docs.map((d) => d.id);
   const cos = new Map<string, number>();
@@ -103,6 +106,7 @@ export function rankFused(
     const boost = Number.isFinite(raw) ? raw : 1;
     if (overdue()) return { results: [], timedOut: true };
     const score = (w * cn + (1 - w) * bn) * boost;
+    if (c !== undefined && c < floor) continue;
     if (score > 0 && score >= opts.minScore) ranked.push({ id, score, bm25: hit?.score ?? 0, ...(c !== undefined ? { cosine: c } : {}), matched: hit?.matched ?? [], boost });
   }
   ranked.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
