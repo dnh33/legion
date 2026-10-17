@@ -142,7 +142,28 @@ export function needsApproval(mode: RunMode, toolName: string, opts: { capped?: 
  * web tools. It is not part of `needsApproval`: WebFetch and WebSearch stay read-only there, and the check raises its own card (Engine.askGuards).
  */
 export function webChecksApply(mode: RunMode, toolName: string): boolean {
-  return mode !== 'full' && (toolName === 'WebFetch' || toolName === 'WebSearch');
+  return mode !== 'full' && webKind(toolName) !== undefined;
+}
+
+/**
+ * Which built-in web tool a call counts as for the web check, the egress card and the gate rules: Legion's two provider tools (the owner's
+ * optional web search and page read providers, src/core/web-search) are judged exactly like WebSearch and WebFetch. Exact names only: a tool of another server
+ * that ends in the same words is not one.
+ */
+export function webKind(toolName: string): 'WebFetch' | 'WebSearch' | undefined {
+  if (toolName === 'WebFetch' || toolName === 'mcp__legion__web_read') return 'WebFetch';
+  if (toolName === 'WebSearch' || toolName === 'mcp__legion__web_search') return 'WebSearch';
+  return undefined;
+}
+
+/**
+ * The input of a web call in the shape the web check reads: a page address for the fetch kind, a query for the search kind. For the provider
+ * tools only those two fields are carried (the TARGET address of a read, the query of a search); the built-in tools keep their input as it is.
+ */
+export function webInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+  if (toolName === 'mcp__legion__web_read') return { url: typeof input?.url === 'string' ? input.url : '' };
+  if (toolName === 'mcp__legion__web_search') return { query: typeof input?.query === 'string' ? input.query : '' };
+  return input;
 }
 
 function compactJson(v: unknown, max: number): string {

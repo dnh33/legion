@@ -935,7 +935,7 @@ test('in full mode the hooks that can wait on a card allow at least the card\'s 
   const s = setup(hanging, { agent: { approval: 'full' }, approvalTimeoutMs: 600_000 });
   const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
   await new Promise((r) => setTimeout(r, 30));
-  const carding = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*' || h.matcher === 'WebFetch|WebSearch');
+  const carding = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*' || h.matcher === 'WebFetch|WebSearch|mcp__legion__web_read|mcp__legion__web_search');
   assert.equal(carding.length, 2);
   for (const h of carding) assert.ok(typeof h.timeout === 'number' && h.timeout >= 600, `${h.matcher}: timeout ${h.timeout}`);
   s.engine.cancel(t.id);

@@ -14,7 +14,7 @@ export const SUGGEST_AFTER = 3;
 export interface RememberCall { agentId: string; toolName: string; input: Record<string, unknown> }
 
 /** Cards a rule must not decide: web reads (a site is allowed on its own card, never tool-wide), rails (a Blender script, a download, read and clicked every time) and room requests. */
-const NO_REMEMBER = /^(?:WebFetch|WebSearch|mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
+const NO_REMEMBER = /^(?:WebFetch|WebSearch|mcp__legion__web_read|mcp__legion__web_search|mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
 
 /** Whether a rule may be remembered for this request at all. A card the core marks `noRemember` (a command it cannot read) never offers one. */
 export function canRemember(a: { toolName: string; noRemember?: boolean }): boolean {

@@ -32,7 +32,7 @@ export type { ProviderView, ProvidersView } from '../../shared/providers-view.js
 
 /** What a provider-run agent cannot do, in the words the UI shows. */
 export const PROVIDER_LIMITS_TEXT: string[] = [
-  'No file editing, shell, web search or web fetch of its own. It gets Legion\'s own tools (agents, kg, comms, Blender, BSV status, and the VM tools when the agent has a VM) and the MCP servers you enabled for the agent.',
+  'No file editing, shell, web search or web fetch of its own, unless you picked a web provider in Settings, Web search (then it gets web_search and web_read, behind the same per-site check as Claude). It gets Legion\'s own tools (agents, kg, comms, Blender, BSV status, and the VM tools when the agent has a VM) and the MCP servers you enabled for the agent.',
   'No Claude Code skills, plugins, slash commands, sub-agents, plan mode or claude.ai connectors.',
   'Your MCP servers run under stricter rules than for Claude: an approval card for each tool call (unless the agent is on full access), the run counts as touching outside content, a local server starts with a small environment instead of Legion\'s own, and a server address must be https or your computer.',
   'A continued task summarises older turns instead of keeping them verbatim, so detail from much earlier in a conversation may be lost.',

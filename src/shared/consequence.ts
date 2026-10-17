@@ -401,6 +401,9 @@ export const TOOL_RULES: Record<string, ToolRule> = {
   Bash: { shell: true }, PowerShell: { shell: true }, Monitor: { shell: true }, mcp__host__shell: { shell: true },
   WebFetch: { level: 3, tags: ['leaves'], chip: C.leaves },
   WebSearch: { level: 3, tags: ['leaves'], chip: C.leaves },
+  // the owner's web search and page read providers leave the computer the same way
+  mcp__legion__web_read: { level: 3, tags: ['leaves'], chip: C.leaves },
+  mcp__legion__web_search: { level: 3, tags: ['leaves'], chip: C.leaves },
 };
 
 function classifyTool(call: ConsequenceCall): Consequence {

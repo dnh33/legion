@@ -21,7 +21,7 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, LEGION_SERVER_NAMES } from './approvals.js';
+import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
 import { secretReadHit } from './secret-paths.js';
 import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
@@ -32,6 +32,7 @@ import { webCardSummary, WEB_CARD, WEB_MANY_BODY } from '../shared/web-copy.js';
 import { GATES } from '../shared/gates-registry.js';
 import type { GateValue } from '../shared/gates-registry.js';
 import type { ActivityLog } from './activity/index.js';
+import type { WebSearchService } from './web-search/index.js';
 import type { RunMode } from './permission-mode.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
@@ -123,6 +124,8 @@ export interface EngineDeps {
   gates?: GatesRead;
   /** The activity log: what a gate that is off let through is written here as a "would have asked" line. Absent: no lines. */
   activity?: ActivityLog;
+  /** The web search and page read providers: when the owner picked one, the run gets web_search / web_read and the built-in tool it replaces is forbidden. Absent: today's behaviour. */
+  webSearch?: WebSearchService;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
   /** How long a plan-only run waits for the account check before it fails closed. Default 20 s. */
   accountCheckMs?: number;
@@ -209,6 +212,8 @@ const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 /** Legion's own in-process tools that still return outside content: a VM's output. */
 const TAINTING_LEGION_TOOLS = new Set([
   'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop',
+  // the owner's web search and page read providers hand back outside text, as WebFetch and WebSearch do
+  'mcp__legion__web_search', 'mcp__legion__web_read',
 ]);
 /** True when calling this tool taints the run: unless it is a Legion in-process tool (not a VM-output one) or on the clean built-in list, it does. */
 export function taintsRun(toolName: string): boolean {
@@ -460,6 +465,8 @@ export class Engine {
   private readonly modes?: import('./gates-settings/index.js').ModeResolver;
   private readonly gates?: GatesRead;
   private readonly activity?: ActivityLog;
+  /** The owner's optional web search and page read providers (src/core/web-search). Absent: every web call is the built-in tool's. */
+  private readonly webSearch?: WebSearchService;
   private readonly queue: Job[] = [];
   /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
   private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
@@ -495,6 +502,7 @@ export class Engine {
     this.modes = deps.modes;
     this.gates = deps.gates;
     this.activity = deps.activity;
+    this.webSearch = deps.webSearch;
     this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
@@ -1277,6 +1285,8 @@ export class Engine {
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
       // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
       // a provider change is handed over to the next Claude run of this conversation (its own list is behind)
+      // the owner's web providers: tools exist only for a capability that has a provider picked; the call log carries this run's task
+      ...(this.webSearch ? { webSearch: this.webSearch.withLog((e) => this.noteWebCall(taskId, agent.id, pid, e)) } : {}),
       ...(runtime === 'provider' ? { taskList: { load: () => this.taskLists.load(taskId), save: (l: TaskList) => { l.handoverPending = true; this.taskLists.save(taskId, l); this.showTaskList(taskId, act, l); } } } : {}),
     });
     // The agent shell: host shell/file tools, only for an agent that opted in. The names are `mcp__host__*` (NOT
@@ -1292,7 +1302,7 @@ export class Engine {
         ...(project ? { extraRoots: [project.folder] } : {}),
         backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config, this.scrubFor(job)) }),
         // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
-        redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),
+        redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? []), ...(this.webSearch?.secretValues() ?? [])]),
         envFiles: agent.host.envFiles ?? 'masked',
       });
     }
@@ -1535,23 +1545,43 @@ export class Engine {
   }
 
   /**
+   * The built-in web tools the owner's providers replace, per capability: a picked search provider forbids WebSearch, a picked read provider
+   * forbids WebFetch. One path means one gate and one place the text goes; a provider that only searches leaves page reads with the built-in tool.
+   */
+  private webToolsReplaced(): string[] {
+    return [...(this.webSearch?.searchOn() ? ['WebSearch'] : []), ...(this.webSearch?.readOn() ? ['WebFetch'] : [])];
+  }
+
+  /** One line in the activity log for a provider call: provider, tool, the host of a read target and the charge. Never the query or the address. */
+  private noteWebCall(taskId: string, agentId: string, projectId: string | undefined, e: { provider: string; tool: string; host?: string; micro?: number }): void {
+    try {
+      this.activity?.append({
+        kind: 'web-call', text: `Web: ${e.provider} ${e.tool}${e.host ? ` ${e.host}` : ''}`, taskId, agentId, ...(projectId ? { projectId } : {}),
+        data: { provider: e.provider, tool: e.tool, ...(e.host ? { host: e.host } : {}), ...(e.micro !== undefined ? { micro: e.micro } : {}) },
+      });
+    } catch { /* advisory */ }
+  }
+
+  /**
    * Maintainer decision 2026-10-07: in a run that read connector data AND is tainted, WebFetch and WebSearch need an approval card even in
    * full mode: web access could carry that data out. Like the connector gateway's writes this raises its own card (never through guardAsk).
    * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
    * canUseTool does not exist, by a PreToolUse hook.
    */
   private webEgressCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }> | undefined {
-    if (toolName !== 'WebFetch' && toolName !== 'WebSearch') return undefined;
+    const kind = webKind(toolName);
+    if (!kind) return undefined;
     const used = this.store.getTask(job.taskId)?.usedConnectors === true;
     const tainted = this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true;
     if (!used || !tainted) return undefined;
-    const target = String(toolName === 'WebFetch' ? input?.url ?? '' : input?.query ?? '').slice(0, 1000);
+    const wi = webInput(toolName, input);
+    const target = String(kind === 'WebFetch' ? wi.url ?? '' : wi.query ?? '').slice(0, 1000);
     const o = job.origin;
     let timedOut = false; let waited: number | undefined;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
       onTimeout: (ms) => { timedOut = true; waited = ms; },
       ...this.askExtras(job, agent, toolName, input),
-      summary: `${toolName}: ${target}
+      summary: `${toolName.replace(/^mcp__legion__/, "")}: ${target}
 This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
     }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` : 'The user denied this web request.' });
   }
@@ -1642,7 +1672,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private webGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
     if (!webChecksApply(mode, toolName) || this.gates?.gate('web-reads', startProjectOf(job)) === false) return undefined;
     const sess = this.webSessionOf(job);
-    const v = webVerdict({ tool: toolName as 'WebFetch' | 'WebSearch', input }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => sess.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: sess.secretRead });
+    const v = webVerdict({ tool: webKind(toolName)!, input: webInput(toolName, input) }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => sess.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: sess.secretRead });
     if (v.kind === 'ask') return this.askWeb(job, agent, toolName, input, v);
     this.noteWebRead(job, agent, toolName, input, v.host);
     return undefined;
@@ -1651,11 +1681,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   /** A web read went through (allowed by the check or by the owner's answer): count its path for the budget, date the site, and log the host. */
   private noteWebRead(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, host: string | undefined): void {
     if (host) {
-      let path = '/'; try { path = new URL(String(input.url)).pathname; } catch { /* the check already read it */ }
+      let path = '/'; try { path = new URL(String(webInput(toolName, input).url)).pathname; } catch { /* the check already read it */ }
       this.webSessionOf(job).noteFetch(host, path);
       try { this.gates?.webLastUsed?.touch(host); } catch { /* advisory */ }
     }
-    try { this.activity?.append({ kind: 'note', text: `Web: ${toolName} ${host ?? ''}`.trim(), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+    try { this.activity?.append({ kind: 'note', text: `Web: ${toolName.replace(/^mcp__legion__/, '')} ${host ?? ''}`.trim(), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
   }
 
   /** New sites raised together by one run, waiting to go out as one card (see `askWeb`). */
@@ -1670,7 +1700,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return new Promise<Decision>((resolveCall) => {
       const entry: WebBatchEntry = { toolName, input, v, resolve: resolveCall };
       // only a plain new site is batched: a card with its own reason (a query, a port, a long search) says so on its own
-      if (!(v.why === 'new-host' && v.host && toolName === 'WebFetch')) { void this.raiseWebCard(job, agent, [entry]); return; }
+      if (!(v.why === 'new-host' && v.host && webKind(toolName) === 'WebFetch')) { void this.raiseWebCard(job, agent, [entry]); return; }
       let batch = this.webBatches.get(job.taskId);
       if (!batch) {
         const b: WebBatch = { entries: [] };
@@ -1693,8 +1723,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const host = hosts[0] ?? '';
       let path = '', search: string | undefined;
       // the summary is also written to the activity log: it holds the host and path only (`?...` when a query existed); the card shows the full address from the call's input
-      if (first.toolName === 'WebSearch') search = '';
-      else { try { const u = new URL(String(first.input.url)); path = (u.pathname + (u.search ? '?...' : '')).slice(0, 160); } catch { path = ''; } }
+      if (webKind(first.toolName) === 'WebSearch') search = '';
+      else { try { const u = new URL(String(webInput(first.toolName, first.input).url)); path = (u.pathname + (u.search ? '?...' : '')).slice(0, 160); } catch { path = ''; } }
       const signer = this.gates?.canAllowHosts?.() === true;
       const canAlways = signer && entries.every((e) => e.v.canAlways);
       const summary = many
@@ -2124,7 +2154,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // Off, the old TodoWrite goes too.
       ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
       // Claude Code's own AskUserQuestion is off: in an ask-mode run it surfaced as an approval card with raw JSON. Legion's ask_user_question (mcp__legion__) raises the question card.
-      disallowedTools: ['SendMessage', 'ListAgents', 'AskUserQuestion', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
+      disallowedTools: ['SendMessage', 'ListAgents', 'AskUserQuestion', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.webToolsReplaced(), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
@@ -2174,7 +2204,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
-      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', timeout: cardHookSeconds, hooks: [async (input) => {
+      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch|mcp__legion__web_read|mcp__legion__web_search', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
@@ -2352,7 +2382,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
-        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
+        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; ${this.webSearch?.searchOn() || this.webSearch?.readOn() ? 'you have no file or shell tools of your own, and your web tools are the ones listed (web_search and web_read, where listed).' : 'you have no file, shell or web tools of your own.'}`
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : '')
         // the project's own rules and folder, last, as on the Claude path (council A5: provider runs had none)
         + (projectHere ? '\n\n' + projectSection({ name: projectHere.name, instructions: projectHere.instructions, folder: projectHere.folder }, { files: agent.host?.enabled === true }) : ''),

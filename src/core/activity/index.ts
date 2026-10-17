@@ -15,8 +15,8 @@ import type { CoreModule, ModuleDeps } from '../modules.js';
 import type { LegionEvent } from '../../shared/types.js';
 import { redact } from '../log/redact.js';
 
-export type ActivityKind = 'run-start' | 'run-end' | 'card-asked' | 'card-answered' | 'would-have-asked' | 'gate-changed' | 'goal-state' | 'check-verdict' | 'note';
-export const ACTIVITY_KINDS: readonly ActivityKind[] = ['run-start', 'run-end', 'card-asked', 'card-answered', 'would-have-asked', 'gate-changed', 'goal-state', 'check-verdict', 'note'];
+export type ActivityKind = 'run-start' | 'run-end' | 'card-asked' | 'card-answered' | 'would-have-asked' | 'gate-changed' | 'goal-state' | 'check-verdict' | 'web-call' | 'note';
+export const ACTIVITY_KINDS: readonly ActivityKind[] = ['run-start', 'run-end', 'card-asked', 'card-answered', 'would-have-asked', 'gate-changed', 'goal-state', 'check-verdict', 'web-call', 'note'];
 export interface ActivityLine { at: string; kind: ActivityKind; text: string; taskId?: string; projectId?: string; agentId?: string; data?: Record<string, string | number | boolean> }
 export interface ActivityLog {
   folder: string;

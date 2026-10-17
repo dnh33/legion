@@ -47,6 +47,8 @@ export interface Opts {
   claude?: (params: any) => AsyncGenerator<any, void>;
   /** A projects service, for project runs on a provider. */
   projects?: ProjectStore;
+  /** The web search provider service (task 28). */
+  webSearch?: import('../src/core/web-search/index.js').WebSearchService;
 }
 
 export function setup(fake: Fake, o: Opts = {}) {
@@ -76,7 +78,7 @@ export function setup(fake: Fake, o: Opts = {}) {
     exec: async (_id: string, cmd: string) => { vmCalls.push(cmd); return { exitCode: 0, stdout: 'vm says: ' + cmd, stderr: '' }; },
     usage: () => ({ secondsThisRun: 0, secondsToday: 0 }), status: () => ({ state: 'running', size: 'default' }), claudeAvailable: () => false,
   } as any;
-  const engine = new Engine({ store: store as any, bus, vms, approvals, config, queryFn, boatConfigured: () => !!o.vm, providers, ...(o.projects ? { projects: o.projects } : {}) });
+  const engine = new Engine({ store: store as any, bus, vms, approvals, config, queryFn, boatConfigured: () => !!o.vm, providers, ...(o.projects ? { projects: o.projects } : {}), ...(o.webSearch ? { webSearch: o.webSearch } : {}) });
   return { store, bus, events, config, approvals, claudeCalls, vmCalls, engine, agent, providers, keys };
 }
 

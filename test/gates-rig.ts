@@ -14,6 +14,11 @@ import type { RunMode } from '../src/shared/types.js';
 import type { ModeResolver } from '../src/core/gates-settings/index.js';
 import type { ActivityLog } from '../src/core/activity/index.js';
 import { ProjectStore } from '../src/core/projects/store.js';
+import { ProviderKeys } from '../src/core/providers/secrets.js';
+import { ADAPTERS } from '../src/core/web-search/adapters.js';
+import { WebSearchService } from '../src/core/web-search/index.js';
+import { defaultWebSearch } from '../src/shared/web-search-config.js';
+import type { WebSearchConfig } from '../src/shared/web-search-config.js';
 
 export const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** An idle scripted run: it starts, then waits until the test cancels it. */
@@ -42,10 +47,24 @@ export interface RigOptions {
   /** The run is a helper woken by an outside app or another bot: the ceiling it carries. */
   ceiling?: RunMode;
   approvalTimeoutMs?: number;
+  /** Task 28: a web search provider service over an in-memory key store and a fake fetch. Keys by id ('web:exa'); nothing here touches the network. */
+  webSearch?: { cfg?: Partial<WebSearchConfig>; keys?: Record<string, string>; fetchImpl?: typeof fetch };
+}
+
+/** A fetch that answers every call with this JSON, and records what it was asked. */
+export function fixtureFetch(json: unknown, headers: Record<string, string> = {}, status = 200): typeof fetch & { seen: Request[] } {
+  const seen: Request[] = [];
+  const f = (async (u: string | URL | Request, init?: RequestInit) => { seen.push(new Request(u as string, init)); return new Response(JSON.stringify(json), { status, headers: { 'content-type': 'application/json', ...headers } }); }) as typeof fetch & { seen: Request[] };
+  f.seen = seen;
+  return f;
 }
 
 export async function gatesRig(o: RigOptions = {}) {
-  const r = setup({ gatesCore: true, activity: true, approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
+  const wsCfg: WebSearchConfig = { ...defaultWebSearch(), ...(o.webSearch?.cfg ?? {}) };
+  const wsKeys = new ProviderKeys(join(tempDir('legion-wskeys-'), 'providers', 'keys.json'));
+  for (const [id, key] of Object.entries(o.webSearch?.keys ?? {})) wsKeys.set(id, key, ADAPTERS[id.replace(/^web:/, '') as keyof typeof ADAPTERS].origin(wsCfg)!);
+  const ws = o.webSearch ? new WebSearchService({ config: () => wsCfg, keys: wsKeys, ...(o.webSearch.fetchImpl ? { fetchImpl: o.webSearch.fetchImpl } : {}) }) : undefined;
+  const r = setup({ gatesCore: true, ...(ws ? { webSearch: ws } : {}), activity: true, approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
   const core = r.core as GatesCore;
   if (o.app) core.store.patchApp({ preset: o.app });
   const body: Record<string, unknown> = {};
@@ -122,7 +141,17 @@ export async function gatesRig(o: RigOptions = {}) {
   const advanceApprovalTimeout = async (): Promise<void> => { await pause((o.approvalTimeoutMs ?? 0) + 40); };
   /** The activity log's lines for this rig, newest first. */
   const activityRead = (q?: Parameters<ActivityLog['read']>[0]) => r.activity!.read(q);
-  return { ...r, activityRead, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
+  /** The options of the run's first Claude start (task 28): the tool names Legion offered, the tools it forbade, and a way to call an offered tool. */
+  const options = (): Record<string, any> => r.calls[0]!.options as Record<string, any>;
+  const legionTools = (): Record<string, { handler: (a: Record<string, unknown>, e: unknown) => Promise<{ content: { text: string }[]; isError?: boolean }> }> => options().mcpServers.legion.instance._registeredTools;
+  const toolNames = (): string[] => Object.keys(legionTools()).map((n) => `mcp__legion__${n}`);
+  const callTool = async (name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> => {
+    const t = legionTools()[name.replace(/^mcp__legion__/, '')];
+    if (!t) throw new Error(`tool not offered: ${name}`);
+    const res = await t.handler(args, {});
+    return { text: res.content.map((c) => c.text).join('\n'), isError: res.isError === true };
+  };
+  return { ...r, webSearch: ws, options, legionTools, toolNames, callTool, activityRead, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
 }
 export type GatesRig = Awaited<ReturnType<typeof gatesRig>>;
 
