@@ -337,7 +337,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         staged = plan.route === 'full'
           ? await stageFullPackage(stageOpts)
           : await stagePackage({ ...stageOpts, installedDepsHash: installedDepsHash() });
-        if (!o.byGate) consent = true; phase = 'staged';
+        if (!o.byGate) consent = true; phase = 'staged'; stageFailedAt.delete(a.version);
         staged4();
         return { ok: true };
       } catch (e) {
@@ -352,7 +352,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
           jr('downloading', 'start', { bytes: 0, total: last.total, note: 'this release changes dependencies: downloading the full package' });
           try {
             staged = await stageFullPackage(stageOpts);
-            if (!o.byGate) consent = true; phase = 'staged';
+            if (!o.byGate) consent = true; phase = 'staged'; stageFailedAt.delete(a.version);
             staged4();
             return { ok: true };
           } catch (e2) { e = e2; }

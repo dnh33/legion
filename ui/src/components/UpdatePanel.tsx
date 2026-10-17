@@ -147,7 +147,7 @@ export function UpdatePanel() {
           {st.phase === 'downloading' && <Progress p={st.progress} />}
           {st.staged && (
             <div className="upd-ready">
-              <p><b>Ready to install.</b> {st.readyToApply ? 'Installing now.' : 'Legion installs it by itself once nothing has run for a minute, or you can restart now.'}</p>
+              <p><b>Ready to install.</b> {st.readyToApply ? 'Installing now.' : st.consent ? 'Legion installs it by itself once nothing has run for a minute, or you can restart now.' : 'Legion waits for your yes. Restart and install asks you first, then installs it.'}</p>
               {st.busy.reasons.length > 0 && <ul className="upd-reasons">{st.busy.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
               <div className="upd-actions">
                 <button type="button" className="btn primary" disabled={busy || !canRestart} title={canRestart ? 'Shows what will stop and asks first' : 'Open the Legion desktop app to install'} onClick={() => void act(async () => { const r = await bridge().updateRestartNow!(); if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The restart did not start.'); })}>{busy ? 'Restarting…' : 'Restart and install'}</button>

@@ -229,3 +229,16 @@ test('createHold: only holdOff sends at once; a total of 0 or less without it co
 test('stall-ladder, ask-timeout-deny and budget-stop are true in every preset (the registry says so, so no preset can switch them off)', () => {
   for (const id of ['stall-ladder', 'ask-timeout-deny', 'budget-stop']) for (const p of PRESETS) assert.equal(gateValue(id, app(p)), true, `${id} in ${p}`);
 });
+
+test('a gate-staged update: Restart and install records consent only after the native yes; the idle timer never applies it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const main = readFileSync(`${root}/src/electron/updater-main.ts`, 'utf8');
+  const fn = main.slice(main.indexOf('async function applyNow('), main.indexOf('async function applyNow(') + 4000);
+  assert.match(fn, /!st\.json\.staged \|\| \(!st\.json\.consent && !force\)/, 'without force (the timer) consent is required');
+  const yes = fn.indexOf('if (r.response !== 1) return'), rec = fn.indexOf("'/api/update/install'"), drain = fn.indexOf("'/api/update/drain'");
+  assert.ok(yes > 0 && rec > yes && drain > rec, 'consent is recorded after the dialog yes and before the drain');
+  const panel = readFileSync(`${root}/ui/src/components/UpdatePanel.tsx`, 'utf8');
+  assert.match(panel, /st\.consent \? 'Legion installs it by itself[^']*' : 'Legion waits for your yes\./, 'the panel does not promise a self-install without consent');
+});
