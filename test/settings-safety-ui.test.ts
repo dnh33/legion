@@ -49,6 +49,7 @@ async function loadSafety(): Promise<{ render: (rules: unknown[], asking: boolea
         stub(/boardStore$/, 'board-store', `exports.loadMarshal = async () => {}; exports.saveMarshal = async () => {}; exports.useBoard = () => null;`);
         stub(/awayStore$/, 'away-store', `exports.patchAway = async () => {}; exports.projectAway = () => ({}); exports.setPaused = async () => {}; exports.useAway = () => ({});`);
         stub(/\/announce$/, 'announce', `exports.announce = () => {};`);
+        stub(/useGatesView$/, 'use-gates-view', `exports.useGatesView = () => ({ view: null, apply: async () => ({ state: 'ok' }) }); exports.useGatesAction = () => ({ pending: false, note: null, run: async () => true }); exports.PENDING_TEXT = '';`);
         stub(/\/readsGrant$/, 'reads-grant', `exports.grantReads = async (p) => { globalThis.__calls.push('grant'); return true; }; exports.revokeReads = async (p) => { globalThis.__calls.push('revoke'); return true; };`);
       },
     }],

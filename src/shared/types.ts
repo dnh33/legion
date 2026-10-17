@@ -284,6 +284,10 @@ export interface Task {
   sessionCostUsd?: number;
   costSessionId?: string;
   turns?: number;             // cumulative
+  /** How the latest run asks, written when the run starts: the mode it was judged by then, and the project it started in (never the live one). Feeds the "Runs as" chip. */
+  runsAs?: { mode: RunMode; projectId?: string };
+  /** What the latest run read on the web: distinct pages, and sites the owner approved on a card during the run. Counts only, never addresses or queries. Absent until the run reads something. */
+  web?: { pages: number; newSites: number };
   createdAt: string;
   updatedAt: string;
 }

@@ -1176,7 +1176,7 @@ export class Engine {
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
     }
     let model = decision.model;
-    const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined, resumable: undefined });
+    const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined, resumable: undefined, runsAs: this.runsAsOf(job, agent), web: undefined });
     if (!first) throw new Error('Task disappeared');
     const from = job.header && job.fromAgentId ? this.store.getAgent(job.fromAgentId) : undefined;
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
@@ -1683,9 +1683,29 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (host) {
       let path = '/'; try { path = new URL(String(webInput(toolName, input).url)).pathname; } catch { /* the check already read it */ }
       this.webSessionOf(job).noteFetch(host, path);
+      this.publishWeb(job.taskId);
       try { this.gates?.webLastUsed?.touch(host); } catch { /* advisory */ }
     }
     try { this.activity?.append({ kind: 'note', text: `Web: ${toolName.replace(/^mcp__legion__/, '')} ${host ?? ''}`.trim(), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+  }
+
+  /** The mode the run starts with and the project it starts in, for the "Runs as" chip. A resolver that throws reads as Ask. */
+  private runsAsOf(job: Job, agent: AgentProfile): NonNullable<Task['runsAs']> {
+    let mode: RunMode = 'ask';
+    try { mode = this.modeNow(job, agent); } catch { /* fails closed */ }
+    const projectId = startProjectOf(job);
+    return { mode, ...(projectId ? { projectId } : {}) };
+  }
+
+  /** Puts what the live run has read on the web onto its task (counts only), when the counts changed. A run that read nothing keeps no summary. */
+  private publishWeb(taskId: string): void {
+    try {
+      const s = this.active.get(taskId)?.web.summary();
+      if (!s || s.pages <= 0) return;
+      const cur = this.store.getTask(taskId);
+      if (!cur || (cur.web?.pages === s.pages && cur.web?.newSites === s.newSites)) return;
+      this.patchTask(taskId, { web: s });
+    } catch { /* advisory: a chip never changes a run */ }
   }
 
   /** New sites raised together by one run, waiting to go out as one card (see `askWeb`). */
@@ -1751,6 +1771,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       if (site === 'goal') for (const h of hosts) this.trustHostForGoal(job.taskId, h);
       if (site === 'always') this.allowHostsFromCard(job, agent, hosts);
+      for (const h of hosts) this.webSessionOf(job).noteNewSite(h);
       for (const e of entries) { this.noteWebRead(job, agent, e.toolName, e.input, e.v.host); e.resolve({ allow: true }); }
     } catch (err) {
       // a failure here must never turn into a silent allow
@@ -1796,7 +1817,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (v.kind !== 'allow') return false;
     if (v.host) {
       try { this.gates?.webLastUsed?.touch(v.host); } catch { /* advisory */ }
-      try { act.web.noteFetch(v.host, new URL(rawUrl).pathname); } catch { /* the check already read it */ }
+      try { act.web.noteFetch(v.host, new URL(rawUrl).pathname); this.publishWeb(taskId); } catch { /* the check already read it */ }
     }
     return true;
   }

@@ -19,7 +19,7 @@ export function presetChoices(): PresetChoice[] {
 /** What a mode is called to a person. A project preset of Bypass runs agents in `full`, so `full` reads Bypass here. */
 export const MODE_LABEL: Record<RunMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', smart: 'Smart', 'smart-edits': 'Smart and Accept edits', full: 'Bypass' };
 /** What an agent's own stored mode is called in the agent editor. */
-const AGENT_MODE_LABEL: Record<ApprovalMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', full: 'Full' };
+export const AGENT_MODE_LABEL: Record<ApprovalMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', full: 'Full' };
 
 /** The name the settings files use for a scope: `app`, or the project id. */
 const scopeName = (projectId?: string): string => projectId ?? 'app';
@@ -61,11 +61,13 @@ export function railRows(): Array<{ id: string; label: string; protects: string 
 }
 
 /** The chip on a run: how it runs and, when that differs from the agent's own setting, why. */
-export function runsAsChip(a: { effective: RunMode; agentMode: ApprovalMode; source: 'own' | 'project'; projectName?: string; projectPreset?: Preset; limit: boolean; ceiling?: ApprovalMode; lease?: boolean }): { text: string; reason?: string } {
-  const text = `Runs as ${MODE_LABEL[a.effective]}`;
+export function runsAsChip(a: { effective: RunMode; agentMode: ApprovalMode; source: 'own' | 'project'; projectName?: string; projectPreset?: Preset; limit: boolean; ceiling?: RunMode; lease?: boolean }): { text: string; reason?: string } {
+  // an agent that is Full on its own is Full; Bypass is the project preset that gives the same mode
+  const text = `Runs as ${a.source === 'own' && a.effective === 'full' ? AGENT_MODE_LABEL.full : MODE_LABEL[a.effective]}`;
   if (a.ceiling !== undefined && a.ceiling !== a.agentMode) return { text, reason: 'Started by an outside app: asks' };
   if (a.lease) return { text, reason: 'Goal lease: no cards for this goal' };
   const project = a.projectName ?? 'this project';
+  if (a.source === 'project' && a.projectName === undefined) return { text, reason: 'Following the app default' };
   if (a.source === 'project') return { text, reason: `Following project ${project}${a.projectPreset ? ` (${PRESET_LABEL[a.projectPreset]})` : ''}` };
   if (a.limit && a.effective !== a.agentMode) return { text, reason: `Agent is ${AGENT_MODE_LABEL[a.agentMode]}, limited by project ${project}` };
   return { text };

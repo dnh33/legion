@@ -44,6 +44,7 @@ export const SETTINGS_NAV: ReadonlyArray<{ id: string; label: string; changed?: 
   { id: 'general', label: 'General' },
   { id: 'folders', label: 'Folders' },
   { id: 'members', label: 'Members' },
+  { id: 'ask', label: 'How agents ask' },
   { id: 'away', label: 'While you are away', changed: 'away' },
   { id: 'safety', label: 'Safety' },
   { id: 'budget', label: 'Budget', changed: 'budget' },

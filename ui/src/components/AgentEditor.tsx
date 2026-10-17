@@ -14,6 +14,8 @@ import type { GithubLevel } from '../../../src/shared/github-area';
 import { accessPatch } from '../github/agentAccess';
 import { useArea } from '../github/useArea';
 import { GithubAccess } from '../github/GithubAccess';
+import { APPROVAL_CHOICES, CHOICE_HELP, agentProjectLines, approvalPatch, choiceOf, type ApprovalChoice } from '../gates/agentFollowLogic';
+import { useGatesView } from '../gates/useGatesView';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
@@ -22,7 +24,13 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [description, setDescription] = useState(existing?.description ?? '');
   const [systemPrompt, setSystemPrompt] = useState(existing?.systemPrompt ?? '');
   const [model, setModel] = useState<ModelChoice>(existing?.model ?? 'auto');
-  const [approval, setApproval] = useState<ApprovalMode>(existing?.approval ?? 'ask');
+  // A new agent starts on Follow project; a saved agent shows what it has. Only a change here is sent on save (approvalPatch).
+  const [choice, setChoice] = useState<ApprovalChoice>(() => choiceOf(existing));
+  // the mode the agent keeps as its own: what it was saved with, or Ask. Following a project leaves it where it was.
+  const approval: ApprovalMode = choice === 'project' ? (existing?.approval ?? 'ask') : choice;
+  const projects = useStore((s) => s.projects);
+  const gatesView = useGatesView().view;
+  const followLines = agentProjectLines({ id, approval, source: choice === 'project' ? 'project' : 'own' }, projects, gatesView);
   const [vmOn, setVmOn] = useState(existing?.vm.enabled ?? false);
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
@@ -44,7 +52,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, choice, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -87,7 +95,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
     const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, ...approvalPatch(existing, choice), ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
@@ -130,9 +138,11 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <span className="field-note">{desc}{fallback && catalog?.error ? ' Couldn\u2019t load the full model list from Claude Code.' : ''}</span>
           </label>
           <label className="grow">Approvals
-            <select value={approval} onChange={(e) => setApproval(e.target.value as ApprovalMode)}>
-              <option value="ask">Ask before Bash, edits, MCP</option><option value="auto-edits">Allow edits, ask for Bash/MCP</option><option value="full">Full access, never ask</option>
+            <select value={choice} onChange={(e) => setChoice(e.target.value as ApprovalChoice)}>
+              {APPROVAL_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
+            <span className="field-note">{CHOICE_HELP[choice]}</span>
+            {followLines && <span className="field-note" role="status">{followLines}</span>}
           </label>
         </div>
         <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}

@@ -69,3 +69,11 @@ textarea.pg-inp { height: auto; min-height: 120px; padding: 9px 10px; line-heigh
 .pg-confirm b { font-weight: 600; color: var(--text); }
 .pg-confirm p { margin: 4px 0 8px; }
 .pg-confirm .row { display: flex; gap: 8px; }
+
+/* How agents ask: one row per preset (radio, then its one line), and the one-time notice. Tokens only; no outline rings, no side stripes. */
+.pg-opt .ctl input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--text-2); margin: 0; }
+.pg-ask-row { display: flex; flex-direction: column; gap: 0; }
+.pg-ask-row .h { margin: 0 0 4px 24px; }
+.pg-ask-result { margin: 0; padding: 0 0 12px; color: var(--text-2); font-size: 12.5px; }
+.pg-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 18px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); }
+.pg-notice p { margin: 0; flex: 1 1 260px; max-width: 62ch; color: var(--text-2); font-size: 13px; line-height: 1.45; }

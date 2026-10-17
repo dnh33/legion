@@ -9,6 +9,7 @@ export class WebSession {
   private readonly paths = new Map<string, Set<string>>();
   private readonly goalSites = new Set<string>();
   private secretFileRead = false;
+  private readonly approvedSites = new Set<string>();
 
   /** A read of `path` on `host` went through. The budget counts distinct paths, so the same page twice counts once. */
   noteFetch(host: string, path: string): void {
@@ -17,6 +18,16 @@ export class WebSession {
     set.add(path);
   }
   pathsSeen(host: string): number { return this.paths.get(host)?.size ?? 0; }
+
+  /** The owner answered yes on a card for a site this run had not been allowed to read: it counts as one new site for the run. */
+  noteNewSite(host: string): void { if (host) this.approvedSites.add(host); }
+
+  /** What the run read, as counts only: distinct pages (host and path) and the new sites the owner approved. Never an address or a query. */
+  summary(): { pages: number; newSites: number } {
+    let pages = 0;
+    for (const set of this.paths.values()) pages += set.size;
+    return { pages, newSites: this.approvedSites.size };
+  }
 
   /** A file was read in this run. If it is a secret file (an env file, a key), every web call asks from now on. */
   noteRead(path: string): void { if (isSecretPath(path)) this.secretFileRead = true; }

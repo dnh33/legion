@@ -20,6 +20,7 @@ import type { PageFacts } from './pageLogic';
 import { PIcon } from './PIcon';
 import { ProjectRepoLine } from '../../github/ProjectRepoLine';
 import { Switch } from './Switch';
+import { AskSection, ProjectNotice } from './AskSection';
 import '../projects.css';
 import './settings.css';
 
@@ -78,9 +79,11 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
         <span className="leg"><i aria-hidden="true" />Changed from the default</span>
       </nav>
       <div className="pg-sbody">
+        <ProjectNotice />
         <General project={project} />
         <Folders project={project} />
         <Members project={project} f={f} />
+        <AskSection project={project} />
         <Away project={project} />
         <Safety project={project} />
         <BudgetSection project={project} />
