@@ -44,10 +44,10 @@ test('C20 every /api/providers route is admin-only: no route is on the client li
 
 test('the view lists the presets with plain, factual status text and the "cannot do" list', async () => {
   const v: any = await (await call('GET', '/api/providers')).json();
-  assert.deepEqual(v.providers.map((p: any) => p.id), ['openai', 'openrouter', 'ollama', 'lmstudio', 'vllm']);
+  assert.deepEqual(v.providers.map((p: any) => p.id), ['openai', 'openrouter', 'deepseek', 'ollama', 'lmstudio', 'vllm']);
   const oa = v.providers[0];
   assert.equal(oa.enabled, false); assert.equal(oa.keySet, false); assert.match(oa.status, /Off\. No key\. Not tested/);
-  assert.match(v.providers[2].status, /Local, no key needed/);
+  assert.match(v.providers.find((p: any) => p.id === 'ollama').status, /Local, no key needed/);
   assert.ok(v.cannotDo.length >= 5 && v.cannotDo.every((s: string) => typeof s === 'string'));
 });
 

@@ -66,6 +66,21 @@ test('failure paths: no proven core, an unknown provider, a core refusal, a bad 
   assert.equal(dialogLine('a‮b\nc\u0000d'), 'a b c d');
 });
 
+test('adding a new custom endpoint: an "Add" dialog names the label and host, then the core creates it with the native secret', async () => {
+  const { d, dialogs, calls } = deps();
+  const r = await providerChange({ kind: 'entry', id: 'deepseek2', patch: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', enabled: true } }, d);
+  assert.equal(r.ok, true, r.error);
+  assert.equal(dialogs.length, 1);
+  assert.match(dialogs[0]!.title, /Add a provider/); assert.match(dialogs[0]!.message, /DeepSeek/); assert.match(dialogs[0]!.detail, /api\.deepseek\.com/);
+  const put = calls.find((c) => c.method === 'PUT')!;
+  assert.equal(put.route, '/api/providers/deepseek2'); assert.equal(put.native, true);
+});
+
+test('a new provider still needs an address, and a key for an unknown provider is still refused', async () => {
+  assert.match((await providerChange({ kind: 'entry', id: 'newone', patch: { label: 'X' } }, deps().d)).error ?? '', /address/i);
+  assert.match((await providerChange({ kind: 'key', id: 'newone', key: FAKE_KEY }, deps().d)).error ?? '', /Unknown provider/);
+});
+
 test('only one confirmation is open at a time', async () => {
   let release: (v: boolean) => void = () => undefined;
   const first = deps().d;
