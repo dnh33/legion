@@ -16,7 +16,7 @@ import type { AgentProfile } from '../../shared/types.js';
 import type { WorkItem } from '../../shared/board.js';
 import type { ProjectRef } from '../projects/board/store.js';
 import { BoardStore } from '../projects/board/store.js';
-import { AttemptLedger, MAX_ATTEMPTS_PER_BOT } from './ledger.js';
+import { AttemptLedger, type AttemptLimits } from './ledger.js';
 import { catalogOfAll, eligible, irreversibleVerbsIn, verbFit } from './catalog.js';
 import type { BotCatalogEntry, IrreversibleVerb } from './catalog.js';
 import { assignItem, untrustedRefusal } from './match.js';
@@ -94,8 +94,8 @@ export class Marshal {
   /** Items the last wave held back for their busy bot, with why: shown in the status text (review #6). */
   private waiting: WaitingItem[] = [];
 
-  constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: { ledger?: AttemptLedger; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
-    this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project);
+  constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: { ledger?: AttemptLedger; limits?: (projectId: string) => AttemptLimits; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
+    this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project, options.limits);
     this.waveSize = Math.max(1, options.waveSize ?? WAVE_SIZE);
     this.stallMs = Math.max(1, options.stallMs ?? STALL_MS);
     this.escalateAfterStalls = Math.max(1, options.escalateAfterStalls ?? ESCALATE_AFTER_STALLS);
@@ -116,13 +116,18 @@ export class Marshal {
   }
 
   /** The ledger as the board holds it: every item's sidecar, read once at construction. */
-  private static loadLedger(board: BoardStore, project: ProjectRef): AttemptLedger {
+  private static loadLedger(board: BoardStore, project: ProjectRef, limits?: (projectId: string) => AttemptLimits): AttemptLedger {
     const snapshot: Record<string, never> = {};
     for (const item of board.view(project).items) {
       const side = board.sidecar(project.id, item.id);
       if (side && side.dispatch) (snapshot as Record<string, unknown>)[item.id] = side.dispatch;
     }
-    return AttemptLedger.from(snapshot);
+    return AttemptLedger.from(snapshot, { projectId: project.id, ...(limits ? { limits } : {}) });
+  }
+  /** The note on an item the Marshal puts back in the backlog after a failed run. */
+  private retryNote(itemId: string, botId: string): string {
+    const left = this.ledger.triesLeft(itemId, botId);
+    return Number.isFinite(left) ? `The run failed. The Marshal will try again (the ledger allows ${left} more ${left === 1 ? 'try' : 'tries'} on this bot).` : 'The run failed. The Marshal will try again.';
   }
   /** One item's ledger state, written back to its sidecar the moment anything about it changes. */
   private persist(itemId: string): void {
@@ -294,7 +299,7 @@ export class Marshal {
         report.failed.push(itemId);
         // a failed run the board put in Blocked gets one more pass if the ledger still allows it
         if (state.status !== 'cancelled' && this.ledger.mayDispatch(itemId, live.botId).ok) {
-          try { this.ports.board.systemMove(this.project, itemId, 'backlog', `The run failed. The Marshal will try again (the ledger allows ${MAX_ATTEMPTS_PER_BOT - this.ledger.attempts(itemId, live.botId)} more try on this bot).`); } catch { /* status still shows it */ }
+          try { this.ports.board.systemMove(this.project, itemId, 'backlog', this.retryNote(itemId, live.botId)); } catch { /* status still shows it */ }
         }
       }
       this.persist(itemId);

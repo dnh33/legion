@@ -12,6 +12,7 @@
  */
 import type { MarshalConfig } from '../../shared/board.js';
 import type { BoardStore, ProjectRef } from '../projects/board/store.js';
+import type { AttemptLimits } from './ledger.js';
 import { Marshal } from './orchestrator.js';
 import type { MarshalPorts, MarshalStatus } from './orchestrator.js';
 
@@ -35,6 +36,8 @@ export interface MarshalDriverDeps {
   changed(pid: string): void;
   /** "Pause new starts" is on for this project: the loop settles what ended but dispatches nothing. Absent: never paused. */
   paused?(pid: string): boolean;
+  /** The attempt caps for this project, read at every dispatch check (the `attempt-caps` gate). Absent: the exported defaults. */
+  limits?(pid: string): AttemptLimits;
   /** The loop's clock. */
   now(): number;
   /** Starts the tick; returns the cancel function. Tests pass a no-op and call `tick()` themselves. */
@@ -58,7 +61,7 @@ export class MarshalDriver {
     const p = this.deps.project(pid);
     if (!p) return undefined;
     const cfg = this.deps.board.marshalConfig(pid);
-    const marshal = new Marshal(this.deps.ports(pid), p, { waveSize: cfg.waveSize, stallMs: cfg.stallMinutes * 60_000 });
+    const marshal = new Marshal(this.deps.ports(pid), p, { waveSize: cfg.waveSize, stallMs: cfg.stallMinutes * 60_000, ...(this.deps.limits ? { limits: (id: string) => this.deps.limits!(id) } : {}) });
     this.marshals.set(pid, marshal);
     return marshal;
   }

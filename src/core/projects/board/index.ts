@@ -15,6 +15,7 @@ import { agentIdVisible } from '../../visibility.js';
 import { engineMatcher } from '../../marshal/matcher.js';
 import { MarshalDriver } from '../../marshal/driver.js';
 import { MAX_DONE_WHEN } from '../../marshal/ledger.js';
+import type { AttemptLimits } from '../../marshal/ledger.js';
 import type { MarshalPorts, RunState } from '../../marshal/orchestrator.js';
 import type { ProjectStore } from '../store.js';
 import { BOARD_PREAMBLE, boardDigest, runPrompt } from './prompt.js';
@@ -35,6 +36,8 @@ export interface BoardModuleOpts {
   notes?: BoardNotes;
   /** The away module: "Pause new starts" stops the Marshal's loop for a paused project. Absent: never paused. */
   away?: { isPaused(projectId: string): boolean };
+  /** The attempt caps per project (the `attempt-caps` gate); absent: the ledger's defaults. */
+  limits?: (projectId: string) => AttemptLimits;
   /** The Marshal's clock. The app takes Date.now; a test passes its own. */
   marshalNow?: () => number;
   /** The Marshal's timer: starts the tick and returns the cancel function. Tests pass a no-op and call `module.marshal.tick()` themselves. */
@@ -137,6 +140,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     board,
     project: (pid) => { try { return projects.get(pid); } catch { return undefined; } },
     ...(opts.away ? { paused: (pid: string) => opts.away!.isPaused(pid) } : {}),
+    ...(opts.limits ? { limits: opts.limits } : {}),
     ports: portsFor,
     changed,
     now: opts.marshalNow ?? Date.now,

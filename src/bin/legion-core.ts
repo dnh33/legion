@@ -41,6 +41,7 @@ import { createActivityLog, createActivityModule } from '../core/activity/index.
 import { GatesKeyring } from '../core/gates-settings/keyring.js';
 import { agentIdVisible } from '../core/visibility.js';
 import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
+import { attemptLimits } from '../core/marshal/ledger.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
@@ -132,13 +133,13 @@ async function main() {
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
   // In-app updates (plan: claude/plan-updater.md): checks and stages a signed release; main applies it when the core is idle. No overrides are passed here.
   const updater = createUpdaterModule(moduleDeps, {
-    root: installRoot, nativeSecret, log,
+    root: installRoot, nativeSecret, log, gates: gatesCore,
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
-  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service })] : [];
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service, limits: (pid) => attemptLimits(gatesCore.gate('attempt-caps', pid)) })] : [];
   const away = createAwayModule(moduleDeps, {
     projects, core: awayCore, questions,
     agentOk: (id) => agentIdVisible({ bsvEnabled, store }, id),

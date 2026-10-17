@@ -40,6 +40,12 @@ export interface UpdaterOptions {
   nativeSecret?: string | undefined;
   log?: (...a: unknown[]) => void;
   probes?: Record<string, BusyProbe>;
+  /**
+   * The gate reader. `update-consent` is a global gate: off means a found update downloads and installs by itself once Legion is idle, with no click.
+   * Absent (tests, an install without gates): consent stays the owner's click.
+   * A goal that is running is a busy reason like any other: the goal module registers a probe named 'a goal is running' (absent today, so absent = not running).
+   */
+  gates?: { gate(id: string): unknown };
   // The rest exist for tests. legion-core.ts passes none of them (test/updater-surface.test.ts checks that).
   source?: UpdateSource; keys?: readonly UpdateKey[]; fetchImpl?: FetchLike; version?: string; platform?: NodeJS.Platform;
   now?: () => number; timers?: boolean; freeBytes?: (dir: string) => number;
@@ -92,6 +98,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   let available: { manifest: Manifest } | null = null;
   let staged: Staged | null = null;
   let consent = false;
+  // `update-consent` off: nobody has to say yes. Read at every use, so switching the gate takes the next status or check.
+  const consentOff = (): boolean => { try { return opts.gates?.gate('update-consent') === false; } catch { return false; } };
   let error: string | undefined;
   let progress: { bytes: number; total: number } | undefined;
   let nextAllowedAt = 0;
@@ -205,7 +213,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     }
     // Auto-install only when the release can actually be applied here: a code-only update, or a dependency-change
     // release that ships a signed full package (route 'full'). A notify-only release has nothing to download.
-    if (available && !staged && mode === 'apply' && planRelease(available.manifest).route !== 'notify' && files.settings().autoInstallWhenIdle) void module.install({ auto: true }).catch(() => undefined);
+    if (available && !staged && mode === 'apply' && planRelease(available.manifest).route !== 'notify' && (files.settings().autoInstallWhenIdle || consentOff())) void module.install({ auto: true }).catch(() => undefined);
   }
 
   function clearStage(): void {
@@ -265,7 +273,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         // with no way out, and had to guess that Check now was the unlock. Naming it here is the whole fix.
         ...(blocked.length ? { blocked } : {}),
         ...(staged ? { staged: { version: staged.version, kind: staged.kind } } : {}), consent,
-        readyToApply: mode === 'apply' && !!staged && consent && reasons.length === 0 && clock.isQuiet(now()),
+        readyToApply: mode === 'apply' && !!staged && (consent || consentOff()) && reasons.length === 0 && clock.isQuiet(now()),
         busy: { idle: reasons.length === 0 && clock.isQuiet(now()), reasons, quietMs: clock.quietMs(now()) },
         ...(outcome ? { outcome } : {}),
         ...(journey ? { journey } : {}),
@@ -373,7 +381,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
 
     async commit(o = {}) {
       if (mode !== 'apply') throw new HttpError(409, 'This install cannot be updated from inside Legion.');
-      if (!staged || !consent) throw new HttpError(409, 'No update is staged and approved.');
+      if (!staged || !(consent || consentOff())) throw new HttpError(409, 'No update is staged and approved.');
       const info = stagedInfo(opts.root, staged.version);
       if (!info) throw new HttpError(409, 'The staged update is incomplete; download it again.');
       const forced = !!o.force && now() - drainedAt < 60_000;

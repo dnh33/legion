@@ -21,6 +21,25 @@ export const MAX_ATTEMPTS_PER_ITEM = 4;
 /** The checks that decide one item: the most `done_when` lines the ledger keeps, the route accepts and the panel offers. */
 export const MAX_DONE_WHEN = 6;
 
+/** The two caps one dispatch is judged by. Infinity means no cap. */
+export interface AttemptLimits { perBot: number; perItem: number }
+const DEFAULT_LIMITS: AttemptLimits = { perBot: MAX_ATTEMPTS_PER_BOT, perItem: MAX_ATTEMPTS_PER_ITEM };
+
+/**
+ * The caps for one value of the `attempt-caps` gate. A limit is the per-item number and the per-bot number is half of it (at least 1);
+ * off means no cap; a value that is not a usable number gives the defaults, so a damaged setting never removes the guard.
+ */
+export function attemptLimits(v: boolean | { on: true; limit: number }): AttemptLimits {
+  if (v === false) return { perBot: Infinity, perItem: Infinity };
+  if (typeof v === 'object' && Number.isFinite(v.limit) && v.limit >= 1) {
+    const perItem = Math.floor(v.limit);
+    return { perBot: Math.max(1, Math.floor(perItem / 2)), perItem };
+  }
+  return DEFAULT_LIMITS;
+}
+/** Where the ledger reads its caps, and for which project: read at every dispatch check, so a preset change takes the next one. */
+export interface LedgerOptions { limits?: (projectId: string) => AttemptLimits; projectId?: string }
+
 /** One item's dispatch history. Everything optional is dropped when unreadable: a damaged count is not a count. */
 export interface ItemLedgerState {
   /** Dispatches per bot id. */
@@ -66,10 +85,14 @@ function read(raw: unknown): ItemState {
 export class AttemptLedger {
   private readonly items = new Map<string, ItemState>();
 
-  constructor(initial?: Record<string, ItemLedgerState>) { this.restore(initial); }
+  constructor(initial?: Record<string, ItemLedgerState>, private readonly opts: LedgerOptions = {}) { this.restore(initial); }
+  /** The caps right now. A reader that throws gives the defaults: the guard never fails open. */
+  private lim(): AttemptLimits {
+    try { return this.opts.limits?.(this.opts.projectId ?? '') ?? DEFAULT_LIMITS; } catch { return DEFAULT_LIMITS; }
+  }
 
   /** A ledger from a stored snapshot. A snapshot that cannot be read becomes an empty ledger, never a crash. */
-  static from(snapshot: unknown): AttemptLedger { return new AttemptLedger(isObj(snapshot) ? (snapshot as Record<string, ItemLedgerState>) : undefined); }
+  static from(snapshot: unknown, opts?: LedgerOptions): AttemptLedger { return new AttemptLedger(isObj(snapshot) ? (snapshot as Record<string, ItemLedgerState>) : undefined, opts); }
 
   private restore(initial?: Record<string, ItemLedgerState>): void {
     for (const [id, raw] of Object.entries(initial ?? {})) this.items.set(id, read(raw));
@@ -104,6 +127,8 @@ export class AttemptLedger {
   }
   /** How many times the item was dispatched to this bot. */
   attempts(itemId: string, botId: string): number { return this.items.get(itemId)?.attempts.get(botId) ?? 0; }
+  /** How many more dispatches this bot may still have on this item (Infinity with the caps off). */
+  triesLeft(itemId: string, botId: string): number { return Math.max(0, this.lim().perBot - this.attempts(itemId, botId)); }
   /** The bot whose run is live on this item. */
   owner(itemId: string): string | undefined { return this.items.get(itemId)?.owner; }
   /** Stalls this item has seen across its runs. */
@@ -116,9 +141,10 @@ export class AttemptLedger {
     const s = this.items.get(itemId);
     if (!s?.doneWhen?.length) return { ok: false, why: 'no done-when: the checks that decide this item must be written before the Marshal dispatches it' };
     if (s.owner) return { ok: false, why: s.owner === botId ? `this item already has ${s.owner}'s run in progress` : `owned by ${s.owner}: one owner at a time` };
-    if (this.attempts(itemId, botId) >= MAX_ATTEMPTS_PER_BOT) return { ok: false, why: `already tried twice: the ledger refuses a third dispatch to ${botId}` };
+    const lim = this.lim();
+    if (this.attempts(itemId, botId) >= lim.perBot) return { ok: false, why: lim.perBot === 2 ? `already tried twice: the ledger refuses a third dispatch to ${botId}` : `already tried ${lim.perBot} times: the ledger refuses another dispatch to ${botId}` };
     if (s.history.has(botId)) return { ok: false, why: 'already tried on this item: reassignment is forward-only' };
-    if (this.totalAttempts(itemId) >= MAX_ATTEMPTS_PER_ITEM) return { ok: false, why: `out of attempts: this item has had ${MAX_ATTEMPTS_PER_ITEM} runs and needs the owner, not another try` };
+    if (this.totalAttempts(itemId) >= lim.perItem) return { ok: false, why: `out of attempts: this item has had ${lim.perItem} runs and needs the owner, not another try` };
     return { ok: true };
   }
 
@@ -148,6 +174,6 @@ export class AttemptLedger {
     const was = s.owner;
     delete s.owner;
     if (outcome === 'stalled') s.stalls++;
-    if (was && (reassign || this.attempts(itemId, was) >= MAX_ATTEMPTS_PER_BOT)) s.history.add(was);
+    if (was && (reassign || this.attempts(itemId, was) >= this.lim().perBot)) s.history.add(was);
   }
 }
