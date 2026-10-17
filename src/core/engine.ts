@@ -24,7 +24,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
 import { secretReadHit } from './secret-paths.js';
-import { WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
+import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
 import { loadDocsHosts } from '../shared/docs-hosts.js';
@@ -202,8 +202,8 @@ const CLEAN_BUILTINS = new Set([
   'ScheduleWakeup', // schedules the agent's own next turn; returns only a confirmation
   'PushNotification', // notice to the owner's device; nothing comes back into the run
 ]);
-/** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS: the taint and protected-path checks have their own scope). */
-const BUILD_EDIT_EXTRA_FILE_TOOLS: Record<string, string> = { mcp__host__write_file: 'path' };
+/** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS, which the taint checks share). */
+const BUILD_EDIT_EXTRA_FILE_TOOLS = OWN_WRITE_FILE_TOOLS;
 const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
 const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 /** Legion's own in-process tools that still return outside content: a VM's output. */

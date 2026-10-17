@@ -1,12 +1,11 @@
 // Protected paths: a write to Git internals and hooks, editor and agent settings, shell startup files or package manager
 // settings always asks in Ask, Accept edits and Smart (never in Bypass). A change there can run code the next time Git or a
-// shell starts, or change what an agent may do. The list follows the permission-modes documentation of Claude Code:
-// https://code.claude.com/docs/en/permission-modes#protected-paths
+// shell starts, or change what an agent may do. The list is the one the owner approved (gates PR 2, ruling U2).
 
 /** File tools that put a run's content on disk, and the input field that names the file. */
 export const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 /** Legion's own file tool: protected paths cover it too (it is kept apart from WRITE_FILE_TOOLS, which other checks share). */
-const OWN_WRITE_FILE_TOOLS: Record<string, string> = { mcp__host__write_file: 'path' };
+export const OWN_WRITE_FILE_TOOLS: Record<string, string> = { mcp__host__write_file: 'path' };
 
 /** Folder names: a path with one of these as a whole segment is protected. */
 export const PROTECTED_DIRS: readonly string[] = [
