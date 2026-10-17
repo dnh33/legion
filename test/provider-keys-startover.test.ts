@@ -203,7 +203,7 @@ test('R2 setAsideProviderKey never renames a key.bin while the key store is only
 test('R2 main.ts passes start over its own two steps: set the key aside, restart the core quietly (a full restart, like the connector key)', () => {
   const main = readFileSync(join(repoRoot, 'src/electron/main.ts'), 'utf8');
   const h = main.slice(main.indexOf("ipcMain.handle('legion:provider-change'"), main.indexOf("ipcMain.handle('legion:web-search-change'"));
-  assert.match(h, /startOver: \{ storeReady: \(\) => providerKeyStoreReady\(safeStorage\), setAsideKey: \(\) => setAsideProviderKey\(dataDir\(\), safeStorage\)\.then\(\(r\) => \{ if \(r === 'unavailable'\) throw new Error\('key store unavailable'\); \}\), restartCore: restartCoreQuiet \}/);
+  assert.match(h, /startOver: \{ storeReady: \(\) => providerKeyStoreReady\(safeStorage\), unlocks: \(\) => providerKeyUnlocks\(dataDir\(\), safeStorage\), setAsideKey: \(\) => setAsideProviderKey\(dataDir\(\), safeStorage\)\.then\(\(r\) => \{ if \(r === 'unavailable'\) throw new Error\('key store unavailable'\); \}\), restartCore: restartCoreQuiet \}/);
 });
 
 // ------------------------------------------------------------------------------------------------ core routes

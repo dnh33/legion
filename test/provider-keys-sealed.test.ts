@@ -94,7 +94,7 @@ test('K1 a start with a data key seals keys.json into keys.enc, verified by read
   assert.deepEqual([reopened.all().sort(), reopened.originOf('other')], [[K1, K2].sort(), O2]);
 });
 
-test('K1 a migration whose read-back fails keeps keys.json in use, removes the bad keys.enc and says so; nothing is lost', () => {
+test('K1 a migration whose read-back fails keeps keys.json readable, removes the bad keys.enc, refuses saves (F3: a data key never writes plain); nothing is lost', () => {
   const { plain, enc } = setup();
   writePlain(plain, { openai: { key: K1, origin: O1 } });
   // a data key of the wrong length cannot seal: the read-back can never succeed
@@ -102,9 +102,9 @@ test('K1 a migration whose read-back fails keeps keys.json in use, removes the b
   assert.equal(k.get('openai', O1), K1);
   assert.equal(existsSync(enc), false);
   assert.equal(existsSync(plain), true);
-  assert.deepEqual(k.status(), { mode: 'plain', locked: false, reason: 'sealing-failed' });
-  k.set('x', K2, O1);
-  assert.equal(JSON.parse(readFileSync(plain, 'utf8')).keys.x.key, K2, 'saves keep working, in the plain file');
+  assert.deepEqual(k.status(), { mode: 'plain', locked: false, reason: 'sealing-failed', blocked: true });
+  assert.throws(() => k.set('x', K2, O1), /did not unlock/);
+  assert.equal(JSON.parse(readFileSync(plain, 'utf8')).keys.x, undefined, 'no plain save on a machine with a data key');
 });
 
 test('K1 keep-copy window: a save writes BOTH files while keys.json is kept', () => {
@@ -244,20 +244,19 @@ test('K2 no data key: exactly today (keys.json, owner only, atomic); the status 
   }
 });
 
-test('K2 no usable key store leaves an existing keys.enc alone and reports it as locked; a plain save does not touch it', () => {
+test('K2/F4 no usable key store with an existing keys.enc: blocked, keys.enc untouched, saves refused (never plain); when the key store works again the keys are all there', () => {
   const { plain, enc } = setup();
   const key = dk();
   new ProviderKeys(plain, { dataKey: key }).set('openai', K1, O1);
   const sealed = readFileSync(enc);
   const k = new ProviderKeys(plain, { noKey: 'unavailable' });
-  assert.deepEqual(k.status(), { mode: 'plain', locked: true, reason: 'unavailable' });
+  assert.deepEqual(k.status(), { mode: 'plain', locked: true, reason: 'unavailable', blocked: true });
   assert.equal(k.has('openai'), false);
-  k.set('new', K2, O1);
+  assert.throws(() => k.set('new', K2, O1), /did not unlock/);
   assert.deepEqual(readFileSync(enc), sealed, 'keys.enc is not changed');
-  // the key store works again later: the sealed keys and the key pasted meanwhile are both there
+  assert.equal(existsSync(plain), false);
   const back = new ProviderKeys(plain, { dataKey: key, committed: () => false });
   assert.equal(back.get('openai', O1), K1);
-  assert.equal(back.get('new', O1), K2);
 });
 
 test('R2 a wrapped key that does not unwrap (PKEY - unreadable) leaves keys.enc alone, reports locked and blocked, and refuses a save', () => {
