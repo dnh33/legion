@@ -71,6 +71,10 @@ export interface GateSettings {
   allowedHosts?: string[];
   /** Environment variable names (or NAME* prefixes) that are not scrubbed from agent commands (app file only, at most 50). Adding one is a loosening. */
   envKeep?: string[];
+  /** App file only: the owner answered the first-run screen "How should your agents ask?". Not a gate; written only by the core when the owner answers, signed with the rest. */
+  firstRunChoice?: true;
+  /** App file only: the owner dismissed the one-time notice that projects can now set how agents ask. Not a gate; signed with the rest. */
+  noticeSeen?: true;
   version: 1;
 }
 

@@ -11,7 +11,7 @@ import type { GateValue, Preset } from '../shared/gates-registry.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[] }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; firstRunChoice?: true; noticeSeen?: true }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -58,6 +58,9 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
     } else if (k === 'envKeep' && isApp) {
       if (!Array.isArray(x) || x.length > 50 || x.some((n) => typeof n !== 'string' || n.length > 100)) return undefined;
       out.envKeep = x as string[];
+    } else if ((k === 'firstRunChoice' || k === 'noticeSeen') && isApp) {
+      if (x !== true) return undefined;
+      out[k] = true;
     } else if (k === 'limit' && !isApp) {
       if (typeof x !== 'boolean') return undefined;
       out.limit = x;

@@ -1,0 +1,7 @@
+/* The first-run preset screen. Same card as the welcome (.firstrun); tokens only, no outline rings, no side stripes. Keyboard focus draws the hover tint (.gates-row:focus-within). */
+.preset-choice { display: flex; flex-direction: column; gap: 10px; }
+.preset-choice h3 { margin: 0; }
+.preset-choice .lead { margin: 0; max-width: 62ch; }
+.preset-choice .gates-fs { gap: 2px; }
+.preset-choice-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.preset-choice .field-note { margin: 0; }

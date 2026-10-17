@@ -8,6 +8,7 @@ import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
+import { PresetGate } from '../welcome/PresetChoice';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
@@ -384,6 +385,7 @@ function EmptyState() {
     );
   }
   return (
+    <PresetGate signedIn={signin?.ok === true}>
     <div className="firstrun">
       <h3>Welcome to Legion</h3>
       <p className="lead">Give the work to the Marshal, the lead of your Order. A Claude sign-in is all you need.</p>
@@ -424,5 +426,6 @@ function EmptyState() {
       </details>
       <button className="btn-ghost" onClick={dismissOnboarding}>Dismiss</button>
     </div>
+    </PresetGate>
   );
 }
