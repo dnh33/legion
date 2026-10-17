@@ -6,7 +6,7 @@ import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance }
 import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
-import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
+import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
@@ -349,7 +349,7 @@ function EmptyState() {
   const cmd = mkCmd(token);
   const shownCmd = mkCmd(token ? '\u2022'.repeat(12) : '<token>');
   const [copied, setCopied] = useState(false);
-  const signin = doctor?.find((c) => /claude|sign|auth/i.test(c.id + c.label));
+  const signin = signinCheck(doctor);
   const step = (id: WelcomeItem['id']) => WELCOME_STEPS.find((s) => s.id === id)!;
   const later = (id: WelcomeItem['id']) => WELCOME_LATER.find((s) => s.id === id)!;
   const [trying, setTrying] = useState(false);

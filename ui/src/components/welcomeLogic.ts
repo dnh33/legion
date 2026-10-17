@@ -20,3 +20,6 @@ export const WELCOME_LATER: readonly WelcomeItem[] = [
   { id: 'boat', title: 'Cloud VMs for agents (optional)', body: 'Paste a boat.dev key in Settings and agents can start a VM for risky or heavy work. It applies straight away.' },
   { id: 'mcp', title: 'Drive Legion from Claude Code (optional)', body: 'Run this once in a terminal to reach your agents from Claude Code or Cowork. Copy includes your token; it is hidden here.' },
 ];
+
+/** The Doctor check that reports the Claude sign-in. Matched by id: 'auth' (Claude auth mode) is always ok and says nothing about the account. */
+export const signinCheck = <T extends { id: string }>(doctor: readonly T[] | null | undefined): T | undefined => doctor?.find((c) => c.id === 'claude');

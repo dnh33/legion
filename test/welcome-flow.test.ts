@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
-import { WELCOME_STEPS, WELCOME_LATER, WELCOME_TRY, canTryZealot } from '../ui/src/components/welcomeLogic.js';
+import { WELCOME_STEPS, WELCOME_LATER, WELCOME_TRY, canTryZealot, signinCheck } from '../ui/src/components/welcomeLogic.js';
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 
@@ -35,4 +35,15 @@ test('welcome: the first-task step is offered only when the Zealot agent exists 
   assert.equal(canTryZealot([{ id: 'builder' }, { id: 'scout' }]), false);
   assert.equal(canTryZealot([]), false);
   assert.match(readFileSync(join(REPO, 'ui/src/components/Thread.tsx'), 'utf8'), /\{canTryZealot\(agents\) && \(/, 'the step is rendered behind the guard');
+});
+
+test('welcome: the sign-in tick reads the Claude sign-in check by id, not the auth mode check', () => {
+  const doctor = [
+    { id: 'auth', label: 'Claude auth mode', ok: true, detail: 'claude-login' },
+    { id: 'claude', label: 'Claude sign-in', ok: false, detail: 'No signed-in Claude account found' },
+  ];
+  assert.equal(signinCheck(doctor)?.ok, false);
+  assert.equal(signinCheck([doctor[0]!]), undefined);
+  assert.equal(signinCheck(null), undefined);
+  assert.match(readFileSync(join(REPO, 'ui/src/components/Thread.tsx'), 'utf8'), /signinCheck\(doctor\)/);
 });
