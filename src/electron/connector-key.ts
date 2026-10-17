@@ -128,6 +128,11 @@ export async function loadProviderKey(dataDir: string, ss: SafeStorageLike, plat
   } catch { return undefined; }
 }
 
+/** True when the system key store can be used right now (usable backend and async encryption available). Never throws. */
+export async function providerKeyStoreReady(ss: SafeStorageLike, platform: string = process.platform): Promise<boolean> {
+  try { return keystoreUsable(ss, platform) && (await ss.isAsyncEncryptionAvailable()); } catch { return false; }
+}
+
 /** Makes and wraps the key on first need, or returns the existing one. A file that does not unwrap is NEVER overwritten (it would orphan keys.enc). */
 export async function ensureProviderKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<string | undefined> {
   const existing = await loadProviderKey(dataDir, ss, platform);
@@ -153,9 +158,12 @@ export async function providerKeyLaunchLine(dataDir: string, ss: SafeStorageLike
  * overwritten), so the next `ensureProviderKey` makes a new one. A key.bin that unwraps is left exactly as it is ('kept': then only keys.enc
  * was the problem). A missing file is 'none'; a failed rename throws, so the caller stops before it restarts anything.
  */
-export async function setAsideProviderKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<'none' | 'kept' | 'set-aside'> {
+export async function setAsideProviderKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<'none' | 'kept' | 'set-aside' | 'unavailable'> {
   const file = providerKeyFilePath(dataDir);
   if (!existsSync(file)) return 'none';
+  // A key store that is only unavailable right now (locked keychain, keyring not unlocked yet, no encryption) makes a good key.bin look
+  // unreadable at launch. Never rename it then: only a key store that is up and cannot open the file counts as "does not unwrap".
+  if (!(await providerKeyStoreReady(ss, platform))) return 'unavailable';
   if (await loadProviderKey(dataDir, ss, platform)) return 'kept';
   const day = new Date().toISOString().slice(0, 10);
   let to = `${file}.unreadable-${day}`;

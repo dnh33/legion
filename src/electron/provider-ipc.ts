@@ -15,6 +15,8 @@ export interface ProviderIpcDeps {
   confirm(opts: { title: string; message: string; detail: string; confirmLabel: string }): Promise<boolean>;
   /** "Start over with new keys": main's two steps. Absent (a test, a headless call): the request is refused. */
   startOver?: {
+    /** Is the system key store up right now? When it is only unavailable (locked, not unlocked yet) a key.bin that "does not unwrap" may be fine, so nothing is set aside. */
+    storeReady(): Promise<boolean>;
     /** Renames a key.bin that does not unwrap (never deletes it). */
     setAsideKey(): Promise<void>;
     /** Restarts the core so it receives the new data key; null on success, else a plain error. */
@@ -111,6 +113,7 @@ async function startOver(deps: ProviderIpcDeps, blocked: boolean): Promise<Provi
   if (!blocked) return { ok: false, error: 'Your keys are not locked out, so there is nothing to start over.' };
   const hooks = deps.startOver;
   if (!hooks) return { ok: false, error: 'Starting over needs the Legion app.' };
+  if (!(await hooks.storeReady())) return { ok: false, error: 'Your system key store is not available right now (for example locked, or not unlocked yet). Unlock it, restart Legion and try again. Nothing was changed.' };
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;
   try {
@@ -130,7 +133,8 @@ async function startOver(deps: ProviderIpcDeps, blocked: boolean): Promise<Provi
   if (err) return { ok: false, error: err };
   const after = await deps.call('GET', '/api/providers');
   if (!after || after.status !== 200) return { ok: false, error: 'Legion restarted but its core did not answer. Restart Legion.' };
-  if (after.json?.keyStoreState === 'blocked') return { ok: false, error: 'Legion restarted, but the system key store still does not unlock. Restart your computer, or open the data folder and check the files named .unreadable.' };
+  // Done only when the new core holds an ENCRYPTED store. Blocked: the key store still does not unlock. Plain: no key could be made, and keys saved now would not be encrypted.
+  if (after.json?.keyStoreState !== 'encrypted') return { ok: false, error: after.json?.keyStoreState === 'plain' ? 'Legion restarted, but it could not make a new key with your system key store, so new keys would not be encrypted. Nothing is saved. Check that your system key store works, then try again.' : 'Legion restarted, but the system key store still does not unlock. Restart your computer, or open the data folder and check the files named .unreadable.' };
   return { ok: true, view: after.json };
 }
 
