@@ -127,6 +127,15 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
 
   checks.push(await safe('claude', 'Claude sign-in', () => probeClaude(config, queryFn, deps.probeTimeoutMs ?? 20_000)));
 
+  // Plan only blanks these two for the Claude run. Say so when the environment Legion started in sets one (the name only, never the value).
+  if (isPlanOnly(config)) {
+    const set = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'].filter((k) => (process.env[k] ?? '').trim() !== '');
+    if (set.length) {
+      const names = set.join(' and ');
+      checks.push({ id: 'claude-env', label: 'Claude environment keys', ok: true, detail: `Your environment sets ${names}. Legion does not use ${set.length > 1 ? 'them' : 'it'}, so your runs use your Claude plan. To bill ${set.length > 1 ? 'those keys' : 'that key'}, turn on Allow API credit billing in Settings, Claude.` });
+    }
+  }
+
   checks.push(await safe('boat', 'boat.dev', async () => {
     const boat = deps.getBoat();
     if (!boat) return { ok: true, detail: 'Not configured (agent VMs disabled)', fix: 'Open Settings → boat.dev to add a key and enable VMs' };

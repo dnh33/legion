@@ -154,3 +154,34 @@ test('doctor: corrupt or missing Claude Code settings do not throw or flag', asy
     });
   }
 });
+
+// S4: Legion blanks ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN for plan-only runs; Doctor says so when one is set. Fake values only, never printed.
+async function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void>) {
+  const save: Record<string, string | undefined> = {};
+  for (const k of Object.keys(vars)) { save[k] = process.env[k]; if (vars[k] === undefined) delete process.env[k]; else process.env[k] = vars[k]; }
+  try { await fn(); } finally { for (const k of Object.keys(vars)) { if (save[k] === undefined) delete process.env[k]; else process.env[k] = save[k]; } }
+}
+const envNote = async (config: ReturnType<typeof cfg>) => (await runDoctor({ config, getBoat: () => null, queryFn: planQuery() })).find((x) => x.id === 'claude-env');
+
+test('doctor: a key set in the environment is named (never its value) when plan only blanks it', async () => {
+  await withEnv({ ANTHROPIC_API_KEY: 'fake-env-value-123', ANTHROPIC_AUTH_TOKEN: undefined }, async () => {
+    const n = (await envNote(cfg()))!;
+    assert.equal(n.ok, true);
+    assert.equal(n.detail, 'Your environment sets ANTHROPIC_API_KEY. Legion does not use it, so your runs use your Claude plan. To bill that key, turn on Allow API credit billing in Settings, Claude.');
+    assert.doesNotMatch(JSON.stringify(n), /fake-env-value/);
+  });
+  await withEnv({ ANTHROPIC_API_KEY: 'fake-a', ANTHROPIC_AUTH_TOKEN: 'fake-b' }, async () => {
+    assert.match((await envNote(cfg()))!.detail, /^Your environment sets ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN\. Legion does not use them, /);
+  });
+});
+
+test('doctor: no environment note when billing is allowed, in API key mode, or when the variables are empty', async () => {
+  await withEnv({ ANTHROPIC_API_KEY: 'fake-env-value-123', ANTHROPIC_AUTH_TOKEN: undefined }, async () => {
+    const allow = cfg(); allow.claude.allowApiBilling = true;
+    assert.equal(await envNote(allow), undefined);
+    const key = cfg(); key.claude.auth = 'api-key'; key.claude.apiKey = 'fake-cfg-key';
+    assert.equal(await envNote(key), undefined);
+  });
+  await withEnv({ ANTHROPIC_API_KEY: '  ', ANTHROPIC_AUTH_TOKEN: undefined }, async () => { assert.equal(await envNote(cfg()), undefined); });
+});
+
