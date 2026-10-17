@@ -11,6 +11,7 @@ import { CLAUDE_NOT_CONFIGURED, type BoatHealth } from './boat-health.js';
 import { buildChildEnv, connectorSettings, isPlanOnly, planOnlySettings } from './engine.js';
 import type { QueryFn } from './engine.js';
 import { claudeHomeDir } from './armory/discover.js';
+import { keyStoreDoctor, type KeyStoreStatus } from './providers/secrets.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
 
@@ -103,7 +104,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   }
 }
 
-export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number }): Promise<DoctorCheck[]> {
+export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number; keys?: { status(): KeyStoreStatus } }): Promise<DoctorCheck[]> {
   const { config } = deps;
   const queryFn = deps.queryFn ?? realQuery;
   const checks: DoctorCheck[] = [];
@@ -161,6 +162,9 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
   if (deps.getBoat() && deps.health?.claudeMissing()) {
     checks.push({ id: 'boat-claude', label: 'Claude on boat.dev', ok: true, detail: CLAUDE_NOT_CONFIGURED, fix: 'Open the Agents page in your boat.dev dashboard and connect Claude' });
   }
+
+  // How the provider and web search keys are stored. Words only, never a key value.
+  if (deps.keys) { const keys = deps.keys; checks.push(await safe('provider-keys', 'Provider keys', () => keyStoreDoctor(keys.status()))); }
 
   checks.push(await safe('workspace', 'Workspace directory', () => {
     mkdirSync(config.workspaceDir, { recursive: true });

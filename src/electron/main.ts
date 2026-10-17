@@ -14,7 +14,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
-import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey } from './connector-key.js';
+import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
@@ -181,6 +181,8 @@ async function spawnCore(port: number): Promise<string | null> {
     // no usable key (a key file that does not open, or no key file and none could be made) is its own state: the core reads every
     // project as Ask, never as "no key"
     const gatesLine = gatesKey ? gatesKeyLine(gatesKey, gatesState) : gatesKeyLine(undefined, 'unreadable');
+    // The provider keys' data key (seals providers/keys.enc). Always one line: PKEY <hex>, or PKEY - unavailable / unreadable. Stdin only.
+    const providerLine = await providerKeyLaunchLine(dataDir(), safeStorage);
     const child = spawn(launch.cmd, [...heapArgv(), coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
@@ -195,9 +197,9 @@ async function spawnCore(port: number): Promise<string | null> {
     nativeSecret = native;
     rendererAdmin = undefined;
     child.stdin?.on('error', () => undefined);
-    // Without a connectors key this is exactly the old launch line. With one, the key is a third line (the core accepts only KEY <hex>).
-    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + gatesLine + keyLine(connectorKey));
-    else child.stdin?.end(secret + '\n' + native + '\n' + gatesLine);
+    // The two secrets, the gates line and the provider line. With a connectors key, KEY <hex> follows (each keyring accepts only its own form).
+    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + gatesLine + providerLine + keyLine(connectorKey));
+    else child.stdin?.end(secret + '\n' + native + '\n' + gatesLine + providerLine);
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT' || (launch.mode === 'package' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(err.code ?? ''))

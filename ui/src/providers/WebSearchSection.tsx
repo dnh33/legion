@@ -71,6 +71,7 @@ export function WebSearchSection() {
         </div>
       )}
       {KEY_PROVIDERS.map((p) => <KeyRow key={p.id} id={p.id} label={p.label} />)}
+      {v.keyStore && <p className="field-note" role="status">{v.keyStore}</p>}
       <div className="prov-row">
         <label>Your cap per call
           <input className="narrow" inputMode="decimal" spellCheck={false} value={cap} onChange={(e) => { setCap(e.target.value); setCapErr(''); }} aria-describedby="ws-cap-note" />

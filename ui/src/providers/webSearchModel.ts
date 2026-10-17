@@ -9,6 +9,8 @@ export interface WebSearchView {
   acknowledged: Partial<Record<WebProviderId, string>>;
   providers: WebSearchViewProvider[];
   keys: Record<string, { set: boolean; hint?: string }>;
+  /** One plain line on how the saved keys are stored (from the core). */
+  keyStore?: string;
   capLimits: { min: number; max: number };
   nativeAvailable: boolean;
 }

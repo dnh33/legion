@@ -4,6 +4,8 @@
 import { describeError, setFatalSink } from '../core/log/install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
+import { ProviderKeyring } from '../core/providers/keyring.js';
+import { updateCommitted } from '../core/providers/update-committed.js';
 import { createProvidersModule } from '../core/providers/routes.js';
 import { WebSearchService } from '../core/web-search/index.js';
 import { createWebSearchModule } from '../core/web-search/routes.js';
@@ -74,7 +76,9 @@ async function main() {
   // A third line (KEY <hex>, connectors data key, memory only) is accepted from the same pipe; the two secrets are read exactly as before.
   const connectorKeyring = new ConnectorKeyring();
   const gatesKeyring = new GatesKeyring();
-  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); gatesKeyring.installLine(line); });
+  // the provider keys' data key (PKEY <hex>, or PKEY - unavailable / unreadable): memory only, like the other two
+  const providerKeyring = new ProviderKeyring();
+  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); gatesKeyring.installLine(line); providerKeyring.installLine(line); });
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
@@ -98,7 +102,11 @@ async function main() {
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
   // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
   // ONE key store for the model providers and the web providers: a second instance on the same file would write its own copy back over the other's keys
-  const providerKeys = new ProviderKeys(keyFileFor(dataDir()));
+  // With the data key from the launch line the keys are encrypted in providers/keys.enc; without it this is today's keys.json.
+  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const dataKey = providerKeyring.get();
+  const noKey = providerKeyring.noKey();
+  const providerKeys = new ProviderKeys(keyFileFor(dataDir()), { ...(dataKey ? { dataKey } : {}), ...(noKey ? { noKey } : {}), committed: () => updateCommitted(installRoot) });
   // the optional web search and page read providers (off by default: both choices are the built-in tools); the service reads the live config.webSearch
   const webSearch = new WebSearchService({ config: () => config.webSearch, keys: providerKeys });
   const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: providerKeys, cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
@@ -123,7 +131,6 @@ async function main() {
     vms.health.reset();
     if (keyChanged && boatConfigured()) void vms.health.probe().catch(() => undefined);
   };
-  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), install: { dir: installRoot, packaged: isPackageInstall(installRoot) }, onBoatChange: () => restartReaper(true) });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
@@ -163,7 +170,7 @@ async function main() {
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
-    doctor: () => runDoctor({ config, getBoat, health: vms.health }),
+    doctor: () => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys }),
     catalog: (force) => getCatalog({ config }, { force }),
     settings, adminSecret, projects, away: awayCore.service, ...(board ? { board } : {}),
   });

@@ -14,4 +14,8 @@ export interface ProviderView {
   status: string;
   lastTest?: { at: string; ok: boolean; detail: string };
 }
-export interface ProvidersView { providers: ProviderView[]; maxTurns: number; maxToolCallsPerTurn: number; dropped: string[]; cannotDo: string[]; }
+export interface ProvidersView {
+  providers: ProviderView[]; maxTurns: number; maxToolCallsPerTurn: number; dropped: string[]; cannotDo: string[];
+  /** One plain line on how the saved keys are stored on this system (encrypted, or not and why). No key value in it. */
+  keyStore?: string;
+}

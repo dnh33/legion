@@ -109,3 +109,41 @@ export const gatesKeyLine = (hex: string | undefined, state: GatesKeyState = 'ol
 
 /** The line written to the core's stdin after the two secrets. */
 export const keyLine = (hex: string): string => `KEY ${hex}\n`;
+
+// The provider keys' data key: seals providers/keys.enc. Its own file inside the protected providers folder and its own launch line, so
+// a lost gates or connectors key never takes the provider keys with it. Made at launch (the core needs it before the first key is saved).
+export const PROVIDER_KEY_FILE = 'key.bin';
+export const providerKeyFilePath = (dataDir: string): string => join(dataDir, 'providers', PROVIDER_KEY_FILE);
+
+/** The provider data key as hex, or undefined (no usable keystore, or a wrapped key that does not unwrap). Never throws. */
+export async function loadProviderKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<string | undefined> {
+  const file = providerKeyFilePath(dataDir);
+  if (!existsSync(file)) return undefined;
+  try {
+    if (!keystoreUsable(ss, platform) || !(await ss.isAsyncEncryptionAvailable())) return undefined;
+    const r = await ss.decryptStringAsync(readFileSync(file));
+    if (!HEX_KEY.test(r.result)) return undefined;
+    if (r.shouldReEncrypt) writeAtomic(file, await ss.encryptStringAsync(r.result));
+    return r.result;
+  } catch { return undefined; }
+}
+
+/** Makes and wraps the key on first need, or returns the existing one. A file that does not unwrap is NEVER overwritten (it would orphan keys.enc). */
+export async function ensureProviderKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<string | undefined> {
+  const existing = await loadProviderKey(dataDir, ss, platform);
+  if (existing) return existing;
+  if (existsSync(providerKeyFilePath(dataDir))) return undefined;
+  try {
+    if (!keystoreUsable(ss, platform) || !(await ss.isAsyncEncryptionAvailable())) return undefined;
+    const hex = randomBytes(32).toString('hex');
+    writeAtomic(providerKeyFilePath(dataDir), await ss.encryptStringAsync(hex));
+    return hex;
+  } catch { return undefined; }
+}
+
+/** The launch line for the core: `PKEY <hex>`, `PKEY - unreadable` (the wrapped key is there and does not open) or `PKEY - unavailable` (no usable keystore). */
+export async function providerKeyLaunchLine(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<string> {
+  const hex = await ensureProviderKey(dataDir, ss, platform);
+  if (hex) return `PKEY ${hex}\n`;
+  return existsSync(providerKeyFilePath(dataDir)) ? 'PKEY - unreadable\n' : 'PKEY - unavailable\n';
+}

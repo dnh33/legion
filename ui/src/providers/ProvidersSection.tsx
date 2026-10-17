@@ -137,6 +137,7 @@ export function ProvidersSection() {
           <ul>{view.cannotDo.map((t) => <li key={t}>{t}</li>)}</ul>
           <p className="field-note">Credentials are sent only to the address you set here. If a request is rejected, the provider's own message is shown.</p>
         </details>
+        {view.keyStore && <p className="field-note" role="status">{view.keyStore}</p>}
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
         {visibleCards(view.providers).map((p) => <ProviderCard key={p.id} p={p} />)}
         <AddCustom />

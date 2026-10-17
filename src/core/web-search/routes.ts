@@ -16,7 +16,7 @@ import { NATIVE_REQUIRED, NOTICE_REQUIRED, PROVIDER_NOTICE, TREG_NOTICE } from '
 import { TREG_CAP_MAX, TREG_CAP_MIN, WEB_PROVIDERS, isWebProviderId, normalizeWebSearch, webProviderMeta } from '../../shared/web-search-config.js';
 import type { CoreModule } from '../modules.js';
 import { HttpError } from '../server.js';
-import type { ProviderKeys } from '../providers/secrets.js';
+import { keyStoreLine, type ProviderKeys } from '../providers/secrets.js';
 import { ADAPTERS, keyIdOf, validateWebSearchPatch } from './index.js';
 import type { WebProviderId, WebSearchConfig, WebSearchService } from './index.js';
 
@@ -73,7 +73,8 @@ export function createWebSearchModule(opts: WebSearchModuleOpts): CoreModule {
       acknowledged: { ...c.acknowledged },
       providers: WEB_PROVIDERS.map((p) => ({ id: p.id, label: p.label, canSearch: p.canSearch, canRead: p.canRead, needsKey: p.needsKey, ready: opts.service.ready(p.id) })),
       keys,
-      capLimits: { min: TREG_CAP_MIN, max: TREG_CAP_MAX },
+      keyStore: keyStoreLine(opts.keys.status()),
+      capLimits:{ min: TREG_CAP_MIN, max: TREG_CAP_MAX },
       nativeAvailable: !!opts.nativeSecret,
     };
   };
