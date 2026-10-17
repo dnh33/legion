@@ -1,6 +1,7 @@
 /** Config schema, defaults and data-dir paths. */
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { renameWithRetry } from './rename-retry.js';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defaultBlenderConfig, normalizeBlender } from './blender.js';
@@ -411,13 +412,8 @@ export function writeConfigFile(file: string, json: string): void {
   try { unlinkSync(tmp); } catch { /* none left over */ }
   writeFileSync(tmp, json, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   tightenConfigMode(tmp);
-  try {
-    renameSync(tmp, file);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'EPERM' || code === 'EEXIST') { try { unlinkSync(file); } catch { /* ignore */ } renameSync(tmp, file); }
-    else { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
-  }
+  // a locked target (antivirus, sync client) is waited for, never deleted first: a crash between a delete and the rename would lose the file
+  try { renameWithRetry(tmp, file); } catch (e) { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
   tightenConfigMode(file);
 }
 
