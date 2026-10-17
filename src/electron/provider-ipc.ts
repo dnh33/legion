@@ -48,10 +48,21 @@ export async function providerChange(raw: unknown, deps: ProviderIpcDeps): Promi
   const cur = await deps.call('GET', '/api/providers');
   if (!cur || cur.status !== 200) return { ok: false, error: 'Legion could not reach its own core. Restart Legion.' };
   const row = (cur.json?.providers as Array<Record<string, unknown>> | undefined)?.find((p) => p.id === ch.id);
-  if (!row) return { ok: false, error: 'Unknown provider.' };
-  const label = dialogLine(row.label, 60) || ch.id;
+  // A key needs a provider that exists. An entry for an id the core does not know yet is a new custom endpoint: it needs an address.
+  if (!row && ch.kind === 'key') return { ok: false, error: 'Unknown provider.' };
+  if (!row && typeof (ch as { patch?: Record<string, unknown> }).patch?.baseUrl !== 'string') return { ok: false, error: 'A new provider needs an address.' };
+  const label = dialogLine(row ? row.label : (ch as { patch: Record<string, unknown> }).patch.label, 60) || ch.id;
   let title: string; let message: string; let detail: string; let confirmLabel: string; let route: string; let body: unknown;
-  if (ch.kind === 'key') {
+  if (!row && ch.kind === 'entry') {
+    const host = hostOf(ch.patch.baseUrl);
+    if (!host) return { ok: false, error: 'The address is not a valid URL.' };
+    title = 'Add a provider?'; confirmLabel = 'Add provider';
+    message = `Add ${label} as a provider?`;
+    detail = `Requests from agents that use it go to: ${dialogLine(host)}. After this, paste its API key on its card in Settings, Providers; the key is sent only to that address.`;
+    route = `/api/providers/${ch.id}`; body = ch.patch;
+  } else if (!row) {
+    return { ok: false, error: 'Unknown provider.' };
+  } else if (ch.kind === 'key') {
     const host = hostOf(row.baseUrl);
     title = 'Save an API key?'; confirmLabel = 'Save key';
     message = `Save an API key for ${label}?`;

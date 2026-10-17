@@ -9,7 +9,7 @@ const view = (id: string, over: Record<string, unknown> = {}) => ({ id, label: i
 
 test('every provider the core lists gets a card, switched on or not', () => {
   const ps = PROVIDER_PRESETS.map((p) => view(p.id, { enabled: p.entry.enabled })) as any[];
-  assert.deepEqual(visibleCards(ps).map((p) => p.id), ['openai', 'openrouter', 'ollama', 'lmstudio', 'vllm']);
+  assert.deepEqual(visibleCards(ps).map((p) => p.id), ['openai', 'openrouter', 'deepseek', 'ollama', 'lmstudio', 'vllm']);
 });
 
 test('a provider that needs a key always shows the key field; a local one marks it optional', () => {
