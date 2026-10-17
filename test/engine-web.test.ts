@@ -73,7 +73,11 @@ test('the hook alone: a new site cards and a deny answer denies; a built-in docs
 test('a gate deny rule for a host wins over the web card (no card, denied) in the hook and the decider', () => smart(async (r) => {
   r.setRules([rule('deny', { hosts: ['example.com'] })]);
   const x = await ran(r, 'https://example.com/'); assert.equal(x.card, false); assert.equal(x.allow, false);
-  assert.equal(await rawHook(r, 'WebFetch', url('https://example.com/')), 'deny'); assert.equal(r.pending().length, 0);
+  // fail fast: with no deny the hook waits on an open card, so race it against a short timer and answer any card
+  const hooked = rawHook(r, 'WebFetch', url('https://example.com/'));
+  const first = await Promise.race([hooked, pause(2000).then(() => 'hung')]);
+  if (first === 'hung') { for (const c of r.pending()) r.approvals.resolve(c.id, false); await hooked; }
+  assert.equal(first, 'deny'); assert.equal(r.pending().length, 0);
 }));
 
 for (const preset of ['ask', 'accept-edits'] as const) {
@@ -122,4 +126,29 @@ test('an allowed read is noted in the activity log', () => smart(async (r) => {
   await r.call('WebFetch', url('https://docs.python.org/3/')); await pause(10);
   const lines = r.activityRead({ kinds: ['note'] });
   assert.ok(lines.some((l) => /Web: WebFetch docs\.python\.org/.test(l.text)));
+}));
+
+test('the hook path: after connector data a new site raises the site card, then the connector egress card, and a no on the second denies', () => smart(async (r) => {
+  r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
+  const hooked = rawHook(r, 'WebFetch', url('https://example.com/'));
+  await r.tick(); assert.equal(r.pending().length, 1); assert.ok(r.pending()[0]!.site, 'the site card first');
+  r.answer(true); await r.tick(60);
+  assert.equal(r.pending().length, 1, 'the egress card follows'); assert.match(r.pending()[0]!.summary, /connector/i); assert.equal(r.pending()[0]!.site, undefined);
+  r.answer(false); assert.equal(await Promise.race([hooked, pause(2000).then(() => 'hung')]), 'deny');
+}));
+
+test('the activity log keeps no query from a web card, and the card still holds the full address in its input', () => smart(async (r) => {
+  const p = r.call('WebFetch', url('https://example.com/a?token=SECRETVALUE#frag')); await r.tick(60);
+  const card = r.pending()[0]!;
+  assert.match(card.summary, /example\.com\/a\?\.\.\./); assert.ok(!card.summary.includes('SECRETVALUE'));
+  assert.equal(card.input.url, 'https://example.com/a?token=SECRETVALUE#frag');
+  r.answer(false); await p; await pause(20);
+  const logged = JSON.stringify(r.activityRead({}));
+  assert.ok(logged.includes('example.com'), 'the card is logged'); assert.ok(!logged.includes('SECRETVALUE'));
+}));
+
+test('a search card keeps the query out of the summary (and so out of the log)', () => smart(async (r) => {
+  const p = r.call('WebSearch', { query: 'SECRETVALUE'.repeat(40) }); await r.tick(60);
+  assert.ok(!r.pending()[0]!.summary.includes('SECRETVALUE')); r.answer(false); await p;
 }));

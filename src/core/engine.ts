@@ -1616,8 +1616,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const many = hosts.length > 1;
       const host = hosts[0] ?? '';
       let path = '', search: string | undefined;
-      if (first.toolName === 'WebSearch') search = String(first.input.query ?? '').slice(0, 300);
-      else { try { const u = new URL(String(first.input.url)); path = (u.pathname + u.search).slice(0, 160); } catch { path = ''; } }
+      // the summary is also written to the activity log: it holds the host and path only (`?...` when a query existed); the card shows the full address from the call's input
+      if (first.toolName === 'WebSearch') search = '';
+      else { try { const u = new URL(String(first.input.url)); path = (u.pathname + (u.search ? '?...' : '')).slice(0, 160); } catch { path = ''; } }
       const signer = this.gates?.canAllowHosts?.() === true;
       const canAlways = signer && entries.every((e) => e.v.canAlways);
       const summary = many
@@ -1687,7 +1688,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (this.gates?.gate('web-reads', startProjectOf(job)) === false) return false;
     const v = webVerdict({ tool: 'browser_open', input: { url: rawUrl } }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => act.web.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: act.web.secretRead });
     if (v.kind !== 'allow') return false;
-    if (v.host) { try { this.gates?.webLastUsed?.touch(v.host); } catch { /* advisory */ } }
+    if (v.host) {
+      try { this.gates?.webLastUsed?.touch(v.host); } catch { /* advisory */ }
+      try { act.web.noteFetch(v.host, new URL(rawUrl).pathname); } catch { /* the check already read it */ }
+    }
     return true;
   }
 

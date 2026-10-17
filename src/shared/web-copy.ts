@@ -28,7 +28,7 @@ const WHY: Record<Exclude<WebAskWhy, 'new-host'>, string> = {
 
 /** The text of one web card for the clients that show only a summary: the title, then what Legion wants and why it asks. */
 export function webCardSummary(a: { why: WebAskWhy; host: string; path: string; search?: string }): string {
-  const target = a.search !== undefined ? `Legion wants to search the web for: ${a.search}` : `Legion wants to open ${a.host}${a.path}.`;
+  const target = a.search !== undefined ? 'Legion wants to search the web.' : `Legion wants to open ${a.host}${a.path}.`;
   const lines = a.search !== undefined ? ['Search the web?', `${target}`] : [WEB_CARD.title(a.host), a.why === 'new-host' ? WEB_CARD.body(a.host, a.path) : target];
   if (a.why !== 'new-host') lines.push(WHY[a.why]);
   return lines.join('\n');

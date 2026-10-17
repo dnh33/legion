@@ -75,7 +75,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
         {bl && <BlenderBadge mode={bmode} />}
       </div>
       {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
-      {bl ? <BlenderBody a={a} /> : <pre className="approval-sum">{a.summary}</pre>}
+      {bl ? <BlenderBody a={a} /> : <><pre className="approval-sum">{a.summary}</pre>{a.site && <pre className="approval-sum">{String(a.input.url ?? a.input.query ?? '').slice(0, 1000)}</pre>}</>}
       <div className="approval-actions">
         {a.site && <WebAnswers a={a} onAnswer={(allow, site) => void decide(a.id, allow, site)} ready={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return false; } return true; }} />}
         {!a.site && <button className="btn primary" data-tip="allow-button" onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } void decide(a.id, true); }}>Allow{!noKey && <> <kbd>A</kbd></>}</button>}
