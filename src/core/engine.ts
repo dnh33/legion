@@ -2006,7 +2006,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /**
    * Plan-only start check: the initialize answer (`accountInfo()`) comes before any turn. A key source other than "none" ends the run;
-   * an error or silence fails closed. A query without accountInfo (test fakes; the SDK always has it) skips the check, and the init
+   * an error or silence fails closed. A query without accountInfo (test fakes only) skips the check: the call below is typed against the SDK's Query, where accountInfo() is required, so an SDK without it fails typecheck before any release; and the init
    * message check in handleMessage stays as a backstop. Returns the outcome that ends the run, or undefined to let it go on.
    */
   private async planAccountCheck(q: ReturnType<QueryFn>, aborted: Promise<'aborted'>): Promise<Outcome | undefined> {
