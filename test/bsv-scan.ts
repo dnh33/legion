@@ -281,6 +281,8 @@ const HIDDEN_IDENT = { test: (w: string): boolean => HIDDEN_IDENT_ANYCASE.test(w
 const HIDDEN_IDENT_OK = new Set<string>([`${SPEND_FILE}#createAction`, `${SPEND_FILE}#signAction`]);
 const SPEND_ONLY_METHODS = /\b(?:signAction|abortAction)\b/i;
 const NET_IDENT = /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|StreamableHTTPClientTransport|SSEClientTransport|WebSocketClientTransport)\b/;
+/** An object key that only spells a network name (`{ fetch: NETSUB }`, git's subcommand table): a key is not a reference. The value side, shorthand `{ fetch }` and `a ? fetch : b` still count. */
+const NET_KEY = /([{,]\s*)(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)(\s*:(?!:))/g;
 const SOCKET_MODULE = /^(?:node:)?(?:https|http2|net|tls|dgram|dns|dns\/promises|cluster)$|^(?:undici|axios|node-fetch|cross-fetch|ws|got|superagent|request|socket\.io(?:-client)?)$/;
 const HTTP_MODULE = /^(?:node:)?http$/;
 const CHILD_MODULE = /^(?:node:)?child_process$/;
@@ -370,7 +372,7 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST, opts: { pins?: 
     }
 
     // network globals: aliases, computed access, names in strings
-    const ident = NET_IDENT.exec(code);
+    const ident = NET_IDENT.exec(code.replace(NET_KEY, '$1key$2'));
     if (ident) used.set('fetch', ident[0]);
     const named = NET_GLOBAL_NAME.exec(joinedKept);
     if (named) bad(`names the network global ${named[0]} in a string (computed access to the network)`);
