@@ -9,8 +9,8 @@ import { gateValue, PRESETS } from '../src/shared/gates-registry.js';
 const base = { PATH: 'p', HOME: 'h', NODE_ENV: 'test', TOKENIZERS_PARALLELISM: 'false', GITHUB_TOKEN: 'a', GH_TOKEN: 'b', NPM_TOKEN: 'c', STRIPE_SECRET: 'd', OPENAI_API_KEY: 'e', DB_PASSWORD: 'f', AWS_REGION: 'g', AWS_SECRET_ACCESS_KEY: 'h2' };
 test('secret-looking names go, ordinary ones (also TOKENIZERS_PARALLELISM) stay', () => {
   const out = scrubSecretEnv(base);
-  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'NPM_TOKEN', 'STRIPE_SECRET', 'OPENAI_API_KEY', 'DB_PASSWORD', 'AWS_REGION', 'AWS_SECRET_ACCESS_KEY']) assert.equal(k in out, false, k);
-  for (const k of ['PATH', 'HOME', 'NODE_ENV', 'TOKENIZERS_PARALLELISM']) assert.equal(out[k], base[k as keyof typeof base], k);
+  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'NPM_TOKEN', 'STRIPE_SECRET', 'OPENAI_API_KEY', 'DB_PASSWORD', 'AWS_SECRET_ACCESS_KEY']) assert.equal(k in out, false, k);
+  for (const k of ['PATH', 'HOME', 'NODE_ENV', 'TOKENIZERS_PARALLELISM', 'AWS_REGION']) assert.equal(out[k], base[k as keyof typeof base], k);
 });
 test('keep list: exact name in any case, and a trailing star for a prefix', () => {
   const out = scrubSecretEnv(base, { keep: ['github_token', 'AWS_*'] });
@@ -73,10 +73,10 @@ test('buildChildEnv scrubs too, and api-key mode still gets its own key', () => 
     assert.equal(buildChildEnv(cfg, { scrub: false }).NPM_TOKEN, 'npm_owner');
   } finally { if (prev === undefined) delete process.env.NPM_TOKEN; else process.env.NPM_TOKEN = prev; }
 });
-test('buildChildEnv sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 when scrub is on, not when it is off', () => {
+test('buildChildEnv sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 when scrub is on in api-key mode, not when it is off', () => {
   const prev = process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB; delete process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB;
   try {
-    const cfg = defaultConfig();
+    const cfg = defaultConfig(); cfg.claude.auth = 'api-key'; cfg.claude.apiKey = 'sk-' + 'ant-config-key-0123456789';
     assert.equal(buildChildEnv(cfg).CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1');
     assert.equal(buildChildEnv(cfg, { probe: true }).CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1');
     assert.equal(buildChildEnv(cfg, { scrub: { keep: ['X'] } }).CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1');
@@ -100,4 +100,63 @@ test('Legion\'s own CLI settings that end in TOKENS survive the scrub', () => {
 test('git\'s config-by-environment set stays whole', () => {
   const out = scrubSecretEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.pager', GIT_CONFIG_VALUE_0: 'cat', GIT_CONFIG_KEY_X: 'y' });
   assert.equal(out.GIT_CONFIG_COUNT, '1'); assert.equal(out.GIT_CONFIG_KEY_0, 'core.pager'); assert.equal(out.GIT_CONFIG_VALUE_0, 'cat'); assert.equal('GIT_CONFIG_KEY_X' in out, false);
+});
+
+test('the CLI scrub flag is set only in api-key and cloud mode; in Claude-login runs the keep list decides alone', () => {
+  const names = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB', 'NPM_TOKEN'];
+  const prev = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+  try {
+    for (const k of names) delete process.env[k];
+    process.env.NPM_TOKEN = 'npm_owner';
+    const plan = defaultConfig();
+    assert.equal('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB' in buildChildEnv(plan), false, 'plan only');
+    assert.equal(buildChildEnv(plan, { scrub: { keep: ['NPM_TOKEN'] } }).NPM_TOKEN, 'npm_owner', 'kept in a plan-only run');
+    const billing = defaultConfig(); billing.claude.allowApiBilling = true;
+    assert.equal('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB' in buildChildEnv(billing), false, 'login with billing');
+    assert.equal(buildChildEnv(billing, { scrub: { keep: ['NPM_TOKEN'] } }).NPM_TOKEN, 'npm_owner');
+    const key = defaultConfig(); key.claude.auth = 'api-key'; key.claude.apiKey = 'sk-' + 'ant-config-key-0123456789';
+    assert.equal(buildChildEnv(key).CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1', 'api-key');
+    for (const v of ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']) {
+      process.env[v] = '1';
+      assert.equal(buildChildEnv(plan).CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1', v);
+      delete process.env[v];
+    }
+  } finally { for (const k of names) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } }
+});
+test('api-key mode removes an inherited ANTHROPIC_AUTH_TOKEN, unless a cloud login is in use', () => {
+  const names = ['ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK'];
+  const prev = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+  try {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'bearer_owner'; delete process.env.CLAUDE_CODE_USE_BEDROCK;
+    const key = defaultConfig(); key.claude.auth = 'api-key'; key.claude.apiKey = 'sk-' + 'ant-config-key-0123456789';
+    assert.equal('ANTHROPIC_AUTH_TOKEN' in buildChildEnv(key), false);
+    assert.equal('ANTHROPIC_AUTH_TOKEN' in buildChildEnv(key, { scrub: false }), false, 'also with the scrub off');
+    assert.equal(buildChildEnv(key, { scrub: { keep: ['ANTHROPIC_*'] } }).ANTHROPIC_AUTH_TOKEN, undefined, 'also when the keep list names it');
+    process.env.CLAUDE_CODE_USE_BEDROCK = '1';
+    assert.equal(buildChildEnv(key).ANTHROPIC_AUTH_TOKEN, 'bearer_owner', 'cloud login keeps it');
+  } finally { for (const k of names) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } }
+});
+test('more secret names go: PAT, PASS, PASSPHRASE, AUTH, JWT, COOKIE words and the AUTHTOKEN and _PWD endings', () => {
+  const secret = ['GITHUB_PAT', 'GH_PAT', 'DB_PASS', 'MYSQL_PWD', 'GPG_PASSPHRASE', 'PASSPHRASE', 'npm_config__authToken', 'NPM_CONFIG__AUTH', 'DOCKER_AUTH_CONFIG', 'JWT', 'CI_JOB_JWT', 'COOKIE', 'AUTH_COOKIE', 'NPM_CONFIG_//registry.npmjs.org/:_authToken'];
+  const env: Record<string, string> = { CONN: 'Server=h;User Id=u;Password=pw;', CONN2: 'host=h pwd=pw', URLQ: 'postgres://h/db?password=pw' };
+  for (const k of secret) env[k] = 'v';
+  const out = scrubSecretEnv(env);
+  for (const k of [...secret, 'CONN', 'CONN2', 'URLQ']) assert.equal(k in out, false, k);
+});
+test('look-alikes stay: PATH, PATHEXT, COMPASS_HOME, AUTHOR_NAME, PASSENGER_COUNT, a value that only mentions a password', () => {
+  const keep = { PATH: 'p', PATHEXT: '.EXE', COMPASS_HOME: '/c', AUTHOR_NAME: 'a', PASSENGER_COUNT: '2', GIT_AUTHOR_NAME: 'n', NOTE: 'the password is set elsewhere', SSH_AUTH_SOCK: '/s' };
+  const out = scrubSecretEnv(keep);
+  for (const k of Object.keys(keep)) assert.equal(k in out, true, k);
+});
+test('AWS_PROFILE and AWS_REGION stay, the AWS keys still go; ALL_PROXY stays in any case', () => {
+  const out = scrubSecretEnv({ AWS_PROFILE: 'dev', AWS_REGION: 'eu', AWS_DEFAULT_REGION: 'eu', AWS_ACCESS_KEY_ID: 'a', AWS_SECRET_ACCESS_KEY: 'b', AWS_SESSION_TOKEN: 'c', ALL_PROXY: 'socks5://u:p@h:1', all_proxy: 'socks5://u:p@h:1' });
+  for (const k of ['AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION', 'ALL_PROXY', 'all_proxy']) assert.equal(k in out, true, k);
+  for (const k of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']) assert.equal(k in out, false, k);
+});
+test('more code-loading variables are dropped, and the keep list can bring one back', () => {
+  const names = ['PROMPT_COMMAND', 'GIT_SSH_COMMAND', 'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'PERLLIB', 'PERL5LIB', 'RUBYLIB'];
+  const env = Object.fromEntries(names.map((k) => [k, 'x']));
+  const out = scrubSecretEnv(env);
+  for (const k of names) assert.equal(k in out, false, k);
+  assert.equal(scrubSecretEnv(env, { keep: ['GIT_SSH_COMMAND'] }).GIT_SSH_COMMAND, 'x');
 });

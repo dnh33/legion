@@ -386,3 +386,10 @@ test('view() reports what changed outside and whether the core can sign', async 
   assert.equal(v.canSign, true);
   assert.equal(mk(null).open().view([]).canSign, false);
 });
+
+test('envKeep: a prefix entry needs at least 3 characters before the star, and duplicates compare without case', () => {
+  const s = mk().open();
+  for (const bad of ['A*', '_*', 'AW*']) assert.throws(() => s.patchApp({ envKeep: [bad] }), (e: unknown) => e instanceof GatesError && e.status === 400, bad);
+  s.patchApp({ envKeep: ['AWS_*', 'AWS_PROFILE', 'aws_profile'] });
+  assert.deepEqual(s.app().envKeep, ['AWS_*', 'AWS_PROFILE']);
+});

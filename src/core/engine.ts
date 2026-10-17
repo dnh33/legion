@@ -311,17 +311,20 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; sc
   const raw = scrubHostSessionEnv({ ...process.env });
   const scrubbing = opts?.scrub !== false;
   // Default ON, also for probes and callers that pass nothing. The cloud logins stay when the CLI is told to use Bedrock, Vertex or Foundry.
-  const env: Record<string, string | undefined> = scrubbing
-    ? scrubSecretEnv(raw, { ...(opts?.scrub ?? {}), providerAuth: ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]) })
-    : raw;
+  const providerAuth = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]);
+  const env: Record<string, string | undefined> = scrubbing ? scrubSecretEnv(raw, { ...(opts?.scrub ?? {}), providerAuth }) : raw;
   // The CLI keeps its own credentials for its API calls and strips them from the subprocesses it starts (Bash, hooks, stdio MCP servers), so in api-key mode
   // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.296). Documented side effect: on Linux, Bash then runs in its own PID namespace.
   // https://code.claude.com/docs/en/env-vars (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
-  if (scrubbing) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
+  // Only where the CLI holds a credential Legion put in the environment (the api-key, or the cloud logins). In a Claude-login run that credential
+  // lives outside the environment, so Legion's scrub and the owner's keep list decide alone: the CLI's own scrub would override the keep list.
+  if (scrubbing && (config.claude.auth === 'api-key' || providerAuth)) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {
     env.ANTHROPIC_API_KEY = config.claude.apiKey;
+    // an inherited bearer token outranks the key, so the run could sign in with the wrong credential
+    if (!providerAuth) delete env.ANTHROPIC_AUTH_TOKEN;
   } else if (isPlanOnly(config)) {
     // empty counts as unset for Claude Code, and keeps a settings-file value from filling the gap
     env.ANTHROPIC_API_KEY = '';

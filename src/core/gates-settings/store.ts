@@ -37,7 +37,8 @@ const DEBOUNCE_MS = 400;
 const MAX_HOSTS = 200;
 const MAX_ENV_KEEP = 50;
 const HOST_RE = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
-const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*\*?$/;
+// A name, or a prefix of at least 3 characters ending in * (a shorter prefix would keep nearly everything).
+const ENV_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]{2,}\*)$/;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permission').map((g) => g.id));
 const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
@@ -110,7 +111,7 @@ function parseEnvKeep(v: unknown): string[] {
   const out: string[] = [];
   for (const x of v) {
     if (typeof x !== 'string' || !ENV_RE.test(x)) throw new GatesError(400, `"${String(x).slice(0, 60)}" is not a variable name. Use letters, digits and _, with a * only at the end.`);
-    if (!out.includes(x)) out.push(x);
+    if (!out.some((o) => o.toUpperCase() === x.toUpperCase())) out.push(x);
   }
   if (out.length > MAX_ENV_KEEP) throw new GatesError(400, `At most ${MAX_ENV_KEEP} kept variables.`);
   return out;
@@ -172,7 +173,7 @@ function describeChange(before: GateSettings, next: GateSettings, isApp: boolean
   }
   const added = (a: string[] | undefined, b: string[] | undefined): string[] => (b ?? []).filter((x) => !(a ?? []).includes(x));
   // kept variables first: they can hold a secret, and a long list of sites is cut short in the dialog
-  for (const v of added(before.envKeep, next.envKeep)) out.loosen.push(`Commands keep the variable ${v}, which can hold a secret.`);
+  for (const v of added(before.envKeep, next.envKeep)) out.loosen.push(`Commands keep the variable ${v}, which can hold a secret. In API key or cloud mode, Claude's own scrub may still hide it from Claude's commands.`);
   for (const h of added(before.allowedHosts, next.allowedHosts)) out.loosen.push(`Agents may read ${h} without asking.`);
   for (const h of added(next.allowedHosts, before.allowedHosts)) out.tighten.push(`Agents ask before reading ${h} again.`);
   for (const v of added(next.envKeep, before.envKeep)) out.tighten.push(`The variable ${v} is hidden from commands again.`);

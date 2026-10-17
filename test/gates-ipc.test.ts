@@ -151,7 +151,7 @@ const KINDS: Array<[string, 'app' | 'project', unknown, RegExp]> = [
   ['a gate off', 'project', { overrides: { 'github-write-card': false } }, /Agents write to GitHub without asking/],
   ['Per agent', 'project', { preset: null }, /Each agent's own mode applies, Bypass included/],
   ['an approved site', 'app', { allowedHosts: ['docs.python.org'] }, /Agents may read docs\.python\.org without asking/],
-  ['a kept variable', 'app', { envKeep: ['AWS_PROFILE'] }, /Commands keep the variable AWS_PROFILE/],
+  ['a kept variable', 'app', { envKeep: ['AWS_PROFILE'] }, /Commands keep the variable AWS_PROFILE, which can hold a secret. In API key or cloud mode, Claude.s own scrub may still hide it from Claude.s commands./],
 ];
 for (const [label, kind, patch, re] of KINDS) {
   test(`the dialog for ${label} lists exactly the lines the core returns, and nothing is sent until Confirm`, async () => {
