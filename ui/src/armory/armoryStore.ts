@@ -17,7 +17,8 @@ import {
   agentLoads, bulkConsequence, bulkDone, bulkUndone, duplicateNames, endSentence, flagsLine, groupBulkTargets, loadsLine, plural, restorePayload,
   NOT_BUILTINS, stateDone, turnAllOnTargets, uniqueName, withSkill, withState,
 } from '../../../src/shared/armory-view';
-import type { AgentLoadRef, ArmoryData, ArmorySkill, BulkConsequence, BulkTo, DrillRef, EditorFields, EffectiveCounts, EffectiveView, ImportReview, SentFile, SkillState } from '../../../src/shared/armory-view';
+import type { AgentLoadRef, ArmoryData, ArmorySkill, BulkConsequence, BulkTo, DrillRef, EditorFields, EffectiveCounts, EffectiveView, FinderSettings, ImportReview, SentFile, SkillState } from '../../../src/shared/armory-view';
+import type { FinderModelStatus } from '../../../src/shared/finder';
 
 export type { ArmoryData, ArmorySkill, EffectiveView, ImportReview, SentFile, SkillState };
 
@@ -59,6 +60,10 @@ export interface PromotedNote { id: string; name: string; path: string; /** What
 export interface EffectiveSlot { status: 'loading' | 'ready' | 'error'; data: EffectiveCounts | null; error: string | null }
 export interface ImportDone { id: string; name: string; kept: string[]; dropped: { path: string; reason: string }[]; stripped: string[] }
 
+export interface RerankSpend { month: string; spentUsd: number; capUsd: number }
+export interface FinderTestRow { id: string; score: number; bm25: number; cosine?: number; boost: number; matched: string[]; thirdParty: boolean }
+export interface FinderTestResult { query: string; scope: 'agent' | 'on'; candidates: number; rows: FinderTestRow[] }
+
 export interface ArmoryUiState {
   data: ArmoryData | null;
   loaded: boolean;
@@ -92,6 +97,13 @@ export interface ArmoryUiState {
   noticeError: string | null;
   shellBusy: boolean;
   shellError: string | null;
+  /** The skill finder: changes in flight, the last failure, the local model's status, and this month's rerank spend. */
+  finderBusy: number;
+  finderError: string | null;
+  model: FinderModelStatus | null;
+  modelBusy: boolean;
+  modelError: string | null;
+  spend: RerankSpend | null;
   reading: ReadState | null;
   /** The skill just added or created, drawn with a highlight for a few seconds. */
   highlight: string | null;
@@ -107,6 +119,7 @@ export interface ArmoryUiState {
 let state: ArmoryUiState = {
   data: null, loaded: false, loading: false, loadError: null, refreshing: false, refreshError: null, absent: false, switching: [], rowErrors: {}, resetting: null, resetErrors: {},
   undo: null, removed: null, busyIds: [], busyOps: {}, undone: null, reveal: null, promoted: null, noticeBusy: false, noticeError: null, shellBusy: false, shellError: null,
+  finderBusy: 0, finderError: null, model: null, modelBusy: false, modelError: null, spend: null,
   reading: null, highlight: null, effective: {}, focusRow: null, savedOff: null, notice: '',
 };
 const listeners = new Set<() => void>();
@@ -528,6 +541,86 @@ export async function setAllowShell(allow: boolean): Promise<void> {
     set({ shellBusy: false });
   }
 }
+
+/* ---- the skill finder ---- */
+/**
+ * A finder setting (one key or several). Optimistic; the core answers with the whole block, which replaces ours. A failure puts back
+ * only the keys this change touched (another change may be in flight) and says why beside the section.
+ */
+export async function setFinder(patch: Partial<FinderSettings>): Promise<boolean> {
+  const cur = state.data?.finder;
+  if (!state.data || !cur) return false;
+  const before: Record<string, unknown> = {};
+  for (const k of Object.keys(patch)) before[k] = (cur as unknown as Record<string, unknown>)[k];
+  const apply = (over: Record<string, unknown>): void => {
+    if (!state.data?.finder) return;
+    const next: Record<string, unknown> = { ...state.data.finder, ...over };
+    for (const k of Object.keys(over)) if (over[k] === undefined || over[k] === '') delete next[k];
+    set({ data: { ...state.data, finder: next as unknown as FinderSettings } });
+  };
+  apply(patch as Record<string, unknown>);
+  set({ finderBusy: state.finderBusy + 1, finderError: null });
+  try {
+    const full = await request<FinderSettings>('POST', '/api/armory/finder', patch);
+    if (state.data) set({ data: { ...state.data, finder: full } });
+    return true;
+  } catch (e) {
+    apply(before);
+    set({ finderError: msg(e) });
+    return false;
+  } finally {
+    set({ finderBusy: state.finderBusy - 1 });
+  }
+}
+
+/** The first-contact notice. "Keep" marks it seen; "Use the full list" also switches the short list off. */
+export const dismissFinderNotice = (useFullList: boolean): Promise<boolean> =>
+  setFinder(useFullList ? { slimListing: false, noticeSeen: true } : { noticeSeen: true });
+
+export async function loadFinderModel(): Promise<void> {
+  try { set({ model: await request<FinderModelStatus>('GET', '/api/armory/finder/model') }); } catch { /* an older core: the card stays hidden */ }
+}
+let modelPoll: ReturnType<typeof setInterval> | undefined;
+const stopPoll = (): void => { if (modelPoll) clearInterval(modelPoll); modelPoll = undefined; };
+/** Get the local model. The core raises an approval card and holds the request until it is answered and the download is done; meanwhile we read its progress. */
+export async function getFinderModel(): Promise<void> {
+  if (state.modelBusy) return;
+  set({ modelBusy: true, modelError: null, model: { state: 'downloading', progress: 0 } });
+  stopPoll();
+  modelPoll = setInterval(() => {
+    void request<FinderModelStatus>('GET', '/api/armory/finder/model').then((m) => { if (state.modelBusy) set({ model: m }); }, () => undefined);
+  }, 1000);
+  try {
+    const r = await request<{ ok: boolean; denied?: boolean; status?: FinderModelStatus }>('POST', '/api/armory/finder/model/get');
+    stopPoll();
+    if (r.status) set({ model: r.status });
+    else await loadFinderModel();
+    if (r.denied) set({ modelError: 'You did not approve the download, so nothing was fetched.' });
+    else if (!r.ok && r.status?.state !== 'error') set({ modelError: 'The download did not finish.' });
+    if (r.ok) announce('The local model is ready.');
+  } catch (e) {
+    stopPoll();
+    await loadFinderModel();
+    set({ modelError: msg(e) });
+  } finally {
+    stopPoll();
+    set({ modelBusy: false });
+  }
+}
+export async function removeFinderModel(): Promise<void> {
+  if (state.modelBusy) return;
+  set({ modelBusy: true, modelError: null });
+  try {
+    set({ model: await request<FinderModelStatus>('DELETE', '/api/armory/finder/model') });
+    announce('The local model is removed.');
+  } catch (e) { set({ modelError: msg(e) }); } finally { set({ modelBusy: false }); }
+}
+export async function loadRerankSpend(): Promise<void> {
+  try { set({ spend: await request<RerankSpend>('GET', '/api/armory/finder/rerank-spend') }); } catch { /* the spend line stays hidden */ }
+}
+/** The test box. A failure throws with the core's plain message. */
+export const testFinder = (query: string, agent?: string): Promise<FinderTestResult> =>
+  request<FinderTestResult>('POST', '/api/armory/finder/test', { query, ...(agent ? { agent } : {}) });
 
 /* ---- read ---- */
 

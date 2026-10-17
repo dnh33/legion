@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { armoryRoutes } from './mock-armory.mjs';
 
 const PORT = Number(process.argv[2] || 47811);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist-ui');
@@ -309,6 +310,7 @@ http.createServer(async (req, res) => {
     if (process.env.CATALOG_FAIL && !(url.searchParams.get('refresh') && catalogCalls > 1 && process.env.CATALOG_FAIL === 'once')) return send(res, 200, { commands: [], models: [], fetchedAt: now(), error: 'Claude Code probe timed out' });
     return send(res, 200, { ...CATALOG, fetchedAt: now() });
   }
+  if (await armoryRoutes({ ctx, req, res, p, url, send, readBody, sleep })) return;
   if (p === '/api/vms') return send(res, 200, db.vms);
   if (p === '/api/approvals') return send(res, 200, db.approvals);
   if (p === '/api/settings' && req.method === 'GET') return send(res, 200, db.settings);

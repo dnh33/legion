@@ -34,6 +34,10 @@ const world = {
   failState: new Set<string>(),
   failNotice: false,
   noShell: false,
+  finder: { suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1, slimListing: true, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false } as Record<string, unknown>,
+  failFinder: '',
+  model: { state: 'not-installed' } as Record<string, unknown>,
+  getModel: 'ok' as 'ok' | 'denied',
   failPromote: false,
   failSave: '',
   failImport: '',
@@ -67,6 +71,7 @@ const reset = (): void => {
     mk('update-config', 'claude-builtin', { path: null, fit: 'self', offReason: 'It edits Claude Code settings.' }),
   ];
   world.ccNoticeSeen = false; world.allowSkillShell = false; world.down = false; world.failState = new Set(); world.failNotice = false; world.noShell = false;
+  world.finder = { suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1, slimListing: true, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false }; world.failFinder = ''; world.model = { state: 'not-installed' }; world.getModel = 'ok';
   world.failPromote = false; world.failSave = ''; world.failImport = ''; world.failBulk = ''; world.failRefresh = ''; world.discovery = 'sdk'; world.discoveryReason = null; world.discoveredAt = '2026-10-06T10:00:00.000Z'; world.dryRun = null; world.failDelete = false; world.failRestore = false; world.slow = 0; world.drillText = ''; world.texts = {}; world.eff = {}; world.calls = [];
   world.real = null; world.house = []; world.old = false;
 };
@@ -89,7 +94,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
   const q = (k: string): string => u.searchParams.get(k) ?? '';
   const find = (id: string): S | undefined => world.skills.find((s) => s.id === id);
   const overview = (): Record<string, unknown> => ({
-    inherit: true, ccNoticeSeen: world.ccNoticeSeen, pluginRoot: '/p', allowSkillShell: world.allowSkillShell, skills: world.skills.map((s) => ({ ...s })),
+    inherit: true, ccNoticeSeen: world.ccNoticeSeen, pluginRoot: '/p', allowSkillShell: world.allowSkillShell, finder: world.finder, skills: world.skills.map((s) => ({ ...s })),
     discoveredAt: world.discoveredAt, discovery: world.discovery, discoveryReason: world.discoveryReason, discoveryPlugins: 2,
   });
   switch (`${method} ${u.pathname}`) {
@@ -132,6 +137,19 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
       if (world.failNotice) return json(500, { error: 'cannot write the notice' });
       world.ccNoticeSeen = body?.seen !== false;
       return json(200, { ccNoticeSeen: world.ccNoticeSeen });
+    case 'POST /api/armory/finder':
+      if (world.failFinder) return json(500, { error: world.failFinder });
+      world.finder = { ...world.finder, ...body };
+      return json(200, world.finder);
+    case 'GET /api/armory/finder/model':
+      return json(200, world.model);
+    case 'POST /api/armory/finder/model/get':
+      if (world.getModel === 'denied') return json(200, { ok: false, denied: true, status: world.model });
+      world.model = { state: 'ready', bytes: 150_000_000 };
+      return json(200, { ok: true, status: world.model });
+    case 'DELETE /api/armory/finder/model':
+      world.model = { state: 'not-installed' };
+      return json(200, world.model);
     case 'POST /api/armory/allow-shell':
       if (world.noShell) return json(404, { error: 'no route' });
       world.allowSkillShell = body!.allow === true;
@@ -205,6 +223,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 };
 
 interface St2 {
+  finderError: string | null; finderBusy: number; model: { state: string } | null; modelError: string | null; modelBusy: boolean;
   data: { skills: S[]; ccNoticeSeen: boolean; allowSkillShell?: boolean; discoveredAt?: string | null; discovery?: string; discoveryReason?: string | null } | null; loaded: boolean; loading: boolean; loadError: string | null; absent: boolean;
   refreshing: boolean; refreshError: string | null;
   switching: string[]; rowErrors: Record<string, { op: string; message: string }>; resetting: string | null; resetErrors: Record<string, string>;
@@ -228,6 +247,10 @@ interface Store {
   reviewImportFiles(f: ({ path: string; text: string } | { path: string; size: number; text: null })[]): Promise<{ ok: boolean; refusal: string; name: string; id: string; kept: string[]; dropped: { path: string; reason: string }[]; stripped: string[]; skillText: string }>;
   dismissNotice(): Promise<boolean>;
   setAllowShell(a: boolean): Promise<void>;
+  setFinder(p: Record<string, unknown>): Promise<boolean>;
+  dismissFinderNotice(useFullList: boolean): Promise<boolean>;
+  getFinderModel(): Promise<void>;
+  removeFinderModel(): Promise<void>;
   removeSkill(id: string): Promise<boolean>;
   undoRemove(): Promise<void>;
   promoteSkill(id: string): Promise<boolean>;
@@ -582,6 +605,54 @@ test('the Advanced switch: optimistic, announced, and put back with the reason w
   await store.setAllowShell(false);
   assert.equal(getArmory().shellError, null);
   assert.equal(getArmory().data!.allowSkillShell, false);
+});
+
+test('a finder setting is optimistic, the core answer replaces it, and a failure puts back only that key and says why', async () => {
+  await fresh();
+  assert.equal((getArmory().data as any).finder.k, 3);
+  const p = store.setFinder({ k: 5 });
+  assert.equal((getArmory().data as any).finder.k, 5, 'optimistic');
+  assert.equal(getArmory().finderBusy, 1);
+  assert.equal(await p, true);
+  assert.equal(world.finder.k, 5);
+  assert.equal(getArmory().finderBusy, 0);
+  world.failFinder = 'disk is full';
+  assert.equal(await store.setFinder({ k: 2, chatLine: false }), false);
+  const f = (getArmory().data as any).finder;
+  assert.equal(f.k, 5, 'back as it was');
+  assert.equal(f.chatLine, true);
+  assert.equal(getArmory().finderError, 'disk is full');
+  world.failFinder = '';
+  assert.equal(await store.setFinder({ chatLine: false }), true);
+  assert.equal(getArmory().finderError, null);
+});
+
+test('the first-contact notice: Keep sends noticeSeen only; "Use the full list" sends slimListing false and noticeSeen true together', async () => {
+  await fresh();
+  world.calls.length = 0;
+  await store.dismissFinderNotice(false);
+  assert.deepEqual(world.calls.find((c) => c.path === '/api/armory/finder')!.body, { noticeSeen: true });
+  assert.equal(world.finder.slimListing, true);
+  await fresh();
+  world.calls.length = 0;
+  await store.dismissFinderNotice(true);
+  assert.deepEqual(world.calls.find((c) => c.path === '/api/armory/finder')!.body, { slimListing: false, noticeSeen: true });
+  assert.equal((getArmory().data as any).finder.slimListing, false);
+  assert.equal((getArmory().data as any).finder.noticeSeen, true);
+});
+
+test('the local model: get shows the core status, a refusal says so, remove goes back to not installed', async () => {
+  await fresh();
+  await store.getFinderModel();
+  assert.equal(getArmory().model!.state, 'ready');
+  assert.equal(getArmory().modelError, null);
+  assert.equal(getArmory().modelBusy, false);
+  await store.removeFinderModel();
+  assert.equal(getArmory().model!.state, 'not-installed');
+  world.getModel = 'denied';
+  await store.getFinderModel();
+  assert.equal(getArmory().model!.state, 'not-installed');
+  assert.match(getArmory().modelError!, /did not approve/);
 });
 
 test('Remove is at once, offers Undo, and Undo posts the old text, then puts the state and the agent list back', async () => {

@@ -20,6 +20,7 @@ import type { PickedSource } from './ArmoryDialogs';
 import { Note, RowMenu, StateRadio } from './ArmoryControls';
 import type { MenuItem } from './ArmoryControls';
 import { SkillEditor } from './SkillEditor';
+import { SkillFinder } from './SkillFinder';
 import { SnackSlot, Toast } from './Snack';
 import { Description } from './Description';
 import {
@@ -288,6 +289,7 @@ export function ArmorySection() {
           </div>
 
           <WhatAgentsSee agents={agents} />
+          <SkillFinder agents={agents} />
           <Advanced />
           <SnackSlot onEl={setToastEl} />
         </>
@@ -347,7 +349,8 @@ function Discovery({ data, nowMs, refreshing, error }: { data: ArmoryData; nowMs
           </p>
           {showWhich ? (
             <>
-              <ul className="set-hint">
+              {/* A long list scrolls inside its own box (about 12 rows), so it never pushes the skills below it out of reach. */}
+              <ul className="set-hint arm-which" tabIndex={0} aria-label="Switched-on skills no listing finds">
                 {ids.map((id) => <li key={id}>{id}</li>)}
               </ul>
               {(data.unmatchedOn ?? 0) > ids.length ? <p className="set-hint">Only the first {ids.length} are listed.</p> : null}
