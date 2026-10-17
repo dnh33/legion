@@ -460,7 +460,7 @@ describe('rerank: spend', () => {
 describe('rerank: the note', () => {
   // Three skills with the same words: their keyword scores tie, so the margin is 0 and the rerank runs.
   const TIE = 'export invoices to pdf for accounting please';
-  const SETTINGS = { rerank: true, rerankMonthlyUsd: 5, threshold: 'eager' };
+  const SETTINGS = { suggest: true, rerank: true, rerankMonthlyUsd: 5, threshold: 'eager' };
   async function tiedRig(f: ReturnType<typeof fakeSessions> | undefined, settings: Record<string, unknown> = SETTINGS, tuning: Partial<RerankSessionOpts> = {}) {
     const rig = armoryRig({ modOpts: { ...(f ? { rerankQuery: f.queryFn } : {}), rerankTuning: tuning } });
     for (const n of ['invoice-pdf-a', 'invoice-pdf-b', 'invoice-pdf-c']) await own(rig, { name: n, description: 'Export invoices to PDF documents for accounting', body: 'b' });
@@ -499,7 +499,7 @@ describe('rerank: the note', () => {
     const f = fakeSessions((n) => ({ text: n === 0 ? '[]' : '["legion-armory:ghost"]' }));
     const rig = await tiedRig(f);
     await warmed(f, rig);
-    const fusedOrder = (await tiedRig(undefined, { rerank: false, threshold: 'eager' }).then((r) => turn(r)))!.suggested;
+    const fusedOrder = (await tiedRig(undefined, { suggest: true, rerank: false, threshold: 'eager' }).then((r) => turn(r)))!.suggested;
     const note = await turn(rig);
     assert.ok(note, 'a note, not []');
     assert.deepEqual(note!.suggested, fusedOrder, 'the same order as with the rerank off');
@@ -526,7 +526,7 @@ describe('rerank: the note', () => {
 
   it('a tie with the rerank off makes no session', async () => {
     const f = fakeSessions();
-    const rig = await tiedRig(f, { rerank: false, threshold: 'eager' });
+    const rig = await tiedRig(f, { suggest: true, rerank: false, threshold: 'eager' });
     assert.ok(await turn(rig));
     assert.equal(f.made.length, 0);
   });
@@ -569,7 +569,7 @@ describe('rerank: the note', () => {
   });
 
   it('finderWiring reports the rerank switch exactly as the setting has it', async () => {
-    const rig = await tiedRig(undefined, { rerank: false });
+    const rig = await tiedRig(undefined, { suggest: true, rerank: false });
     assert.equal(rig.mod.finderWiring!(rig.agents.get('alpha')!).rerank, false);
     await rig.call('POST', '/api/armory/finder', { rerank: true });
     assert.equal(rig.mod.finderWiring!(rig.agents.get('alpha')!).rerank, true);

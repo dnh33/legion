@@ -1,4 +1,8 @@
-/** Tuning values for the skill finder. Provisional: Task 11 tunes the thresholds against the eval set. */
+/**
+ * Tuning values for the skill finder, set by the Task 11 eval (scripts/skill-finder-eval.mjs) on the owner's own sets, over the skills that
+ * are switched on. The rule: the most recall@3 with a false-note rate of at most 0.15 on real no-skill prompts and a note precision of at
+ * least 0.50. The keyword ranker has no point that meets both bars (see THRESHOLDS); the local ranker meets them only where a note is rare.
+ */
 
 /** Weight of each field in the BM25F score. The id's parts count as part of `name`. */
 export const FIELD_WEIGHTS = { name: 3, description: 1.5, whenToUse: 1.5, headings: 0.5 } as const;
@@ -8,8 +12,13 @@ export const K1 = 1.2;
 /** BM25 length normalisation: 0 is none, 1 is full. */
 export const B = 0.75;
 
-/** Score floors for the note. A hit under its floor adds no note. */
-export const THRESHOLDS = { strict: 4, balanced: 2, eager: 0.8 } as const;
+/**
+ * Score floors for the note when keywords ranked the skills (BM25F; the scale follows the size of the catalog). A hit under its floor adds no note.
+ * No floor makes the keyword note precise enough (no point meets both bars), so these are the floors with the most recall at a false-note rate
+ * of at most 0.15 (balanced), about half of it (strict) and about double (eager). The note is then wrong more often than right: keyword-only
+ * suggestions stay off by default (see FINDER_DEFAULTS.suggest).
+ */
+export const THRESHOLDS = { strict: 40, balanced: 20, eager: 15 } as const;
 
 /** Time limits in milliseconds. Past the limit, the finder adds no note. */
 export const DEADLINE_MS = 50;
@@ -24,12 +33,12 @@ export const RERANK_LATENCY_NOTE = 'Adds up to about 2.5 seconds before each rep
 export const DEFAULT_K = 3;
 
 /**
- * Embeddings. Provisional, tuned in Task 11.
+ * Embeddings, tuned in Task 11.
  * The fused score is `w * cosineNorm + (1 - w) * bm25Norm`, both 0..1 over the candidates.
  */
-export const FUSION_WEIGHT = 0.6;
+export const FUSION_WEIGHT = 0.8;
 /** Score floors for the note when embeddings ranked the skills (the fused score, 0..1). */
-export const FUSED_THRESHOLDS = { strict: 0.75, balanced: 0.6, eager: 0.45 } as const;
+export const FUSED_THRESHOLDS = { strict: 1.05, balanced: 0.95, eager: 0.9 } as const;
 /**
  * A narrow spread is not stretched to 0..1. Without this the best candidate would always score 1, even when
  * nothing fits the message, and the floor would never say no. Cosines of the e5 model sit close together, so the spread is small.
@@ -42,7 +51,7 @@ export const BM25_MIN_SPREAD = 2;
  * candidates, so the best skill always scores high; the e5 cosines of unrelated text still sit in a band, and this floor is the only
  * absolute test of fit. A skill with no vector yet is not judged by it.
  */
-export const RAW_COSINE_FLOOR = 0;
+export const RAW_COSINE_FLOOR = 0.88;
 /** How long the finder waits for the message's embedding before it uses keywords for that turn. */
 export const EMBED_QUERY_BUDGET_MS = 300;
 /** How long the engine waits for a turn's note when embeddings are on. */
@@ -51,11 +60,12 @@ export const EMBED_TURN_TIMEOUT_MS = 500;
 export const MODEL_IDLE_MS = 5 * 60_000;
 
 /**
- * The Haiku rerank. Provisional, tuned in Task 11. It runs only when the top three scores are within RERANK_MARGIN of each other
+ * The Haiku rerank. The margin is from the Task 11 sample (the largest margin set that did not hurt precision or the false-note rate on either
+ * ranker; the gain is small and the samples are small). It runs only when the top three scores are within RERANK_MARGIN of each other
  * (on the normalised scale, 0..1). It sees the top RERANK_CANDIDATES skills, the message cut to RERANK_TEXT_CHARS and each
  * description cut to RERANK_DESC_CHARS.
  */
-export const RERANK_MARGIN = 0.15;
+export const RERANK_MARGIN = 0.2;
 export const RERANK_CANDIDATES = 8;
 export const RERANK_TEXT_CHARS = 2000;
 export const RERANK_DESC_CHARS = 200;

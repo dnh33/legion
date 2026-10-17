@@ -186,7 +186,7 @@ describe('rankFused', () => {
     ['design', [1, 0]], ['postgres', [0, 1]], ['security', [-0.2, -1]], ['luxury', [0.9, 0.1]],
   ]);
   const ix = buildIndex(docs);
-  const base = { k: 3, minScore: 0, deadlineMs: 1000 };
+  const base = { k: 3, minScore: 0, deadlineMs: 1000, cosineFloor: 0 };
 
   it('a skill with no keyword hit still ranks by its cosine', () => {
     // The message shares no word with "luxury", but its vector points at design.
@@ -250,8 +250,9 @@ describe('rankFused', () => {
     const q = 'find injection leaked secrets';
     const r = rankFused(ix, q, [0.6, 0.8], partial, { ...base, k: 5, cosineFloor: 0.99 })!;
     assert.deepEqual(r.results.map((x) => x.id), ['security'], 'a keyword hit with no vector is not judged by a cosine it does not have');
-    const dflt = rankFused(ix, 'typography', [0.7, 0.7], vecs, { ...base, k: 5 })!;
-    const same = rankFused(ix, 'typography', [0.7, 0.7], vecs, { ...base, k: 5, cosineFloor: RAW_COSINE_FLOOR })!;
+    const plain = { k: 5, minScore: 0, deadlineMs: 1000 };
+    const dflt = rankFused(ix, 'typography', [0.7, 0.7], vecs, plain)!;
+    const same = rankFused(ix, 'typography', [0.7, 0.7], vecs, { ...plain, cosineFloor: RAW_COSINE_FLOOR })!;
     assert.deepEqual(dflt.results, same.results);
   });
 

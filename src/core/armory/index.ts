@@ -33,14 +33,14 @@ import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, upd
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch, suggestOn } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
-import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, RERANK_CANDIDATES, THRESHOLDS } from './finder/defaults.js';
+import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
 import { cachedPassages, createVectorCache, MAX_NEW_PASSAGES, passageVectors } from './finder/embed.js';
 import type { Embedder, VectorCache } from './finder/embed.js';
 import { createFinderModel } from './finder/model.js';
 import type { FinderModelOpts } from './finder/model.js';
 import { createProviderEmbedder } from './finder/provider-embed.js';
 import type { ProviderTarget } from '../providers/http.js';
-import type { FinderSettings } from '../../shared/armory-view.js';
+import type { FinderSettings, FinderThreshold } from '../../shared/armory-view.js';
 import { savedWhen } from '../../shared/armory-view.js';
 import { docFromEntry } from './finder/doc.js';
 import type { FinderDoc } from './finder/doc.js';
@@ -81,6 +81,17 @@ export interface ArmoryOptions {
   rerankQuery?: RerankQuery;
   /** Shorter timings and limits for the rerank session. Tests only. */
   rerankTuning?: Partial<RerankSessionOpts>;
+  /** Other values for the tuned defaults (floors, fusion weight, cosine floor, rerank margin). Tests only: they exercise the mechanism, not the tuned numbers. */
+  finderTuning?: Partial<FinderTuning>;
+}
+
+/** The numbers the Task 11 eval tuned (finder/defaults.ts). */
+export interface FinderTuning {
+  thresholds: Readonly<Record<FinderThreshold, number>>;
+  fusedThresholds: Readonly<Record<FinderThreshold, number>>;
+  weight: number;
+  cosineFloor: number;
+  rerankMargin: number;
 }
 
 /**
@@ -132,6 +143,7 @@ const FIND_EMBED_BUDGET_MS = 2000;
 
 export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): ArmoryModule {
   const log = opts.log ?? (() => undefined);
+  const tune: FinderTuning = { thresholds: THRESHOLDS, fusedThresholds: FUSED_THRESHOLDS, weight: FUSION_WEIGHT, cosineFloor: RAW_COSINE_FLOOR, rerankMargin: RERANK_MARGIN, ...(opts.finderTuning ?? {}) };
   const ttl = opts.ttlMs ?? 5000;
   const probe = opts.sdkProbe ?? sdkHandshake;
   const retryMs = opts.retryMs ?? 300_000;
@@ -315,7 +327,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     let ordered: { id: string; score: number }[] | undefined;
     if (emb) {
       const st = await embedState(emb, docsOf(docs, cand), query, FIND_EMBED_BUDGET_MS);
-      const fused = st ? rankFused(sub, query, st.qv, st.vecs, { k: limit, maxK: limit, minScore: 0, deadlineMs: DEADLINE_MS, boost }) : null;
+      // The search has no floor: a search that names the closest skills is useful even when none is close enough for a note.
+      const fused = st ? rankFused(sub, query, st.qv, st.vecs, { k: limit, maxK: limit, minScore: 0, cosineFloor: -1, weight: tune.weight, deadlineMs: DEADLINE_MS, boost }) : null;
       if (fused && !fused.timedOut) ordered = fused.results.map((r) => ({ id: r.id, score: r.score }));
     }
     ordered ??= [...scoreIndex(sub, query)].map(([id, h]) => ({ id, score: h.score * boost(id) }))
@@ -409,10 +422,10 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const emb = embedderFor(f);
       if (emb) {
         const st = await embedState(emb, docsOf(docs, cand), ctx.prompt, EMBED_QUERY_BUDGET_MS);
-        const got = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: cut, maxK: RERANK_CANDIDATES, minScore: FUSED_THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }) : null;
+        const got = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: cut, maxK: RERANK_CANDIDATES, minScore: tune.fusedThresholds[f.threshold], cosineFloor: tune.cosineFloor, weight: tune.weight, deadlineMs: DEADLINE_MS, boost }) : null;
         if (got && !got.timedOut) { results = got.results; fused = true; }
       }
-      if (!results) results = rank(sub, ctx.prompt, { k: cut, maxK: RERANK_CANDIDATES, minScore: THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }).results;
+      if (!results) results = rank(sub, ctx.prompt, { k: cut, maxK: RERANK_CANDIDATES, minScore: tune.thresholds[f.threshold], deadlineMs: DEADLINE_MS, boost }).results;
       const wide = results;
       let chosen = wide.slice(0, f.k);
       // The optional Haiku rerank: only when the top scores are close. Its answer is ids from this list, or undefined (keep the order).
@@ -420,7 +433,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       if (wantRerank && wide.length >= 2) {
         // Reused from the ranking above: the best BM25 among the kept results (a no-boost tie is the same as the best of all candidates).
         const best = fused ? 0 : Math.max(0, ...wide.map((r) => r.bm25));
-        if (isCloseMatch(rerankScores(wide, fused, best))) {
+        if (isCloseMatch(rerankScores(wide, fused, best), tune.rerankMargin)) {
           const ids = await rerank.pick({
             text: ctx.prompt,
             candidates: wide.map((r) => ({ id: r.id, description: docs.get(r.id)?.description ?? '' })),

@@ -11,7 +11,7 @@ import { buildIndex, scoreIndex } from '../src/core/armory/finder/bm25.js';
 import { rank } from '../src/core/armory/finder/rank.js';
 import { buildNote, buildProviderNote } from '../src/core/armory/finder/note.js';
 import type { Ranked } from '../src/core/armory/finder/rank.js';
-import { DEADLINE_MS, DEFAULT_K, EMBED_QUERY_BUDGET_MS, RERANK_DEADLINE_MS, RERANK_TURN_TIMEOUT_MS, THRESHOLDS } from '../src/core/armory/finder/defaults.js';
+import { BM25_MIN_SPREAD, DEADLINE_MS, DEFAULT_K, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, RERANK_DEADLINE_MS, RERANK_MARGIN, RERANK_TURN_TIMEOUT_MS, THRESHOLDS } from '../src/core/armory/finder/defaults.js';
 import { tempDir } from './tmp-cleanup.js';
 
 function mkEntry(over: Partial<CatalogEntry> & { id: string }): CatalogEntry {
@@ -277,7 +277,13 @@ describe('rank gates', () => {
   });
 
   it('keeps the gate constants the finder uses', () => {
-    assert.deepEqual(THRESHOLDS, { strict: 4, balanced: 2, eager: 0.8 });
+    // The values the Task 11 eval set (see task-11-report.md); a change here is a new tuning, not a refactor.
+    assert.deepEqual(THRESHOLDS, { strict: 40, balanced: 20, eager: 15 });
+    assert.deepEqual(FUSED_THRESHOLDS, { strict: 1.05, balanced: 0.95, eager: 0.9 });
+    assert.equal(FUSION_WEIGHT, 0.8);
+    assert.equal(RAW_COSINE_FLOOR, 0.88);
+    assert.equal(RERANK_MARGIN, 0.2);
+    assert.equal(BM25_MIN_SPREAD, 2, 'the keyword spread does not move with the keyword floors');
     assert.equal(DEFAULT_K, 3);
     assert.equal(DEADLINE_MS, 50);
     assert.equal(RERANK_DEADLINE_MS, 2500);

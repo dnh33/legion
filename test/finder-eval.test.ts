@@ -162,7 +162,7 @@ describe('finder eval: score', () => {
     const sb = sandbox();
     const jsonPath = join(sb.base, 'fixture-report.json');
     const setPath = join(FIXTURES, 'cases.jsonl');
-    const r = run(sb, ['score', '--set', setPath, '--catalog', join(FIXTURES, 'skills.json'), '--json', jsonPath]);
+    const r = run(sb, ['score', '--set', setPath, '--catalog', join(FIXTURES, 'skills.json'), '--min-score', '2', '--json', jsonPath]);
     assert.equal(r.status, 0, r.out);
     const report = JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>;
     assert.equal(report.catalog.skills, 12);
@@ -181,7 +181,7 @@ describe('finder eval: score', () => {
     const negPath = join(sb.base, 'negatives.jsonl');
     writeJsonl(negPath, [{ prompt: 'zebra quartz nebula' }, { prompt: 'Descale the kettle with citric acid' }]);
     const jsonPath = join(sb.base, 'neg-report.json');
-    const r = run(sb, ['score', '--set', join(FIXTURES, 'cases.jsonl'), '--negatives', negPath, '--catalog', join(FIXTURES, 'skills.json'), '--json', jsonPath]);
+    const r = run(sb, ['score', '--set', join(FIXTURES, 'cases.jsonl'), '--negatives', negPath, '--catalog', join(FIXTURES, 'skills.json'), '--min-score', '2', '--json', jsonPath]);
     assert.equal(r.status, 0, r.out);
     const report = JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>;
     assert.equal(report.negatives.count, 2);
@@ -328,7 +328,7 @@ describe('finder eval: gold ids and the pool', () => {
       { prompt: 'Plan my vegetable garden layout for spring sowing', skill: 'nowhere:ghost-skill', subset: 'subagent' },
     ]);
     const jsonPath = join(sb.base, 'pool-report.json');
-    const r = run(sb, ['score', '--set', set, '--catalog', catalog, '--json', jsonPath]);
+    const r = run(sb, ['score', '--set', set, '--catalog', catalog, '--min-score', '2', '--json', jsonPath]);
     assert.equal(r.status, 0, r.out);
     const report = JSON.parse(readFileSync(jsonPath, 'utf8')) as Record<string, any>;
     assert.equal(report.catalog.skills, 2, 'locked and unsafe entries are not in the pool');
@@ -428,10 +428,10 @@ describe('finder eval: note precision, subsets, the agent pool and the sweep', (
     const neg = join(sb.base, 'negatives.jsonl');
     writeJsonl(neg, [{ prompt: 'zebra quartz nebula' }, { prompt: 'Descale the kettle with citric acid' }]);
     const { report, out } = scoreJson(sb, readRows(join(FIXTURES, 'cases.jsonl')), ['--sweep', '--negatives', neg], readFixtureSkills());
-    assert.equal(report.sweep.points, 20);
+    assert.equal(report.sweep.points, 23);
     assert.ok(report.sweep.feasible > 0, 'the fixture must have a floor that meets the bars');
     assert.equal(report.sweep.checked.identical, report.sweep.checked.prompts);
-    assert.match(out, /sweep: 20 points/);
+    assert.match(out, /sweep: 23 points/);
     // The best point is the one with the most recall among the points that meet both bars.
     const ok = (report.sweep.all as Array<Record<string, number>>).filter((p) => p.falseNoteRate! <= 0.15 && p.precision! >= 0.5);
     assert.equal(report.sweep.best.recall, Math.max(...ok.map((p) => p.recall!)));

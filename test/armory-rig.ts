@@ -62,6 +62,16 @@ export const noSdk: SdkProbe = async () => { throw new Error('no Claude Code in 
 /** The default rerank query in tests: no Claude Code is started. A test that turns the rerank on passes its own fake. */
 export const noRerank: RerankQuery = () => { throw new Error('no Haiku rerank in tests'); };
 
+/**
+ * The numbers the finder tests ran on before the Task 11 tuning. The tests exercise the mechanism on tiny invented catalogs, where the tuned floors
+ * (made for a catalog of hundreds of skills) would say no to everything. One test pins the shipped values (finder-core).
+ */
+export const MECHANISM_TUNING = {
+  thresholds: { strict: 4, balanced: 2, eager: 0.8 },
+  fusedThresholds: { strict: 0.75, balanced: 0.6, eager: 0.45 },
+  weight: 0.6, cosineFloor: 0, rerankMargin: 0.15,
+} as const;
+
 export function armoryRig(o: { inherit?: boolean; cc?: CcFixture; agents?: AgentProfile[]; sdkProbe?: SdkProbe; modOpts?: Partial<ArmoryOptions> } = {}): ArmoryRig {
   const dataDir = tempDir('legion-armory-');
   const home = tempDir('legion-cchome-');
@@ -70,7 +80,7 @@ export function armoryRig(o: { inherit?: boolean; cc?: CcFixture; agents?: Agent
   config.claude.inheritClaudeCodeSettings = o.inherit ?? true;
   const agents = new Map((o.agents ?? [mkAgent('alpha'), mkAgent('beta')]).map((a) => [a.id, a]));
   const deps = { dataDir, config, store: { getAgent: (id: string) => agents.get(id), listAgents: () => [...agents.values()] } } as unknown as ModuleDeps;
-  const mod = createArmoryModule(deps, { claudeHome: home, ttlMs: 0, sdkProbe: o.sdkProbe ?? noSdk, rerankQuery: noRerank, ...(o.modOpts ?? {}) });
+  const mod = createArmoryModule(deps, { claudeHome: home, ttlMs: 0, sdkProbe: o.sdkProbe ?? noSdk, rerankQuery: noRerank, finderTuning: MECHANISM_TUNING, ...(o.modOpts ?? {}) });
   const handlers = new Map<string, (c: unknown) => unknown>();
   const paths: string[] = [];
   const add: RouteAdder = (m, p, h) => { paths.push(`${m} ${p}`); handlers.set(`${m} ${p}`, h as (c: unknown) => unknown); };

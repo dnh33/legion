@@ -9,7 +9,7 @@ import type { Embedder, EmbedKind } from '../src/core/armory/finder/embed.js';
 import type { ModuleJob } from '../src/core/modules.js';
 import { entryFor, jsonReply, startFake } from './providers-fakes.js';
 import type { Fake } from './providers-fakes.js';
-import { armoryRig, own } from './armory-rig.js';
+import { armoryRig, MECHANISM_TUNING, own } from './armory-rig.js';
 
 /** Three meanings: 0 design, 1 database, 2 anything else. */
 const AXIS = (text: string): number => (/typography|luxurious|premium/i.test(text) ? 0 : /database|quer(?:y|ies)|index/i.test(text) ? 1 : 2);
@@ -91,7 +91,7 @@ describe('the note with embeddings', () => {
     await r.mod.finderSettled();
     const again = createArmoryModule(
       { dataDir: r.dataDir, config: r.config, store: { getAgent: (id: string) => r.agents.get(id), listAgents: () => [...r.agents.values()] } } as never,
-      { claudeHome: r.home, ttlMs: 0, finderEmbedder: () => f.e, sdkProbe: async () => { throw new Error('no'); } },
+      { claudeHome: r.home, ttlMs: 0, finderEmbedder: () => f.e, finderTuning: MECHANISM_TUNING, sdkProbe: async () => { throw new Error('no'); } },
     );
     const note = await again.turnNote!(r.agents.get('alpha')!, { prompt: NO_KEYWORDS, taskId: 't2', runtime: 'claude' });
     assert.deepEqual(note?.suggested, [ID('design-polish')]);
@@ -245,5 +245,29 @@ describe("suggest 'auto' (the default)", () => {
     await local.call('POST', '/api/armory/finder', { suggest: false });
     assert.equal(local.mod.finderWiring!(local.agents.get('alpha')!).suggest, false, 'an explicit off wins');
     assert.equal(await turn(local, prompt), undefined);
+  });
+});
+
+describe('the raw cosine floor', () => {
+  it('keeps a note away when no skill is close enough, but never cuts the search tool', async () => {
+    // Every skill is only about 0.6 close to the message: far under the floor of 0.88, yet the min-max score of the best two is high.
+    const far: Embedder = {
+      id: 'fake-far',
+      async embed(texts, _s, kind) {
+        return texts.map((t) => (kind === 'query' ? Float32Array.from([0.6, 0.6, 0.53]) : vecOf(t)));
+      },
+    };
+    const r = armoryRig({ modOpts: { finderEmbedder: () => far, finderTuning: { ...MECHANISM_TUNING, cosineFloor: 0.88 } } });
+    await own(r, { name: 'design-polish', description: 'Polish typography, spacing and colour for pages', body: 'b' });
+    await own(r, { name: 'db-tune', description: 'Tune database queries and indexes', body: 'b' });
+    await own(r, { name: 'garden-notes', description: 'Helps with garden things', body: 'b' });
+    await r.call('POST', '/api/armory/finder', { ranker: 'local', threshold: 'eager' });
+    await turn(r, 'something vague about the whole thing please');
+    await r.mod.finderSettled();
+    assert.equal(await turn(r, 'something vague about the whole thing please'), undefined, 'no skill is close enough for a note');
+    const job = { taskId: 't', runtime: 'claude', taint: () => false, markTainted: () => undefined } as unknown as ModuleJob;
+    const srv = r.mod.mcpServers!(r.agents.get('alpha')!, job)[ARMORY_SERVER_NAME] as any;
+    const out = (await srv.instance._registeredTools.armory_find.handler({ query: 'something vague about the whole thing please', limit: 5 }, {})).content.map((c: any) => c.text).join('\n') as string;
+    assert.ok(out.includes('design-polish') && out.includes('db-tune'), `the search still lists the closest skills: ${out}`);
   });
 });
