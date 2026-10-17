@@ -585,9 +585,9 @@ export async function setFinder(patch: Partial<FinderSettings>): Promise<boolean
   }
 }
 
-/** The first-contact notice. "Keep" marks it seen; "Use the full list" also switches the short list off. */
-export const dismissFinderNotice = (useFullList: boolean): Promise<boolean> =>
-  setFinder(useFullList ? { slimListing: false, noticeSeen: true } : { noticeSeen: true });
+/** The first-contact notice. "Keep" marks it seen; "Turn off" also switches the search tool off. */
+export const dismissFinderNotice = (turnOff: boolean): Promise<boolean> =>
+  setFinder(turnOff ? { searchTool: false, noticeSeen: true } : { noticeSeen: true });
 
 export async function loadFinderModel(): Promise<void> {
   try { set({ model: await request<FinderModelStatus>('GET', '/api/armory/finder/model') }); } catch { /* an older core: the card stays hidden */ }

@@ -16,7 +16,7 @@ import {
 } from './armoryStore';
 import type { FinderTestResult } from './armoryStore';
 
-export const FINDER_NOTICE = 'Legion now lists your skills briefly and lets agents search for the one that fits. With many skills on, each message stays smaller.';
+export const FINDER_NOTICE = 'Agents can now search your skills for the one that fits a task.';
 const SUGGEST_HELP = 'Off by default: in tests, a suggestion picked the right skill less than half the time.';
 const SLIM_HELP = "Sends each skill's name with a short description, and agents search for the rest. Saves the most when many skills are on.";
 const SLIM_NEEDS = 'Needs the search tool.';
@@ -83,7 +83,7 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
           <p>{FINDER_NOTICE}</p>
           <div className="arm-noticebtns">
             <button type="button" className="btn sm primary" onClick={() => { void dismissFinderNotice(false).then((ok) => { if (ok) { say('Kept. You can change this below.'); heading.current?.focus(); } }); }}>Keep</button>
-            <button type="button" className="btn sm" onClick={() => { void dismissFinderNotice(true).then((ok) => { if (ok) { say('Agents get the full skill list.'); heading.current?.focus(); } }); }}>Use the full list</button>
+            <button type="button" className="btn sm" onClick={() => { void dismissFinderNotice(true).then((ok) => { if (ok) { say('The skill search is off.'); heading.current?.focus(); } }); }}>Turn off</button>
           </div>
         </section>
       ) : null}

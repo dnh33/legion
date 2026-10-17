@@ -130,6 +130,7 @@ describe('finder on the Claude path', () => {
   it('slim listing auto turns on only above 40 delivered skills (40 no, 41 yes); true needs no count; none without the search tool', async () => {
     const rig = armoryRig();
     const alpha = rig.agents.get('alpha')!;
+    await rig.call('POST', '/api/armory/finder', { slimListing: 'auto' });
     for (let i = 0; i < 40; i++) await own(rig, { name: `skill-${String(i).padStart(2, '0')}`, description: `Does thing ${i}`, body: 'b' });
     assert.equal(rig.mod.finderWiring!(alpha).slimListing, false, 'auto at exactly 40');
     await own(rig, { name: 'skill-40', description: 'Does thing 40', body: 'b' });

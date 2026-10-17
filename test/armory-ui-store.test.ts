@@ -642,17 +642,17 @@ test('a finder setting is optimistic, the core answer replaces it, and a failure
   assert.equal(getArmory().finderError, null);
 });
 
-test('the first-contact notice: Keep sends noticeSeen only; "Use the full list" sends slimListing false and noticeSeen true together', async () => {
+test('the first-contact notice: Keep sends noticeSeen only; "Turn off" sends searchTool false and noticeSeen true together', async () => {
   await fresh();
   world.calls.length = 0;
   await store.dismissFinderNotice(false);
   assert.deepEqual(world.calls.find((c) => c.path === '/api/armory/finder')!.body, { noticeSeen: true });
-  assert.equal(world.finder.slimListing, 'auto');
+  assert.equal(world.finder.searchTool, true);
   await fresh();
   world.calls.length = 0;
   await store.dismissFinderNotice(true);
-  assert.deepEqual(world.calls.find((c) => c.path === '/api/armory/finder')!.body, { slimListing: false, noticeSeen: true });
-  assert.equal((getArmory().data as any).finder.slimListing, false);
+  assert.deepEqual(world.calls.find((c) => c.path === '/api/armory/finder')!.body, { searchTool: false, noticeSeen: true });
+  assert.equal((getArmory().data as any).finder.searchTool, false);
   assert.equal((getArmory().data as any).finder.noticeSeen, true);
 });
 

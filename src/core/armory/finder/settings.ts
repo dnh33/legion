@@ -18,9 +18,9 @@ export const FINDER_DEFAULTS: FinderSettings = {
   ranker: 'keyword',
   rerank: false,
   rerankMonthlyUsd: 1,
-  // Measured once, on one 104-skill catalog: 36 percent fewer input tokens per call with no real loss of correct skill calls. A smaller catalog
-  // gains little and loses description detail, and nobody measured that case, so 'auto' keeps the full list until an agent has many skills.
-  slimListing: 'auto',
+  // Off until it is shown to keep accuracy. On 400 public skills (Task 11e) it lost 11 to 19 points of right skill picks from 40 to 100
+  // skills, measured without the search tool beside it; the owner's own 104 skills lost nothing. 'auto' (above WARN_ABOVE skills) and true stay choices.
+  slimListing: false,
   k: DEFAULT_K,
   threshold: 'balanced',
   chatLine: true,

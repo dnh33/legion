@@ -14,7 +14,7 @@ export function AgentFinder({ value, onChange }: { value: FinderForm; onChange: 
         <select value={value.mode} aria-describedby={value.mode === 'off' ? note : undefined} onChange={(e) => onChange(pickFinderMode(value, e.target.value as FinderMode))}>
           {FINDER_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
-        {value.mode === 'off' && <span id={note} className="field-note">Off also gives this agent the full skill list, since it cannot search.</span>}
+        {value.mode === 'off' && <span id={note} className="field-note">With search off, this agent always gets the full skill list.</span>}
       </label>
       {value.mode !== 'off' && (
         <label className="grow">Skills per suggestion
