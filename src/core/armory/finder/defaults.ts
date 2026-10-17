@@ -20,3 +20,24 @@ export const RERANK_TURN_TIMEOUT_MS = 2500;
 
 /** How many skills the note lists, unless you set another k. */
 export const DEFAULT_K = 3;
+
+/**
+ * Embeddings. Provisional, tuned in Task 11.
+ * The fused score is `w * cosineNorm + (1 - w) * bm25Norm`, both 0..1 over the candidates.
+ */
+export const FUSION_WEIGHT = 0.6;
+/** Score floors for the note when embeddings ranked the skills (the fused score, 0..1). */
+export const FUSED_THRESHOLDS = { strict: 0.75, balanced: 0.6, eager: 0.45 } as const;
+/**
+ * A narrow spread is not stretched to 0..1. Without this the best candidate would always score 1, even when
+ * nothing fits the message, and the floor would never say no. Cosines of the e5 model sit close together, so the spread is small.
+ */
+export const COSINE_MIN_SPREAD = 0.05;
+/** The same for keywords: a best score under the balanced floor does not count as a full match. */
+export const BM25_MIN_SPREAD = THRESHOLDS.balanced;
+/** How long the finder waits for the message's embedding before it uses keywords for that turn. */
+export const EMBED_QUERY_BUDGET_MS = 300;
+/** How long the engine waits for a turn's note when embeddings are on. */
+export const EMBED_TURN_TIMEOUT_MS = 500;
+/** The local model's helper process stops after this long without a request. */
+export const MODEL_IDLE_MS = 5 * 60_000;
