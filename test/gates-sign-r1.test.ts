@@ -226,6 +226,7 @@ test('I5: the core installs the gates key from its own launch line, and only tha
   const s = new PassThrough();
   const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, s, (l) => { kr.installLine(l); });
   s.write(`${'a'.repeat(64)}\n${'b'.repeat(64)}\n${gatesKeyLine(hex)}`);
+  s.end();
   await p;
   assert.deepEqual(kr.get(), Buffer.from(hex, 'hex'));
   assert.equal(String(kr), '[GatesKeyring]');

@@ -193,7 +193,7 @@ test('K1 a keys.json written while keys.enc is unreadable (wrong key) is used to
 
 // ------------------------------------------------------------------------------------------------ K3 lost key store
 
-test('K3 wrong key, truncated file, garbage: keys read as not set, no crash, nothing deleted; the next save sets the old file aside', () => {
+test('K3 wrong key, truncated file, garbage: keys read as not set, no crash, nothing deleted; a save is refused (R2) and the file is left where it is', () => {
   for (const damage of ['wrong-key', 'truncated', 'garbage', 'empty'] as const) {
     const { dir, plain, enc } = setup();
     const key = dk();
@@ -204,15 +204,12 @@ test('K3 wrong key, truncated file, garbage: keys read as not set, no crash, not
     if (damage === 'empty') writeFileSync(enc, Buffer.alloc(0));
     const k = new ProviderKeys(plain, { dataKey: damage === 'wrong-key' ? dk() : key });
     assert.equal(k.has('openai'), false, damage);
-    assert.deepEqual(k.status(), { mode: 'encrypted', locked: true }, damage);
+    assert.deepEqual(k.status(), { mode: 'encrypted', locked: true, blocked: true }, damage);
     const kept = readFileSync(enc);
-    assert.equal(kept.length, damage === 'wrong-key' ? good.length : kept.length);
     assert.equal(existsSync(enc), true, 'not deleted by a read');
-    k.set('openai', K2, O1);
-    const aside = readdirSync(join(dir, 'providers')).filter((n) => n.startsWith('keys.enc.unreadable-'));
-    assert.equal(aside.length, 1, `${damage}: the old file is set aside`);
-    assert.equal(k.status().locked, false);
-    assert.equal(new ProviderKeys(plain, { dataKey: damage === 'wrong-key' ? randomBytes(32) : key }).has('openai'), damage !== 'wrong-key' ? true : false);
+    assert.throws(() => k.set('openai', K2, O1), /did not unlock/, damage);
+    assert.deepEqual(readFileSync(enc), kept, `${damage}: a refused save changes nothing`);
+    assert.equal(readdirSync(join(dir, 'providers')).filter((n) => n.startsWith('keys.enc.unreadable-')).length, 0, `${damage}: nothing set aside without the owner's start over`);
   }
 });
 
@@ -247,13 +244,13 @@ test('K2 no data key: exactly today (keys.json, owner only, atomic); the status 
   }
 });
 
-test('K2 plain mode leaves an existing keys.enc alone and reports it as locked; a plain save does not touch it', () => {
+test('K2 no usable key store leaves an existing keys.enc alone and reports it as locked; a plain save does not touch it', () => {
   const { plain, enc } = setup();
   const key = dk();
   new ProviderKeys(plain, { dataKey: key }).set('openai', K1, O1);
   const sealed = readFileSync(enc);
-  const k = new ProviderKeys(plain, { noKey: 'unreadable' });
-  assert.deepEqual(k.status(), { mode: 'plain', locked: true, reason: 'unreadable' });
+  const k = new ProviderKeys(plain, { noKey: 'unavailable' });
+  assert.deepEqual(k.status(), { mode: 'plain', locked: true, reason: 'unavailable' });
   assert.equal(k.has('openai'), false);
   k.set('new', K2, O1);
   assert.deepEqual(readFileSync(enc), sealed, 'keys.enc is not changed');
@@ -261,6 +258,18 @@ test('K2 plain mode leaves an existing keys.enc alone and reports it as locked; 
   const back = new ProviderKeys(plain, { dataKey: key, committed: () => false });
   assert.equal(back.get('openai', O1), K1);
   assert.equal(back.get('new', O1), K2);
+});
+
+test('R2 a wrapped key that does not unwrap (PKEY - unreadable) leaves keys.enc alone, reports locked and blocked, and refuses a save', () => {
+  const { plain, enc } = setup();
+  new ProviderKeys(plain, { dataKey: dk() }).set('openai', K1, O1);
+  const sealed = readFileSync(enc);
+  const k = new ProviderKeys(plain, { noKey: 'unreadable' });
+  assert.deepEqual(k.status(), { mode: 'plain', locked: true, reason: 'unreadable', blocked: true });
+  assert.equal(k.has('openai'), false);
+  assert.throws(() => k.set('new', K2, O1), /did not unlock/);
+  assert.deepEqual(readFileSync(enc), sealed);
+  assert.equal(existsSync(plain), false, 'no plain file is made on a machine that can encrypt');
 });
 
 test('an unparseable keys.json is read as empty and not touched at a start (as before)', () => {
@@ -351,9 +360,9 @@ test('the PKEY line arrives on the launch pipe in the same chunk as the other li
   const s = new PassThrough();
   const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, s, (l) => { kr.installLine(l); });
   s.write(`${ADMIN}\n${NATIVE}\nGATESKEY - unreadable\nPKEY ${HEX}\nKEY ${randomBytes(32).toString('hex')}\n`);
+  s.end();
   assert.deepEqual(await p, { admin: ADMIN, native: NATIVE });
   assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'));
-  s.end();
 });
 
 // ------------------------------------------------------------------------------------------------ "committed" from the updater's own files

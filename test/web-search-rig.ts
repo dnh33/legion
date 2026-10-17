@@ -10,11 +10,11 @@ import { createWebSearchModule } from '../src/core/web-search/routes.js';
 import { defaultWebSearch } from '../src/shared/web-search-config.js';
 import type { WebSearchConfig } from '../src/shared/web-search-config.js';
 
-export function webSearchRoutes(o: { native?: string; fetchImpl?: typeof fetch; cfg?: Partial<WebSearchConfig> } = {}) {
+export function webSearchRoutes(o: { native?: string; fetchImpl?: typeof fetch; cfg?: Partial<WebSearchConfig>; keys?: ProviderKeys } = {}) {
   const dir = tempDir('legion-wsroutes-');
   const configPath = join(dir, 'config.json');
   const cfg: WebSearchConfig = { ...defaultWebSearch(), ...(o.cfg ?? {}) };
-  const keys = new ProviderKeys(join(dir, 'providers', 'keys.json'), { dataKey: randomBytes(32) }); // sealed, as in the app
+  const keys = o.keys ?? new ProviderKeys(join(dir, 'providers', 'keys.json'), { dataKey: randomBytes(32) }); // sealed, as in the app
   const service = new WebSearchService({ config: () => cfg, keys, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
   const handlers: Array<{ method: string; re: RegExp; h: Handler }> = [];
   const mod = createWebSearchModule({ config: () => cfg, keys, service, configPath, ...(o.native ? { nativeSecret: o.native } : {}) });

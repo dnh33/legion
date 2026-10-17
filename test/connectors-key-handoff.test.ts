@@ -48,9 +48,9 @@ test('the key line is accepted in the same chunk, split across chunks, or later 
     const s = new PassThrough();
     const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, s, (l) => { kr.installLine(l); });
     s.write(chunks[0]!);
-    const got = await p;
     for (const c of chunks.slice(1)) { await tick(); s.write(c); }
-    await tick();
+    s.end(); // the answer waits for the end of the pipe (R1), so every line has arrived when it comes
+    const got = await p;
     assert.deepEqual(got, { admin: ADMIN, native: NATIVE });
     assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'), JSON.stringify(chunks.map((c) => c.length)));
   }
@@ -58,15 +58,13 @@ test('the key line is accepted in the same chunk, split across chunks, or later 
   const s = new PassThrough();
   const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, s, (l) => { kr.installLine(l); });
   s.write(`${ADMIN}\n${NATIVE}\n`);
-  await p;
   const other = randomBytes(32).toString('hex');
   for (const bad of [`KEY ${HEX.slice(1)}\n`, `KEYS ${HEX}\n`, `key ${HEX}\n`, `${HEX}\n`, `KEY ${HEX.toUpperCase()}\n`, `KEY ${HEX} x\n`, 'x'.repeat(1000) + '\n']) { s.write(bad); await tick(5); }
   assert.equal(kr.has(), false);
   s.write(`KEY ${HEX}\nKEY ${other}\n`);
-  await tick();
-  assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'));
   s.end();
-  await tick(5);
+  await p;
+  assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'));
 });
 
 test('legion-core.ts reads the launch secrets as before, passes only a keyring callback, and the key never goes to a log, env or argv', () => {

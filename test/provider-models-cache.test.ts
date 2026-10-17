@@ -22,7 +22,7 @@ async function fakeProvider(ids: string[]) {
   return { seen, state, baseUrl: `http://127.0.0.1:${port}/v1`, close: () => new Promise<void>((r) => server.close(() => r())) };
 }
 
-const noKeys = { has: () => false, get: () => undefined, hint: () => '', all: () => [] } as any;
+const noKeys = { has: () => false, get: () => undefined, hint: () => '', all: () => [], status: () => ({ mode: 'plain', locked: false, reason: 'headless' }) } as any;
 const entry = (baseUrl: string, over: Record<string, unknown> = {}) => ({
   kind: 'openai-compat', label: 'Local box', baseUrl, enabled: true, keyless: true, allowPrivateNetwork: true, models: ['configured-a'], ...over,
 });
