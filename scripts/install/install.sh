@@ -12,9 +12,12 @@
 #   1. Checks that git and Node.js 22.12 or newer are installed. It installs neither.
 #   2. Finds the latest release from https://github.com/dnh33/legion/releases/latest (or uses --version).
 #   3. Fetches the source at that release tag into ~/.local/share/legion. An existing folder is updated in place only if it is a
-#      clean clone of dnh33/legion; any other folder is left alone and the script stops.
+#      clean clone of dnh33/legion; any other folder is left alone and the script stops. "Clean" allows the changes Legion's own
+#      updater makes (the program folders and files at the top of the folder, .update, build-info.json); an edit anywhere else,
+#      for example in src/, stops the script. It also stops while Legion is in the middle of an update.
 #   4. Runs npm ci (which downloads Electron) and npm run build in that folder, and checks that Electron is there.
-#   5. Writes the launcher ~/.local/bin/legion.
+#   5. Writes .legion-install.json in that folder (it tells Legion's updater that this installer manages the folder, so Legion can
+#      update itself) and the launcher ~/.local/bin/legion. A re-run also clears what an interrupted update left behind.
 # There is no prebuilt app for macOS and Linux yet, so this builds from source. It sends nothing anywhere.
 #
 # The whole script is one function called on the last line, so a download that is cut off runs nothing.
@@ -81,6 +84,10 @@ main() {
   command -v npm >/dev/null 2>&1 || fail "npm was not found. It comes with Node.js: reinstall Node.js from https://nodejs.org, then run this again."
   node_version_ok "$(node -p 'process.versions.node')" \
     || fail "Node.js $(node -v) is too old. Legion needs 22.12 or newer (Electron and the build tools need it): https://nodejs.org"
+  # A running update swaps files in this folder; npm ci would delete node_modules under it.
+  if update_in_progress "$dir"; then
+    fail "an update is in progress in $dir. Wait for it to finish (about a minute), or close Legion, then run this again."
+  fi
 
   # 2) which version
   if [ -z "$version" ]; then
@@ -109,7 +116,12 @@ main() {
     expected_origin=$base$repo_path.git
     origin=$(git -C "$dir" remote get-url origin 2>/dev/null) || origin=
     [ "$origin" = "$expected_origin" ] || fail "$dir is a git folder, but its origin is '${origin:-none}', not $expected_origin. It was not touched. Pass --dir with another folder."
-    [ -z "$(git -C "$dir" status --porcelain 2>/dev/null)" ] || fail "$dir has local changes. It was not touched. Commit or discard them, or pass --dir with another folder."
+    # A folder this installer set up earlier (it has the marker) may differ from the tag only where Legion's updater writes.
+    # Any other change, and any change in a folder without the marker, stops the script.
+    managed=0
+    if [ -f "$dir/.legion-install.json" ] && grep -q '"manager":"install.sh"' "$dir/.legion-install.json" 2>/dev/null; then managed=1; fi
+    git -C "$dir" status --porcelain >/dev/null 2>&1 || fail "Could not read the git status of $dir. It was not touched."
+    [ -z "$(git -C "$dir" status --porcelain -z | outside_dirt "$managed")" ] || fail "$dir has local changes. It was not touched. Commit or discard them, or pass --dir with another folder."
     say "Updating $dir to $tag ..."
     git -C "$dir" fetch --quiet --depth 1 origin tag "$tag" || fail "Could not fetch $tag. Does that release exist?"
     git -C "$dir" checkout --quiet --force "tags/$tag" || fail "Could not switch to $tag."
@@ -117,6 +129,8 @@ main() {
     say "Fetching Legion $tag into $dir ..."
     git clone --quiet --depth 1 --branch "$tag" "$base$repo_path.git" "$dir" || fail "Could not fetch $tag. Does that release exist?"
   fi
+  # The updater's files must not show up as changes. This goes in .git/info/exclude because a .gitignore change would not reach clones that exist.
+  add_excludes "$dir"
 
   # 4) build
   cd "$dir"
@@ -131,6 +145,11 @@ main() {
   say "Building (npm run build) ..."
   npm run build || fail "The build failed. The messages above say why."
   [ -f dist/src/electron/main.js ] && [ -f dist-ui/index.html ] || fail "The build finished but its output is missing."
+
+  # The build is good. Drop what an interrupted update left behind (it would roll this fresh build back to old files), then mark the
+  # folder as managed by this installer.
+  clear_stale_update "$dir"
+  write_marker "$dir"
 
   # 5) launcher (~/.local/bin does not exist by default on macOS)
   mkdir -p "$bindir"
@@ -166,6 +185,73 @@ write_launcher() {
     printf "dir='%s'\n" "$_q"
     printf 'exec "$dir/node_modules/.bin/electron" "$dir" "$@"\n'
   } > "$2"
+}
+
+# Reads `git status --porcelain -z` on stdin; $1 is 1 for a folder this installer manages. Prints the first path that is not allowed
+# to differ (nothing if all are allowed). Allowed: the names Legion's updater replaces (apply.ts CODE_SET), .update and the marker,
+# judged by the first path segment. A rename or copy lists two paths and both are judged. $1=0 allows nothing.
+outside_dirt() {
+  tr '\0' '\n' | awk -v managed="$1" '
+    BEGIN {
+      n = split(".update .legion-install.json dist dist-ui assets scripts licenses package.json package-lock.json build-info.json NOTICE LICENSE README.md SECURITY.md CHANGELOG.md setup.cmd setup-yes.cmd start-legion.cmd", names, " ")
+      for (i = 1; i <= n; i++) ok[names[i]] = 1
+      skip = 0
+    }
+    function check(p,   s) {
+      s = p
+      sub(/\/.*/, "", s)
+      if (managed != 1 || !(s in ok)) { print p; exit }
+    }
+    {
+      if (skip) { skip = 0; check($0); next }
+      if ($0 == "") next
+      x = substr($0, 1, 1); y = substr($0, 2, 1)
+      if (x == "R" || x == "C" || y == "R" || y == "C") skip = 1
+      check(substr($0, 4))
+    }'
+}
+
+# Keeps the updater's own files out of `git status`, without touching the tracked .gitignore. Safe to run again.
+add_excludes() {
+  _ex=$1/.git/info/exclude
+  mkdir -p -- "$1/.git/info" || fail "Could not write $_ex."
+  if [ -s "$_ex" ] && [ -n "$(tail -c 1 "$_ex")" ]; then printf '\n' >> "$_ex" || fail "Could not write $_ex."; fi
+  for _n in /.update/ /build-info.json /.legion-install.json; do
+    grep -qxF -e "$_n" "$_ex" 2>/dev/null || printf '%s\n' "$_n" >> "$_ex" || fail "Could not write $_ex."
+  done
+}
+
+# True while Legion's update helper holds its marker (a lease: fresh heartbeat, or an owner process that still lives, for at most 20 minutes).
+# Same rule as markerLeaseState and fileMarker in src/core/updater/apply.ts. A file that cannot be read does not block.
+update_in_progress() {
+  [ -f "$1/.update/update-in-progress.json" ] || return 1
+  node -e 'var fs=require("fs"),m;try{m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch(e){process.exit(1)}
+if(!m||!Number.isInteger(m.pid)||typeof m.startedAt!=="number"||typeof m.toVersion!=="string"||typeof m.fromVersion!=="string")process.exit(1)
+var n=Date.now();if(n-m.startedAt>1200000)process.exit(1)
+if(typeof m.heartbeat==="number"&&n-m.heartbeat<=120000)process.exit(0)
+try{process.kill(m.pid,0);process.exit(0)}catch(e){process.exit(e.code==="EPERM"?0:1)}' "$1/.update/update-in-progress.json"
+}
+
+# After a good build: remove the files of an earlier update that never finished (journal, previous build, failed record) and a stale
+# build-info.json. Only files the updater owns inside this folder; outcome.json and everything under ~/.legion stay.
+clear_stale_update() {
+  rm -f -- "$1/.update/journal.json" "$1/build-info.json"
+  rm -rf -- "$1/.update/prev" "$1/.update/failed"
+}
+
+# Writes <dir>/.legion-install.json, the sign for Legion's updater that this installer manages the folder. HEAD must be the bare
+# commit sha (a detached checkout); anything else would make the updater treat the folder as a plain checkout, so stop instead.
+write_marker() {
+  _mf=$1/.legion-install.json
+  _head=$(git -C "$1" rev-parse HEAD 2>/dev/null) || _head=
+  _file=$(cat "$1/.git/HEAD" 2>/dev/null) || _file=
+  if ! printf '%s' "$_head" | grep -Eq '^[0-9a-f]{40}$' || [ "$_file" != "$_head" ]; then
+    rm -f -- "$_mf"
+    fail "The folder is not on a detached release checkout (.git/HEAD is not a commit), so Legion could not update itself. Run this again with a new --dir."
+  fi
+  _real=$(cd -- "$1" && pwd -P) || fail "Could not enter $1."
+  node -e 'var fs=require("fs"),a=process.argv,t=a[1]+".tmp";fs.writeFileSync(t,JSON.stringify({schema:1,manager:"install.sh",dir:a[2],head:a[3]})+"\n");fs.renameSync(t,a[1])' "$_mf" "$_real" "$_head" \
+    || fail "Could not write $_mf."
 }
 
 # Electron 44 needs Node 22.12 or newer, and so do vite 7 and plugin-react 5 on the 22 line (they also allow 20.19+, but Electron does not).
