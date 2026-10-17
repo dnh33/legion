@@ -356,7 +356,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       {loadError && !view && <div className="set-error" role="alert"><Icon name="x" size={13} /> <span>{loadError}</span></div>}
       {view && (
         <>
-          <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={() => void reload()} />
+          <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={reload} />
           <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} />
           <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
         </>

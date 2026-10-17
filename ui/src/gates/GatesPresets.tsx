@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { AgentProfile } from '../../../src/shared/types';
 import type { Project } from '../../../src/shared/projects';
 import type { Preset } from '../../../src/shared/gates-registry';
@@ -21,11 +22,20 @@ export function GatesNote({ note, pending }: { note: Note | null; pending: boole
 /** The banner for settings files that changed outside Legion or could not be read. Legion keeps using Ask for them until the owner decides. */
 export function GatesBanner({ view, projects, busy, run, onReloaded }: {
   view: GatesView; projects: readonly Project[]; busy: boolean;
-  run: (c: GatesChangeRequest, done: string) => Promise<boolean>; onReloaded: () => void;
+  run: (c: GatesChangeRequest, done: string) => Promise<boolean>; onReloaded: () => void | Promise<void>;
 }) {
+  // Reload is not a settings change (no confirmation), so it keeps its own result: the core can refuse it, and a file can stay unreadable.
+  const [reloading, setReloading] = useState(false);
+  const [reload, setReload] = useState<Note | null>(null);
   if (view.changedOutside.length === 0 && view.unreadable.length === 0) return null;
   const nameOf = (n: string) => scopeLabel(n, projects);
-  const using = [...new Set([...view.changedOutside, ...view.unreadable])];
+  const list = (names: string[]) => names.map(nameOf).join(' and ');
+  const doReload = async () => {
+    setReloading(true); setReload(null);
+    try { await reloadGatesFromDisk(); await onReloaded(); setReload({ tone: 'info', text: 'Read the files again.' }); }
+    catch (e) { setReload({ tone: 'error', text: e instanceof Error ? e.message : String(e) }); }
+    setReloading(false);
+  };
   return (
     <div className="gates-banner" role="alert">
       <Icon name="warn" size={15} />
@@ -33,7 +43,7 @@ export function GatesBanner({ view, projects, busy, run, onReloaded }: {
         {view.changedOutside.length > 0 && (
           <>
             <b>Gate settings changed outside Legion.</b>
-            <span>Legion is using Ask for {using.map(nameOf).join(' and ')} until you decide.</span>
+            <span>Legion is using Ask for {list(view.changedOutside)} until you decide.</span>
             <ul className="gates-banner-list">
               {view.changedOutside.map((n) => (
                 <li key={n}>
@@ -43,12 +53,15 @@ export function GatesBanner({ view, projects, busy, run, onReloaded }: {
                 </li>
               ))}
             </ul>
+            {!view.canSign && <span>Accept is off. {KEYSTORE_LINE}</span>}
           </>
         )}
         {view.unreadable.length > 0 && (
           <>
-            <span>A gate settings file could not be read, so Legion is using Ask for it.</span>
-            <span><button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void reloadGatesFromDisk().then(onReloaded, onReloaded)}>Reload</button></span>
+            <span>The gate settings for {list(view.unreadable)} could not be read, so Legion is using Ask for {view.unreadable.length === 1 ? 'it' : 'them'}.</span>
+            <span><button type="button" className="btn-ghost sm" disabled={busy || reloading} onClick={() => void doReload()}>Reload</button></span>
+            {reload?.tone === 'error' && <span role="alert">{reload.text}</span>}
+            {reload && reload.tone !== 'error' && <span role="status">Still cannot be read.</span>}
           </>
         )}
       </div>
@@ -80,7 +93,7 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
         </select>
       </div>
       {!view.canSign && <p className="gates-warn"><Icon name="warn" size={13} /> <span>{KEYSTORE_LINE}</span></p>}
-      <fieldset className="gates-fs" disabled={busy}>
+      <fieldset className="gates-fs" role="radiogroup" disabled={busy}>
         <legend className="set-label">{isApp ? 'Default for every project' : `Preset for ${project?.name ?? 'this project'}`}</legend>
         {!isApp && (
           <label className="gates-row gates-choice">

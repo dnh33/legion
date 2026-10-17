@@ -48,14 +48,12 @@ export function useGatesView(): {
   return { view, loadError, reload, apply };
 }
 
-/** The core's saved date per approved site (advisory): when it was last read, or when you approved it. An older core without the route answers with nothing. */
-export async function loadWebHosts(field: 'lastUsed' | 'approvedAt' = 'lastUsed'): Promise<Record<string, string>> {
-  try {
-    const r = await request<{ allowed: Array<{ host: string; lastUsed?: string; approvedAt?: string }> }>('GET', '/api/gates/web-hosts');
-    const out: Record<string, string> = {};
-    for (const h of r.allowed ?? []) { const d = h[field]; if (d) out[h.host] = d; }
-    return out;
-  } catch { return {}; }
+/** The core's saved dates per approved site (advisory): when each was last read, and when you approved it. One answer for both. Throws when the core cannot answer, so the page can say the dates are unknown instead of treating every site as never used. */
+export async function loadWebHosts(): Promise<{ lastUsed: Record<string, string>; approvedAt: Record<string, string> }> {
+  const r = await request<{ allowed: Array<{ host: string; lastUsed?: string; approvedAt?: string }> }>('GET', '/api/gates/web-hosts');
+  const lastUsed: Record<string, string> = {}; const approvedAt: Record<string, string> = {};
+  for (const h of r.allowed ?? []) { if (h.lastUsed) lastUsed[h.host] = h.lastUsed; if (h.approvedAt) approvedAt[h.host] = h.approvedAt; }
+  return { lastUsed, approvedAt };
 }
 
 export interface ActivityRow { at: string; kind: string; text: string; taskId?: string; projectId?: string; agentId?: string }

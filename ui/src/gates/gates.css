@@ -67,13 +67,14 @@ button.gate-chip:hover { color: var(--text); }
 .gates-choice.off b { color: var(--muted); }
 
 .gates-fine { gap: 10px; }
-.gates-fine > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; list-style: none; border-radius: var(--r-sm); }
-.gates-fine > summary > .icon { flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
+.gates-fine > summary { cursor: pointer; display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; row-gap: 2px; list-style: none; border-radius: var(--r-sm); padding: 4px 6px; transition: background var(--t) var(--ease); }
+.gates-fine > summary:hover, .gates-fine > summary:focus-visible, .gates-site-group summary:hover, .gates-site-group summary:focus-visible { background: var(--surface-3); outline: none; }
+.gates-fine > summary > .icon { grid-row: 1 / span 2; flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
 .gates-fine[open] > summary > .icon { transform: rotate(90deg); }
-.gates-fine-title { display: flex; flex-direction: column; gap: 2px; }
 .gates-value { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
 .gates-fine > summary::-webkit-details-marker { display: none; }
-.gates-fine > summary h3 { margin: 0; font-size: 15px; }
+.gates-fine > summary h3 { margin: 0; font-size: 15px; grid-column: 2; }
+.gates-fine > summary > .muted-s { grid-column: 2; }
 .gates-gates { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .gates-gate { display: flex; gap: 14px; justify-content: space-between; align-items: flex-start; padding: 10px; flex-wrap: wrap; }
 .gates-gate-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; font-size: 13px; }
@@ -87,7 +88,7 @@ button.gate-chip:hover { color: var(--text); }
 
 .gates-sites { margin: 2px 0 8px 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); display: flex; flex-direction: column; gap: 12px; }
 .gates-site-head { display: flex; align-items: center; gap: 10px; justify-content: space-between; min-height: 26px; }
-.gates-site-group summary { cursor: pointer; border-radius: var(--r-sm); }
+.gates-site-group summary { cursor: pointer; border-radius: var(--r-sm); padding: 2px 4px; transition: background var(--t) var(--ease); }
 .gates-site-group p { margin: 4px 0 0; }
 .gates-hosts { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .gates-hosts li { display: flex; align-items: center; gap: 10px; padding: 3px 4px; font-size: 12.5px; border-radius: var(--r-sm); }

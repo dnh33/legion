@@ -74,7 +74,7 @@ test('runsAsChip names the limit and the follow source', () => {
 // ---------------------------------------------------------------- Task 12: the page's own logic
 
 import { NO_SANDBOX_LINE } from '../src/shared/gates-registry.js';
-import { PAGE_NOTES, WEB_LINE, agentsFollowLine, disabledReason, overridesWith, siteGroups, staleHosts, webChip, lastUsedByHost, KEYSTORE_LINE } from '../ui/src/gates/presetsLogic.js';
+import { PAGE_NOTES, WEB_LINE, agentsFollowLine, disabledReason, overridesWith, siteGroups, staleHosts, staleHostsWhenLoaded, webChip, lastUsedByHost, KEYSTORE_LINE } from '../ui/src/gates/presetsLogic.js';
 
 test('permissionRows shows the attempt-caps limit per preset', () => {
   assert.deepEqual(permissionRows(view({ app: { version: 1, preset: 'ask' } })).find((r) => r.id === 'attempt-caps')!.value, { on: true, limit: 4 });
@@ -118,6 +118,10 @@ test('last used: the newest day, Never when absent', () => {
   const g = siteGroups({ builtIn: [], allowed: ['x.com', 'y.com'], goal: [] }, { 'x.com': '2026-10-01T10:00:00.000Z' });
   assert.equal(g[1]!.hosts[0]!.lastUsed, '2026-10-01'); assert.equal(g[1]!.hosts[1]!.lastUsed, 'Never');
 });
+test('siteGroups: unknown dates read unknown, never Never', () => {
+  const g = siteGroups({ builtIn: [], allowed: ['x.com'], goal: [] }, null);
+  assert.equal(g[1]!.hosts[0]!.lastUsed, 'unknown');
+});
 test('staleHosts: unused for 60 days or never used, only among the hosts you allowed', () => {
   const now = Date.parse('2026-10-16T00:00:00Z');
   const last = { 'old.com': new Date(now - 61 * DAY).toISOString(), 'new.com': new Date(now - 59 * DAY).toISOString() };
@@ -127,6 +131,12 @@ test('staleHosts: a site you approved today is not stale, even if no run has rea
   const now = Date.parse('2026-10-16T00:00:00Z');
   const approved = { 'fresh.com': new Date(now - 60_000).toISOString(), 'oldapproved.com': new Date(now - 90 * DAY).toISOString() };
   assert.deepEqual(staleHosts(['fresh.com', 'oldapproved.com'], {}, now, approved), ['oldapproved.com']);
+});
+test('staleHostsWhenLoaded: nothing is stale until both the dates and the activity loaded', () => {
+  const now = Date.parse('2026-10-16T00:00:00Z');
+  assert.deepEqual(staleHostsWhenLoaded(['old.com', 'never.com'], null, now), []);
+  const loaded = { lastUsed: { 'old.com': new Date(now - 61 * DAY).toISOString() }, approvedAt: {} };
+  assert.deepEqual(staleHostsWhenLoaded(['old.com', 'never.com'], loaded, now).sort(), ['never.com', 'old.com']);
 });
 test('webChip: plain words, hidden when nothing was read', () => {
   assert.equal(webChip({ pages: 0, newSites: 0 }), undefined);

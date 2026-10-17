@@ -121,7 +121,7 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
         b.onLoad({ filter: /^use-gates-view$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const useGatesView = () => ({ view: globalThis.__gv ?? null, loadError: null, reload: async () => {}, apply: async () => ({ state: 'ok' }) });
           export const useGatesAction = () => ({ pending: false, note: null, run: async () => true });
-          export const loadWebHosts = async () => ({}); export const loadActivity = async () => []; export const reloadGatesFromDisk = async () => {};
+          export const loadWebHosts = async () => ({ lastUsed: {}, approvedAt: {} }); export const loadActivity = async () => []; export const reloadGatesFromDisk = async () => {};
           export const PENDING_TEXT = 'Waiting for you to confirm in the window';` }));
         b.onResolve({ filter: /^(\.\.\/)*store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onLoad({ filter: /^store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
@@ -290,9 +290,9 @@ test('render: a file changed outside Legion shows the banner with Accept and Kee
     (globalThis as { __gv?: unknown }).__gv = { app: { version: 1 }, projects: {}, unreadable: ['website'], changedOutside: ['app'], canSign: false };
     const html = r.section([]);
     assert.match(html, /Gate settings changed outside Legion\./);
-    assert.match(html, /Legion is using Ask for all projects and the project website until you decide\./);
+    assert.match(html, /Legion is using Ask for all projects until you decide\./);
     assert.match(html, />Accept</); assert.match(html, />Keep mine</); assert.match(html, />Reload</);
-    assert.match(html, /A gate settings file could not be read, so Legion is using Ask for it\./);
+    assert.match(html, /The gate settings for the project website could not be read, so Legion is using Ask for it\./);
     assert.ok(html.includes('Legion cannot sign settings on your computer, so only Ask is available.'));
     assert.equal((html.match(/type="radio"[^>]*disabled=""/g) ?? []).length, 3, 'the three looser radios are disabled');
   } finally { delete (globalThis as { __gv?: unknown }).__gv; cleanup(); }

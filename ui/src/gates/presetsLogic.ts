@@ -109,8 +109,9 @@ export const STALE_DAYS = 60;
 
 export interface SiteGroup { id: 'built-in' | 'allowed' | 'goal'; label: string; removable: boolean; hosts: Array<{ host: string; lastUsed: string }> }
 /** The site list in three groups, each sorted. `lastUsed` values are ISO strings, shown as yyyy-mm-dd, or Never. */
-export function siteGroups(s: { builtIn: string[]; allowed: string[]; goal: string[] }, lastUsed: Record<string, string>): SiteGroup[] {
-  const hosts = (list: string[]) => [...list].sort().map((host) => ({ host, lastUsed: lastUsed[host] ? lastUsed[host]!.slice(0, 10) : 'Never' }));
+export function siteGroups(s: { builtIn: string[]; allowed: string[]; goal: string[] }, lastUsed: Record<string, string> | null): SiteGroup[] {
+  // null = the dates are not known (still loading, or they failed to load): say so, never "Never".
+  const hosts = (list: string[]) => [...list].sort().map((host) => ({ host, lastUsed: lastUsed === null ? 'unknown' : lastUsed[host] ? lastUsed[host]!.slice(0, 10) : 'Never' }));
   return [
     { id: 'built-in', label: 'Built in', removable: false, hosts: hosts(s.builtIn) },
     { id: 'allowed', label: 'You allowed', removable: true, hosts: hosts(s.allowed) },
@@ -125,6 +126,11 @@ export function staleHosts(allowed: string[], lastUsed: Record<string, string>, 
     const at = dates.length ? Math.max(...dates) : NaN;
     return Number.isNaN(at) || now - at > STALE_DAYS * DAY_MS;
   });
+}
+
+/** Same, but only once the dates are known: `loaded` is null until both the saved dates and the activity lines arrived, and then nothing is stale (an unknown date is not "never used"). */
+export function staleHostsWhenLoaded(allowed: string[], loaded: { lastUsed: Record<string, string>; approvedAt: Record<string, string> } | null, now: number): string[] {
+  return loaded === null ? [] : staleHosts(allowed, loaded.lastUsed, now, loaded.approvedAt);
 }
 
 /** The newest read per site: from the `Web: <provider> <tool> <host>` activity lines and the dates the core saved; the newer wins. */
