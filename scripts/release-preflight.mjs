@@ -26,9 +26,10 @@ import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO, requireR
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 import { carryForFolder } from './lib/stone-carry.mjs';
+import { unixApplyVerdict } from './lib/unix-apply-check.mjs';
 import { frozenParserProblems, sourcesFromGit } from './lib/frozen-parser.mjs';
 
-const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v' });
+const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v', 'prev-manifest': 'v', 'prev-deps-sha256': 'v' });
 requireRehearsalFor(a, ['no-network', 'stones']);
 
 // --pkg is REQUIRED, with no default. It used to fall back to a hardcoded owner-local folder, which was wrong twice over:
@@ -168,6 +169,15 @@ else {
     for (const p of fp) fail(`frozen parser: ${p}`);
     if (!fp.length) pass(`the manifest parses with the frozen ${stoneTag} parser and the current one`);
   }
+  // Mac and Linux installs made by install.sh apply only code-only releases whose dependency hash equals the previous release's.
+  {
+    let prev = a['prev-deps-sha256'] ?? null;
+    if (!prev && a['prev-manifest']) {
+      try { prev = JSON.parse(readFileSync(a['prev-manifest'], 'utf8')).depsSha256 ?? null; } catch (e) { fail(`could not read depsSha256 from --prev-manifest: ${e.message}`); }
+    }
+    const v = unixApplyVerdict({ version, requiresFullInstall: m.requiresFullInstall, depsSha256: m.depsSha256, prevDepsSha256: prev });
+    if (v.level === 'fail') fail(v.message); else if (v.level === 'warn') warn(v.message); else pass(v.message);
+  }
   if (!m.notes || !String(m.notes).trim()) fail('manifest has no release notes — people read these before updating');
   else if (String(m.notes).length > 2000) fail('manifest notes exceed the 2000-char cap');
   else pass(`manifest carries release notes (${String(m.notes).length} chars)`);
@@ -217,11 +227,11 @@ try {
 
 // --------------------------------------------- 5. install-mode + no unattended apply
 try {
-  const { installMode } = await import(new URL(`../dist/src/core/updater/apply.js?p=${Date.now()}`, import.meta.url).href);
+  const { installMode } = await import(new URL(`../dist/src/core/updater/index.js?p=${Date.now()}`, import.meta.url).href);
   const mode = installMode({ root: REPO, platform: process.platform });
   if (mode === 'checkout') warn('this working tree is a git checkout: installMode() there is notify-only (that is correct for a checkout, not for a user install)');
   else pass(`installMode for a real install: ${mode}`);
-} catch { warn('could not determine installMode (non-fatal)'); }
+} catch (e) { fail(`could not run the installMode check (run npm run build first): ${e.message}`); }
 
 // ---------------------------------------------------------------- verdict
 console.log(`\n${ok.length} ok, ${warns.length} warning(s), ${fails.length} failure(s)`);
