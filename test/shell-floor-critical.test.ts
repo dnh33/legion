@@ -283,3 +283,92 @@ test('ordinary deletes stay free in Bypass (false-positive suite)', async () => 
   for (const c of ['Remove-Item .\\dist -Recurse', 'Remove-Item dist\\* -Recurse -Force', 'Remove-Item -Path .\\build -Recurse', `Remove-Item ${APP}\\out -Recurse`, 'Get-ChildItem build | Remove-Item -Recurse', 'Get-ChildItem -Filter *.tmp | Remove-Item']) assert.equal(hit(c, 'pwsh'), undefined, c);
   for (const c of ['rd /s /q dist', 'del /q dist\\*', 'del /s /q *.log']) assert.equal(hit(c, 'cmd'), undefined, c);
 });
+
+/* ---------- fix round 2: narrow the proof (re-review 1: C-1, I-10 .. I-14, M-11, M-12) ---------- */
+
+const R = String.raw;
+const drivePosix = (p: string) => `/${p[0]!.toLowerCase()}${p.slice(2)}`;
+
+test('C-1: a cd that may fail, then ; & or a newline, leaves the folder unknown (the later part runs from the folder before)', async () => {
+  for (const c of ['cd nosuch && true; rm -rf ../app', 'cd nosuch && echo x; rm -rf ../app', 'cd nosuch && true\nrm -rf ../app']) assert.ok(hit(c), c);
+  assert.ok(hit(R`cd nosuch && echo & rd /s /q ..\app`, 'cmd'));
+  assert.ok(hit(R`cd nosuch && echo x; Remove-Item ..\app -Recurse`, 'pwsh'));
+  await using({ preset: 'bypass', follow: true }, async (r) => {
+    assert.ok(refused(await r.run('mcp__host__shell', { command: `cd nosuch && true; rm -rf ../${name(r)}`, cwd: fwd(r) })));
+  });
+});
+
+test('I-10: in sh, .. folds on the POSIX form before /x/ is read as a drive (Git Bash climbs out of a drive)', async () => {
+  for (const c of [
+    'rm -rf /tmp/../d/work', 'rm -rf /c/../d/work/app', 'rm -rf /usr/../d/work/app', 'rm -rf ~/../../../d/work/app', 'rm -rf $HOME/../../../d/work',
+    'rm -rf /mnt/c/../d/work/app', 'rm -rf /cygdrive/c/../d/work', 'cd / && rm -rf d/work/app', 'cd /c/.. && rm -rf d/work/app', 'cd ~/../../.. && rm -rf d/work',
+    'cd /tmp && rm -rf ../d/work',
+  ]) assert.ok(hit(c), c);
+  await using({ preset: 'bypass', follow: true }, async (r) => {
+    assert.ok(refused(await r.run('mcp__host__shell', { command: `rm -rf /tmp/..${drivePosix(fwd(r))}`, cwd: fwd(r) })));
+  });
+});
+
+test('I-11: sh escapes and ANSI-C quotes are not placed', async () => {
+  for (const c of [R`rm -rf D:/work/a\pp`, R`rm -rf ../ap\p`, R`rm -rf /d/wo\rk/app`, R`rm -rf $'\x2e\x2e'`, R`rm -rf $'\056'`]) assert.ok(hit(c), c);
+  await using({ preset: 'bypass', follow: true }, async (r) => {
+    const p = fwd(r);
+    assert.ok(refused(await r.run('mcp__host__shell', { command: `rm -rf ${p.slice(0, -1)}\\${p.slice(-1)}`, cwd: p })));
+  });
+});
+
+test('I-12: a last segment Windows trims (..., ". ", ".. ", a trailing space) is not placed', async () => {
+  for (const c of [
+    'Remove-Item ... -Recurse', R`Set-Location D:\work\app; Remove-Item ... -Recurse -Force`, "Remove-Item '. ' -Recurse", "Remove-Item '.. ' -Recurse",
+    R`Remove-Item 'src\..\...' -Recurse`, R`Remove-Item 'D:\work\app\ ' -Recurse`, R`Remove-Item D:\work\app\... -Recurse`, R`Remove-Item '..\...' -Recurse`,
+  ]) assert.ok(hit(c, 'pwsh'), c);
+  for (const c of ['rd /s /q ...', R`rd /s /q "D:\work\app\ "`, R`rd /s /q "..\ "`]) assert.ok(hit(c, 'cmd'), c);
+  await using({ preset: 'bypass', follow: true }, async (r) => {
+    assert.ok(refused(await r.run('PowerShell', { command: `Set-Location ${fwd(r)}; Remove-Item ... -Recurse -Force` })));
+  });
+});
+
+test('I-13: PowerShell provider paths (FileSystem::) are not placed', async () => {
+  for (const c of [R`Remove-Item FileSystem::D:\work\app -Recurse`, R`Remove-Item Microsoft.PowerShell.Core\FileSystem::D:\work -Recurse`, R`Remove-Item -LiteralPath FileSystem::D:\work -Recurse`, R`cd FileSystem::D:\work; Remove-Item app -Recurse`]) assert.ok(hit(c, 'pwsh'), c);
+  await using({ preset: 'bypass', follow: true }, async (r) => {
+    assert.ok(refused(await r.run('PowerShell', { command: `Remove-Item FileSystem::${fwd(r)} -Recurse` })));
+  });
+});
+
+test('I-14: a cd in a loop or a function, a sourced script, a script call or SetLocation leaves the folder unknown, for the rest of the run too', async () => {
+  for (const c of ['for i in 1 2; do cd ..; done; rm -rf work', 'while [ ! -d work ]; do cd ..; done; rm -rf work', 'up() { cd ..; }; up; up; rm -rf work', '. ./x.sh && rm -rf work', 'source ./x.sh && rm -rf work']) assert.ok(hit(c), c);
+  for (const c of [
+    '1..2 | % { cd .. }; Remove-Item work -Recurse', 'foreach ($i in 1..2) { Set-Location .. }; Remove-Item work -Recurse', 'function up { Set-Location .. }; up; up; Remove-Item work -Recurse',
+    R`.\x.ps1; Remove-Item work -Recurse`, R`& .\x.ps1; Remove-Item work -Recurse`, "$ExecutionContext.SessionState.Path.SetLocation('..'); Remove-Item app -Recurse",
+  ]) assert.ok(hit(c, 'pwsh'), c);
+  for (const c of ['for /l %i in (1,1,2) do @cd .. & rd /s /q work', 'call x.bat && rd /s /q work']) assert.ok(hit(c, 'cmd'), c);
+  assert.equal(criticalDeleteRead('up() { cd ..; }', 'sh', where).cwds, undefined, 'a function that moves the shell: not known after it');
+  await using({ preset: 'bypass', follow: true }, async (r) => {
+    const parent = parentOf(r).split('/').pop()!;
+    assert.ok(refused(await r.run('mcp__host__shell', { command: `for i in 1 2; do cd ..; done; rm -rf ${parent}`, cwd: fwd(r) })));
+  });
+});
+
+test('M-11 and M-12: pushd +N, and a drive or link alias made on the line', () => {
+  assert.ok(hit('pushd +1 && rm -rf app'));
+  assert.equal(criticalDeleteRead('pushd -2', 'sh', where).cwds, undefined);
+  for (const c of [R`subst W: D:\work; Remove-Item W:\app -Recurse`, R`New-PSDrive -Name W -PSProvider FileSystem -Root D:\work; Remove-Item W:\app -Recurse`]) assert.ok(hit(c, 'pwsh'), c);
+  assert.ok(hit(R`net use W: \localhost\d$\work && rd /s /q W:\app`, 'cmd'));
+  for (const c of [R`cmd //c mklink /j x D:\work && rm -rf x/`, 'ln -s D:/work x && rm -rf x/', 'rm -rf /proc/self/cwd']) assert.ok(hit(c), c);
+});
+
+test('fix round 2: ordinary deletes stay free, a project path with spaces and a single plain cd included', () => {
+  const sp = { cwd: R`D:\my work\app`, roots: [R`D:\my work\app`], home: HOME };
+  for (const c of ['rm -rf build', 'rm -rf "D:/my work/app/build"', 'cd sub && rm -rf build', 'rm -rf logs/*.log', 'rm -rf dist/*']) assert.equal(hit(c, 'sh', sp), undefined, c);
+  for (const c of [R`Remove-Item "D:\my work\app\dist" -Recurse`, R`Remove-Item .\dist -Recurse`, 'Set-Location src && Remove-Item build -Recurse']) assert.equal(hit(c, 'pwsh', sp), undefined, c);
+  assert.equal(hit('cd sub && rm -rf build'), undefined);
+  assert.equal(hit(R`cd /d D:\work\app\src && rd /s /q build`, 'cmd'), undefined);
+  assert.ok(hit('rm -rf "D:/my work/app"', 'sh', sp));
+});
+
+test('fix round 2 self-review: a quoted, escaped or module-qualified cd counts as a move; find -exec rm {} + is read by the find rule', () => {
+  for (const c of [String.raw`c\d ..; rm -rf app`, String.raw`\cd ..; rm -rf app`, "'cd' .. ; rm -rf app", 'c""d .. && c""d .. && rm -rf work']) assert.ok(hit(c), c);
+  assert.ok(hit(String.raw`Microsoft.PowerShell.Management\Set-Location ..; Remove-Item app -Recurse`, 'pwsh'));
+  assert.equal(hit('find . -name node_modules -prune -exec rm -rf {} +'), undefined);
+  assert.ok(hit('find .. -name app -exec rm -rf {} +'));
+});
