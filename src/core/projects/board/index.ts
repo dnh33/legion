@@ -158,12 +158,19 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
       return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } }, askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
     },
+    // The system prompt carries only the static part: it changes with the project, never with the board, so the prompt cache holds.
     preamble: (agent, ctx) => {
       const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;
-      if (!p) return '';
-      let digest = '';
-      try { digest = boardDigest(board.view(p).items, agent.id, (id) => deps.store.getAgent(id)?.name ?? id, undefined, notes?.recent(p.id) ?? [], board.leaderOf(p)); } catch { /* the digest is a convenience */ }
-      return digest ? `${BOARD_PREAMBLE}\n${digest}` : BOARD_PREAMBLE;
+      return p ? BOARD_PREAMBLE : '';
+    },
+    // The board digest goes with the run's user turn (CoreModule.turnContext): the same inputs as before, undefined when empty.
+    turnContext: (agent, ctx) => {
+      const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;
+      if (!p) return undefined;
+      try {
+        const digest = boardDigest(board.view(p).items, agent.id, (id) => deps.store.getAgent(id)?.name ?? id, undefined, notes?.recent(p.id) ?? [], board.leaderOf(p));
+        return digest || undefined;
+      } catch { return undefined; /* the digest is a convenience */ }
     },
     onTaskEnd: (task, _agent, outcome) => {
       if (!task.projectId) return;

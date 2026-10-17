@@ -64,19 +64,26 @@ test('C18 the board digest: counts, what is assigned to this agent, what others 
   assert.equal(boardDigest([], 'alpha', (id) => id), '', 'an empty board adds nothing');
 });
 
-test('C18 the run\'s prompt gets the board preamble with the digest, and the project-memory habit; only for a member of an active project', () => {
+test('C18 the system prompt gets the board preamble (never the digest); the digest goes with the user turn, only for a member of an active project', () => {
   const root = cleanupTemp('legion-board-kg2-');
   const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
   const board = new BoardStore(join(root, 'd', 'board'));
   const P = projects.setMembers(projects.create({ name: 'P' }).id, ['alpha']);
   board.create(P, { title: 'Wire the thing', assignee: { kind: 'agent', id: 'alpha' } });
   const mod = createBoardModule({ config: {} as any, store: { getAgent: (id: string) => ({ id, name: id }) } as any, bus: new EventBus(), engine: {} as any, approvals: {} as any, dataDir: root, bsvEnabled: () => false }, { projects, board });
-  const text = mod.preamble!({ id: 'alpha', name: 'Alpha' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id });
-  assert.ok(text.startsWith(BOARD_PREAMBLE)); assert.match(text, /Assigned to you:\n- wi_[a-f0-9]{12} \[backlog\] Wire the thing/);
+  const ctx = { prompt: '', taskId: 't', tainted: false, projectId: P.id };
+  const text = mod.preamble!({ id: 'alpha', name: 'Alpha' } as any, ctx);
+  assert.equal(text, BOARD_PREAMBLE, 'the system prompt gets the static part only, so it does not change when the board does');
+  assert.doesNotMatch(text, /Wire the thing/);
+  const digest = mod.turnContext!({ id: 'alpha', name: 'Alpha' } as any, ctx) ?? '';
+  assert.match(digest, /^<legion-board-digest>/);
+  assert.match(digest, /Assigned to you:\n- wi_[a-f0-9]{12} \[backlog\] Wire the thing/);
   assert.match(BOARD_PREAMBLE, /kg_capture with scope "project"/);
-  assert.equal(mod.preamble!({ id: 'outsider', name: 'O' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id }), '');
+  assert.equal(mod.preamble!({ id: 'outsider', name: 'O' } as any, ctx), '');
+  assert.equal(mod.turnContext!({ id: 'outsider', name: 'O' } as any, ctx), undefined);
   projects.update(P.id, { status: 'archived' });
-  assert.equal(mod.preamble!({ id: 'alpha', name: 'A' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id }), '');
+  assert.equal(mod.preamble!({ id: 'alpha', name: 'A' } as any, ctx), '');
+  assert.equal(mod.turnContext!({ id: 'alpha', name: 'A' } as any, ctx), undefined);
 });
 
 test('C20 the briefing names the project\'s recent trusted notes (and only those): not untrusted, tainted, episode, other-project or private ones; capped; empty board still gets them', () => {
@@ -104,15 +111,18 @@ test('C20 the briefing names the project\'s recent trusted notes (and only those
   assert.equal((boardDigest([], 'alpha', (x) => x, undefined, many).match(/\n- /g) ?? []).length, 5);
 });
 
-test('C20 the run\'s preamble carries the project notes through the module', () => {
+test('C20 the run\'s user turn carries the project notes through the module (the system prompt does not)', () => {
   const root = cleanupTemp('legion-board-kg3-');
   const g = mk();
   const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
   const P = projects.setMembers(projects.create({ name: 'P' }).id, ['alpha']);
   g.upsertNode(HUMAN, { title: 'Release checklist', body: 'steps', scope: projectScope(P.id) });
   const mod = createBoardModule({ config: {} as any, store: { getAgent: (id: string) => ({ id, name: id }) } as any, bus: new EventBus(), engine: {} as any, approvals: {} as any, dataDir: root, bsvEnabled: () => false }, { projects, board: new BoardStore(join(root, 'd', 'board')), notes: graphNotes(() => g) });
-  const text = mod.preamble!({ id: 'alpha', name: 'A' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id });
-  assert.match(text, /Project notes \(kg_get to read\):\n- Release checklist \(id /);
+  const ctx = { prompt: '', taskId: 't', tainted: false, projectId: P.id };
+  const text = mod.preamble!({ id: 'alpha', name: 'A' } as any, ctx);
+  assert.doesNotMatch(text, /Release checklist/, 'the system prompt has no notes');
+  const turn = mod.turnContext!({ id: 'alpha', name: 'A' } as any, ctx) ?? '';
+  assert.match(turn, /Project notes \(kg_get to read\):\n- Release checklist \(id /);
 });
 
 test('the board preamble separates the agent\'s own task list from the shared board', () => {

@@ -6,6 +6,10 @@ import type { ModuleJob } from '../src/core/modules.js';
 import { replyText, replyTools, startFake } from './providers-fakes.js';
 import type { FakeReq } from './providers-fakes.js';
 import { run, setup } from './providers-harness.js';
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { join } from 'node:path';
+import { BoardStore, createBoardModule } from '../src/core/projects/board/index.js';
+import { ProjectStore } from '../src/core/projects/store.js';
 import { armoryRig, md, own } from './armory-rig.js';
 import type { CcFixture } from './armory-rig.js';
 
@@ -113,6 +117,30 @@ describe('turn context on a provider run', () => {
     assert.match(systemMsg(reqs[0]!), /STABLE LINE/);
     assert.doesNotMatch(systemMsg(reqs[0]!), /BRIEF-MARK/);
     assert.deepEqual(store.listMessages(t.id).filter((m) => m.role === 'user').map((m) => m.text), [PROMPT]);
+  });
+});
+
+describe('the board digest on a provider run', () => {
+  it('goes in the sent prompt; the system message keeps only the static board preamble', async () => {
+    const root = cleanupTemp('legion-board-prov-');
+    const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
+    const board = new BoardStore(join(root, 'board'));
+    const P = projects.setMembers(projects.create({ name: 'P' }).id, ['alpha']);
+    board.create(P, { title: 'Ship the page', assignee: { kind: 'agent', id: 'alpha' } });
+    const f = await startFake((_q, res) => replyText(res, 'done'));
+    try {
+      const h = setup(f, { agent: { id: 'alpha', approval: 'ask' }, projects });
+      const mod = createBoardModule({ config: h.config, store: h.store as any, bus: h.bus, engine: h.engine, approvals: h.approvals, dataDir: root, bsvEnabled: () => false }, { projects, board });
+      h.engine.setModules([mod]);
+      const t = await run(h, PROMPT, { projectId: P.id });
+      assert.equal(t.status, 'done');
+      const last = userMsg(f.requests[0]!);
+      assert.match(last, /^<legion-board-digest>[\s\S]*Ship the page/, 'the digest leads the sent prompt');
+      assert.ok(last.endsWith(PROMPT), 'the raw prompt comes last');
+      assert.doesNotMatch(systemMsg(f.requests[0]!), /legion-board-digest/);
+      assert.match(systemMsg(f.requests[0]!), /kg_capture with scope "project"/, 'the static preamble stays in the system message');
+      assert.deepEqual(h.store.listMessages(t.id).filter((m) => m.role === 'user').map((m) => m.text), [PROMPT]);
+    } finally { await f.close(); }
   });
 });
 

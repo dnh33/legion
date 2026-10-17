@@ -32,14 +32,14 @@ async function* quick(): AsyncGenerator<any, void> {
   yield { type: 'system', subtype: 'init', session_id: 's1' };
   yield { type: 'result', subtype: 'success', is_error: false, result: 'Finished the work item.', total_cost_usd: 0.01, num_turns: 1, session_id: 's1' };
 }
-function setup() {
+function setup(onQuery?: (params: any) => AsyncGenerator<any, void>) {
   const root = cleanupTemp('legion-board-run-');
   const store = new FakeStore(); store.agents.set('a2', mkAgent('a2'));
   const bus = new EventBus(); const config = defaultConfig(); config.workspaceDir = join(root, 'data', 'ws');
   const projects = new ProjectStore(join(root, 'data'), config.workspaceDir);
   const board = new BoardStore(join(root, 'data', 'board'), () => 0);
   const calls: any[] = [];
-  const queryFn = ((params: any) => { calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt }); return Object.assign(quick(), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) }); }) as unknown as QueryFn;
+  const queryFn = ((params: any) => { calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt }); return Object.assign(onQuery ? onQuery(params) : quick(), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) }); }) as unknown as QueryFn;
   const engine = new Engine({ store: store as any, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as any, approvals: new ApprovalBroker(bus), config, queryFn, boatConfigured: () => false, projects, taintedPaths: new TaintedPaths(join(root, 'tp.json')) });
   const mod = createBoardModule({ config, store: store as any, bus, engine, approvals: {} as any, dataDir: root, bsvEnabled: () => false }, { projects, board });
   engine.setModules([mod]);
@@ -50,6 +50,31 @@ function setup() {
   return { store, engine, board, proj, calls, post };
 }
 const settle = async (s: ReturnType<typeof setup>, id: string) => { await s.engine.waitFor(id, 3000); await new Promise((r) => setTimeout(r, 20)); };
+
+test('C8 the project run\'s system prompt does not change when the board does; the digest arrives in the first user turn', async () => {
+  const fired: any[] = [];
+  const s = setup((params) => (async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's1' };
+    // the SDK fires UserPromptSubmit while the run is live
+    const hook = params.options.hooks.UserPromptSubmit[0].hooks[0];
+    fired.push(await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'x', source: 'user' }, undefined, { signal: new AbortController().signal }));
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'Finished the work item.', total_cost_usd: 0.01, num_turns: 1, session_id: 's1' };
+  })());
+  const i = s.board.create(s.proj, { title: 'Ship the page', assignee: { kind: 'agent', id: 'a2' } });
+  const r1 = s.post(i.id);
+  await settle(s, r1.task.id);
+  // the board changes between the two runs of the same project
+  const j = s.board.create(s.proj, { title: 'Write the changelog', assignee: { kind: 'agent', id: 'a2' } });
+  const r2 = s.post(j.id);
+  await settle(s, r2.task.id);
+  const [c1, c2] = s.calls;
+  const digest1 = fired[0]?.hookSpecificOutput?.additionalContext ?? '';
+  const digest2 = fired[1]?.hookSpecificOutput?.additionalContext ?? '';
+  assert.match(digest1, /^<legion-board-digest>[\s\S]*Board: \d+ backlog/, 'the first user turn carries the digest');
+  assert.notEqual(digest1, digest2, 'the board changed, so the digest changed');
+  assert.equal(c1.options.systemPrompt.append, c2.options.systemPrompt.append, 'the system prompt is identical across the two runs');
+  assert.doesNotMatch(String(c1.options.systemPrompt.append), /legion-board-digest/);
+});
 
 test('C8 the owner\'s own item runs as an owner run: a `full` agent keeps its own mode; the project path and prompt are used', async () => {
   const s = setup();
