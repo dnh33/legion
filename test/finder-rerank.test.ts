@@ -265,6 +265,33 @@ describe('rerank: the warm session', () => {
     s.close();
   });
 
+  it('a timeout is not a failure: four timeouts in a row never start the backoff', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions((n) => (n === 0 ? { text: '[]' } : { text: '["a"]', afterMs: 40 }));
+    const { s, logs } = sessionOf(dir, f, { deadlineMs: 10 });
+    await warmUp(s);
+    for (let i = 0; i < 4; i++) {
+      assert.equal(await s.pick(ask()), undefined);
+      await sleep(70);
+    }
+    assert.equal(f.made.length, 1, 'the same session kept serving');
+    assert.equal(f.made[0]!.messages.length, 5, 'the warm-up and four requests');
+    assert.ok(!logs.some((l) => l.includes('paused')));
+    s.close();
+  });
+
+  it('three invalid answers in a row start the backoff', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions((n) => ({ text: n === 0 ? '[]' : 'no array here' }));
+    const { s, logs } = sessionOf(dir, f);
+    await warmUp(s);
+    for (let i = 0; i < 3; i++) assert.equal(await s.pick(ask()), undefined);
+    assert.ok(logs.includes('finder: rerank skipped (paused after repeated failures)'));
+    assert.equal(s.state(), 'none');
+    await s.pick(ask());
+    assert.equal(f.made.length, 1, 'no new session during the backoff');
+  });
+
   it('a stream that throws, and a query that throws on creation, are failures that never reach the turn', async () => {
     const dir = tempDir('legion-rerank-');
     const f = fakeSessions(() => ({ throws: true }));

@@ -189,7 +189,7 @@ interface Live {
  * answers a warm-up message before it takes requests. It serves one request at a time: a turn that finds it busy or still warming
  * keeps the fused order, and nothing is queued. A request that misses the deadline is abandoned and its answer, if it comes, is
  * dropped; the session stays busy until that result arrives or the hard ceiling closes it. It is closed after `recycleAfter`
- * reranks, after `idleMs` without one, on `close()`, and on any error. After `failsBeforeBackoff` failures in a row no session starts
+ * reranks, after `idleMs` without one, on `close()`, and on any error. After `failsBeforeBackoff` failures in a row (an error or an invalid answer; a timeout does not count) no session starts
  * for `backoffMs`.
  */
 export class RerankSession {
@@ -225,7 +225,7 @@ export class RerankSession {
       const text = await this.send(live, 'rank', buildRerankPrompt(a.text, a.candidates, a.k), month, this.o.deadlineMs ?? RERANK_DEADLINE_MS);
       if (text === undefined) return undefined;
       const ids = parseRerankAnswer(text, a.candidates.map((c) => c.id), a.k);
-      if (ids === undefined) this.note('unusable answer');
+      if (ids === undefined) { this.note('unusable answer'); this.failed(); } else { this.failures = 0; this.lastReason = undefined; }
       return ids;
     } catch {
       this.note('error');
@@ -305,9 +305,8 @@ export class RerankSession {
     if (live.closed || live.pending !== p) return;
     p.abandoned = true;
     p.settle(undefined);
+    // A timeout is slowness, not a fault: it does not count toward the backoff.
     this.note('timeout');
-    this.failed();
-    if (live.closed) return;
     if (p.kind === 'warm') { this.closeLive(live); return; }
     p.ceiling = setTimeout(() => { if (live.pending === p) this.closeLive(live); }, Math.max(0, (this.o.hardMs ?? RERANK_HARD_MS) - (this.o.deadlineMs ?? RERANK_DEADLINE_MS)));
     p.ceiling.unref?.();
@@ -351,9 +350,7 @@ export class RerankSession {
     }
     p.settle(p.abandoned ? undefined : typeof m.result === 'string' ? m.result : live.said);
     if (p.abandoned) { this.armIdle(live); return; }
-    this.failures = 0;
-    this.lastReason = undefined;
-    if (p.kind === 'warm') live.ready = true;
+    if (p.kind === 'warm') { live.ready = true; this.failures = 0; this.lastReason = undefined; }
     else live.served++;
     if (live.served >= (this.o.recycleAfter ?? RERANK_RECYCLE_AFTER)) { this.closeLive(live); return; }
     this.armIdle(live);

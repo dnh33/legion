@@ -13,10 +13,12 @@ export const THRESHOLDS = { strict: 4, balanced: 2, eager: 0.8 } as const;
 
 /** Time limits in milliseconds. Past the limit, the finder adds no note. */
 export const DEADLINE_MS = 50;
-export const RERANK_DEADLINE_MS = 2000;
+export const RERANK_DEADLINE_MS = 2500;
 /** How long the engine waits for a turn's note before it goes on without one. */
 export const TURN_TIMEOUT_MS = DEADLINE_MS * 4;
-export const RERANK_TURN_TIMEOUT_MS = 2500;
+export const RERANK_TURN_TIMEOUT_MS = 3000;
+/** Shown next to the rerank setting (Task 12). */
+export const RERANK_LATENCY_NOTE = 'Adds up to about 2 seconds before each reply while it ranks close calls.';
 
 /** How many skills the note lists, unless you set another k. */
 export const DEFAULT_K = 3;
