@@ -1,6 +1,6 @@
 /**
  * Source test (design 6.3, 7.2 item 7): `src/core/connectors/github/writes.ts` is importable only by `write-tools.ts` and the admin routes
- * (`repo-admin-routes.ts`). A write that bypasses the card cannot be built by importing the sender from somewhere else.
+ * (`repo-admin-routes.ts`). A write reaches GitHub only through the handler that cards unless the registry says off, so it cannot be built by importing the sender from somewhere else.
  * Mutation negative: an import added to gateway.ts (in memory) must make the check fail.
  */
 import test from 'node:test';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 const SRC = join(ROOT, 'src');
 const WRITES = 'src/core/connectors/github/writes.ts';
-/** write-tools.ts (carded agent writes) and the admin side: the repo-create routes and the owner's CI panel buttons (ci/wiring.ts loads it lazily). */
+/** write-tools.ts (agent writes: carded unless the registry says off) and the admin side: the repo-create routes and the owner's CI panel buttons (ci/wiring.ts loads it lazily). */
 const ALLOWED = new Set(['src/core/connectors/github/write-tools.ts', 'src/core/connectors/github/repo-admin-routes.ts', 'src/core/ci/wiring.ts']);
 
 function walk(dir: string, out: string[] = []): string[] {

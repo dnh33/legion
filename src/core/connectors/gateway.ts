@@ -30,6 +30,7 @@ import type { GhApi, ToolCtx, ToolOut } from './github/tools.js';
 import { GITHUB_WRITE_TOOLS, WriteStopped } from './github/write-tools.js';
 import type { WriteCtx } from './github/write-tools.js';
 import type { ApprovalBroker } from '../approvals.js';
+import type { GateOff } from '../permission-mode.js';
 import { GITHUB_AGENTS_OFF_TEXT, GITHUB_NOT_SIGNED_FOR_WRITE_TEXT, GITHUB_UNTICKED_TEXT, GITHUB_WRITE_NEEDS_ACCESS_TEXT, GITHUB_WRITE_NOT_GRANTED_TEXT } from '../../shared/connectors-view.js';
 import { normRepo } from '../../shared/github-area.js';
 
@@ -59,6 +60,8 @@ export interface GatewayDeps {
   writeApp?: () => WriteApp | undefined | Promise<WriteApp | undefined>;
   /** Raises the owner's cards. A write handler raises its own card through it, in every approval mode. Missing: no write can ask, so none is sent. */
   approvals?: Pick<ApprovalBroker, 'request'>;
+  /** Whether a registry gate is off for this run (the engine's gate, read with the run's start project; it also writes the would-have-asked line). Absent: every gate is on, so every write cards. */
+  gateOff?: GateOff;
 }
 
 /** What a write needs from the write app: the client and its permission answer (`GitHubClient.can`). */
@@ -173,6 +176,8 @@ export function buildConnectorsServer(agent: AgentProfile, job: ModuleJob, d: Ga
       const approvals = d.approvals;
       const wctx: WriteCtx = {
         ...ctxFor(extra), agent: { id: live.id, name: live.name }, tainted: wasTainted, recheck,
+        // the registry's github-write-card gate: off means no card for this write. A run with an approval ceiling keeps its card. The line for the activity log is written here.
+        ...(d.gateOff ? { cardRequired: (w) => !d.gateOff!('github-write-card', { taskId: job.taskId, agentId: live.id, action: `${w.tool} ${w.repo}`, always: true, ...(job.ceiling ? { ceiling: job.ceiling } : {}) }) } : {}),
         // the card is raised here, by the handler, in every mode (approvals.ts, exception 2026-10-15): never through guardAsk
         ...(approvals ? { ask: (c) => approvals.request(job.taskId, live.id, `mcp__${CONNECTORS_SERVER_NAME}__${c.tool}`, c.input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, { summary: c.summary, noRemember: true, ...(job.projectId ? { projectId: job.projectId } : {}) }) } : {}),
       };

@@ -14,6 +14,7 @@ import { readRepoInfo } from '../ci/repo.js';
 import type { RepoRef } from '../ci/repo.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
+import { gateOff } from '../permission-mode.js';
 import { CONNECTORS_PREAMBLE, CONNECTORS_SERVER_NAME, buildConnectorsServer } from './gateway.js';
 import type { WriteApp } from './gateway.js';
 import type { GatewayDeps, ReadTool } from './gateway.js';
@@ -107,6 +108,7 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
     dataDir: deps.dataDir,
     writeApp: opts.writeApp ?? writeApp,
     approvals: deps.approvals,
+    gateOff: (id, a) => gateOff(deps.engine, id, a),
     ...(opts.writeTools ? { writeTools: opts.writeTools } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.sleep ? { sleep: opts.sleep } : {}),
