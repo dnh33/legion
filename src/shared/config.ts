@@ -9,6 +9,7 @@ import { MAX_ROOM_BUDGET_USD } from './comms.js';
 import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, GatesConfig, LegionConfig } from './types.js';
 import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
 import type { ProvidersConfig } from '../core/providers/types.js';
+import { canonicalHost } from './web-verdict.js';
 export { MAX_ROOM_BUDGET_USD };
 
 export const VERSION = '0.3.2';
@@ -170,6 +171,29 @@ function gateList(v: unknown): string[] | undefined {
   return out;
 }
 
+/** Most sites one rule may name. */
+export const GATE_MAX_HOSTS = 200;
+/** A host in its plain form: lower case letters, digits, dots and hyphens, or a bracketed IPv6 address. */
+const GATE_HOST_FORM = /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:.]+\])$/;
+/**
+ * The `when.hosts` list of a deny or ask rule, or the plain sentence saying why it is refused. An allow rule never takes sites
+ * (approved sites live in the signed site list), and each entry must be its own canonical form: no case, no trailing dot, no
+ * wildcard, no scheme or path. Matching is exact, so a form that differs from what the call's host reduces to could never match.
+ */
+function gateHosts(v: unknown, isAllow: boolean): string[] | string {
+  if (isAllow) return 'Approved sites go in the site list, not in an allow rule.';
+  if (!Array.isArray(v)) return 'A rule\'s hosts must be a list of site names.';
+  if (v.length > GATE_MAX_HOSTS) return `A rule may name at most ${GATE_MAX_HOSTS} sites.`;
+  const out: string[] = [];
+  for (const x of v) {
+    if (typeof x !== 'string' || !GATE_HOST_FORM.test(x) || x.includes('..') || canonicalHost(`https://${x}`) !== x) {
+      return `"${String(x).slice(0, 60)}" is not a site name in its plain form. Use lower case and the name only, like docs.python.org.`;
+    }
+    if (!out.includes(x)) out.push(x);
+  }
+  return out;
+}
+
 /**
  * Whatever a config file or a PATCH held under "gates", reduced to rules that are safe to match against.
  *
@@ -198,7 +222,7 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
     if (r.when !== undefined && !gateObj(r.when)) { if (strict) bad(`${at}.when must be an object`); continue; }
     const w = gateObj(r.when) ? r.when : {};
     for (const k of Object.keys(w)) {
-      if (!(GATE_LIST_FIELDS as readonly string[]).includes(k) && k !== 'contexts' && strict) bad(`${at}.when.${k} is not a gate field`);
+      if (!(GATE_LIST_FIELDS as readonly string[]).includes(k) && k !== 'contexts' && k !== 'hosts' && strict) bad(`${at}.when.${k} is not a gate field`);
     }
     const when: GateWhen = {};
     for (const f of GATE_LIST_FIELDS) {
@@ -211,6 +235,11 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
     const contexts = ctx?.filter((c) => GATE_CONTEXTS.has(c));
     if (contexts?.length) when.contexts = contexts as GateContext[];
     else if (strict && ctx?.length) bad(`${at}.when.contexts may only hold capped, room-hop, tainted or connector-data`);
+    if (w.hosts !== undefined) {
+      const hosts = gateHosts(w.hosts, r.then === 'allow');
+      if (typeof hosts === 'string') { if (strict) bad(hosts); continue; }
+      if (hosts.length) when.hosts = hosts;
+    }
     rules.push({
       id: r.id, then: r.then as GateVerdict, when,
       enabled: r.enabled !== false,

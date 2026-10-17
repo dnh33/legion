@@ -9,8 +9,18 @@ export type WebVerdict =
   | { kind: 'allow'; host?: string }
   | { kind: 'ask'; host?: string; why: 'new-host' | 'query' | 'userinfo' | 'odd-path' | 'http' | 'port' | 'ip' | 'long-search' | 'budget' | 'secret-read'; canAlways: boolean };
 
+// A host that fetches any other address for you (a reader, an archive, a cache, a translator, a CORS proxy). Approving one
+// by name approves the whole web, so such a host always asks, never offers Always allow, and a copy of it in the owner's
+// site list does not count as trusted.
+const RELAY_HOSTS: ReadonlySet<string> = new Set([
+  'treg.to', 'markdown.new', 'r.jina.ai', 's.jina.ai', 'web.archive.org', 'archive.org', 'archive.ph', 'archive.today', 'archive.is',
+  'webcache.googleusercontent.com', 'translate.google.com', '12ft.io', 'scrape.do', 'api.scraperapi.com', 'corsproxy.io',
+  'api.allorigins.win', 'cors-anywhere.herokuapp.com', 'proxy.cors.sh',
+]);
+export const isRelayHost = (h: string): boolean => RELAY_HOSTS.has(h) || h.endsWith('.translate.goog');
+
 const NEVER_ALWAYS = (h: string): boolean =>
-  /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith('[') || h === 'localhost' || /\.(localhost|local|internal)$/.test(h) ||
+  isRelayHost(h) || /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith('[') || h === 'localhost' || /\.(localhost|local|internal)$/.test(h) ||
   /^(bit\.ly|t\.co|tinyurl\.com|goo\.gl|is\.gd|ow\.ly)$/.test(h) || /\.(github\.io|vercel\.app|pages\.dev|notion\.site|herokuapp\.com|netlify\.app|workers\.dev|web\.app|firebaseapp\.com|appspot\.com|blogspot\.com|gitlab\.io|glitch\.me|repl\.co|onrender\.com|fly\.dev|surge\.sh|ngrok\.io|ngrok-free\.app|trycloudflare\.com|azurewebsites\.net|s3\.amazonaws\.com|cloudfront\.net)$/.test(h);
 // A path segment or host label that looks like encoded data: long hex, or a long base64/base64url run.
 // Base64 mixes cases about evenly (even base64 of plain text, which often has no digits); camelCase names have one
@@ -27,7 +37,38 @@ const looksEncoded = (seg: string): boolean => {
 };
 const encodedLooking = (s: string): boolean => s.split('/').some((seg) => { try { return looksEncoded(decodeURIComponent(seg)); } catch { return looksEncoded(seg); } });
 
+// The first http(s) address inside a URL's path or query, plain or percent-encoded (any case). A tripwire, not a boundary:
+// double encoding and other encodings are not decoded.
+const EMBEDDED = /https?(?::|%3a)(?:\/|%2f){2}/i;
+export function embeddedUrl(u: URL): string | undefined {
+  const rest = u.pathname + u.search;
+  const m = EMBEDDED.exec(rest);
+  if (!m) return undefined;
+  const tail = rest.slice(m.index).split(/[&\s"'<>]/)[0] ?? '';
+  try { return decodeURIComponent(tail); } catch { return tail; }
+}
+
+/** The stricter of two verdicts: any ask wins, and Always allow is offered only if both sides offer it. */
+function stricter(a: WebVerdict, b: WebVerdict): WebVerdict {
+  if (a.kind === 'allow') return b;
+  if (b.kind === 'allow') return a;
+  return { ...a, canAlways: a.canAlways && b.canAlways };
+}
+
+/**
+ * The verdict for one web call. A WebFetch or browser_open address that carries another address in its path or query is
+ * judged twice, once as given and once for the embedded one, and the stricter verdict wins. One level deep only: an
+ * address inside the embedded one is not followed.
+ */
 export function webVerdict(call: WebCall, ctx: WebCtx): WebVerdict {
+  const v = judge(call, ctx);
+  if (call.tool === 'WebSearch') return v;
+  let inner: string | undefined;
+  try { inner = embeddedUrl(new URL(typeof call.input.url === 'string' ? call.input.url : '')); } catch { return v; }
+  return inner ? stricter(v, judge({ tool: call.tool, input: { url: inner } }, ctx)) : v;
+}
+
+function judge(call: WebCall, ctx: WebCtx): WebVerdict {
   if (call.tool === 'WebSearch') {
     const q = typeof call.input.query === 'string' ? call.input.query : '';
     if (ctx.secretRead) return { kind: 'ask', why: 'secret-read', canAlways: false };
@@ -39,13 +80,14 @@ export function webVerdict(call: WebCall, ctx: WebCtx): WebVerdict {
   const can = !NEVER_ALWAYS(host);
   const ask = (w: Extract<WebVerdict, { kind: 'ask' }>['why']): WebVerdict => ({ kind: 'ask', host, why: w, canAlways: can });
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return { kind: 'ask', host, why: 'http', canAlways: false };
-  if (ctx.secretRead) return ask('secret-read');
+  // a secret-file read in the run asks every time, with no Always allow
+  if (ctx.secretRead) return { kind: 'ask', host, why: 'secret-read', canAlways: false };
   if (u.username || u.password) return ask('userinfo');
   // the URL parser already turns decimal, hex and octal hosts into a dotted quad and wraps IPv6 in brackets
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith('[')) return ask('ip');
   if (u.protocol !== 'https:') return ask('http');
   if (u.port) return ask('port');
-  if (!ctx.trusted(host)) return ask('new-host');
+  if (isRelayHost(host) || !ctx.trusted(host)) return ask('new-host');
   if (u.search) return ask('query');
   if (u.pathname.length > MAX_PATH || encodedLooking(u.pathname) || host.split('.').some((l) => l.length > 30 || encodedLooking(l))) return ask('odd-path');
   if (!ctx.builtIn(host) && ctx.pathsSeen(host) > PATH_BUDGET) return ask('budget');

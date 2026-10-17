@@ -52,6 +52,12 @@ export interface GateWhen {
   projects?: string[];
   /** Run contexts. Absent = any; several = any one of them. */
   contexts?: GateContext[];
+  /**
+   * Sites, for DENY and ASK rules only (an allow rule with hosts is refused: approved sites live in the signed site list).
+   * Canonical hosts (lower case, no trailing dot, no wildcard), matched exactly against the host of the call's `url`.
+   * A call with no url, or a host not in the list, does not match. At most 200 per rule.
+   */
+  hosts?: string[];
 }
 
 /**

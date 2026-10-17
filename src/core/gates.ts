@@ -22,6 +22,7 @@
  * `when` matched (config order) for the "why am I asking?" popover.
  */
 import type { GateRule, GateVerdict, GateWhen } from '../shared/types.js';
+import { canonicalHost } from '../shared/web-verdict.js';
 import type { RunMode } from './permission-mode.js';
 
 /**
@@ -377,6 +378,12 @@ export function whenMatches(when: GateWhen, c: GateCall): boolean {
     if (typeof cmd !== 'string' || !cmd.trim()) return false;
   }
   if (when.projects?.length && !(c.projectId && when.projects.includes(c.projectId))) return false;
+  if (when.hosts?.length) {
+    // Exact match on the canonical host of the call's url: no subdomains, no path. No url or no host means no match.
+    const url = c.input?.url;
+    const host = typeof url === 'string' ? canonicalHost(url) : undefined;
+    if (!host || !when.hosts.includes(host)) return false;
+  }
   if (when.contexts?.length) {
     const ctx = { capped: false, roomHop: false, tainted: false, connectorData: false, ...c.ctx };
     // The stored context names use dashes ('room-hop'); the call's flags are camelCase. Map, never compare raw.
@@ -406,6 +413,7 @@ export function decideGate(input: GateCall, rules: readonly GateRule[], mode: Ru
   const matched: GateRule[] = [];
   for (const r of rules) {
     if (!r.enabled) continue;
+    if (r.then === 'allow' && r.when.hosts?.length) continue; // never valid (normalizeGates refuses it); skipped here as well
     const lostProject = r.then !== 'allow' && !!call.startProjectId && call.startProjectId !== call.projectId;
     if (!whenMatches(r.when, call) && !(lostProject && whenMatches(r.when, { ...call, projectId: call.startProjectId }))) continue;
     // Command scoping is class-aware (any-subcommand for deny/ask, every-subcommand for allow); paths are the

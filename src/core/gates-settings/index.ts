@@ -16,6 +16,9 @@ import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
 import { DENY_LINE, GATES, GATES_DIGEST_HEADER, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../shared/gates-registry.js';
 import type { GateValue, Preset } from '../../shared/gates-registry.js';
+import { DOCS_HOSTS } from '../../shared/docs-hosts.js';
+import { createWebLastUsed } from '../web-hosts.js';
+import type { WebLastUsed } from '../web-hosts.js';
 import { createBuildEdited } from './build-edited.js';
 import type { BuildEdited } from './build-edited.js';
 import { makeSigner } from './sign.js';
@@ -49,6 +52,8 @@ export interface GatesCore {
   buildEdited: BuildEdited;
   /** The owner's keep list for the environment scrub (names, or NAME* prefixes), read from the signed app file. */
   envKeep(): string[];
+  /** When each approved site was approved and last read (advisory, unsigned): only used to suggest removals. Task 17's web pipeline calls `touch`. */
+  webLastUsed: WebLastUsed;
 }
 
 /**
@@ -87,7 +92,7 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
     const preset: Preset = (startProjectId ? store.project(startProjectId).preset : undefined) ?? store.app().preset ?? 'ask';
     return def[preset] !== false;
   };
-  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder) };
+  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder), webLastUsed: createWebLastUsed(store.folder) };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore }
@@ -126,6 +131,10 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   const linesOf = (name: string, b: Record<string, unknown>): string[] => {
     try { return store.preview(name, b).lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE && !l.startsWith('The preset is now ')); } catch { return []; }
   };
+  /** Sites that joined the approved list since `before` get an approval date (the list only grows through a change the owner confirmed). */
+  const stampApproved = (before: readonly string[] | undefined): void => {
+    try { for (const h of store.app().allowedHosts ?? []) if (!before?.includes(h)) opts.core.webLastUsed.approved(h); } catch { /* advisory */ }
+  };
   const scopeOf = (name: string): string => (name === 'app' ? 'all projects' : `project ${opts.projects.get(name)?.name ?? name}`);
   const logChange = (name: string, headline: string, lines: string[] = []): void => {
     if (!opts.activity) return;
@@ -146,13 +155,19 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
     protectedPaths: () => [store.folder, ...(opts.dataDir ? dataFolderTargets(opts.dataDir) : [])],
     routes: (add) => {
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
+      // The approved sites with when each was approved and last read, and the built-in docs list. Read-only; admin-only like every gates route.
+      add('GET', '/api/gates/web-hosts', () => {
+        const dates = opts.core.webLastUsed.get();
+        return { allowed: (store.app().allowedHosts ?? []).map((host) => ({ host, ...dates[host] })), builtIn: [...DOCS_HOSTS] };
+      });
       add('PATCH', '/api/gates/app', (c) => {
         const b = body(c);
         const loosens = store.isLoosening('app', b);
         if (loosens) requireNative(c, opts);
         requireDigest(c, () => wrap(() => store.preview('app', b)).digest, loosens);
         const lines = linesOf('app', b);
-        const r = wrap(() => store.patchApp(b)); logChange('app', headlineOf('app', b), lines); emit(); return r;
+        const before = store.app().allowedHosts;
+        const r = wrap(() => store.patchApp(b)); stampApproved(before); logChange('app', headlineOf('app', b), lines); emit(); return r;
       });
       add('PATCH', '/api/gates/projects/:id', (c) => {
         const id = must(c.params[0]); const b = body(c);
@@ -163,7 +178,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
         const r = wrap(() => store.patchProject(id, b)); logChange(id, headlineOf(id, b), lines); emit(); return r;
       });
       // A file changed outside Legion: Accept applies what is on disk (a loosening, so native only); Keep mine rewrites what the core holds.
-      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); requireDigest(c, () => wrap(() => store.previewAccept(c.params[0] ?? '')).digest, true); const name = c.params[0] ?? ''; const r = wrap(() => store.accept(name)); logChange(name, `Applied the settings file that changed outside Legion for ${scopeOf(name)}`); emit(); return r; });
+      add('POST', '/api/gates/accept/:name', (c) => { requireNative(c, opts); requireDigest(c, () => wrap(() => store.previewAccept(c.params[0] ?? '')).digest, true); const name = c.params[0] ?? ''; const before = store.app().allowedHosts; const r = wrap(() => store.accept(name)); stampApproved(before); logChange(name, `Applied the settings file that changed outside Legion for ${scopeOf(name)}`); emit(); return r; });
       add('POST', '/api/gates/keep/:name', (c) => { const name = c.params[0] ?? ''; wrap(() => store.keepMine(name, opts.projects.list().map((p) => p.id))); logChange(name, `Kept the settings Legion holds for ${scopeOf(name)}`); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
       // What a change would do, in plain sentences, and the digest of the result. The app words its dialog from this and nothing else.
       add('POST', '/api/gates/preview', (c) => {
