@@ -274,8 +274,9 @@ test('e: the admin header opens the same routes (200); a wrong or empty secret i
   for (const [method, p] of [['GET', '/api/approvals'], ['GET', '/api/settings'], ['GET', '/api/kg/stats'], ['GET', '/api/kg/inbox'], ['GET', '/api/rooms'], ['GET', '/api/bsv'], ['GET', '/api/config'], ['GET', '/api/vms']] as const) {
     assert.equal((await m.http(method, p, undefined, AUTH)).status, 200, `${method} ${p} with admin`);
   }
-  assert.equal((await m.http('PATCH', '/api/agents/worker', { approval: 'auto-edits' }, AUTH)).status, 200);
-  assert.equal(m.store.getAgent('worker')!.approval, 'auto-edits');
+  // (raising an agent's mode also needs the app's native confirm; see agent-mode-confirm.test.ts)
+  assert.equal((await m.http('PATCH', '/api/agents/worker', { description: 'edited with the admin header' }, AUTH)).status, 200);
+  assert.equal(m.store.getAgent('worker')!.description, 'edited with the admin header');
   assert.equal((await m.http('PATCH', '/api/settings', { claude: { maxTurns: 9 } }, AUTH)).status, 200);
   assert.equal((await m.http('POST', '/api/rooms', { name: 'Ops', members: ['zealot', 'worker'] }, AUTH)).status, 201);
   assert.equal((await m.http('POST', '/api/vms/rogue/exec', { command: 'echo hi' }, AUTH)).status, 200);
