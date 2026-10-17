@@ -2,7 +2,8 @@
 // The flag is per project, survives a restart, and clears only when the owner allows one such card.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { gatesRig } from './gates-rig.js';
 import type { GatesRig } from './gates-rig.js';
 import { createGatesCore } from '../src/core/gates-settings/index.js';
@@ -135,4 +136,60 @@ test('Ask mode is unchanged: every command still cards, with the ordinary text',
     const { card } = await decide(r, 'npm test', false);
     assert.ok(card); assert.doesNotMatch(card!.summary, WHY);
   } finally { r.stop(); }
+});
+
+/** Plays the effect of a shell command on disk (the rig does not run the shell). */
+const write = (r: GatesRig, rel: string, text: string): void => { const f = join(r.projectDir(), rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text); };
+
+for (const [name, rel] of [
+  ['cd scripts && echo x > build.js', 'scripts/build.js'],
+  ['echo x > "pack""age.json"', 'package.json'],
+  ['Set-Content -Path:package.json x', 'package.json'],
+] as Array<[string, string]>) {
+  test(`a shell command the words cannot reveal still flags the project by its files: ${name}`, async () => {
+    await using(async (r) => {
+      assert.equal((await r.call('Bash', { command: 'npm test' })).allow, true); assert.equal(r.pending().length, 0, 'baseline taken, no card');
+      write(r, rel, `changed by ${name}`);
+      const { card } = await decide(r, 'npm test', false);
+      assert.ok(card, 'the next npm test cards'); assert.match(card!.summary, WHY);
+    });
+  });
+}
+
+test('a project first seen with an existing package.json does not card', async () => {
+  await using(async (r) => {
+    write(r, 'package.json', '{}'); write(r, 'scripts/a.js', 'x');
+    assert.equal((await r.call('Bash', { command: 'npm test' })).allow, true); assert.equal(r.pending().length, 0);
+  });
+});
+
+test('a file edited while the flag card is open keeps the project flagged after the owner allows', async () => {
+  await using(async (r) => {
+    await r.call('Bash', { command: 'npm test' }); // baseline
+    write(r, 'Makefile', 'one');
+    const p = r.call('Bash', { command: 'npm test' }); await r.tick();
+    assert.equal(r.pending().length, 1);
+    write(r, 'scripts/late.js', 'during the card'); // not named by any tool call: only the files show it
+    r.answer(true); assert.equal((await p).allow, true);
+    assert.ok((await decide(r, 'npm test', false)).card, 'still asks');
+  });
+});
+
+test('a build file named by a tool while the card is open keeps the flag too', async () => {
+  await using(async (r) => {
+    r.noteUse('Write', { file_path: `${r.projectDir()}/package.json`, content: '{}' });
+    const p = r.call('Bash', { command: 'npm test' }); await r.tick();
+    r.noteUse('Write', { file_path: `${r.projectDir()}/package.json`, content: '{"a":1}' });
+    r.answer(true); await p;
+    assert.ok((await decide(r, 'npm test', false)).card);
+  });
+});
+
+test('the host write_file tool and Windows spellings set the flag', async () => {
+  await using(async (r) => {
+    r.noteUse('mcp__host__write_file', { path: 'scripts/x.js', content: 'x' });
+    assert.ok((await decide(r, 'npm test', true)).card, 'write_file into scripts');
+    r.noteUse('Write', { file_path: `${r.projectDir()}/package.json.`, content: 'x' });
+    assert.ok((await decide(r, 'npm test', false)).card, 'a trailing dot');
+  });
 });

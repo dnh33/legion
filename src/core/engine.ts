@@ -1,6 +1,6 @@
 /** Runs agent tasks via the Claude Agent SDK. */
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -10,6 +10,7 @@ import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { classifySafe } from '../shared/consequence.js';
 import { AWAY_COPY } from '../shared/away-copy.js';
+import type { BuildSnapshot } from './gates-settings/build-edited.js';
 import { isBuildFile } from '../shared/build-files.js';
 import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
@@ -191,6 +192,8 @@ const CLEAN_BUILTINS = new Set([
   'PushNotification', // notice to the owner's device; nothing comes back into the run
 ]);
 /** File tools that put a run's content on disk, and the input field that names the file. */
+/** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS: the taint and protected-path checks have their own scope). */
+const BUILD_EDIT_EXTRA_FILE_TOOLS: Record<string, string> = { mcp__host__write_file: 'path' };
 const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
 const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
@@ -1361,29 +1364,43 @@ export class Engine {
   private trackBuildEdit(job: Job, act: Active, toolName: string, input: unknown): void {
     const o = input && typeof input === 'object' ? input as Record<string, unknown> : {};
     let hit = false;
-    const field = WRITE_FILE_TOOLS[toolName];
+    const field = WRITE_FILE_TOOLS[toolName] ?? BUILD_EDIT_EXTRA_FILE_TOOLS[toolName];
+    const projectFolder = this.projectOf(job.taskId, job.agentId)?.folder;
     if (field) {
-      hit = typeof o[field] === 'string' && o[field] !== '' && isBuildFile(TaintedPaths.resolvePath(this.agentCwd(job.agentId), o[field] as string));
+      const given = o[field];
+      if (typeof given === 'string' && given !== '') {
+        const root = toolName.startsWith('mcp__host__') ? this.hostRootOf(this.store.getAgent(job.agentId) ?? { id: job.agentId } as AgentProfile) : this.agentCwd(job.agentId);
+        const target = TaintedPaths.resolvePath(root, given);
+        // `scripts/` means the project's scripts folder: a project that lives under a folder called scripts must not flag on every edit
+        const rel = projectFolder ? relative(projectFolder, target) : '';
+        hit = isBuildFile(rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : target);
+      }
     } else if (SHELL_TOOLS.has(toolName) && typeof o.command === 'string') {
-      const folder = this.projectOf(job.taskId, job.agentId)?.folder ?? this.agentCwd(job.agentId);
-      hit = o.command.split(/[\s;&|<>()"'`=,]+/).some((t) => t !== '' && isBuildFile(t)) && classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }).level >= 2;
+      const folder = projectFolder ?? this.agentCwd(job.agentId);
+      hit = o.command.split(/[\s;&|<>()"'`=,:]+/).some((t) => t !== '' && isBuildFile(t)) && classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }).level >= 2;
     }
     if (!hit) return;
     const pid = startProjectOf(job);
     if (pid && this.gates?.buildEdited) this.gates.buildEdited.set(pid); else act.buildEdited = true;
   }
 
-  /** Whether an agent changed a build or script file in the project this run started in, and no build or test command was allowed since. */
-  private buildEditedFor(job: Job): boolean {
+  /** The folder of the project this run started in: where its build files are fingerprinted. */
+  private startFolderOf(job: Job): string | undefined {
     const pid = startProjectOf(job);
-    if (pid && this.gates?.buildEdited) return this.gates.buildEdited.has(pid);
-    return this.active.get(job.taskId)?.buildEdited === true;
+    return pid ? this.projects?.get(pid)?.folder : undefined;
   }
 
-  /** The owner allowed the card the flag caused: the flag goes, for the project (or for a run with no project). */
-  private clearBuildEdited(job: Job): void {
+  /** Whether an agent changed a build or script file in the project this run started in, and no build or test command was allowed since; the snapshot goes with the card. */
+  private buildCheck(job: Job): { flagged: boolean; snap?: BuildSnapshot } {
     const pid = startProjectOf(job);
-    if (pid && this.gates?.buildEdited) this.gates.buildEdited.clear(pid);
+    if (pid && this.gates?.buildEdited) return this.gates.buildEdited.check(pid, this.startFolderOf(job));
+    return { flagged: this.active.get(job.taskId)?.buildEdited === true };
+  }
+
+  /** The owner allowed the card the flag caused: the flag goes (for the project, or for a run with no project), unless a build file changed while the card was open. */
+  private clearBuildEdited(job: Job, snap?: BuildSnapshot): void {
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) this.gates.buildEdited.clear(pid, snap, this.startFolderOf(job));
     else { const act = this.active.get(job.taskId); if (act) act.buildEdited = false; }
   }
 
@@ -1726,10 +1743,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
       // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
       const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
-      const buildEdited = mode === 'smart' && this.buildEditedFor(job);
-      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}), ...(buildEdited ? { buildEdited } : {}) })) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
+      // Smart: a project seen for the first time gets its build-file baseline now, before any command of this run can change a file
+      if (mode === 'smart') { const pid = startProjectOf(job), dir = this.startFolderOf(job); if (pid && dir) this.gates?.buildEdited?.ensureBaseline(pid, dir); }
+      // a local build or test run is judged again once an agent changed a build or script file in the project (the fingerprint is taken only here)
+      const build = mode === 'smart' && consequence?.tags.includes('runs-code') ? this.buildCheck(job) : undefined;
+      const askOpts = { capped, ...(consequence ? { consequence } : {}) };
+      const baseAsk = needsApproval(mode, toolName, askOpts);
+      const asks = build?.flagged ? needsApproval(mode, toolName, { ...askOpts, buildEdited: true }) : baseAsk;
+      if (gate.verdict !== 'ask' && !asks) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
       // the flag is what made this card (Smart would have run it): say why, and let only the owner's allow clear the flag. No Remember: a standing rule would skip the flag for good.
-      const flagCard = buildEdited && gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped, ...(consequence ? { consequence } : {}) });
+      const flagCard = gate.verdict !== 'ask' && asks && !baseAsk;
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(
@@ -1737,7 +1760,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
         { onTimeout: (ms) => { timedOut = true; waited = ms; }, ...this.askExtras(job, agent, toolName, input), ...(flagCard ? { noRemember: true, summary: `${AWAY_COPY.card.buildEdited}\n${summarizeToolInput(toolName, input)}` } : {}) },
       );
-      if (allowed) { if (flagCard) this.clearBuildEdited(job); return { allow: true }; }
+      if (allowed) { if (flagCard) this.clearBuildEdited(job, build?.snap); return { allow: true }; }
       // The tool_use already set the mood to 'hacking'; after a deny nothing else would move it until the run ends, so the Relic
       // would read "Executing" for a call that never ran. Skip it once the run is cancelled or over (cancel denies open cards too).
       const live = this.active.get(job.taskId);
