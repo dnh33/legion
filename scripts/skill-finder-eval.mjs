@@ -18,16 +18,16 @@ const NEGATIVE_MIN_WORDS = 3;
 const SAMPLE_SEED = 20261017;
 const SUBSETS = ['named', 'implicit', 'subagent'];
 const VALUE_FLAGS = new Set([
-  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'negsample', 'concurrency', 'conds',
+  'k', 'threshold', 'json', 'set', 'negatives', 'catalog', 'out', 'transcripts', 'ranker', 'pool', 'weight', 'floor', 'min-score', 'margin', 'sample', 'models', 'cap', 'model', 'gradecap', 'negsample', 'concurrency', 'conds',
 ]);
 /** Flags that stand alone. */
-const SWITCH_FLAGS = new Set(['sweep', 'rerank', 'smoke']);
+const SWITCH_FLAGS = new Set(['sweep', 'rerank', 'smoke', 'slim-arms', 'grade']);
 const HARNESS_PREFIXES = [
   '<command-name>', '<command-message>', '<local-command', '<task-notification>', '<system-reminder>', 'Caveat: The messages below',
 ];
 const USAGE = 'usage: skill-finder-eval.mjs build --transcripts <dir> --out <folder> | '
   + 'score --set <file[,file]> [--negatives <file>] --catalog <skills.json|legion|sdk> [--pool all|on] [--ranker keyword|local] [--threshold strict|balanced|eager]\n'
-  + '  [--min-score n] [--weight 0-1] [--floor cosine] [--k 1-5] [--sweep] [--rerank --sample n [--margin m]] [--json <file>] | '
+  + '  [--min-score n] [--weight 0-1] [--floor cosine] [--k 1-5] [--sweep] [--rerank --sample n [--margin m]] [--grade [--model sonnet] [--gradecap usd]] [--json <file>] | '
   + 'outcome --set <setA,setB> --negatives <file> --json <file> [--ranker keyword|local] [--models haiku,sonnet] [--cap usd] [--conds C=min:floor:weight] [--smoke]';
 
 /** A problem with the inputs. Its message is fixed text that never holds a prompt. Exit code 1. */
@@ -687,6 +687,8 @@ async function score(opts) {
       }
     }
 
+    if (opts.grade !== undefined) await gradePass({ sets, negatives, lists, filt, k, docById, report, cap: num('gradecap', 1), judge: typeof opts.model === 'string' ? opts.model : 'sonnet', rankerName });
+
     if (opts.rerank !== undefined) await rerankPass({ sets, negatives, lists, filt, k, fused, sampleN, margin, docById, dist, report, D });
 
     return report;
@@ -832,6 +834,98 @@ async function rerankPass(c) {
   if (c.report.rerank.logLines.length) console.log(`  session notes: ${c.report.rerank.logLines.join('; ')}`);
 }
 
+// ---------- the graded pass (post-hoc) ----------
+
+const GRADE_BATCH = 8;
+const GRADE_TEXT_CHARS = 1500;
+const GRADE_SYSTEM = 'You grade skill suggestions for a request. Each item has a request and a list of suggested skills (id: what it does). '
+  + 'For each skill say whether it clearly fits the request (1) or not (0), and say whether at least one listed skill clearly fits (any: 1 or 0). '
+  + 'Judge the request on its own words. Answer with a JSON array only, one object per item: {"n":1,"fit":[1,0,0],"any":1}.';
+
+/**
+ * Grades every note the ranker would show with a different model (the judge) that sees the request and the listed skills, not the gold id.
+ * Several notes go in one call. Spend is each call's own total_cost_usd and the pass stops before a call that could pass --gradecap.
+ * Prompts are never printed; the report holds counts only.
+ */
+async function gradePass(c) {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const cap = c.cap;
+  const seen = new Map(); // prompt -> shown ids
+  const add = (prompt, ids) => { if (ids.length > 0 && !seen.has(prompt)) seen.set(prompt, ids); };
+  const shownOf = (prompt) => evalRow({}, c.lists.get(prompt), c.filt, c.k).ids;
+  for (const s of c.sets) for (const row of s.covered) add(row.prompt, shownOf(row.prompt));
+  for (const p of c.negatives) add(p, shownOf(p));
+  const items = [...seen.entries()].map(([prompt, ids]) => ({ prompt, ids }));
+  const batches = [];
+  for (let i = 0; i < items.length; i += GRADE_BATCH) batches.push(items.slice(i, i + GRADE_BATCH));
+  const dir = mkdtempSync(join(tmpdir(), 'finder-grade-'));
+  const verdict = new Map(); // prompt -> { fit: number[], any: number }
+  let spent = 0;
+  let calls = 0;
+  let bad = 0;
+  const costs = [];
+  const text1 = (it, n) => `Item ${n}\nRequest: ${it.prompt.slice(0, GRADE_TEXT_CHARS)}\nSuggested:\n${it.ids.map((id) => `- ${id}: ${(c.docById.get(id)?.description ?? '').replace(/\s+/g, ' ').slice(0, 200)}`).join('\n')}`;
+  const grade = async (batch) => {
+    const prompt = batch.map((it, i) => text1(it, i + 1)).join('\n\n');
+    let out = '';
+    let cost = 0;
+    try {
+      for await (const m of query({ prompt, options: { model: c.judge, maxTurns: 1, cwd: dir, settingSources: [], strictMcpConfig: true, persistSession: false, tools: [], systemPrompt: GRADE_SYSTEM, settings: { disableAllHooks: true }, env: { ...process.env } } })) {
+        if (m.type === 'assistant') for (const b of m.message?.content ?? []) if (b?.type === 'text') out += b.text;
+        if (m.type === 'result') cost = typeof m.total_cost_usd === 'number' ? m.total_cost_usd : 0;
+      }
+    } catch { /* counted below */ }
+    spent += cost;
+    calls++;
+    if (cost > 0) costs.push(cost);
+    const body = out.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim();
+    let arr;
+    try { arr = JSON.parse(body); } catch { arr = null; }
+    if (!Array.isArray(arr)) { bad++; return; }
+    for (const r of arr) {
+      const it = batch[Number(r?.n) - 1];
+      if (!it || !Array.isArray(r.fit) || r.fit.length !== it.ids.length) continue;
+      verdict.set(it.prompt, { fit: r.fit.map((x) => (Number(x) === 1 ? 1 : 0)), any: Number(r.any) === 1 ? 1 : 0 });
+    }
+  };
+  let next = 0;
+  let stopped = false;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= batches.length || stopped) return;
+      const avg = costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : 0.1;
+      if (spent + avg * 1.5 * 3 > cap) { stopped = true; return; }
+      await grade(batches[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: 3 }, worker));
+  rmSync(dir, { recursive: true, force: true });
+
+  const graded = (p) => verdict.get(p);
+  const perSet = c.sets.map((s) => {
+    const noted = s.covered.filter((r) => seen.has(r.prompt) && graded(r.prompt));
+    const exact = noted.filter((r) => { const ids = seen.get(r.prompt); return ids.some((id) => r.gold.has(id)); }).length;
+    const fitNotes = noted.filter((r) => graded(r.prompt).any === 1).length;
+    const skills = noted.reduce((a, r) => a + graded(r.prompt).fit.length, 0);
+    const fitSkills = noted.reduce((a, r) => a + graded(r.prompt).fit.reduce((x, y) => x + y, 0), 0);
+    return { name: s.name, covered: s.covered.length, notes: s.covered.filter((r) => seen.has(r.prompt)).length, graded: noted.length, exactPrecision: noted.length ? round(exact / noted.length) : null, gradedPrecision: noted.length ? round(fitNotes / noted.length) : null, skillFit: skills ? round(fitSkills / skills) : null };
+  });
+  const negNoted = c.negatives.filter((p) => seen.has(p));
+  const negGraded = negNoted.filter((p) => graded(p));
+  const gradedFalse = negGraded.filter((p) => graded(p).any === 0).length;
+  const res = {
+    judge: c.judge, ranker: c.rankerName, notesGraded: verdict.size, notesTotal: items.length, calls, unparsedBatches: bad, costUsd: round(spent), stoppedAtCap: stopped,
+    sets: perSet,
+    negatives: { total: c.negatives.length, withNote: negNoted.length, graded: negGraded.length, exactFalseNoteRate: round(negNoted.length / c.negatives.length), gradedFalseNoteRate: round(gradedFalse / c.negatives.length), notesJudgedFitting: negGraded.length - gradedFalse },
+  };
+  c.report.graded = res;
+  const f = (x) => (x === null || x === undefined ? 'n/a' : Number(x).toFixed(3));
+  console.log(`graded (post-hoc, ${c.judge} judge, ${calls} calls, ${res.costUsd}${stopped ? ', stopped at the cap' : ''}): ${verdict.size} of ${items.length} notes graded, ${bad} unparsed batches`);
+  for (const s of perSet) console.log(`  ${s.name}: covered ${s.covered}, notes ${s.notes}, graded ${s.graded}; exact-gold precision ${f(s.exactPrecision)}, graded precision ${f(s.gradedPrecision)}, share of listed skills judged fitting ${f(s.skillFit)}`);
+  console.log(`  negatives: ${res.negatives.total}, with a note ${res.negatives.withNote}; exact false-note ${f(res.negatives.exactFalseNoteRate)}, graded false-note ${f(res.negatives.gradedFalseNoteRate)} (${res.negatives.notesJudgedFitting} of ${res.negatives.graded} graded negative notes were judged to fit the request)`);
+}
+
 // ---------- the outcome eval ----------
 
 /** Longest prompt the outcome eval draws, in characters. A long brief costs more in every call and says little more. */
@@ -866,7 +960,9 @@ async function outcome(opts) {
   const floor = num('floor', D.RAW_COSINE_FLOOR);
   const concurrency = Math.max(1, Math.floor(num('concurrency', 3)));
   // Condition B is the chosen setting; more conditions come from --conds "C=minScore:floor:weight,...".
-  const conds = [{ name: 'B', minScore, floor, weight }];
+  // --slim-arms: the arms are A (full listing), S0 (the slim listing Legion sets, no note) and S (slim listing plus the note).
+  const slimArms = opts['slim-arms'] !== undefined;
+  const conds = [{ name: slimArms ? 'S' : 'B', minScore, floor, weight }];
   if (typeof opts.conds === 'string') {
     for (const part of opts.conds.split(',').filter(Boolean)) {
       const [name, vals] = part.split('=');
@@ -927,7 +1023,10 @@ async function outcome(opts) {
   };
   if (rankerName === 'local') await withLocalModel(dist, (emb, dataDir) => makeNotes(emb, dataDir));
   else await makeNotes(undefined, undefined);
-  const noteOf = (cond, it) => noteFor.get(`${cond}|${it.prompt}`);
+  const noteOf = (cond, it) => noteFor.get(`${cond}|${it.prompt}`) ?? { text: undefined, ids: [] };
+  const armsOf = () => (slimArms ? ['A', 'S0', 'S'] : ['A', ...conds.map((c) => c.name)]);
+  // Built-in commands are probably among the 10 of the 104 the model's list did not show; count the drawn prompts whose gold skills are all built-in.
+  console.log(`drawn prompts whose gold skills are all built-in (probably not in the model's list): ${items.filter((i) => i.set !== 'neg' && [...i.gold].every((id) => docs.get(id)?.source === 'claude-builtin')).length}`);
   for (const c of conds) {
     const withNote = items.filter((i) => noteOf(c.name, i).text);
     console.log(`notes ${c.name} (min ${c.minScore}, floor ${c.floor}, weight ${c.weight}): ${withNote.length} of ${items.length} prompts get a note; it holds the gold skill in ${withNote.filter((i) => i.set !== 'neg' && noteOf(c.name, i).ids.some((id) => i.gold.has(id))).length} of ${withNote.filter((i) => i.set !== 'neg').length} noted positives, and ${withNote.filter((i) => i.set === 'neg').length} negatives get one`);
@@ -942,7 +1041,7 @@ async function outcome(opts) {
   const callCosts = [];
 
   const oneCall = async (model, cond, it, idx) => {
-    const note = cond === 'A' ? undefined : noteOf(cond, it).text;
+    const note = cond === 'A' || cond === 'S0' ? undefined : noteOf(cond, it).text;
     const rec = { model, cond, set: it.set, i: idx, called: null, calls: 0, cost: 0, noteShown: !!note, fired: 0, init: null, subtype: null, ms: 0 };
     const t0 = performance.now();
     const hooks = {
@@ -968,7 +1067,7 @@ async function outcome(opts) {
           systemPrompt: { type: 'preset', preset: 'claude_code', append: OUTCOME_SYSTEM },
           // The owner's own hooks are off: they add text that changes from call to call (it breaks the prompt cache, so every call would pay for
           // the whole listing) and some of them push skill use, which would hide what the finder note does. The hooks passed here still run.
-          settings: { disableSkillShellExecution: true, disableAllHooks: true },
+          settings: { disableSkillShellExecution: true, disableAllHooks: true, ...(cond === 'S0' || cond === 'S' ? { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 } : {}) },
           hooks, env: { ...process.env },
         },
       });
@@ -1005,10 +1104,10 @@ async function outcome(opts) {
         // A and B for one prompt, one after the other, so a stop at the cap leaves whole pairs. Stop before a pair that could pass the cap.
         const avg = callCosts.length ? callCosts.reduce((a, b) => a + b, 0) / callCosts.length : 0.05;
         if (spent + 2 * avg * 1.5 * concurrency > cap) { stopped = true; return; }
-        for (const cond of ['A', ...conds.map((c) => c.name)]) {
-          if (cond !== 'A' && !noteOf(cond, it).text) {
+        for (const cond of armsOf()) {
+          if (cond !== 'A' && cond !== 'S0' && !noteOf(cond, it).text) {
             // No note at this setting: condition B is the same request as A, so it reuses A's answer and costs nothing.
-            const a = results.findLast((r) => r.model === model && r.i === idx && r.cond === 'A');
+            const a = results.findLast((r) => r.model === model && r.i === idx && r.cond === (cond === 'S' ? 'S0' : 'A'));
             if (a) results.push({ ...a, cond, cost: 0, reusedA: true });
             continue;
           }
@@ -1031,9 +1130,12 @@ async function outcome(opts) {
   const f = (x) => (x === null || x === undefined ? 'n/a' : x.toFixed(3));
   for (const model of models) {
     summary[model] = {};
-    for (const cond of ['A', ...conds.map((c) => c.name)]) {
+    for (const cond of armsOf()) {
       const rows = results.filter((r) => r.model === model && r.cond === cond);
       const blk = {};
+      const made = rows.filter((r) => !r.reusedA && r.tokens);
+      blk.tokensPerCall = made.length ? Math.round(made.reduce((a, r) => a + r.tokens.input + r.tokens.cacheRead + r.tokens.cacheWrite, 0) / made.length) : null;
+      blk.calls = made.length;
       for (const set of ['A', 'B', 'neg']) {
         const rs = rows.filter((r) => r.set === set);
         blk[set] = {
@@ -1060,9 +1162,9 @@ async function outcome(opts) {
   }
   console.log('outcome results (x of n = the first Skill call is the gold skill; false = a Skill call on a negative):');
   for (const model of models) {
-    for (const cond of ['A', ...conds.map((c) => c.name)]) {
+    for (const cond of armsOf()) {
       const b = summary[model][cond];
-      console.log(`  ${model} ${cond}: Set A ${b.A.goldFirst}/${b.A.n} (any skill call ${b.A.anySkill}), Set B ${b.B.goldFirst}/${b.B.n} (any ${b.B.anySkill}), negatives false calls ${b.neg.anySkill}/${b.neg.n}; errors ${b.A.errors + b.B.errors + b.neg.errors}; cost ${round(b.A.cost + b.B.cost + b.neg.cost)}`);
+      console.log(`  ${model} ${cond}: Set A ${b.A.goldFirst}/${b.A.n} (any skill call ${b.A.anySkill}), Set B ${b.B.goldFirst}/${b.B.n} (any ${b.B.anySkill}), negatives false calls ${b.neg.anySkill}/${b.neg.n}; errors ${b.A.errors + b.B.errors + b.neg.errors}; input tokens per call ${b.tokensPerCall} over ${b.calls} calls; cost ${round(b.A.cost + b.B.cost + b.neg.cost)}`);
     }
     console.log(`  ${model} paired (A vs B on prompts with both): ${JSON.stringify(summary[model].pairs)}`);
   }

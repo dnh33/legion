@@ -111,16 +111,14 @@ describe('the note with embeddings', () => {
     assert.ok(f.passages()[1]!.texts[0]!.includes('index-doctor'));
   });
 
-  it('an embedder that fails falls back to keywords for that turn, and the note still comes from keywords', async () => {
+  it('an embedder that fails gives no note for that turn (the keyword floors fail the bars, so keywords are not a fallback)', async () => {
     const f = fakeEmbedder({ fail: true });
     const r = await rigWith(f.e);
-    const note = await turn(r, 'please polish the typography of these pages');
-    assert.deepEqual(note?.suggested, [ID('design-polish')]);
-    assert.equal(note?.why[0]!.cosine, undefined, 'the keyword order was used');
+    assert.equal(await turn(r, 'please polish the typography of these pages'), undefined);
     await r.mod.finderSettled();
   });
 
-  it('a query that overruns the 300 ms budget falls back to keywords for that turn', async () => {
+  it('a query that overruns the 300 ms budget gives no note for that turn', async () => {
     const f = fakeEmbedder({ query: (signal) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(new Error('too slow')))) });
     const r = await rigWith(f.e);
     await turn(r, NO_KEYWORDS);
@@ -129,8 +127,7 @@ describe('the note with embeddings', () => {
     const note = await turn(r, 'please polish the typography of these pages');
     const took = Date.now() - t0;
     assert.ok(took >= 250 && took < 1500, `took ${took} ms`);
-    assert.deepEqual(note?.suggested, [ID('design-polish')]);
-    assert.equal(note?.why[0]!.cosine, undefined);
+    assert.equal(note, undefined);
   });
 
   it('the keyword ranker never calls the embedder', async () => {
@@ -162,10 +159,9 @@ describe('the note with embeddings', () => {
     assert.equal(none.mod.finderWiring!(none.agents.get('alpha')!).embeddings, false, 'the model is not installed');
   });
 
-  it('with the local ranker and no model installed, the note is the keyword note and nothing is spawned', async () => {
+  it('with the local ranker and no model installed there is no note, even with suggest on, and nothing is spawned', async () => {
     const r = await rigWith(undefined, { suggest: true, ranker: 'local', threshold: 'eager' });
-    const note = await turn(r, 'please polish the typography of these pages');
-    assert.deepEqual(note?.suggested, [ID('design-polish')]);
+    assert.equal(await turn(r, 'please polish the typography of these pages'), undefined);
   });
 });
 
@@ -241,7 +237,9 @@ describe("suggest 'auto' (the default)", () => {
     assert.equal(noModel.mod.finderWiring!(noModel.agents.get('alpha')!).suggest, false, 'local ranker, no model: auto is off');
     const local = await rigWith(f.e, { ranker: 'local', threshold: 'eager' });
     assert.equal(local.mod.finderWiring!(local.agents.get('alpha')!).suggest, true, 'local ranker with a model: auto is on');
-    assert.ok(await turn(local, prompt));
+    assert.equal(await turn(local, prompt), undefined, 'a cold model (no vectors yet) under auto gives no keyword note');
+    await local.mod.finderSettled();
+    assert.ok(await turn(local, prompt), 'once the skills are embedded the note comes');
     await local.call('POST', '/api/armory/finder', { suggest: false });
     assert.equal(local.mod.finderWiring!(local.agents.get('alpha')!).suggest, false, 'an explicit off wins');
     assert.equal(await turn(local, prompt), undefined);
@@ -294,5 +292,43 @@ describe('the search weight', () => {
     // Swapped: the search follows the vector.
     const swapped = await mk({ weight: 0, searchWeight: 1 });
     assert.ok(swapped.indexOf('db-tune') >= 0 && (swapped.indexOf('design-polish') < 0 || swapped.indexOf('db-tune') < swapped.indexOf('design-polish')), swapped);
+  });
+});
+
+describe('the shipped numbers (no finderTuning override)', () => {
+  const PROMPT = 'please polish the typography of these pages';
+  const shipped = async (emb: Embedder, ranker: 'local' | 'provider', skills = true) => {
+    const r = armoryRig({ modOpts: { finderEmbedder: () => emb, finderTuning: {} } });
+    if (skills) {
+      await own(r, { name: 'design-polish', description: 'Polish typography, spacing and colour for pages', body: 'b' });
+      await own(r, { name: 'db-tune', description: 'Tune database queries and indexes', body: 'b' });
+      await own(r, { name: 'garden-notes', description: 'Helps with garden things', body: 'b' });
+    }
+    await r.call('POST', '/api/armory/finder', { suggest: true, ranker, threshold: 'eager' });
+    return r;
+  };
+
+  for (const runtime of ['claude', 'provider'] as const) {
+    it(`the ${runtime} path: a close skill gets a note with the tuned floors`, async () => {
+      const r = await shipped(fakeEmbedder().e, 'local');
+      assert.equal(await turn(r, PROMPT, runtime), undefined, 'the first turn has no vectors yet');
+      await r.mod.finderSettled();
+      const note = await turn(r, PROMPT, runtime);
+      assert.deepEqual(note?.suggested, [ID('design-polish')]);
+    });
+  }
+
+  it('the provider embedder is untuned: no cosine floor, so a skill at cosine 0.68 gets a note that the local floor of 0.88 refuses', async () => {
+    const far: Embedder = { id: 'fake-far2', async embed(texts, _s, kind) { return texts.map((t) => (kind === 'query' ? Float32Array.from([0.6, -0.5, -0.4]) : vecOf(t))); } };
+    const provider = await shipped(far, 'provider');
+    await turn(provider, PROMPT);
+    await provider.mod.finderSettled();
+    const got = await turn(provider, PROMPT);
+    assert.deepEqual(got?.suggested, [ID('design-polish')]);
+    assert.ok(got!.why[0]!.cosine! < 0.88);
+    const local = await shipped(far, 'local');
+    await turn(local, PROMPT);
+    await local.mod.finderSettled();
+    assert.equal(await turn(local, PROMPT), undefined, 'the same vectors on the local ranker fall under its cosine floor');
   });
 });

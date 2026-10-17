@@ -106,6 +106,8 @@ export function rankFused(
     const boost = Number.isFinite(raw) ? raw : 1;
     if (overdue()) return { results: [], timedOut: true };
     const score = (w * cn + (1 - w) * bn) * boost;
+    // A skill with no vector has no cosine to pass this floor with, so it is not judged by it, but its fused score has no cosine part and
+    // cannot reach the fused floor: it is never suggested until it has been embedded.
     if (c !== undefined && c < floor) continue;
     if (score > 0 && score >= opts.minScore) ranked.push({ id, score, bm25: hit?.score ?? 0, ...(c !== undefined ? { cosine: c } : {}), matched: hit?.matched ?? [], boost });
   }

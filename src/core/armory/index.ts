@@ -145,6 +145,7 @@ const FIND_EMBED_BUDGET_MS = 2000;
 
 export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): ArmoryModule {
   const log = opts.log ?? (() => undefined);
+  let lastSkip: string | undefined;
   const tune: FinderTuning = { thresholds: THRESHOLDS, fusedThresholds: FUSED_THRESHOLDS, weight: FUSION_WEIGHT, searchWeight: SEARCH_FUSION_WEIGHT, cosineFloor: RAW_COSINE_FLOOR, rerankMargin: RERANK_MARGIN, ...(opts.finderTuning ?? {}) };
   const ttl = opts.ttlMs ?? 5000;
   const probe = opts.sdkProbe ?? sdkHandshake;
@@ -402,12 +403,14 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
     finderWiring(agent: AgentProfile): FinderWiring {
       const f = finderSettings(agent);
-      return { suggest: suggestOn(f, embedderFor(f) !== undefined), subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank, embeddings: embedderFor(f) !== undefined };
+      const emb = embedderFor(f);
+      return { suggest: suggestOn(f, emb !== undefined), subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank, embeddings: emb !== undefined };
     },
 
     async turnNote(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined> {
       const f = finderSettings(agent);
-      if (!suggestOn(f, embedderFor(f) !== undefined) || (ctx.subagentType !== undefined && !f.subagents)) return undefined;
+      const emb = embedderFor(f);
+      if (!suggestOn(f, emb !== undefined) || (ctx.subagentType !== undefined && !f.subagents)) return undefined;
       if (ctx.prompt.trim().split(/\s+/).filter(Boolean).length < MIN_WORDS) return undefined;
       const cand = candidateIds(agent, ctx.runtime);
       if (!cand.size) return undefined;
@@ -421,12 +424,21 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       // Embeddings first, when the ranker has them and they answer within the budget. Any failure, or too few vectors yet, means keywords.
       let results: Ranked[] | undefined;
       let fused = false;
-      const emb = embedderFor(f);
       if (emb) {
         const st = await embedState(emb, docsOf(docs, cand), ctx.prompt, EMBED_QUERY_BUDGET_MS);
-        const got = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: cut, maxK: RERANK_CANDIDATES, minScore: tune.fusedThresholds[f.threshold], cosineFloor: tune.cosineFloor, weight: tune.weight, deadlineMs: DEADLINE_MS, boost }) : null;
+        // The tuned cosine floor and weight belong to the local model. The provider embedder is untuned: no cosine floor, the search weight.
+        const own = f.ranker === 'local';
+        const got = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: cut, maxK: RERANK_CANDIDATES, minScore: tune.fusedThresholds[f.threshold], cosineFloor: own ? tune.cosineFloor : -1, weight: own ? tune.weight : tune.searchWeight, deadlineMs: DEADLINE_MS, boost }) : null;
         if (got && !got.timedOut) { results = got.results; fused = true; }
       }
+      // The keyword floors fail the note bars (defaults.ts), so a turn that was meant to use embeddings and could not (cold model, a missed
+      // budget, too few vectors) gets no note. The search tool still falls back to keywords: it is asked for.
+      if (!results && f.ranker !== 'keyword') {
+        if (lastSkip !== 'embeddings') log('finder: no note this turn (the embeddings were not ready)');
+        lastSkip = 'embeddings';
+        return undefined;
+      }
+      lastSkip = undefined;
       if (!results) results = rank(sub, ctx.prompt, { k: cut, maxK: RERANK_CANDIDATES, minScore: tune.thresholds[f.threshold], deadlineMs: DEADLINE_MS, boost }).results;
       const wide = results;
       let chosen = wide.slice(0, f.k);

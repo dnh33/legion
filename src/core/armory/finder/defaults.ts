@@ -36,6 +36,8 @@ export const DEFAULT_K = 3;
  * Embeddings, tuned in Task 11.
  * The fused score is `w * cosineNorm + (1 - w) * bm25Norm`, both 0..1 over the candidates.
  */
+// The weight, the fused floors and the cosine floor below are tuned for the local model only. The provider embedder is untuned: it gets no
+// cosine floor and the search weight.
 export const FUSION_WEIGHT = 0.8;
 /**
  * The weight for the search tool (armory_find), which has no floor and so needs the best order with no cut: the weight with the most mean
