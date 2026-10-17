@@ -195,8 +195,8 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
       } finally { dialogOpen = false; }
       // an update the gate staged carries no consent: the owner's yes in the dialog above records it, the same as the Update button
       if (!st.json.consent) {
-        const c = await h.ownCoreCall('POST', '/api/update/install', {}, true);
-        if (!c || c.status !== 200 || c.json?.ok !== true) return { ok: false, error: 'Legion could not record your yes for this update.' };
+        const c = await h.ownCoreCall('POST', '/api/update/approve', { version: st.json.staged.version }, true);
+        if (!c || c.status !== 200 || c.json?.ok !== true) return { ok: false, error: c?.status === 409 ? 'The update changed while you were being asked. Look at the update panel again.' : 'Legion could not record your yes for this update.' };
       }
       const d = await h.ownCoreCall('POST', '/api/update/drain', {}, true);
       if (!d || d.status !== 200) return { ok: false, error: 'Legion could not stop the running work cleanly.' };

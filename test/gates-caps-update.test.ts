@@ -237,8 +237,28 @@ test('a gate-staged update: Restart and install records consent only after the n
   const main = readFileSync(`${root}/src/electron/updater-main.ts`, 'utf8');
   const fn = main.slice(main.indexOf('async function applyNow('), main.indexOf('async function applyNow(') + 4000);
   assert.match(fn, /!st\.json\.staged \|\| \(!st\.json\.consent && !force\)/, 'without force (the timer) consent is required');
-  const yes = fn.indexOf('if (r.response !== 1) return'), rec = fn.indexOf("'/api/update/install'"), drain = fn.indexOf("'/api/update/drain'");
+  const yes = fn.indexOf('if (r.response !== 1) return'), rec = fn.indexOf("'/api/update/approve', { version: st.json.staged.version }"), drain = fn.indexOf("'/api/update/drain'");
   assert.ok(yes > 0 && rec > yes && drain > rec, 'consent is recorded after the dialog yes and before the drain');
   const panel = readFileSync(`${root}/ui/src/components/UpdatePanel.tsx`, 'utf8');
   assert.match(panel, /st\.consent \? 'Legion installs it by itself[^']*' : 'Legion waits for your yes\./, 'the panel does not promise a self-install without consent');
+});
+
+test('approveStaged records consent only for the staged version the dialog named, and never downloads', async () => {
+  const { isClientRoute } = await import('../src/core/admin.js');
+  assert.equal(isClientRoute('POST', '/api/update/approve'), false, 'admin only');
+  let value: GateValue = false;
+  const r = await updater(() => value);
+  try {
+    await r.mod.check(true);
+    await waitFor(async () => (await r.mod.status()).phase === 'staged');
+    const v = (await r.mod.status()).staged!.version;
+    value = true; // the owner switches "Ask before an update installs" back on
+    const dl = () => r.srv.hits.filter((h) => h.includes('/releases/download/')).length;
+    const before = dl();
+    for (const other of ['9.9.9', undefined, 42, '']) assert.throws(() => r.mod.approveStaged(other), (e: { status?: number }) => e.status === 409);
+    assert.equal((await r.mod.status()).consent, false, 'a different version approves nothing');
+    assert.deepEqual(r.mod.approveStaged(v), { ok: true });
+    assert.equal((await r.mod.status()).consent, true);
+    assert.equal(dl(), before, 'approving downloads nothing');
+  } finally { await r.srv.close(); }
 });

@@ -73,6 +73,8 @@ export interface UpdaterModule extends CoreModule {
   check(manual?: boolean): Promise<void>;
   status(): Promise<UpdateStatus>;
   install(o?: { byGate?: boolean }): Promise<{ ok: boolean; declined?: boolean }>;
+  /** Records the owner's yes for exactly the staged version they were shown; 409 when the staged version is another one or none. */
+  approveStaged(version: unknown): { ok: true };
   drain(): Promise<{ stopped: Array<{ id: string; agentId: string }>; settled: boolean }>;
   commit(o?: { force?: boolean }): Promise<{ installDir: string; stagedDir: string; from: string; to: string; names?: readonly string[]; updateId?: string }>;
   abortCommit(): void;
@@ -294,6 +296,14 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       };
     },
 
+    approveStaged(version) {
+      // The owner's yes in the Restart dialog, for the version that dialog named. It never downloads or stages: if what is
+      // staged changed while the dialog was open (a newer check, a discard), nothing is approved and the owner is asked again.
+      if (typeof version !== 'string' || !staged || staged.version !== version) throw new HttpError(409, 'The update changed while you were being asked. Look at the update panel again.');
+      consent = true;
+      return { ok: true };
+    },
+
     async install(o = {}): Promise<{ ok: boolean; declined?: boolean }> {
       if (mode !== 'apply') throw new HttpError(409, mode === 'checkout' ? 'This is a git checkout: update it with git pull and a rebuild.' : 'This install cannot be updated from inside Legion.');
       const a = available?.manifest;
@@ -435,6 +445,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         return files.saveSettings(patch);
       });
       add('POST', '/api/update/install', async () => { const r = await module.install(); return { ...r, status: await module.status() }; });
+      add('POST', '/api/update/approve', async (c) => { const v = c.body && typeof c.body === 'object' ? (c.body as { version?: unknown }).version : undefined; return { ...module.approveStaged(v), status: await module.status() }; });
       add('POST', '/api/update/cancel', async () => { if (phase === 'downloading' || phase === 'committing') throw new HttpError(409, 'Busy; try again in a moment.'); clearStage(); return module.status(); });
       // The way out of a block. Without this the only way to retry a rolled-back version was to wait out the window
       // or hand-edit state.json, and the panel said nothing about either. Admin-gated like every other route, so it
