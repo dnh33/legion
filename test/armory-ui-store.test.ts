@@ -34,10 +34,14 @@ const world = {
   failState: new Set<string>(),
   failNotice: false,
   noShell: false,
-  finder: { suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1, slimListing: true, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false } as Record<string, unknown>,
+  finder: { suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1, slimListing: 'auto', k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false } as Record<string, unknown>,
   failFinder: '',
+  /** Keys of a patch that fails, and how long a patch with a given key waits before the core answers (the answer is made on arrival, so it can be stale). */
+  failKeys: [] as string[],
+  delayKeys: {} as Record<string, number>,
   model: { state: 'not-installed' } as Record<string, unknown>,
-  getModel: 'ok' as 'ok' | 'denied',
+  getModel: 'ok' as 'ok' | 'denied' | 'hang',
+  releaseModel: null as null | (() => void),
   failPromote: false,
   failSave: '',
   failImport: '',
@@ -71,7 +75,7 @@ const reset = (): void => {
     mk('update-config', 'claude-builtin', { path: null, fit: 'self', offReason: 'It edits Claude Code settings.' }),
   ];
   world.ccNoticeSeen = false; world.allowSkillShell = false; world.down = false; world.failState = new Set(); world.failNotice = false; world.noShell = false;
-  world.finder = { suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1, slimListing: true, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false }; world.failFinder = ''; world.model = { state: 'not-installed' }; world.getModel = 'ok';
+  world.finder = { suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1, slimListing: 'auto', k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false }; world.failFinder = ''; world.failKeys = []; world.delayKeys = {}; world.model = { state: 'not-installed' }; world.getModel = 'ok';
   world.failPromote = false; world.failSave = ''; world.failImport = ''; world.failBulk = ''; world.failRefresh = ''; world.discovery = 'sdk'; world.discoveryReason = null; world.discoveredAt = '2026-10-06T10:00:00.000Z'; world.dryRun = null; world.failDelete = false; world.failRestore = false; world.slow = 0; world.drillText = ''; world.texts = {}; world.eff = {}; world.calls = [];
   world.real = null; world.house = []; world.old = false;
 };
@@ -139,11 +143,19 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
       return json(200, { ccNoticeSeen: world.ccNoticeSeen });
     case 'POST /api/armory/finder':
       if (world.failFinder) return json(500, { error: world.failFinder });
-      world.finder = { ...world.finder, ...body };
-      return json(200, world.finder);
+      {
+        const keys = Object.keys(body ?? {});
+        const wait = Math.max(0, ...keys.map((k) => world.delayKeys[k] ?? 0));
+        if (keys.some((k) => world.failKeys.includes(k))) { if (wait) await sleep(wait); return json(500, { error: 'cannot save ' + keys.join(',') }); }
+        world.finder = { ...world.finder, ...body };
+        const answer = { ...world.finder };
+        if (wait) await sleep(wait);
+        return json(200, answer);
+      }
     case 'GET /api/armory/finder/model':
       return json(200, world.model);
     case 'POST /api/armory/finder/model/get':
+      if (world.getModel === 'hang') await new Promise<void>((r) => { world.releaseModel = r; });
       if (world.getModel === 'denied') return json(200, { ok: false, denied: true, status: world.model });
       world.model = { state: 'ready', bytes: 150_000_000 };
       return json(200, { ok: true, status: world.model });
@@ -223,7 +235,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 };
 
 interface St2 {
-  finderError: string | null; finderBusy: number; model: { state: string } | null; modelError: string | null; modelBusy: boolean;
+  finderError: string | null; finderBusy: number; model: { state: string } | null; modelError: string | null; modelBusy: boolean; modelWaiting: boolean;
   data: { skills: S[]; ccNoticeSeen: boolean; allowSkillShell?: boolean; discoveredAt?: string | null; discovery?: string; discoveryReason?: string | null } | null; loaded: boolean; loading: boolean; loadError: string | null; absent: boolean;
   refreshing: boolean; refreshError: string | null;
   switching: string[]; rowErrors: Record<string, { op: string; message: string }>; resetting: string | null; resetErrors: Record<string, string>;
@@ -250,6 +262,9 @@ interface Store {
   setFinder(p: Record<string, unknown>): Promise<boolean>;
   dismissFinderNotice(useFullList: boolean): Promise<boolean>;
   getFinderModel(): Promise<void>;
+  stopFinderModelPoll(): void;
+  checkFinderModelAgain(): Promise<void>;
+  MODEL_POLL_MAX_TICKS: number;
   removeFinderModel(): Promise<void>;
   removeSkill(id: string): Promise<boolean>;
   undoRemove(): Promise<void>;
@@ -632,7 +647,7 @@ test('the first-contact notice: Keep sends noticeSeen only; "Use the full list" 
   world.calls.length = 0;
   await store.dismissFinderNotice(false);
   assert.deepEqual(world.calls.find((c) => c.path === '/api/armory/finder')!.body, { noticeSeen: true });
-  assert.equal(world.finder.slimListing, true);
+  assert.equal(world.finder.slimListing, 'auto');
   await fresh();
   world.calls.length = 0;
   await store.dismissFinderNotice(true);
@@ -653,6 +668,100 @@ test('the local model: get shows the core status, a refusal says so, remove goes
   await store.getFinderModel();
   assert.equal(getArmory().model!.state, 'not-installed');
   assert.match(getArmory().modelError!, /did not approve/);
+});
+
+test('two finder changes that overlap: the first answer (made before the second) does not undo the second, and a failure puts back only its own key', async () => {
+  await fresh();
+  world.delayKeys = { k: 60 };
+  const a = store.setFinder({ k: 5 });
+  const b = store.setFinder({ chatLine: false });
+  assert.equal(await b, true);
+  assert.equal(await a, true);
+  const f = (getArmory().data as any).finder;
+  assert.equal(f.k, 5);
+  assert.equal(f.chatLine, false, 'the stale answer to the first change carried chatLine true; only its own key is taken from it');
+  world.failKeys = ['k'];
+  const c = store.setFinder({ k: 2 });
+  const d = store.setFinder({ threshold: 'eager' });
+  assert.equal(await d, true);
+  assert.equal(await c, false);
+  const g = (getArmory().data as any).finder;
+  assert.equal(g.k, 5, 'the failed key is back');
+  assert.equal(g.threshold, 'eager', 'the other change stays');
+  assert.equal(g.chatLine, false);
+});
+
+const modelGets = (): number => world.calls.filter((c) => c.method === 'GET' && c.path === '/api/armory/finder/model').length;
+const settle = (): Promise<void> => sleep(25);
+async function pollSetup(): Promise<{ p: Promise<void> }> {
+  await fresh();
+  world.getModel = 'hang';
+  world.model = { state: 'downloading', progress: 0.2 };
+  mock.timers.enable({ apis: ['setInterval'] });
+  world.calls.length = 0;
+  const p = store.getFinderModel();
+  await settle();
+  return { p };
+}
+const release = async (p: Promise<void>): Promise<void> => { world.releaseModel?.(); world.getModel = 'ok'; await p; };
+
+test('the model poll stops when the status turns ready, even while the request is still waiting', async () => {
+  const { p } = await pollSetup();
+  try {
+    mock.timers.tick(1000); await settle();
+    assert.equal(modelGets(), 1);
+    assert.equal(getArmory().model!.state, 'downloading');
+    world.model = { state: 'ready', bytes: 1 };
+    mock.timers.tick(1000); await settle();
+    assert.equal(getArmory().model!.state, 'ready');
+    assert.equal(getArmory().modelBusy, false, 'the buttons are usable again');
+    const n = modelGets();
+    mock.timers.tick(5000); await settle();
+    assert.equal(modelGets(), n, 'no more polling');
+  } finally { mock.timers.reset(); await release(p); }
+});
+
+test('the model poll stops on an error status', async () => {
+  const { p } = await pollSetup();
+  try {
+    world.model = { state: 'error', error: 'The download stopped.' };
+    mock.timers.tick(1000); await settle();
+    assert.equal(getArmory().model!.state, 'error');
+    assert.equal(getArmory().modelBusy, false);
+    const n = modelGets();
+    mock.timers.tick(5000); await settle();
+    assert.equal(modelGets(), n);
+  } finally { mock.timers.reset(); await release(p); }
+});
+
+test('the model poll stops when the section closes (unmount)', async () => {
+  const { p } = await pollSetup();
+  try {
+    mock.timers.tick(2000); await settle();
+    const n = modelGets();
+    assert.ok(n >= 1);
+    store.stopFinderModelPoll();
+    mock.timers.tick(5000); await settle();
+    assert.equal(modelGets(), n);
+  } finally { mock.timers.reset(); await release(p); }
+});
+
+test('after 10 minutes with no answer to the approval card the poll stops and says so; Check again reads once and polls again', async () => {
+  const { p } = await pollSetup();
+  try {
+    mock.timers.tick(store.MODEL_POLL_MAX_TICKS * 1000); await settle();
+    assert.equal(getArmory().modelWaiting, false, 'ten minutes of reading is allowed; the next tick gives up');
+    mock.timers.tick(1000); await settle();
+    assert.equal(getArmory().modelWaiting, true);
+    const n = modelGets();
+    mock.timers.tick(10_000); await settle();
+    assert.equal(modelGets(), n, 'no polling while it waits');
+    await store.checkFinderModelAgain();
+    assert.equal(modelGets(), n + 1, 'one read at once');
+    assert.equal(getArmory().modelWaiting, false);
+    mock.timers.tick(2000); await settle();
+    assert.ok(modelGets() > n + 1, 'and polling again');
+  } finally { mock.timers.reset(); await release(p); }
 });
 
 test('Remove is at once, offers Undo, and Undo posts the old text, then puts the state and the agent list back', async () => {

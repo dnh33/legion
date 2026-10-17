@@ -82,6 +82,19 @@ describe('the finder test box', () => {
     assert.equal(out.rows.length, 10);
   });
 
+  it('without an agent, lists only what the Claude path would deliver: a bare skill shadowed by a plugin skill that is off is left out', async () => {
+    const rig = armoryRig({ cc: { personal: { 'invoice-audit': md('invoice-audit', 'Audit invoices and export accounting') }, plugins: [{ key: 'sp@m', name: 'sp', skills: { 'invoice-audit': md('invoice-audit', 'Audit invoices and export accounting') } }] } });
+    await own(rig, { name: 'invoice-pdf-export', description: 'Export invoices to PDF documents for accounting', body: 'b' });
+    await rig.call('POST', '/api/armory/state', { id: 'invoice-audit', state: 'on' });
+    await rig.call('POST', '/api/armory/state', { id: 'sp:invoice-audit', state: 'off' });
+    const out = await rig.call('POST', '/api/armory/finder/test', { query: 'audit invoices export accounting' });
+    const ids: string[] = out.rows.map((r: any) => r.id);
+    assert.ok(ids.includes('legion-armory:invoice-pdf-export'));
+    assert.ok(!ids.includes('invoice-audit') && !ids.includes('sp:invoice-audit'), ids.join(','));
+    const forAgent = await rig.call('POST', '/api/armory/finder/test', { query: 'audit invoices export accounting', agent: 'alpha' });
+    assert.deepEqual(out.rows.map((r: any) => r.id), forAgent.rows.map((r: any) => r.id), 'the same set an agent with no limits gets');
+  });
+
   it('returns no rows, not an error, when nothing matches', async () => {
     const rig = await rigWith();
     const out = await rig.call('POST', '/api/armory/finder/test', { query: 'zebra quantum yodel' });

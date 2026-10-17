@@ -113,15 +113,40 @@ describe('finder on the Claude path', () => {
     assert.equal(on, off);
   });
 
-  it('adds the slim listing keys by default, and drops them when slimListing is switched off', async () => {
+  it('slim listing: by default (auto) a small catalog keeps the full list; true adds the keys; false drops them', async () => {
     const rig = await rigWith();
-    let o1: Opts; let o2: Opts;
+    let o1: Opts; let o2: Opts; let o3: Opts;
     await drive(rig, PROMPT, async (o) => { o1 = o; });
-    assert.equal(o1.settings.skillListingBudgetFraction, 0.002, 'on by default');
-    assert.equal(o1.settings.skillListingMaxDescChars, 120);
-    await rig.call('POST', '/api/armory/finder', { slimListing: false });
+    assert.ok(!('skillListingBudgetFraction' in o1.settings), 'auto with a handful of skills: no slim keys');
+    await rig.call('POST', '/api/armory/finder', { slimListing: true });
     await drive(rig, PROMPT, async (o) => { o2 = o; });
-    assert.ok(!('skillListingBudgetFraction' in o2.settings) && !('skillListingMaxDescChars' in o2.settings));
+    assert.equal(o2.settings.skillListingBudgetFraction, 0.002);
+    assert.equal(o2.settings.skillListingMaxDescChars, 120);
+    await rig.call('POST', '/api/armory/finder', { slimListing: false });
+    await drive(rig, PROMPT, async (o) => { o3 = o; });
+    assert.ok(!('skillListingBudgetFraction' in o3.settings) && !('skillListingMaxDescChars' in o3.settings));
+  });
+
+  it('slim listing auto turns on only above 40 delivered skills (40 no, 41 yes); true needs no count; none without the search tool', async () => {
+    const rig = armoryRig();
+    const alpha = rig.agents.get('alpha')!;
+    for (let i = 0; i < 40; i++) await own(rig, { name: `skill-${String(i).padStart(2, '0')}`, description: `Does thing ${i}`, body: 'b' });
+    assert.equal(rig.mod.finderWiring!(alpha).slimListing, false, 'auto at exactly 40');
+    await own(rig, { name: 'skill-40', description: 'Does thing 40', body: 'b' });
+    assert.equal(rig.mod.finderWiring!(alpha).slimListing, true, 'auto at 41');
+    await rig.call('POST', '/api/armory/finder', { searchTool: false });
+    assert.equal(rig.mod.finderWiring!(alpha).slimListing, false, 'auto with the search tool off');
+    await rig.call('POST', '/api/armory/finder', { slimListing: true });
+    assert.equal(rig.mod.finderWiring!(alpha).slimListing, false, 'true with the search tool off');
+    await rig.call('POST', '/api/armory/finder', { searchTool: true, slimListing: false });
+    assert.equal(rig.mod.finderWiring!(alpha).slimListing, false, 'false with many skills');
+  });
+
+  it('slim listing true gives slim with only 3 skills', async () => {
+    const rig = armoryRig();
+    for (const n of ['one-thing', 'two-thing', 'three-thing']) await own(rig, { name: n, description: `Does ${n}`, body: 'b' });
+    await rig.call('POST', '/api/armory/finder', { slimListing: true });
+    assert.equal(rig.mod.finderWiring!(rig.agents.get('alpha')!).slimListing, true);
   });
 
   it('SubagentStart ranks the subagent prompt captured from the Agent tool call (FIFO by type), else the task text', async () => {

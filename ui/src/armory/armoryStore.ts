@@ -102,6 +102,8 @@ export interface ArmoryUiState {
   finderError: string | null;
   model: FinderModelStatus | null;
   modelBusy: boolean;
+  /** The approval card went unanswered for 10 minutes: polling stopped. */
+  modelWaiting: boolean;
   modelError: string | null;
   spend: RerankSpend | null;
   reading: ReadState | null;
@@ -119,7 +121,7 @@ export interface ArmoryUiState {
 let state: ArmoryUiState = {
   data: null, loaded: false, loading: false, loadError: null, refreshing: false, refreshError: null, absent: false, switching: [], rowErrors: {}, resetting: null, resetErrors: {},
   undo: null, removed: null, busyIds: [], busyOps: {}, undone: null, reveal: null, promoted: null, noticeBusy: false, noticeError: null, shellBusy: false, shellError: null,
-  finderBusy: 0, finderError: null, model: null, modelBusy: false, modelError: null, spend: null,
+  finderBusy: 0, finderError: null, model: null, modelBusy: false, modelWaiting: false, modelError: null, spend: null,
   reading: null, highlight: null, effective: {}, focusRow: null, savedOff: null, notice: '',
 };
 const listeners = new Set<() => void>();
@@ -562,7 +564,10 @@ export async function setFinder(patch: Partial<FinderSettings>): Promise<boolean
   set({ finderBusy: state.finderBusy + 1, finderError: null });
   try {
     const full = await request<FinderSettings>('POST', '/api/armory/finder', patch);
-    if (state.data) set({ data: { ...state.data, finder: full } });
+    // Only the keys this call sent: the answer was made before a change that is still in flight, so the rest of it may be stale.
+    const mine: Record<string, unknown> = {};
+    for (const k of Object.keys(patch)) mine[k] = (full as unknown as Record<string, unknown>)[k];
+    apply(mine);
     return true;
   } catch (e) {
     apply(before);
@@ -581,30 +586,51 @@ export async function loadFinderModel(): Promise<void> {
   try { set({ model: await request<FinderModelStatus>('GET', '/api/armory/finder/model') }); } catch { /* an older core: the card stays hidden */ }
 }
 let modelPoll: ReturnType<typeof setInterval> | undefined;
-const stopPoll = (): void => { if (modelPoll) clearInterval(modelPoll); modelPoll = undefined; };
+/** Stops reading the download's progress. Called when the status is final, the request settles, the section closes, or the wait runs out. */
+export const stopFinderModelPoll = (): void => { if (modelPoll) clearInterval(modelPoll); modelPoll = undefined; };
+/** One second apart; after this many ticks (10 minutes) with no answer to the approval card, we stop and say so. */
+export const MODEL_POLL_MAX_TICKS = 600;
+function startModelPoll(): void {
+  stopFinderModelPoll();
+  set({ modelWaiting: false });
+  let ticks = 0;
+  modelPoll = setInterval(() => {
+    if (++ticks > MODEL_POLL_MAX_TICKS) { stopFinderModelPoll(); set({ modelWaiting: true }); return; }
+    void request<FinderModelStatus>('GET', '/api/armory/finder/model').then((m) => {
+      if (!state.modelBusy || !modelPoll) return;
+      set({ model: m });
+      // A final status ends the wait even if the request that started it has not answered yet.
+      if (m.state === 'ready' || m.state === 'error') { stopFinderModelPoll(); set({ modelBusy: false }); }
+    }, () => undefined);
+  }, 1000);
+}
+/** "Check again" after the wait ran out: read the status now and keep reading for another 10 minutes. */
+export async function checkFinderModelAgain(): Promise<void> {
+  if (!state.modelBusy) { await loadFinderModel(); return; }
+  await loadFinderModel();
+  if (state.model?.state === 'ready' || state.model?.state === 'error') { set({ modelBusy: false, modelWaiting: false }); return; }
+  startModelPoll();
+}
 /** Get the local model. The core raises an approval card and holds the request until it is answered and the download is done; meanwhile we read its progress. */
 export async function getFinderModel(): Promise<void> {
   if (state.modelBusy) return;
   set({ modelBusy: true, modelError: null, model: { state: 'downloading', progress: 0 } });
-  stopPoll();
-  modelPoll = setInterval(() => {
-    void request<FinderModelStatus>('GET', '/api/armory/finder/model').then((m) => { if (state.modelBusy) set({ model: m }); }, () => undefined);
-  }, 1000);
+  startModelPoll();
   try {
     const r = await request<{ ok: boolean; denied?: boolean; status?: FinderModelStatus }>('POST', '/api/armory/finder/model/get');
-    stopPoll();
+    stopFinderModelPoll();
     if (r.status) set({ model: r.status });
     else await loadFinderModel();
     if (r.denied) set({ modelError: 'You did not approve the download, so nothing was fetched.' });
     else if (!r.ok && r.status?.state !== 'error') set({ modelError: 'The download did not finish.' });
     if (r.ok) announce('The local model is ready.');
   } catch (e) {
-    stopPoll();
+    stopFinderModelPoll();
     await loadFinderModel();
     set({ modelError: msg(e) });
   } finally {
-    stopPoll();
-    set({ modelBusy: false });
+    stopFinderModelPoll();
+    set({ modelBusy: false, modelWaiting: false });
   }
 }
 export async function removeFinderModel(): Promise<void> {

@@ -4,6 +4,12 @@
  * least 0.50. The keyword ranker has no point that meets both bars (see THRESHOLDS); the local ranker meets them only where a note is rare.
  */
 
+/**
+ * The short skill list (settings.slimListing, default 'auto') was measured once, on one 104-skill catalog: 36 percent fewer input tokens per call with no
+ * real loss of correct skill calls. A smaller catalog gains little and loses description detail, and that case was not measured, so 'auto' keeps the
+ * full list until an agent is given more skills than the Settings warning threshold (SKILL_WARN_ABOVE, 40).
+ */
+
 /** Weight of each field in the BM25F score. The id's parts count as part of `name`. */
 export const FIELD_WEIGHTS = { name: 3, description: 1.5, whenToUse: 1.5, headings: 0.5 } as const;
 

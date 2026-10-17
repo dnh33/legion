@@ -353,6 +353,7 @@ function Discovery({ data, nowMs, refreshing, error }: { data: ArmoryData; nowMs
               <ul className="set-hint arm-which" tabIndex={0} aria-label="Switched-on skills no listing finds">
                 {ids.map((id) => <li key={id}>{id}</li>)}
               </ul>
+              {ids.length > 12 ? <p className="set-hint">{ids.length} skills listed. Scroll the list to see them all.</p> : null}
               {(data.unmatchedOn ?? 0) > ids.length ? <p className="set-hint">Only the first {ids.length} are listed.</p> : null}
             </>
           ) : null}

@@ -18,8 +18,9 @@ export const FINDER_DEFAULTS: FinderSettings = {
   ranker: 'keyword',
   rerank: false,
   rerankMonthlyUsd: 1,
-  // On: the paired Task 11d test found no real loss of correct skill calls with the slim listing, at about 36 percent fewer input tokens per call.
-  slimListing: true,
+  // Measured once, on one 104-skill catalog: 36 percent fewer input tokens per call with no real loss of correct skill calls. A smaller catalog
+  // gains little and loses description detail, and nobody measured that case, so 'auto' keeps the full list until an agent has many skills.
+  slimListing: 'auto',
   k: DEFAULT_K,
   threshold: 'balanced',
   chatLine: true,
@@ -61,6 +62,8 @@ function check(key: FinderKey, v: unknown): Checked {
       return RANKERS.includes(v as FinderRanker) ? { ok: true, value: v } : { ok: false, reason: `ranker must be one of: ${RANKERS.join(', ')}` };
     case 'threshold':
       return THRESHOLD_NAMES.includes(v as FinderThreshold) ? { ok: true, value: v } : { ok: false, reason: `threshold must be one of: ${THRESHOLD_NAMES.join(', ')}` };
+    case 'slimListing':
+      return v === true || v === false || v === 'auto' ? { ok: true, value: v } : { ok: false, reason: 'slimListing must be true, false or "auto"' };
     case 'suggest':
       return v === true || v === false || v === 'auto' ? { ok: true, value: v } : { ok: false, reason: 'suggest must be true, false or "auto"' };
     case 'providerId':

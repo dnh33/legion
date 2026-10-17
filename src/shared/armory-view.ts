@@ -60,7 +60,11 @@ export interface FinderSettings {
   providerModel?: string;
   rerank: boolean;
   rerankMonthlyUsd: number;
-  slimListing: boolean;
+  /**
+   * The short skill list. 'auto' (the default) is on only for an agent with more skills than the Settings warning threshold (40);
+   * true and false mean what they say. Never on without the search tool.
+   */
+  slimListing: boolean | 'auto';
   /** How many skills the finder suggests, 1 to 5. */
   k: number;
   threshold: FinderThreshold;
@@ -828,9 +832,11 @@ export const IMPORTED_UNDO_NOTE = 'Only SKILL.md comes back, and it comes back o
 export const PROVIDER_DISCLOSURE = 'Your messages are sent to this provider to rank skills. They leave your computer.';
 /** The same for a provider on your own computer, where nothing leaves it. */
 export const PROVIDER_DISCLOSURE_LOCAL = 'Your messages are sent to this provider to rank skills.';
-/** Whether an address points at your own computer: localhost, 127.0.0.1, ::1 or any *.localhost name. */
+/** Whether an address points at your own computer: localhost, 127.0.0.0/8 or ::1. (A *.localhost name is not counted: Windows does not always resolve it to loopback.) */
 export function isLocalHostUrl(url: string): boolean {
   let host: string;
   try { host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, ''); } catch { return false; }
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost');
+  if (host === 'localhost' || host === '::1') return true;
+  const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  return !!m && m.slice(1).every((o) => Number(o) <= 255);
 }

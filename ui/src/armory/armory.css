@@ -170,6 +170,7 @@ span.arm-cmd.muted { font-family: inherit; }
 .arm-swdis { opacity: .55; cursor: default; }
 .arm-fnd select, .arm-fnd .arm-capin input, .arm-fnd .arm-provf input { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 10px; min-height: 30px; color: var(--text); font-size: 13px; max-width: 100%; min-width: 0; }
 .arm-fnd .arm-capin input:focus-visible, .arm-fnd .arm-provf input:focus-visible { outline: 0; background-image: linear-gradient(var(--focus-tint), var(--focus-tint)); }
+.arm-fnd .arm-capin input[aria-invalid='true'] { border-color: var(--danger); }
 .arm-fdisc { color: var(--text-2); font-size: 12.5px; line-height: 1.4; }
 .arm-spend { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
 .arm-cap { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
@@ -203,7 +204,13 @@ span.arm-cmd.muted { font-family: inherit; }
 .arm-fmuted .arm-flabel, .arm-fmuted .arm-spend, .arm-fmuted .arm-cap { color: var(--text-2); font-weight: 400; }
 .arm-fmuted .arm-fctl, .arm-fmuted.arm-rrx input { opacity: .75; }
 .arm-rrx { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.arm-which { max-height: 19em; overflow-y: auto; overscroll-behavior: contain; }
+.arm-which { max-height: 19em; overflow-y: auto; overscroll-behavior: contain;
+  /* Scroll cue: a soft edge shows at the top or bottom while there is more in that direction (the "local" layers cover it at the ends). */
+  background:
+    linear-gradient(var(--bg) 30%, transparent) 0 0 / 100% 26px no-repeat local,
+    linear-gradient(transparent, var(--bg) 70%) 0 100% / 100% 26px no-repeat local,
+    linear-gradient(var(--line-strong), transparent) 0 0 / 100% 12px no-repeat scroll,
+    linear-gradient(transparent, var(--line-strong)) 0 100% / 100% 12px no-repeat scroll; }
 
 /* ---- the editor ---- */
 .arm-form { gap: 12px; }

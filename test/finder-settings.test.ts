@@ -20,11 +20,18 @@ test('defaults: a fresh Armory reports the full finder block, and the defaults a
   const out = await rig.call('GET', '/api/armory');
   assert.deepEqual(out.finder, {
     suggest: false, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1,
-    slimListing: true, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false,
+    slimListing: 'auto', k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false,
   });
   assert.deepEqual(FINDER_DEFAULTS, out.finder);
   const onDisk = JSON.parse(readFileSync(armoryFilePath(rig.dataDir), 'utf8'));
   assert.equal(onDisk.finder, undefined, 'a default is computed on read, not stored');
+});
+
+test('slimListing accepts true, false and "auto" (an old boolean is read as it is), and nothing else', () => {
+  for (const v of [true, false, 'auto']) assert.deepEqual(cleanFinder({ slimListing: v }), { slimListing: v });
+  assert.equal(cleanFinder({ slimListing: 'sometimes' }), undefined);
+  assert.deepEqual(finderPatch({ slimListing: 'auto' }), { slimListing: 'auto' });
+  assert.throws(() => finderPatch({ slimListing: 1 }), /slimListing must be true, false or "auto"/);
 });
 
 test('cleanFinder keeps only known keys with the right types, and clamps k and the monthly cap', () => {

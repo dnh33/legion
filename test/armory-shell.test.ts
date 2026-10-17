@@ -72,7 +72,7 @@ describe('the engine option', () => {
     return s.calls.at(-1)!.options.settings;
   }
   it('blocks inline shell on every run by default, with the connector switch kept', async () => {
-    assert.deepEqual(await runWith(), { disableClaudeAiConnectors: true, disableSkillShellExecution: true, skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 });
+    assert.deepEqual(await runWith(), { disableClaudeAiConnectors: true, disableSkillShellExecution: true });
   });
   it('blocks when the owner switched it off again', async () => {
     assert.equal((await runWith(false)).disableSkillShellExecution, true);

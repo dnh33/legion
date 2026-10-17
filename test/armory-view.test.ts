@@ -974,11 +974,11 @@ describe('second UX review', () => {
 });
 
 describe('the provider disclosure host check', () => {
-  it('treats localhost, 127.0.0.1, ::1 and *.localhost as your own computer', () => {
-    for (const u of ['http://localhost:11434/v1', 'http://LOCALHOST/v1', 'http://127.0.0.1:8080', 'http://[::1]:8080/v1', 'https://embed.localhost/v1', 'http://a.b.localhost']) assert.equal(isLocalHostUrl(u), true, u);
+  it('treats localhost, 127.0.0.0/8 and ::1 as your own computer', () => {
+    for (const u of ['http://localhost:11434/v1', 'http://LOCALHOST/v1', 'http://127.0.0.1:8080', 'http://127.0.0.2', 'http://127.255.255.254/v1', 'http://[::1]:8080/v1']) assert.equal(isLocalHostUrl(u), true, u);
   });
   it('does not trust names that only look local, other hosts, or bad input', () => {
-    for (const u of ['https://api.example.com/v1', 'http://localhost.example.com', 'http://notlocalhost', 'http://127.0.0.2', 'http://192.168.1.5', 'http://evil.com/localhost', 'http://localhost@evil.com', 'localhost', '']) assert.equal(isLocalHostUrl(u), false, u);
+    for (const u of ['https://embed.localhost/v1', 'http://a.b.localhost', 'http://128.0.0.1', 'http://127.0.0.1.evil.com', 'https://api.example.com/v1', 'http://localhost.example.com', 'http://notlocalhost', 'http://127.0.0.256', 'http://192.168.1.5', 'http://evil.com/localhost', 'http://localhost@evil.com', 'localhost', '']) assert.equal(isLocalHostUrl(u), false, u);
   });
   it('the local line drops the claim that the messages leave your computer', () => {
     assert.ok(PROVIDER_DISCLOSURE.endsWith('They leave your computer.'));

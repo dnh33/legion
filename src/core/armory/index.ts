@@ -410,8 +410,10 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     finderWiring(agent: AgentProfile): FinderWiring {
       const f = finderSettings(agent);
       const emb = embedderFor(f);
-      // The slim listing relies on the search tool to find what it no longer describes: no search, no slim listing.
-      return { suggest: suggestOn(f, emb !== undefined), subagents: f.subagents, slimListing: f.slimListing && f.searchTool, rerank: f.rerank, embeddings: emb !== undefined };
+      // The slim listing relies on the search tool to find what it no longer describes: no search, no slim listing (for all three values).
+      // 'auto' counts the skills this agent is really given (the set claudeSkills returns) against the Settings warning threshold.
+      const slim = f.searchTool && (f.slimListing === 'auto' ? candidateIds(agent, 'claude').size > SKILL_WARN_ABOVE : f.slimListing);
+      return { suggest: suggestOn(f, emb !== undefined), subagents: f.subagents, slimListing: slim, rerank: f.rerank, embeddings: emb !== undefined };
     },
 
     async turnNote(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined> {
@@ -682,7 +684,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         const agent = typeof b.agent === 'string' && b.agent ? deps.store.getAgent(b.agent) : undefined;
         if (typeof b.agent === 'string' && b.agent && !agent) throw new HttpError(404, `Unknown agent "${b.agent.slice(0, 80)}"`);
         const settings = agent ? finderSettings(agent) : finderFor(readArmoryFile(deps.dataDir));
-        const cand = agent ? candidateIds(agent, 'claude') : new Set(catalog().filter((e) => access(e, { id: '', skills: undefined }) === 'on').map((e) => e.id));
+        // No agent: the ids that are on for everyone, picked by the same helper as an agent's delivered set (delivery and the shadow rule included).
+        const cand = candidateIds(agent ?? ({ id: '', skills: undefined } as unknown as AgentProfile), 'claude');
         const rows = (await rankSearch(cand, agent?.id ?? '', settings, query.slice(0, 4000), TEST_BOX_MAX)).map(({ description: _d, ...r }) => r);
         return { query, scope: agent ? 'agent' : 'on', candidates: cand.size, rows };
       });

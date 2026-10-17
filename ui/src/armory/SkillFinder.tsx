@@ -12,18 +12,21 @@ import { endSentence, isLocalHostUrl, PROVIDER_DISCLOSURE, PROVIDER_DISCLOSURE_L
 import type { AgentRef, FinderSettings } from '../../../src/shared/armory-view';
 import { getProviders, loadProviders, useProviders } from '../providers/providersStore';
 import {
-  dismissFinderNotice, getFinderModel, loadFinderModel, loadRerankSpend, removeFinderModel, say, setFinder, testFinder, useArmory,
+  checkFinderModelAgain, dismissFinderNotice, getFinderModel, loadFinderModel, loadRerankSpend, removeFinderModel, say, setFinder, stopFinderModelPoll, testFinder, useArmory,
 } from './armoryStore';
 import type { FinderTestResult } from './armoryStore';
 
 export const FINDER_NOTICE = 'Legion now lists your skills briefly and lets agents search for the one that fits. With many skills on, each message stays smaller.';
 const SUGGEST_HELP = 'Off by default: in tests, a suggestion picked the right skill less than half the time.';
-const SLIM_HELP = "Sends each skill's name with a short description, and agents search for the rest. On by default.";
+const SLIM_HELP = "Sends each skill's name with a short description, and agents search for the rest. Saves the most when many skills are on.";
 const SLIM_NEEDS = 'Needs the search tool.';
 const RERANK_DISCLOSURE = "Uses your Claude account. Provider agents' messages are never sent.";
 const NO_PROVIDER = 'No embedding provider set up';
+const AUTO_NEEDS_LOCAL = "Pick 'Keywords + local model' below for this to suggest anything.";
+const CAP_ERROR = 'Enter an amount of 0 or more';
+const WAITING = 'Still waiting for approval. Check the approval card.';
 const TEST_EMPTY = 'Type a message to see which skills fit it';
-const TEST_NONE = 'No skill scores above the floor for this message';
+const TEST_NONE = 'No skill matched any word or meaning in this message';
 const MODEL_GET = 'Get model';
 const MODEL_FACTS = 'About 145 MB download. Uses about 1 GB of memory while in use.';
 
@@ -62,10 +65,13 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
   const hid = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const [capText, setCapText] = useState<string | null>(null);
+  const [capErr, setCapErr] = useState(false);
+  // Closing the section stops the progress polling (the download itself goes on in the core).
+  useEffect(() => () => stopFinderModelPoll(), []);
   useEffect(() => { void loadFinderModel(); void loadRerankSpend(); if (!getProviders().loaded) void loadProviders(); }, []);
   if (!f) return null;
   const id = (k: string): string => `${hid}-${k}`;
-  const slimOn = f.slimListing && f.searchTool;
+  const slimValue = !f.searchTool ? 'false' : String(f.slimListing);
 
   return (
     <section className="arm-fnd" aria-labelledby={`${hid}-h`}>
@@ -91,13 +97,22 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
               <option value="true">On</option>
               <option value="auto">Only with the local model</option>
             </select>
-          )} />
+          )}>
+          {f.suggest === 'auto' && f.ranker !== 'local' ? <p className="set-hint arm-fdisc">{AUTO_NEEDS_LOCAL}</p> : null}
+        </Row>
 
         <Row id={id('search')} label="Search tool" help="Lets an agent search your skills by what it wants to do."
           control={<Switch label="Search tool" on={f.searchTool} describedBy={`${id('search')}-h`} onChange={(v) => { void setFinder({ searchTool: v }); }} />} />
 
         <Row id={id('slim')} label="Short skill list" help={<>{SLIM_HELP}{!f.searchTool ? <> <span className="arm-needs">{SLIM_NEEDS}</span></> : null}</>}
-          control={<Switch label="Short skill list" on={slimOn} disabled={!f.searchTool} describedBy={`${id('slim')}-h`} onChange={(v) => { void setFinder({ slimListing: v }); }} />} />
+          control={(
+            <select aria-labelledby={`${id('slim')}-l`} aria-describedby={`${id('slim')}-h`} value={slimValue} disabled={!f.searchTool}
+              onChange={(e) => { const v = e.target.value; void setFinder({ slimListing: v === 'auto' ? 'auto' : v === 'true' }); }}>
+              <option value="auto">When an agent has more than 40 skills</option>
+              <option value="true">Always</option>
+              <option value="false">Never</option>
+            </select>
+          )} />
 
         <Ranker f={f} id={id('rank')} />
 
@@ -108,12 +123,21 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
           <label className="arm-cap">
             <span>Monthly cap</span>
             <span className="arm-capin"><span aria-hidden="true">$</span>
-              <input type="text" inputMode="decimal" size={5} value={capText ?? String(f.rerankMonthlyUsd)}
-                onChange={(e) => setCapText(e.target.value)}
-                onBlur={() => { const n = Number((capText ?? '').replace(',', '.')); if (capText !== null && capText.trim() !== '' && Number.isFinite(n) && n !== f.rerankMonthlyUsd) void setFinder({ rerankMonthlyUsd: n }).then(() => loadRerankSpend()); setCapText(null); }}
+              <input type="text" inputMode="decimal" size={5} value={capText ?? String(f.rerankMonthlyUsd)} aria-invalid={capErr || undefined} aria-describedby={capErr ? `${id('rerank')}-e` : undefined}
+                onChange={(e) => { setCapText(e.target.value); setCapErr(false); }}
+                onBlur={() => {
+                  if (capText === null) return;
+                  const t = capText.trim().replace(',', '.');
+                  const n = t === '' ? NaN : Number(t);
+                  // Text that is not an amount, or a negative one, is said so and stays on screen; it is not sent and not put back silently.
+                  if (!Number.isFinite(n) || n < 0) { setCapErr(true); return; }
+                  setCapErr(false); setCapText(null);
+                  if (n !== f.rerankMonthlyUsd) void setFinder({ rerankMonthlyUsd: n }).then(() => loadRerankSpend());
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
             </span>
           </label>
+          {capErr ? <p className="house-rowerr" id={`${id('rerank')}-e`} role="alert"><Icon name="x" size={12} /> <span>{CAP_ERROR}</span></p> : null}
           </div>
           <p className="set-hint arm-fdisc">{RERANK_DISCLOSURE}</p>
         </Row>
@@ -204,7 +228,14 @@ function ModelCard({ show }: { show: boolean }) {
   const m = useArmory((s) => s.model);
   const busy = useArmory((s) => s.modelBusy);
   const err = useArmory((s) => s.modelError);
+  const waiting = useArmory((s) => s.modelWaiting);
   const card = useRef<HTMLDivElement>(null);
+  const [ask, setAsk] = useState(false);
+  const cancelBtn = useRef<HTMLButtonElement>(null);
+  const removeBtn = useRef<HTMLButtonElement>(null);
+  const was = useRef(false);
+  // Focus follows the inline step: onto Cancel when it opens (the safe choice), back onto Remove when it closes without removing.
+  useEffect(() => { if (ask) cancelBtn.current?.focus(); else if (was.current) removeBtn.current?.focus(); was.current = ask; }, [ask]);
   if (!m || (!show && m.state === 'not-installed')) return null;
   const go = (fn: () => Promise<void>) => () => { if (busy) return; card.current?.focus(); void fn().then(() => card.current?.focus()); };
   const pct = m.state === 'downloading' && m.progress ? Math.round(m.progress * 100) : 0;
@@ -218,11 +249,23 @@ function ModelCard({ show }: { show: boolean }) {
         </>
       ) : null}
       {m.state === 'downloading' ? (
-        <p className="arm-modelline" role="status"><span className="spin" aria-hidden="true" /> <span>Getting the model (about 145 MB){pct ? `, ${pct}% done` : ''}. Approve it in the approval card if you see one.</span></p>
+        waiting ? (
+          <p className="arm-modelline" role="status"><span>{WAITING}</span> <button type="button" className="btn-ghost sm" onClick={() => { void checkFinderModelAgain(); }}>Check again</button></p>
+        ) : (
+          <p className="arm-modelline" role="status"><span className="spin" aria-hidden="true" /> <span>Getting the model (about 145 MB){pct ? `, ${pct}% done` : ''}. Approve it in the approval card if you see one.</span></p>
+        )
       ) : null}
       {m.state === 'ready' ? (
-        <p className="arm-modelline"><Icon name="check" size={12} /> <span>Ready{m.bytes ? ` (${Math.round(m.bytes / 1_000_000)} MB on your computer)` : ''}</span>
-          <button type="button" className="btn-ghost sm" aria-disabled={busy || undefined} onClick={go(removeFinderModel)}>Remove</button></p>
+        ask ? (
+          <p className="arm-modelline" role="group" aria-label="Remove the model">
+            <span>Remove the model? You can download it again.</span>
+            <button type="button" className="btn sm" onClick={() => { setAsk(false); go(removeFinderModel)(); }}>Remove</button>
+            <button ref={cancelBtn} type="button" className="btn-ghost sm" onClick={() => setAsk(false)}>Cancel</button>
+          </p>
+        ) : (
+          <p className="arm-modelline"><Icon name="check" size={12} /> <span>Ready{m.bytes ? ` (${Math.round(m.bytes / 1_000_000)} MB on your computer)` : ''}</span>
+            <button ref={removeBtn} type="button" className="btn-ghost sm" aria-disabled={busy || undefined} onClick={() => { if (!busy) setAsk(true); }}>Remove</button></p>
+        )
       ) : null}
       {m.state === 'error' ? (
         <button type="button" className="btn sm" aria-disabled={busy || undefined} onClick={go(getFinderModel)}>Try again</button>
