@@ -12,6 +12,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { renameWithRetry } from '../shared/rename-retry.js';
 
 export interface SafeStorageLike {
   isAsyncEncryptionAvailable(): Promise<boolean>;
@@ -36,10 +37,7 @@ function writeAtomic(file: string, data: Buffer): void {
   const tmp = `${file}.${process.pid}.tmp`;
   try { unlinkSync(tmp); } catch { /* none left over */ }
   writeFileSync(tmp, data, { mode: 0o600, flag: 'wx' });
-  try { renameSync(tmp, file); } catch {
-    try { unlinkSync(file); } catch { /* ignore */ }
-    renameSync(tmp, file);
-  }
+  try { renameWithRetry(tmp, file); } catch (e) { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; } // never a moment with no key file
 }
 
 /** The key as hex, or undefined: no `key.bin` (no safeStorage call is made), keystore unusable, or the file does not unwrap. Never throws. */
@@ -131,6 +129,11 @@ export async function loadProviderKey(dataDir: string, ss: SafeStorageLike, plat
 /** True when the system key store can be used right now (usable backend and async encryption available). Never throws. */
 export async function providerKeyStoreReady(ss: SafeStorageLike, platform: string = process.platform): Promise<boolean> {
   try { return keystoreUsable(ss, platform) && (await ss.isAsyncEncryptionAvailable()); } catch { return false; }
+}
+
+/** True when the key.bin that is there unwraps right now. A core that started while the key store was locked said "unreadable"; this is the re-check. Never throws, never writes anything but a re-wrap. */
+export async function providerKeyUnlocks(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<boolean> {
+  return !!(await loadProviderKey(dataDir, ss, platform));
 }
 
 /** Makes and wraps the key on first need, or returns the existing one. A file that does not unwrap is NEVER overwritten (it would orphan keys.enc). */

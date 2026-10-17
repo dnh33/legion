@@ -14,7 +14,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
-import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, setAsideProviderKey } from './connector-key.js';
+import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
@@ -633,7 +633,7 @@ if (instance.quit) {
   ipcMain.handle('legion:provider-change', async (e, raw: unknown): Promise<ProviderChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), unlocks: () => providerKeyUnlocks(dataDir(), safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:web-search-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;

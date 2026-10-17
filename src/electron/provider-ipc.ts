@@ -17,6 +17,8 @@ export interface ProviderIpcDeps {
   startOver?: {
     /** Is the system key store up right now? When it is only unavailable (locked, not unlocked yet) a key.bin that "does not unwrap" may be fine, so nothing is set aside. */
     storeReady(): Promise<boolean>;
+    /** Does the key.bin that is there unwrap right now? If so the core may only have started while the key store was locked. */
+    unlocks?(): Promise<boolean>;
     /** Renames a key.bin that does not unwrap (never deletes it). */
     setAsideKey(): Promise<void>;
     /** Restarts the core so it receives the new data key; null on success, else a plain error. */
@@ -27,7 +29,7 @@ export type ProviderChange =
   | { kind: 'key'; id: string; key: string }
   | { kind: 'entry'; id: string; patch: Record<string, unknown> }
   | { kind: 'start-over' };
-export interface ProviderChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
+export interface ProviderChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown; /** start over was not needed: the keys unlocked after a restart */ unlocked?: true }
 
 const ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 const PATCH_KEYS = new Set(['label', 'baseUrl', 'enabled', 'keyless', 'allowPrivateNetwork', 'models', 'prices']);
@@ -114,6 +116,15 @@ async function startOver(deps: ProviderIpcDeps, blocked: boolean): Promise<Provi
   const hooks = deps.startOver;
   if (!hooks) return { ok: false, error: 'Starting over needs the Legion app.' };
   if (!(await hooks.storeReady())) return { ok: false, error: 'Your system key store is not available right now (for example locked, or not unlocked yet). Unlock it, restart Legion and try again. Nothing was changed.' };
+  // The key store may only have been locked when the core started: a key.bin that unwraps now is not "lost". Restart and look again before
+  // anything is offered or set aside.
+  if (hooks.unlocks && (await hooks.unlocks())) {
+    const err = await hooks.restartCore();
+    if (err) return { ok: false, error: err };
+    const re = await deps.call('GET', '/api/providers');
+    if (!re || re.status !== 200) return { ok: false, error: 'Legion restarted but its core did not answer. Restart Legion.' };
+    if (re.json?.keyStoreState !== 'blocked') return { ok: true, unlocked: true, view: re.json };
+  }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;
   try {

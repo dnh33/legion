@@ -63,7 +63,7 @@ export function startOverKeys(): Promise<boolean> {
     const r = await bridge({ kind: 'start-over' });
     if (r.cancelled) { setNote('keys', 'Cancelled. Nothing changed.'); return; }
     if (!r.ok) throw new Error(r.error ?? 'Could not start over.');
-    setNote('keys', 'Started over. Paste your keys again.');
+    setNote('keys', r.unlocked ? 'Your saved keys unlocked after a restart. Nothing was set aside.' : 'Started over. Paste your keys again.');
     await loadProviders();
   });
 }

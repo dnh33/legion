@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, 
 import { basename, dirname, join } from 'node:path';
 import { tightenConfigMode, writeConfigFile } from '../../shared/config.js';
 import { openBlob, sealBlob } from '../connectors/store.js';
+import { renameWithRetry } from '../../shared/rename-retry.js';
 import { KEYS_BLOCKED_MESSAGE, type KeyStoreState } from '../../shared/providers-view.js';
 
 export const MIN_KEY_LENGTH = 8;
@@ -46,6 +47,8 @@ export interface ProviderKeysOptions {
   dataKey?: Buffer;
   /** No data key, and why, when Electron said so. With neither option the core was started without the app. */
   noKey?: 'unavailable' | 'unreadable' | 'headless';
+  /** The core was started by the app (the admin pipe is there). With no key line that means "no key", not "no app". */
+  launchedByApp?: boolean;
   /** Is the update that is running committed? Decides when keys.json may be retired. Default: yes (not started by the updater). */
   committed?: () => boolean;
 }
@@ -117,9 +120,13 @@ export class ProviderKeys {
     const plain = this.readPlain();
     if (!this.dataKey) { // K2: today's behaviour, keys.json. K3 for a wrapped key that does not open: reads as before, saves refused.
       if (plain) this.setMap(plain.doc);
-      this.reason = this.opts.noKey ?? 'headless';
+      this.reason = this.opts.noKey ?? (this.opts.launchedByApp ? 'unavailable' : 'headless');
       this.locked = existsSync(this.sealedFile); // keys sealed earlier cannot be opened without the key; the file stays where it is
-      this.blocked = this.opts.noKey === 'unreadable';
+      // A machine that ever encrypted (key.bin or keys.enc is there) never turns into plain writes because the key store is down right now.
+      // A core started without the app (no key line, no admin pipe) keeps today's plain behaviour.
+      const fromApp = this.opts.noKey === 'unavailable' || (this.opts.noKey === undefined && !!this.opts.launchedByApp);
+      const everEncrypted = this.locked || existsSync(join(dirname(this.file), 'key.bin'));
+      this.blocked = this.opts.noKey === 'unreadable' || (fromApp && everEncrypted);
       return;
     }
     this.encrypted = true;
@@ -153,8 +160,10 @@ export class ProviderKeys {
   private migrate(plain: { doc: Doc; text: string }, setAside: boolean): void {
     const doc = plain.doc;
     this.setMap(doc);
+    let created = false;
     try {
       if (setAside) this.setAside();
+      created = !existsSync(this.sealedFile); // only a keys.enc made by THIS call may be removed again
       this.keepCopy = true;
       this.persist(plain.text); // keys.json is not rewritten: it is the copy a rollback relies on
       const back = this.readSealed();
@@ -163,10 +172,11 @@ export class ProviderKeys {
       if (!ok) throw new Error('read-back mismatch');
       this.writeKeepState();
     } catch {
-      // keys.json stays the store for this run; a keys.enc made just now is ours and is removed. The next start tries again.
-      try { if (existsSync(this.sealedFile)) unlinkSync(this.sealedFile); } catch { /* ignore */ }
+      // keys.json stays the readable store for this run; a keys.enc made just now is ours and is removed (one that was already there never is).
+      // A machine with a data key never writes plain (F3): saves are refused until the next start can seal. The next start tries again.
+      try { if (created && existsSync(this.sealedFile)) unlinkSync(this.sealedFile); } catch { /* ignore */ }
       this.setMap(doc);
-      this.encrypted = false; this.keepCopy = false; this.reason = 'sealing-failed';
+      this.encrypted = false; this.keepCopy = false; this.reason = 'sealing-failed'; this.blocked = true;
     }
   }
 
@@ -182,6 +192,8 @@ export class ProviderKeys {
     if (!existsSync(this.keepState)) { this.writeKeepState(); return; }
     if (!(this.opts.committed ? this.opts.committed() : true)) return;
     try {
+      // keys.enc first, WITHOUT the digest: a later keys.json (a downgrade to 0.3.4, one key pasted) is then merged in, not taken as the truth
+      this.writeSealed(undefined);
       const len = statSync(this.file).size;
       try { writeFileSync(this.file, Buffer.alloc(len)); } catch { /* best effort: an SSD or a sync client may keep older blocks anyway */ }
       unlinkSync(this.file);
@@ -210,12 +222,7 @@ export class ProviderKeys {
     const tmp = `${this.sealedFile}.${process.pid}.tmp`;
     try { unlinkSync(tmp); } catch { /* none left over */ }
     writeFileSync(tmp, blob, { mode: 0o600, flag: 'wx' });
-    try { renameSync(tmp, this.sealedFile); } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code !== 'EPERM' && code !== 'EEXIST') { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
-      try { unlinkSync(this.sealedFile); } catch { /* ignore */ }
-      renameSync(tmp, this.sealedFile);
-    }
+    try { renameWithRetry(tmp, this.sealedFile); } catch (e) { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
     tightenConfigMode(this.sealedFile);
   }
 
