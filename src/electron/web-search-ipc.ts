@@ -5,6 +5,7 @@
  * in a dialog, a log line or a reply. Kept free of electron imports so it can be tested with fakes. Modelled on provider-ipc.ts.
  */
 import { dialogLine } from './provider-ipc.js';
+import { KEYS_BLOCKED_MESSAGE } from '../shared/providers-view.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 import { WEB_PROVIDER_HOSTS } from '../shared/web-search-config.js';
 
@@ -54,12 +55,14 @@ export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Pro
 
   let title: string; let message: string; let detail: string; let confirmLabel: string; let route: string; let method: 'POST' | 'PATCH'; let body: unknown;
   if (ch.kind === 'key') {
+    if (cur.json?.keyStoreState === 'blocked') return { ok: false, error: KEYS_BLOCKED_MESSAGE }; // the core would refuse; say so before a dialog
     const row = (cur.json?.providers as Array<Record<string, unknown>> | undefined)?.find((p) => p.id === ch.provider);
     if (!row) return { ok: false, error: 'Unknown provider.' };
     const label = dialogLine(row.label, 60) || ch.provider;
     title = 'Save an API key?'; confirmLabel = 'Save key';
     message = `Save an API key for ${label}?`;
-    detail = `Legion will send requests to ${WEB_PROVIDER_HOSTS[ch.provider]} and send this key only there. It is stored in its own file in your Legion data folder, not in the settings file, and Legion will not show it in full again.`;
+    const where = cur.json?.keyStoreState === 'encrypted' ? 'It is encrypted with your system key store, in its own file in your Legion data folder' : 'It is stored in its own file in your Legion data folder';
+    detail = `Legion will send requests to ${WEB_PROVIDER_HOSTS[ch.provider]} and send this key only there. ${where}, not in the settings file, and Legion will not show it in full again.`;
     route = '/api/settings/web-search/key'; method = 'POST'; body = { provider: ch.provider, key: ch.key };
   } else {
     body = { searxng: { baseUrl: ch.baseUrl }, ...(ch.acknowledge ? { acknowledge: ch.acknowledge } : {}) };

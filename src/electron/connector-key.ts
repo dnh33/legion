@@ -147,3 +147,19 @@ export async function providerKeyLaunchLine(dataDir: string, ss: SafeStorageLike
   if (hex) return `PKEY ${hex}\n`;
   return existsSync(providerKeyFilePath(dataDir)) ? 'PKEY - unreadable\n' : 'PKEY - unavailable\n';
 }
+
+/**
+ * "Start over with new keys", main's half: a key.bin that does not unwrap is renamed to key.bin.unreadable-<date> (never deleted, never
+ * overwritten), so the next `ensureProviderKey` makes a new one. A key.bin that unwraps is left exactly as it is ('kept': then only keys.enc
+ * was the problem). A missing file is 'none'; a failed rename throws, so the caller stops before it restarts anything.
+ */
+export async function setAsideProviderKey(dataDir: string, ss: SafeStorageLike, platform: string = process.platform): Promise<'none' | 'kept' | 'set-aside'> {
+  const file = providerKeyFilePath(dataDir);
+  if (!existsSync(file)) return 'none';
+  if (await loadProviderKey(dataDir, ss, platform)) return 'kept';
+  const day = new Date().toISOString().slice(0, 10);
+  let to = `${file}.unreadable-${day}`;
+  for (let i = 2; existsSync(to); i++) to = `${file}.unreadable-${day}-${i}`;
+  renameSync(file, to);
+  return 'set-aside';
+}

@@ -16,7 +16,7 @@ import { NATIVE_REQUIRED, NOTICE_REQUIRED, PROVIDER_NOTICE, TREG_NOTICE } from '
 import { TREG_CAP_MAX, TREG_CAP_MIN, WEB_PROVIDERS, isWebProviderId, normalizeWebSearch, webProviderMeta } from '../../shared/web-search-config.js';
 import type { CoreModule } from '../modules.js';
 import { HttpError } from '../server.js';
-import { keyStoreLine, type ProviderKeys } from '../providers/secrets.js';
+import { keyStoreLine, keyStoreState, type ProviderKeys } from '../providers/secrets.js';
 import { ADAPTERS, keyIdOf, validateWebSearchPatch } from './index.js';
 import type { WebProviderId, WebSearchConfig, WebSearchService } from './index.js';
 
@@ -74,7 +74,8 @@ export function createWebSearchModule(opts: WebSearchModuleOpts): CoreModule {
       providers: WEB_PROVIDERS.map((p) => ({ id: p.id, label: p.label, canSearch: p.canSearch, canRead: p.canRead, needsKey: p.needsKey, ready: opts.service.ready(p.id) })),
       keys,
       keyStore: keyStoreLine(opts.keys.status()),
-      capLimits:{ min: TREG_CAP_MIN, max: TREG_CAP_MAX },
+      keyStoreState: keyStoreState(opts.keys.status()),
+      capLimits: { min: TREG_CAP_MIN, max: TREG_CAP_MAX },
       nativeAvailable: !!opts.nativeSecret,
     };
   };
@@ -119,7 +120,7 @@ export function createWebSearchModule(opts: WebSearchModuleOpts): CoreModule {
         const id = body.provider;
         const meta = webProviderMeta(id);
         if (!meta.needsKey) throw new HttpError(400, `${meta.label} needs no key.`);
-        if (body.key === null) { opts.keys.remove(keyIdOf(id)); return view(); }
+        if (body.key === null) { try { opts.keys.remove(keyIdOf(id)); } catch (e) { throw new HttpError(409, e instanceof Error ? e.message : 'Could not remove the key'); } return view(); }
         requireNative(req);
         try { opts.keys.set(keyIdOf(id), body.key, ADAPTERS[id].origin(cfg())!); } catch (e) { throw new HttpError(400, e instanceof Error ? e.message : 'Invalid key'); }
         return view();

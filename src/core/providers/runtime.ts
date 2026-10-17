@@ -1,6 +1,6 @@
 /** The provider runtime: which model values mean a provider, running one provider turn for the engine, and the views Settings shows. */
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { keyStoreLine } from './secrets.js';
+import { keyStoreLine, keyStoreState } from './secrets.js';
 import { scrubSecrets } from '../comms/scrub.js';
 import { contextWindowFor } from './model-window.js';
 import { compactNow, type ManualCompaction } from './tool-loop.js';
@@ -227,7 +227,7 @@ export class ProviderRuntime {
       out.push(mk(p.id, e, { needsKey: p.needsKey, note: p.note })); seen.add(p.id);
     }
     for (const [id, e] of Object.entries(this.cfg.entries)) if (!seen.has(id)) out.push(mk(id, e));
-    return { providers: out, maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, dropped: this.cfg.dropped ?? [], cannotDo: PROVIDER_LIMITS_TEXT, keyStore: keyStoreLine(this.deps.keys.status()) };
+    return { providers: out, maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, dropped: this.cfg.dropped ?? [], cannotDo: PROVIDER_LIMITS_TEXT, keyStore: keyStoreLine(this.deps.keys.status()), keyStoreState: keyStoreState(this.deps.keys.status()) };
   }
 
   private entryFor(id: string): ProviderEntry {

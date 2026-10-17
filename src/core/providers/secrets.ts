@@ -8,20 +8,24 @@
  * program running as the same user can still ask the system key store for the data key.
  *
  * Rules (keys-plan.md): K1 migration seals keys.json, reads it back, and keeps keys.json for a rollback to 0.3.4 until the update is
- * committed AND a later start opened keys.enc. K2 no data key: exactly the old keys.json store. K3 keys.enc that does not open: keys
- * read as not set, nothing is deleted, the next save sets the old file aside.
+ * committed AND a later start opened keys.enc. K2 no data key because the system has no usable key store (or Legion runs without the
+ * app): exactly the old keys.json store. K3 a system that CAN encrypt but whose key store did not unlock (key.bin does not unwrap, or
+ * keys.enc does not open with the key): keys read as not set, nothing is deleted, and SAVES ARE REFUSED (never a plain fallback on a
+ * machine that can encrypt). `startOver()`, reached only through the app's confirmation, sets the unreadable keys.enc aside.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tightenConfigMode, writeConfigFile } from '../../shared/config.js';
 import { openBlob, sealBlob } from '../connectors/store.js';
+import { KEYS_BLOCKED_MESSAGE, type KeyStoreState } from '../../shared/providers-view.js';
 
 export const MIN_KEY_LENGTH = 8;
 export const MAX_KEY_LENGTH = 500;
 export const keyFileFor = (dataDir: string): string => join(dataDir, 'providers', 'keys.json');
 /** The sealed file next to keys.json. A NEW name on purpose: 0.3.4 reads an unparseable keys.json as empty and overwrites it. */
 export const sealedFileFor = (dataDir: string): string => join(dataDir, 'providers', 'keys.enc');
+export { KEYS_BLOCKED_MESSAGE };
 
 interface Stored { key: string; origin: string }
 type Doc = Record<string, Stored>;
@@ -34,6 +38,8 @@ export interface KeyStoreStatus {
   /** keys.enc exists and was not opened: the saved keys could not be unlocked (they read as not set). */
   locked: boolean;
   reason?: PlainReason;
+  /** The key store did not unlock (key.bin or keys.enc unreadable): saves are refused until the owner restarts or starts over. Present only when true. */
+  blocked?: true;
 }
 export interface ProviderKeysOptions {
   /** The 256-bit data key Electron main unwrapped (handed over on the launch pipe). With it keys live in keys.enc. */
@@ -65,8 +71,8 @@ export class ProviderKeys {
   private reason: PlainReason | undefined;
   /** keys.json is still written next to keys.enc (the keep window for a rollback to 0.3.4). */
   private keepCopy = false;
-  /** keys.enc exists but cannot be opened: the next save sets it aside. */
-  private asideOnSave = false;
+  /** The system can encrypt but its key store did not unlock: reads show nothing new and every save is refused. */
+  private blocked = false;
 
   constructor(private readonly file: string, private readonly opts: ProviderKeysOptions = {}) {
     this.dataKey = opts.dataKey && opts.dataKey.length > 0 ? Buffer.from(opts.dataKey) : undefined;
@@ -76,7 +82,7 @@ export class ProviderKeys {
   }
 
   status(): KeyStoreStatus {
-    return { mode: this.encrypted ? 'encrypted' : 'plain', locked: this.locked, ...(this.encrypted ? {} : { reason: this.reason ?? 'headless' }) };
+    return { mode: this.encrypted ? 'encrypted' : 'plain', locked: this.locked, ...(this.encrypted ? {} : { reason: this.reason ?? 'headless' }), ...(this.blocked ? { blocked: true as const } : {}) };
   }
 
   // ---- reading
@@ -107,12 +113,13 @@ export class ProviderKeys {
 
   private load(): void {
     this.map.clear();
-    this.encrypted = false; this.locked = false; this.reason = undefined; this.keepCopy = false; this.asideOnSave = false;
+    this.encrypted = false; this.locked = false; this.reason = undefined; this.keepCopy = false; this.blocked = false;
     const plain = this.readPlain();
-    if (!this.dataKey) { // K2 (and K3 for a wrapped key that does not open): today's behaviour, keys.json
+    if (!this.dataKey) { // K2: today's behaviour, keys.json. K3 for a wrapped key that does not open: reads as before, saves refused.
       if (plain) this.setMap(plain.doc);
       this.reason = this.opts.noKey ?? 'headless';
       this.locked = existsSync(this.sealedFile); // keys sealed earlier cannot be opened without the key; the file stays where it is
+      this.blocked = this.opts.noKey === 'unreadable';
       return;
     }
     this.encrypted = true;
@@ -125,15 +132,20 @@ export class ProviderKeys {
     }
     if (sealed === 'bad') {
       if (hasPlainKeys) { this.migrate(plain!, true); return; } // the keep copy still has everything: rebuild from it
-      this.locked = true; this.asideOnSave = true; this.keepCopy = !!plain;
+      this.locked = true; this.blocked = true; this.keepCopy = !!plain;
       return;
     }
     this.setMap(sealed.doc);
     if (!plain) return;
     this.keepCopy = true;
     if (plain.text !== '' && sealed.digest === sha(plain.text)) { this.maybeRetire(); return; }
-    // keys.json is not what we wrote last: a rollback to 0.3.4 changed it. Its keys win; keys.enc keeps the ones it does not name.
-    for (const [id, v] of Object.entries(plain.doc)) this.map.set(id, v);
+    // keys.json is not what we wrote last. A keys.json that cannot be read says nothing: keys.enc stands.
+    if (plain.text === '') return;
+    // keys.enc was written WITH a copy (it carries that copy's digest): 0.3.4 changed the copy, so while keys.json exists it is the truth,
+    // and a key it no longer names was removed there and is removed here. keys.enc written without a copy: keys.json is a later file from
+    // a downgrade that could not see keys.enc, so nothing in it can have been removed on purpose and both sets are kept.
+    if (sealed.digest !== undefined) this.setMap(plain.doc);
+    else for (const [id, v] of Object.entries(plain.doc)) this.map.set(id, v);
     try { this.persist(); this.writeKeepState(); } catch { /* keys.json keeps them; the next start tries again */ }
   }
 
@@ -208,6 +220,7 @@ export class ProviderKeys {
   }
 
   private save(): void {
+    if (this.blocked) throw new Error(KEYS_BLOCKED_MESSAGE);
     if (!this.encrypted) { // the plain store: exactly as before
       writeConfigFile(this.file, JSON.stringify({ version: 1, keys: this.doc() }, null, 2));
       return;
@@ -216,7 +229,6 @@ export class ProviderKeys {
   }
 
   private persist(existingJson?: string): void {
-    if (this.asideOnSave) { this.setAside(); this.asideOnSave = false; this.locked = false; }
     let digest: string | undefined;
     if (existingJson !== undefined) digest = sha(existingJson);
     else if (this.keepCopy) { // keys.json first: if the second write fails the caller sees the error, and keys.enc still holds its older state
@@ -239,6 +251,7 @@ export class ProviderKeys {
   all(): string[] { return [...this.map.values()].map((s) => s.key); }
 
   set(id: string, key: unknown, origin: string): void {
+    if (this.blocked) throw new Error(KEYS_BLOCKED_MESSAGE);
     if (typeof key !== 'string') throw new Error('The key must be text.');
     const k = key.trim();
     if (k.length < MIN_KEY_LENGTH || k.length > MAX_KEY_LENGTH || /\s/.test(k)) throw new Error(`A key is ${MIN_KEY_LENGTH} to ${MAX_KEY_LENGTH} characters without spaces.`);
@@ -246,14 +259,24 @@ export class ProviderKeys {
     this.save();
   }
   remove(id: string): boolean {
+    if (this.blocked) { if (this.map.has(id)) throw new Error(KEYS_BLOCKED_MESSAGE); return false; }
     const had = this.map.delete(id);
     if (had) this.save();
     return had;
   }
+  /**
+   * The owner chose "Start over with new keys" (through the app's confirmation): the unreadable keys.enc is renamed aside, never deleted.
+   * The data key is replaced by the app and the core restarted; this instance stays blocked until then. Only while blocked.
+   */
+  startOver(): boolean {
+    if (!this.blocked) throw new Error('There is nothing to start over: the saved keys are not locked out.');
+    this.setAside(); // no-op when keys.enc is not there (a retry after a half-finished start over)
+    return true;
+  }
   /** The provider's origin changed or the provider was deleted: a key saved for another origin is deleted, not kept. */
   dropIfOriginDiffers(id: string, origin: string): boolean {
     const s = this.map.get(id);
-    if (!s || s.origin === origin) return false;
+    if (this.blocked || !s || s.origin === origin) return false; // blocked: nothing can be saved; the key stays bound to its old origin
     return this.remove(id);
   }
 }
@@ -271,13 +294,20 @@ const THREAT = 'Encrypted keys stay unreadable to agents and to anyone who copie
 
 /** The one line Settings shows under Providers and Web search. */
 export function keyStoreLine(s: KeyStoreStatus): string {
+  if (s.blocked) return KEYS_BLOCKED_MESSAGE;
   if (s.locked) return UNLOCK_LINE;
   if (s.mode === 'encrypted') return THREAT;
   return `Your keys are stored in a file only you can read, not encrypted: ${PLAIN_WHY[s.reason ?? 'headless']}.`;
 }
 
+/** The state the app's main process and the Settings screens act on. */
+export function keyStoreState(s: KeyStoreStatus): KeyStoreState {
+  return s.blocked ? 'blocked' : s.mode === 'encrypted' && !s.locked ? 'encrypted' : 'plain';
+}
+
 /** The Doctor check `provider-keys`. */
 export function keyStoreDoctor(s: KeyStoreStatus): { ok: boolean; detail: string; fix?: string } {
+  if (s.blocked) return { ok: false, detail: 'The system key store did not unlock, so keys cannot be saved', fix: 'Restart Legion. If it keeps happening, open Settings, Providers and start over with new keys' };
   if (s.locked) return { ok: false, detail: 'Could not be unlocked: paste them again', fix: 'Open Settings, Providers (and Web search) and paste the keys again' };
   if (s.mode === 'encrypted') return { ok: true, detail: 'Encrypted with your system key store' };
   return { ok: true, detail: `Stored unencrypted on this system: ${PLAIN_WHY[s.reason ?? 'headless']}` };

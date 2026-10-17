@@ -73,7 +73,8 @@ setFatalSink((event, e) => {
 async function main() {
   // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
   // The second line is the NATIVE secret (main only, never the window): BSV policy changes need it as well.
-  // A third line (KEY <hex>, connectors data key, memory only) is accepted from the same pipe; the two secrets are read exactly as before.
+  // The later lines (gates, provider and connectors keys, memory only) come from the same pipe. With the callback the answer waits until Electron main has ended the pipe
+  // (it always does, right after writing), so every keyring below is complete before the key stores are built; a 5 s cap keeps a stuck pipe from holding the start.
   const connectorKeyring = new ConnectorKeyring();
   const gatesKeyring = new GatesKeyring();
   // the provider keys' data key (PKEY <hex>, or PKEY - unavailable / unreadable): memory only, like the other two

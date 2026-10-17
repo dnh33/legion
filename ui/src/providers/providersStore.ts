@@ -55,6 +55,19 @@ export function saveKey(id: string, key: string): Promise<boolean> {
   });
 }
 
+/** The key store did not unlock: set the unreadable key files aside and start with new keys. Main shows the confirmation and restarts the core. */
+export function startOverKeys(): Promise<boolean> {
+  return act('keys', async () => {
+    const bridge = window.legion?.providerChange;
+    if (!bridge) throw new Error('Starting over needs the Legion app window (it shows a confirmation). Open the app to do this.');
+    const r = await bridge({ kind: 'start-over' });
+    if (r.cancelled) { setNote('keys', 'Cancelled. Nothing changed.'); return; }
+    if (!r.ok) throw new Error(r.error ?? 'Could not start over.');
+    setNote('keys', 'Started over. Paste your keys again.');
+    await loadProviders();
+  });
+}
+
 export const removeKey = (id: string) => act(id, async () => { const v = await request<ProvidersView>('DELETE', `/api/providers/${id}/key`); setNote(id, 'Key removed.'); return v; });
 export const removeProvider = (id: string) => act(id, () => request<ProvidersView>('DELETE', `/api/providers/${id}`));
 export const saveLimits = (maxTurns: number, maxToolCallsPerTurn: number) => act('limits', () => request<ProvidersView>('PUT', '/api/providers/limits', { maxTurns, maxToolCallsPerTurn }));

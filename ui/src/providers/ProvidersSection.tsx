@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ProviderView } from '../../../src/shared/providers-view';
-import { getProviders, loadProviders, refreshModels, removeKey, removeProvider, saveEntry, saveKey, saveLimits, testProvider, useProviders } from './providersStore';
+import { getProviders, loadProviders, refreshModels, removeKey, removeProvider, saveEntry, saveKey, saveLimits, startOverKeys, testProvider, useProviders } from './providersStore';
 import { openExternal } from '../api';
 import { useStore } from '../store';
 import { keyFieldFor, visibleCards } from './cards';
@@ -138,6 +138,7 @@ export function ProvidersSection() {
           <p className="field-note">Credentials are sent only to the address you set here. If a request is rejected, the provider's own message is shown.</p>
         </details>
         {view.keyStore && <p className="field-note" role="status">{view.keyStore}</p>}
+        {view.keyStoreState === 'blocked' && <p><button type="button" className="btn sm" disabled={!!getProviders().busy} onClick={() => void startOverKeys()}>Start over with new keys</button></p>}
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
         {visibleCards(view.providers).map((p) => <ProviderCard key={p.id} p={p} />)}
         <AddCustom />
