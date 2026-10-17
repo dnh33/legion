@@ -445,7 +445,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         return files.saveSettings(patch);
       });
       add('POST', '/api/update/install', async () => { const r = await module.install(); return { ...r, status: await module.status() }; });
-      add('POST', '/api/update/approve', async (c) => { const v = c.body && typeof c.body === 'object' ? (c.body as { version?: unknown }).version : undefined; return { ...module.approveStaged(v), status: await module.status() }; });
+      add('POST', '/api/update/approve', async (c) => { needNative(c.req); const v = c.body && typeof c.body === 'object' ? (c.body as { version?: unknown }).version : undefined; return { ...module.approveStaged(v), status: await module.status() }; });
       add('POST', '/api/update/cancel', async () => { if (phase === 'downloading' || phase === 'committing') throw new HttpError(409, 'Busy; try again in a moment.'); clearStage(); return module.status(); });
       // The way out of a block. Without this the only way to retry a rolled-back version was to wait out the window
       // or hand-edit state.json, and the panel said nothing about either. Admin-gated like every other route, so it

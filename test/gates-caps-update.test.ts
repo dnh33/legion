@@ -262,3 +262,10 @@ test('approveStaged records consent only for the staged version the dialog named
     assert.equal(dl(), before, 'approving downloads nothing');
   } finally { await r.srv.close(); }
 });
+
+test('the approve route answers only the native app (the Restart dialog), like drain and commit', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../../src/core/updater/index.ts', import.meta.url)), 'utf8');
+  assert.match(src, /add\('POST', '\/api\/update\/approve', async \(c\) => \{ needNative\(c\.req\);/);
+});
