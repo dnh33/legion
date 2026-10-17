@@ -5,6 +5,8 @@ import { describeError, setFatalSink } from '../core/log/install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
 import { createProvidersModule } from '../core/providers/routes.js';
+import { WebSearchService } from '../core/web-search/index.js';
+import { createWebSearchModule } from '../core/web-search/routes.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
@@ -95,7 +97,11 @@ async function main() {
   const questions = new QuestionBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
   // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
-  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())), cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
+  // ONE key store for the model providers and the web providers: a second instance on the same file would write its own copy back over the other's keys
+  const providerKeys = new ProviderKeys(keyFileFor(dataDir()));
+  // the optional web search and page read providers (off by default: both choices are the built-in tools); the service reads the live config.webSearch
+  const webSearch = new WebSearchService({ config: () => config.webSearch, keys: providerKeys });
+  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: providerKeys, cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
   // the away features (0.3.0): the owner's absence settings, the spend ledger, pause and budget. The brokers and the engine read them; with no settings they behave as before
@@ -106,7 +112,7 @@ async function main() {
   const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring });
   // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
   const activity = createActivityLog({ dataDir: dataDir() });
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -137,6 +143,7 @@ async function main() {
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+  const webSearchModule = createWebSearchModule({ config: () => config.webSearch, keys: providerKeys, service: webSearch, configPath: configPath(), nativeSecret });
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
   const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service, limits: (pid) => attemptLimits(gatesCore.gate('attempt-caps', pid)) })] : [];
@@ -152,7 +159,7 @@ async function main() {
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
   const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, activity, dataDir: dataDir(), ...(nativeSecret ? { nativeSecret } : {}) });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, createActivityModule(moduleDeps, activity), bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, createActivityModule(moduleDeps, activity), bsv, blender, ...providersModules, webSearchModule, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,

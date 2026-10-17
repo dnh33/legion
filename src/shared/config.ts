@@ -10,6 +10,8 @@ import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, 
 import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
 import type { ProvidersConfig } from '../core/providers/types.js';
 import { canonicalHost } from './web-verdict.js';
+import { defaultWebSearch, normalizeWebSearch } from './web-search-config.js';
+import type { WebSearchConfig } from './web-search-config.js';
 export { MAX_ROOM_BUDGET_USD };
 
 export const VERSION = '0.3.4';
@@ -56,7 +58,7 @@ export function normalizeFeatures(v: unknown): FeaturesConfig {
   return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
 }
 
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** Optional web search and page read providers (task 28): off by default. */ webSearch: WebSearchConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
 
 /**
  * Turns one Claude run may take before it stops. Claude Code itself has no cap; this is a safety net, and a run that hits it
@@ -320,6 +322,7 @@ export function defaultConfig(): CoreConfig {
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
     experimental: {},
     features: { projectBoard: true, providers: true },
+    webSearch: defaultWebSearch(),
     // No gate rules: until the owner writes one, needsApproval alone decides, exactly as before.
     gates: { rules: [], presetsVersion: DEFAULT_GATES.presetsVersion },
     // a fresh config already has every migration's result
@@ -379,6 +382,7 @@ export function loadConfig(): CoreConfig {
   cfg.compaction = normalizeCompaction(cfg.compaction);
   cfg.experimental = normalizeExperimental(cfg.experimental);
   cfg.features = normalizeFeatures(cfg.features);
+  cfg.webSearch = normalizeWebSearch(cfg.webSearch);
   // Tolerant: a rule the file cannot parse is dropped on load, never handed to a matcher at run time.
   cfg.gates = normalizeGates(cfg.gates);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
