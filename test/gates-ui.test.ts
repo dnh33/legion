@@ -117,6 +117,12 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
           export const AgentSkills = () => null; export const settingOf = (v) => v ?? 'inherit'; export const valueOf = () => ({ mode: 'inherit' });` }));
         b.onResolve({ filter: /armory\/armoryStore$/ }, () => ({ path: 'armory-store', namespace: 'stub' }));
         b.onLoad({ filter: /^armory-store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `export const revealSkill = () => {};` }));
+        b.onResolve({ filter: /useGatesView$/ }, () => ({ path: 'use-gates-view', namespace: 'stub' }));
+        b.onLoad({ filter: /^use-gates-view$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
+          export const useGatesView = () => ({ view: globalThis.__gv ?? null, loadError: null, reload: async () => {}, apply: async () => ({ state: 'ok' }) });
+          export const useGatesAction = () => ({ pending: false, note: null, run: async () => true });
+          export const loadWebHosts = async () => ({}); export const loadActivity = async () => []; export const reloadGatesFromDisk = async () => {};
+          export const PENDING_TEXT = 'Waiting for you to confirm in the window';` }));
         b.onResolve({ filter: /^(\.\.\/)*store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onLoad({ filter: /^store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const useStore = (sel) => sel(globalThis.__st);
@@ -137,7 +143,7 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
   return { r: createRequire(file)(file) as Render, saved: g.__saved, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-const baseState = () => ({ agents: AGENTS, projects: [{ id: 'website', name: 'website' }], catalog: null, boatHealth: null });
+const baseState = () => ({ agents: AGENTS, projects: [{ id: 'website', name: 'website', members: ['zealot', 'scout'] }], tasks: [], catalog: null, boatHealth: null });
 
 test('render: an empty Gates section teaches the layering and offers the tester, the preset and the locked rails', async () => {
   const { r, saved, cleanup } = await loadUi(baseState());
@@ -251,4 +257,43 @@ test('every tool group the core knows has a chip in Settings -> Gates (a group t
   const { GATE_TOOL_GROUPS } = await import('../src/core/gates.js');
   assert.deepEqual(TOOL_CHIPS.map((c) => c.id).sort(), Object.keys(GATE_TOOL_GROUPS).sort());
   assert.equal(TOOL_CHIPS.find((c) => c.id === 'tasks')?.label, 'Task list');
+});
+
+// ---------------------------------------------------------------- the Gates page (Task 12)
+
+test('render: the Gates page shows the presets, the notes, fine tuning, QA, rails and activity', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    (globalThis as { __gv?: unknown }).__gv = { app: { version: 1, preset: 'smart' }, projects: {}, unreadable: [], changedOutside: [], canSign: true };
+    const html = r.section([]);
+    assert.match(html, /How agents ask/);
+    assert.match(html, /role="radio"|type="radio"/);
+    for (const label of ['Ask', 'Accept edits', 'Smart', 'Bypass']) assert.ok(html.includes(`<b>${label}</b>`), label);
+    assert.match(html, /<input type="radio"[^>]*checked=""[^>]*\/><span><b>Smart<\/b>/, 'Smart is the chosen preset');
+    assert.ok(html.includes('Legion has no sandbox for commands on your computer.'));
+    assert.match(html, /Fine tuning/);
+    assert.match(html, /class="gates-value">On, limit 4</, 'at the app default the gates read as plain values, not switches');
+    assert.ok(!/role="switch"/.test(html));
+    assert.match(html, /Check which websites agents read/, 'the new web gate has a row');
+    assert.match(html, /These follow each goal.s care level/);
+    assert.match(html, /Always on/);
+    assert.match(html, /Activity/);
+    assert.ok(!/Gate settings changed outside Legion/.test(html), 'no banner when nothing changed');
+    assert.ok(!/Shell safety floor|Expert/.test(html), 'no expert block, no shell-floor switch');
+    assert.ok(!html.includes('\u2014'), 'no em dash anywhere on the page');
+  } finally { delete (globalThis as { __gv?: unknown }).__gv; cleanup(); }
+});
+
+test('render: a file changed outside Legion shows the banner with Accept and Keep mine; without a key the looser presets say why', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    (globalThis as { __gv?: unknown }).__gv = { app: { version: 1 }, projects: {}, unreadable: ['website'], changedOutside: ['app'], canSign: false };
+    const html = r.section([]);
+    assert.match(html, /Gate settings changed outside Legion\./);
+    assert.match(html, /Legion is using Ask for all projects and the project website until you decide\./);
+    assert.match(html, />Accept</); assert.match(html, />Keep mine</); assert.match(html, />Reload</);
+    assert.match(html, /A gate settings file could not be read, so Legion is using Ask for it\./);
+    assert.ok(html.includes('Legion cannot sign settings on your computer, so only Ask is available.'));
+    assert.equal((html.match(/type="radio"[^>]*disabled=""/g) ?? []).length, 3, 'the three looser radios are disabled');
+  } finally { delete (globalThis as { __gv?: unknown }).__gv; cleanup(); }
 });

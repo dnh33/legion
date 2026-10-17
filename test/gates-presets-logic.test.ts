@@ -70,3 +70,77 @@ test('runsAsChip names the limit and the follow source', () => {
   assert.deepEqual(runsAsChip({ effective: 'auto-edits', agentMode: 'auto-edits', source: 'own', limit: false }), { text: 'Runs as Accept edits' });
   assert.deepEqual(runsAsChip({ effective: 'ask', agentMode: 'full', source: 'own', limit: false, lease: true }), { text: 'Runs as Ask', reason: 'Goal lease: no cards for this goal' });
 });
+
+// ---------------------------------------------------------------- Task 12: the page's own logic
+
+import { NO_SANDBOX_LINE } from '../src/shared/gates-registry.js';
+import { PAGE_NOTES, WEB_LINE, agentsFollowLine, disabledReason, overridesWith, siteGroups, staleHosts, webChip, lastUsedByHost, KEYSTORE_LINE } from '../ui/src/gates/presetsLogic.js';
+
+test('permissionRows shows the attempt-caps limit per preset', () => {
+  assert.deepEqual(permissionRows(view({ app: { version: 1, preset: 'ask' } })).find((r) => r.id === 'attempt-caps')!.value, { on: true, limit: 4 });
+  assert.deepEqual(permissionRows(view({ app: { version: 1, preset: 'bypass' } })).find((r) => r.id === 'attempt-caps')!.value, { on: true, limit: 8 });
+});
+
+const mk = (id: string, src?: 'own' | 'project') => ({ id, ...(src ? { approvalSource: src } : {}) });
+test('agentsFollowLine: counts, singular forms and the limit', () => {
+  const ag = [mk('a', 'project'), mk('b', 'project'), mk('c', 'project'), mk('d', 'own'), mk('e', 'project'), mk('out', 'own')];
+  assert.equal(agentsFollowLine(ag, ['a', 'b', 'c', 'd'], true), '3 agents follow this preset; 1 has its own mode and is limited to it');
+  assert.equal(agentsFollowLine(ag, ['a', 'd'], true), '1 agent follows this preset; 1 has its own mode and is limited to it');
+  assert.equal(agentsFollowLine(ag, ['a', 'b', 'd'], false), '2 agents follow this preset; 1 has its own mode');
+  assert.equal(agentsFollowLine(ag, ['d'], true), 'No agent follows this preset; 1 has its own mode and is limited to it');
+  assert.equal(agentsFollowLine(ag, ['a', 'b'], true), '2 agents follow this preset');
+  assert.equal(agentsFollowLine(ag, [], true), 'This project has no agents yet');
+  assert.equal(agentsFollowLine([mk('x')], ['x'], true), 'No agent follows this preset; 1 has its own mode and is limited to it');
+});
+
+test('disabledReason: the keystore text for a looser preset when Legion cannot sign, nothing for Ask', () => {
+  assert.equal(disabledReason(view({ canSign: false }), 'ask'), undefined);
+  for (const p of ['accept-edits', 'smart', 'bypass'] as const) assert.equal(disabledReason(view({ canSign: false }), p), KEYSTORE_LINE);
+  assert.equal(disabledReason(view({ canSign: true }), 'bypass'), undefined);
+  assert.ok(!/this computer/i.test(KEYSTORE_LINE));
+});
+
+test('overridesWith replaces the whole map: set one gate, or drop it to go back to the preset', () => {
+  const v = view({ projects: { p: { version: 1, overrides: { 'tool-cards': false } } } });
+  assert.deepEqual(overridesWith(v, 'p', 'goal-caps', { on: true, limit: 20 }), { 'tool-cards': false, 'goal-caps': { on: true, limit: 20 } });
+  assert.deepEqual(overridesWith(v, 'p', 'tool-cards', undefined), {});
+  assert.deepEqual(overridesWith(v, 'none', 'tool-cards', true), { 'tool-cards': true });
+});
+
+const DAY = 86_400_000;
+test('siteGroups: built-in, you allowed, from a goal, in that order, each sorted', () => {
+  const g = siteGroups({ builtIn: ['b.dev', 'a.dev'], allowed: ['y.com', 'x.com'], goal: ['g.com'] }, {});
+  assert.deepEqual(g.map((x) => [x.id, x.hosts.map((h) => h.host)]), [['built-in', ['a.dev', 'b.dev']], ['allowed', ['x.com', 'y.com']], ['goal', ['g.com']]]);
+  assert.equal(g.find((x) => x.id === 'built-in')!.removable, false);
+  assert.equal(g.find((x) => x.id === 'allowed')!.removable, true);
+});
+test('last used: the newest day, Never when absent', () => {
+  const g = siteGroups({ builtIn: [], allowed: ['x.com', 'y.com'], goal: [] }, { 'x.com': '2026-10-01T10:00:00.000Z' });
+  assert.equal(g[1]!.hosts[0]!.lastUsed, '2026-10-01'); assert.equal(g[1]!.hosts[1]!.lastUsed, 'Never');
+});
+test('staleHosts: unused for 60 days or never used, only among the hosts you allowed', () => {
+  const now = Date.parse('2026-10-16T00:00:00Z');
+  const last = { 'old.com': new Date(now - 61 * DAY).toISOString(), 'new.com': new Date(now - 59 * DAY).toISOString() };
+  assert.deepEqual(staleHosts(['old.com', 'new.com', 'never.com'], last, now).sort(), ['never.com', 'old.com']);
+});
+test('webChip: plain words, hidden when nothing was read', () => {
+  assert.equal(webChip({ pages: 0, newSites: 0 }), undefined);
+  assert.equal(webChip({ pages: 12, newSites: 3 }), 'web: 12 pages, 3 new sites');
+  assert.equal(webChip({ pages: 1, newSites: 1 }), 'web: 1 page, 1 new site');
+  assert.equal(webChip({ pages: 4, newSites: 0 }), 'web: 4 pages, 0 new sites');
+});
+test('lastUsedByHost: newest web-call line per host, and the newer of that and the saved date wins', () => {
+  const lines = [
+    { at: '2026-10-05T10:00:00.000Z', kind: 'web-call', text: 'Web: legion web_read x.com' },
+    { at: '2026-10-09T10:00:00.000Z', kind: 'web-call', text: 'Web: legion web_read x.com' },
+    { at: '2026-10-02T10:00:00.000Z', kind: 'web-call', text: 'Web: legion web_search' },
+    { at: '2026-10-07T10:00:00.000Z', kind: 'run-end', text: 'Web: nonsense y.com' },
+  ];
+  assert.deepEqual(lastUsedByHost(lines, { 'x.com': '2026-10-01T00:00:00.000Z', 'z.com': '2026-09-01T00:00:00.000Z' }), { 'x.com': '2026-10-09T10:00:00.000Z', 'z.com': '2026-09-01T00:00:00.000Z' });
+});
+
+test('the Gates page notes carry the no-sandbox line and the web line, in plain words', () => {
+  assert.match(PAGE_NOTES.noSandbox, /^Legion has no sandbox for commands on your computer\./);
+  assert.equal(PAGE_NOTES.noSandbox, NO_SANDBOX_LINE); assert.equal(PAGE_NOTES.web, WEB_LINE);
+  for (const s of Object.values(PAGE_NOTES)) assert.ok(!s.includes('\u2014') && !/this computer/i.test(s));
+});

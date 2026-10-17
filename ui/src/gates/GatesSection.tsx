@@ -8,7 +8,11 @@ import {
   consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
   type GateTestResult,
 } from './gatesLogic';
-import { railRows } from './presetsLogic';
+import { GatesBanner, GatesPresets, EVERYTHING } from './GatesPresets';
+import { PermissionGates } from './PermissionGates';
+import { QaGates, RailsList } from './RailsList';
+import { ActivityView } from './ActivityView';
+import { useGatesAction, useGatesView } from './useGatesView';
 import './gates.css';
 
 const THEN_BADGE: Record<GateVerdict, { text: string }> = {
@@ -234,17 +238,9 @@ export function GateTestOut({ result }: { result: GateTestResult }) {
   );
 }
 
-/** The locked rails, with the reason each exists, so a rule never looks like it failed silently. */
+/** The rails, always on. Kept as the page's one rails block. */
 export function GateRails() {
-  return (
-    <div className="set-card gate-rails" aria-label="Rails (locked)">
-      <h4><Icon name="shield" size={13} /> Locked rails</h4>
-      <p className="muted-s">These are decided before rules and cannot be changed here. Every one of them is stricter than any rule could make it.</p>
-      <ul>
-        {railRows().map((r) => <li key={r.id}><b>{r.label}</b><span className="muted-s">{r.protects}</span></li>)}
-      </ul>
-    </div>
-  );
+  return <RailsList />;
 }
 
 /**
@@ -288,6 +284,14 @@ export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
 export function GatesSection({ s }: { s: SettingsView }) {
   const agents = useStore((st) => st.agents);
   const projects = useStore((st) => st.projects);
+  const tasks = useStore((st) => st.tasks);
+  const { view, loadError, reload, apply } = useGatesView();
+  const [scope, setScope] = useState(EVERYTHING);
+  const presetsAct = useGatesAction(apply);
+  const fineAct = useGatesAction(apply);
+  const gatesBusy = presetsAct.pending || fineAct.pending;
+  // A project that was removed while it was chosen: back to the app default.
+  const scopeNow = scope === EVERYTHING || projects.some((p) => p.id === scope) ? scope : EVERYTHING;
   const gates: GatesConfig = s.gates ?? { rules: [], presetsVersion: 0 };
   const rules = gates.rules;
   const [busy, setBusy] = useState(false);
@@ -349,6 +353,16 @@ export function GatesSection({ s }: { s: SettingsView }) {
 
   return (
     <div className="set-section">
+      {loadError && !view && <div className="set-error" role="alert"><Icon name="x" size={13} /> <span>{loadError}</span></div>}
+      {view && (
+        <>
+          <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={() => void reload()} />
+          <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} />
+          <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
+        </>
+      )}
+      <QaGates />
+      <RailsList />
       <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent{'\u2019'}s approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full access; Ask rules never fire there.</div>
       <div className="set-card gate-list-card">
         <h3>Gates</h3>
@@ -393,7 +407,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       </label>
       <GateSuggestions items={learn ? suggested : []} nameOf={nameOf} busy={busy} onAdd={(x) => void addSuggested(x)} onDismiss={dismissSuggested} />
       <GateTester rules={rules} agents={agents} />
-      <GateRails />
+      <ActivityView projects={projects} tasks={tasks} />
     </div>
   );
 }
