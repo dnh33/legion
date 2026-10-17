@@ -132,7 +132,7 @@ test('C11b: auto-install-when-idle also asks nothing, matching what the setting 
   try {
     await r.mod.check(true);
     // The setting is confirmed by the owner when they turn it on, and its label says "without asking again".
-    const p = r.mod.install({ auto: true });
+    const p = r.mod.install();
     assert.equal(r.approvals.pending().length, 0, 'auto-install must not raise an approval card');
     assert.deepEqual(await p, { ok: true });
     assert.equal((await r.mod.status()).phase, 'staged');

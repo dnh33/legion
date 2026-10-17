@@ -11,6 +11,9 @@ import type { ModuleDeps } from '../src/core/modules.js';
 import { Store } from '../src/core/store.js';
 import { tempDir } from './tmp-cleanup.js';
 import { LOCK, makeKey, makeRelease, startFakeServer } from './updater-helpers.js';
+import { BoardStore } from '../src/core/projects/board/store.js';
+import { MarshalDriver } from '../src/core/marshal/driver.js';
+import type { MarshalPorts } from '../src/core/marshal/orchestrator.js';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -78,8 +81,8 @@ test('attemptLimits: a limit gives per-item = limit and per-bot = half; off is u
 
 const K = makeKey('k1');
 const T0 = Date.parse('2026-10-20T12:00:00Z');
-async function updater(gate: GateValue | undefined, probes: Record<string, () => boolean> = {}) {
-  const srv = await startFakeServer(makeRelease(K, '0.2.1'));
+async function updater(gate: GateValue | undefined | (() => GateValue), probes: Record<string, () => boolean> = {}, release = makeRelease(K, '0.2.1')) {
+  const srv = await startFakeServer(release);
   const root = tempDir('upd-root-'); const data = tempDir('upd-data-');
   writeFileSync(join(root, 'package-lock.json'), LOCK);
   const store = new Store(data); const bus = new EventBus();
@@ -87,7 +90,7 @@ async function updater(gate: GateValue | undefined, probes: Record<string, () =>
   const clock = { t: T0 };
   const mod: UpdaterModule = createUpdaterModule(deps, {
     root, nativeSecret: 'n'.repeat(64), source: srv.source, keys: [K.key], version: '0.2.0', platform: 'win32', timers: false, now: () => clock.t, probes, freeBytes: () => 10 ** 12,
-    ...(gate === undefined ? {} : { gates: { gate: () => gate } }),
+    ...(gate === undefined ? {} : { gates: { gate: typeof gate === 'function' ? gate : () => gate } }),
   });
   return { mod, srv, clock };
 }
@@ -124,7 +127,8 @@ test('update-consent off with no goal probe registered: absent means not running
 });
 
 test('update-consent on (and no gate reader at all): unchanged, nothing is downloaded until the owner clicks', async () => {
-  for (const g of [true, undefined] as const) {
+  const throwing = () => { throw new Error('gates core is down'); };
+  for (const g of [true, undefined, throwing] as const) {
     const r = await updater(g);
     try {
       await r.mod.check(true);
@@ -139,6 +143,64 @@ test('update-consent on (and no gate reader at all): unchanged, nothing is downl
   }
 });
 
+test('update-consent: an update staged while the gate was off does not carry the owner consent; switching it on stops the apply', async () => {
+  let value: GateValue = false;
+  const r = await updater(() => value);
+  try {
+    await r.mod.check(true);
+    await waitFor(async () => (await r.mod.status()).phase === 'staged');
+    r.clock.t += 120_000;
+    await r.mod.status();
+    r.clock.t += 120_000;
+    let s = await r.mod.status();
+    assert.equal(s.readyToApply, true); assert.equal(s.consent, true, 'gate off: the panel reports no consent needed');
+    value = true; // the owner switches "Ask before an update installs" back on
+    s = await r.mod.status();
+    assert.equal(s.readyToApply, false); assert.equal(s.consent, false, 'no click was ever given');
+    await assert.rejects(() => r.mod.commit(), (e: { status?: number }) => e.status === 409);
+    value = false;
+    assert.equal((await r.mod.status()).readyToApply, true, 'and switching it off again resumes');
+    value = true;
+    assert.deepEqual(await r.mod.install(), { ok: true }); // the owner clicks: that is consent
+    assert.equal((await r.mod.status()).readyToApply, true);
+  } finally { await r.srv.close(); }
+});
+
+test('update-consent off: a version whose staging failed is not downloaded again for 24 hours', async () => {
+  const rel = makeRelease(K, '0.2.1');
+  const bad = { ...rel, zip: Buffer.alloc(rel.zip.length, 7) }; // the manifest still names the real hash, so staging fails
+  const r = await updater(false, {}, bad);
+  try {
+    const dl = () => r.srv.hits.filter((h) => h.includes('/releases/download/')).length;
+    await r.mod.check(true);
+    await waitFor(async () => dl() > 0 && (await r.mod.status()).phase === 'idle' && !!(await r.mod.status()).error);
+    const first = dl();
+    r.clock.t += 6 * 3600_000; await r.mod.check(true);
+    await new Promise((res) => setTimeout(res, 100));
+    assert.equal(dl(), first, 'inside the 24 hours: no second download');
+    r.clock.t += 19 * 3600_000; await r.mod.check(true);
+    await waitFor(async () => dl() > first);
+  } finally { await r.srv.close(); }
+});
+
+test('attempt caps ride the marshal driver per project: Ask gets 2/4, Bypass 4/8', () => {
+  const dir = tempDir('legion-caps-driver-');
+  const board = new BoardStore(dir, () => T0);
+  const preset: Record<string, (typeof PRESETS)[number]> = { proj_aaaaaaaaaaaa: 'ask', proj_bbbbbbbbbbbb: 'bypass' };
+  const mk = (limits: boolean) => new MarshalDriver({
+    board, project: (id) => ({ id, members: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], status: 'active' }),
+    ports: () => ({ board }) as unknown as MarshalPorts, changed: () => undefined, now: () => T0, schedule: () => () => undefined,
+    ...(limits ? { limits: (pid: string) => attemptLimits(gateValue('attempt-caps', app(preset[pid]!))) } : {}),
+  });
+  const bots = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+  for (const id of Object.keys(preset)) board.create({ id, members: bots, status: 'active' }, { title: 'x', priority: 'high' });
+  const d = mk(true);
+  const ledger = (pid: string) => { const l = d.marshalFor(pid)!.ledger; l.setDoneWhen(I, ['it works']); return l; };
+  assert.equal(allowed(ledger('proj_aaaaaaaaaaaa'), ['a']), 2); assert.equal(allowed(ledger('proj_bbbbbbbbbbbb'), ['a']), 4);
+  const d2 = mk(true); const l2 = (pid: string) => { const l = d2.marshalFor(pid)!.ledger; l.setDoneWhen(I, ['it works']); return l; };
+  assert.equal(allowed(l2('proj_aaaaaaaaaaaa'), bots), 4); assert.equal(allowed(l2('proj_bbbbbbbbbbbb'), bots), 8);
+});
+
 test('digest-hold off: the hold counts down 0 ms and sends at once; on: 5000 and 10000 as today', async () => {
   assert.equal(holdMs({ level: 1, certain: true }), HOLD_MS);
   assert.equal(holdMs({ level: 3, certain: true }), HOLD_IRREVERSIBLE_MS);
@@ -146,10 +208,22 @@ test('digest-hold off: the hold counts down 0 ms and sends at once; on: 5000 and
   assert.equal(holdMs({ level: 3, certain: true }, true), 0);
   assert.equal(holdMs(undefined, true), 0);
   const calls: number[] = [];
-  const h = createHold({ totalMs: holdMs({ level: 3, certain: true }, true), send: async () => { calls.push(1); return { ok: true as const }; } });
+  const h = createHold({ totalMs: holdMs({ level: 3, certain: true }, true), holdOff: true, send: async () => { calls.push(1); return { ok: true as const }; } });
   await new Promise<void>((r) => setImmediate(r));
   assert.equal(calls.length, 1, 'sent with no tick');
   assert.equal(h.view().phase, 'sent');
+});
+
+test('createHold: only holdOff sends at once; a total of 0 or less without it counts down as before Task 9 (sends on the first tick)', async () => {
+  for (const totalMs of [0, -5]) {
+    const calls: number[] = [];
+    const h = createHold({ totalMs, send: async () => { calls.push(1); return { ok: true as const }; } });
+    await new Promise<void>((r) => setImmediate(r));
+    assert.equal(calls.length, 0, `totalMs ${totalMs}: no send before a tick`);
+    assert.equal(h.view().phase, 'counting');
+    h.tick(1);
+    assert.equal(calls.length, 1); assert.equal(h.view().phase, 'sent');
+  }
 });
 
 test('stall-ladder, ask-timeout-deny and budget-stop are true in every preset (the registry says so, so no preset can switch them off)', () => {

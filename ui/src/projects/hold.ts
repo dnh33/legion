@@ -39,7 +39,7 @@ export interface Hold {
   dispose(): void;
 }
 
-export function createHold(o: { totalMs: number; send: () => Promise<SendResult>; onChange?: (v: HoldView) => void }): Hold {
+export function createHold(o: { totalMs: number; /** The digest-hold gate is off: send at once. A total of 0 or less without this counts down as it always did. */ holdOff?: boolean; send: () => Promise<SendResult>; onChange?: (v: HoldView) => void }): Hold {
   let phase: HoldPhase = 'counting';
   let left = Math.max(0, o.totalMs);
   let reason: string | undefined;
@@ -75,7 +75,7 @@ export function createHold(o: { totalMs: number; send: () => Promise<SendResult>
     dispose() { if (phase === 'sent' || phase === 'refused') return; phase = 'disposed'; },
   };
   // no hold (`digest-hold` off): the Allow goes out right after the row is made (a microtask, so the caller has the hold in hand when the first change comes)
-  if (left === 0) queueMicrotask(fire);
+  if (o.holdOff) queueMicrotask(fire);
   return hold;
 }
 
