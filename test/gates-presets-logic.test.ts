@@ -123,6 +123,11 @@ test('staleHosts: unused for 60 days or never used, only among the hosts you all
   const last = { 'old.com': new Date(now - 61 * DAY).toISOString(), 'new.com': new Date(now - 59 * DAY).toISOString() };
   assert.deepEqual(staleHosts(['old.com', 'new.com', 'never.com'], last, now).sort(), ['never.com', 'old.com']);
 });
+test('staleHosts: a site you approved today is not stale, even if no run has read it yet', () => {
+  const now = Date.parse('2026-10-16T00:00:00Z');
+  const approved = { 'fresh.com': new Date(now - 60_000).toISOString(), 'oldapproved.com': new Date(now - 90 * DAY).toISOString() };
+  assert.deepEqual(staleHosts(['fresh.com', 'oldapproved.com'], {}, now, approved), ['oldapproved.com']);
+});
 test('webChip: plain words, hidden when nothing was read', () => {
   assert.equal(webChip({ pages: 0, newSites: 0 }), undefined);
   assert.equal(webChip({ pages: 12, newSites: 3 }), 'web: 12 pages, 3 new sites');

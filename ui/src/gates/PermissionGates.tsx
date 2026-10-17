@@ -58,17 +58,19 @@ function GateRowView({ row, projectId, view, busy, run }: { row: GateRow; projec
 /** The sites agents may read: built in, the ones you allowed (with when each was last read), and the ones a goal trusts. */
 function WebSites({ view, busy, run }: { view: GatesView; busy: boolean; run: Run }) {
   const [saved, setSaved] = useState<Record<string, string>>({});
+  const [approved, setApproved] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<Array<{ at: string; kind: string; text: string }>>([]);
   const allowed = view.app.allowedHosts ?? [];
   useEffect(() => {
     let live = true;
     void loadWebHosts().then((m) => { if (live) setSaved(m); });
+    void loadWebHosts('approvedAt').then((m) => { if (live) setApproved(m); });
     void loadActivity({ kinds: ['web-call'], limit: 1000 }).then((l) => { if (live) setLines(l); }, () => { /* the dates are advisory */ });
     return () => { live = false; };
   }, [allowed.join('|')]);
   const last = lastUsedByHost(lines, saved);
   const groups = siteGroups({ builtIn: [...loadDocsHosts()], allowed, goal: [] }, last);
-  const stale = staleHosts(allowed, last, Date.now());
+  const stale = staleHosts(allowed, last, Date.now(), approved);
   const remove = (hosts: string[], done: string) => run({ kind: 'app', patch: { allowedHosts: allowed.filter((h) => !hosts.includes(h)) } }, done);
   return (
     <div className="gates-sites" aria-label="Websites agents can read">

@@ -118,10 +118,11 @@ export function siteGroups(s: { builtIn: string[]; allowed: string[]; goal: stri
   ];
 }
 
-/** Sites you allowed that no run has read for 60 days, or ever. */
-export function staleHosts(allowed: string[], lastUsed: Record<string, string>, now: number): string[] {
+/** Sites you allowed that no run has read for 60 days, or ever. Approving a site counts as a use, so a site you approved today is never stale. */
+export function staleHosts(allowed: string[], lastUsed: Record<string, string>, now: number, approvedAt: Record<string, string> = {}): string[] {
   return allowed.filter((h) => {
-    const at = lastUsed[h] ? Date.parse(lastUsed[h]!) : NaN;
+    const dates = [lastUsed[h], approvedAt[h]].map((d) => (d ? Date.parse(d) : NaN)).filter((t) => !Number.isNaN(t));
+    const at = dates.length ? Math.max(...dates) : NaN;
     return Number.isNaN(at) || now - at > STALE_DAYS * DAY_MS;
   });
 }

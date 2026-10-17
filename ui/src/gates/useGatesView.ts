@@ -48,12 +48,12 @@ export function useGatesView(): {
   return { view, loadError, reload, apply };
 }
 
-/** The core's saved "last read" date per approved site (advisory). An older core without the route answers with nothing. */
-export async function loadWebHosts(): Promise<Record<string, string>> {
+/** The core's saved date per approved site (advisory): when it was last read, or when you approved it. An older core without the route answers with nothing. */
+export async function loadWebHosts(field: 'lastUsed' | 'approvedAt' = 'lastUsed'): Promise<Record<string, string>> {
   try {
-    const r = await request<{ allowed: Array<{ host: string; lastUsed?: string }> }>('GET', '/api/gates/web-hosts');
+    const r = await request<{ allowed: Array<{ host: string; lastUsed?: string; approvedAt?: string }> }>('GET', '/api/gates/web-hosts');
     const out: Record<string, string> = {};
-    for (const h of r.allowed ?? []) if (h.lastUsed) out[h.host] = h.lastUsed;
+    for (const h of r.allowed ?? []) { const d = h[field]; if (d) out[h.host] = d; }
     return out;
   } catch { return {}; }
 }
