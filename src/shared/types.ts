@@ -438,7 +438,7 @@ export interface ApprovalRequest {
   /** The card offers no "Remember": the core cannot read what the command will run, so no rule could be scoped safely. */
   noRemember?: boolean;
   /** A web card: the site it is about, and whether "Always allow" may be offered for it. The card then offers the four answers (see `SiteAnswer`). */
-  site?: { host: string; canAlways: boolean };
+  site?: { host: string; canAlways: boolean; /** Several new sites raised together on one card (`host` is the first). */ hosts?: string[] };
   /** The project the run belongs to, set by the core so every client counts the ask in the same project (0.3.0). */
   projectId?: string;
   /** What saying yes would do, set by the core (src/shared/consequence.ts). Absent on a card from an older core. */

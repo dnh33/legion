@@ -209,7 +209,7 @@ export const api = {
   desktop: (agentId: string) => request<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),
   screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
   approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
-  decide: (id: string, allow: boolean) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow }),
+  decide: (id: string, allow: boolean, site?: 'always' | 'goal' | 'once') => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, site ? { allow, site } : { allow }),
   /** The away settings (0.3.0): per-project wait, pause, budget, notification level, the app's quiet hours and when each project was last looked at. */
   away: () => request<AwayView>('GET', '/api/away'),
   patchAwayProject: (id: string, b: Record<string, unknown>) => request<unknown>('PATCH', `/api/away/projects/${encodeURIComponent(id)}`, b),

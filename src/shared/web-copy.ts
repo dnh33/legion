@@ -34,6 +34,9 @@ export function webCardSummary(a: { why: WebAskWhy; host: string; path: string; 
   return lines.join('\n');
 }
 
+/** The second line of a card that holds several new sites. */
+export const WEB_MANY_BODY = 'Legion wants to open these sites. It has not read from them in this project.';
+
 /** Shown once on the first web card, in every mode. */
 export const WEB_NOTICE = 'Agents read sites on your list. A new site asks once.';
 /** Shown on the Gates page under the presets. */

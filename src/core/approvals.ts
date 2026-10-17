@@ -3,7 +3,8 @@ import { BLENDER_EXEC_TOOL } from '../shared/blender.js';
 import { BROWSER_SERVER_NAME, BROWSER_TOOLS } from '../shared/browser.js';
 import { classifySafe, unknownConsequence } from '../shared/consequence.js';
 import type { Consequence } from '../shared/consequence.js';
-import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
+import { SITE_ANSWERS } from '../shared/types.js';
+import type { ApprovalMode, ApprovalRequest, SiteAnswer } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
 import { stricterMode } from './permission-mode.js';
@@ -182,7 +183,7 @@ export function describeWaited(elapsedMs: number, baseMs: number): string {
   return `${base} of waiting (quiet hours paused the countdown, so it stayed open for ${long})`;
 }
 
-interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer }
+interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer; alwaysRefusal?: string }
 
 export class ApprovalBroker {
   private readonly items = new Map<string, Pending>();
@@ -212,7 +213,9 @@ export class ApprovalBroker {
     origin?: ApprovalRequest['origin'],
     opts: {
       /** Called when the wait ends in a deny; gets how long the ask really stayed open (quiet hours make that longer than the wait). */ onTimeout?: (waitedMs?: number) => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean;
-      /** A web card: the site and whether Always allow is offered. The four answers go with it. */ site?: { host: string; canAlways: boolean };
+      /** A web card: the site and whether Always allow is offered. The four answers go with it. */ site?: NonNullable<ApprovalRequest['site']>;
+      /** Why "Always allow" is refused on this card (said back to the app that sent it). */ alwaysRefusal?: string;
+      /** Called with the card as soon as it is open, so the caller knows its id (for `takeSite`). */ onOpen?: (req: ApprovalRequest) => void;
       /** The run's project (the engine knows it; a module that does not is asked of the policy by task). */ projectId?: string;
       /** What saying yes would do. Absent: worked out here from the tool and its input. */ consequence?: Consequence;
       /** The ask may be parked when its project is set to park (only the engine's own cards). Needs `onPark`. */ parkable?: boolean;
@@ -237,7 +240,8 @@ export class ApprovalBroker {
         onDeny: () => { try { opts.onTimeout?.((this.now ?? Date.now)() - askedAt); } catch { /* advisory */ } this.settle(req.id, false); },
         ...(opts.parkable && opts.onPark ? { onPark: () => { try { opts.onPark!(); } catch { /* advisory */ } this.settle(req.id, false); } } : {}),
       });
-      this.items.set(req.id, { req, resolve: resolvePromise, timer });
+      this.items.set(req.id, { req, resolve: resolvePromise, timer, ...(opts.alwaysRefusal ? { alwaysRefusal: opts.alwaysRefusal } : {}) });
+      try { opts.onOpen?.(req); } catch { /* advisory */ }
       this.bus.emit({ type: 'approval.requested', approval: req });
     });
   }
@@ -248,7 +252,30 @@ export class ApprovalBroker {
    */
   hold(id: string, ms: number): boolean { return this.items.get(id)?.timer.hold(ms) ?? false; }
 
-  resolve(id: string, allow: boolean): boolean { return this.settle(id, allow); }
+  /**
+   * The owner's answer. On a web card a yes may say how far it reaches (`site`): for good, for this goal, or this one call; no `site` means this one call.
+   * A site answer on a No means nothing and is dropped. Throws (the route turns it into a 400, and the card stays open) for a site answer that is not one
+   * of the three, on a card that is not a web card, or `always` where the card does not offer it. An unknown or closed card answers false and changes nothing.
+   */
+  resolve(id: string, allow: boolean, site?: SiteAnswer): boolean {
+    if (site !== undefined && !SITE_ANSWERS.includes(site)) throw new Error('The site answer must be always, goal or once.');
+    const p = this.items.get(id);
+    if (!p) return false;
+    if (site !== undefined && allow) {
+      if (!p.req.site) throw new Error('A site answer belongs on a web card.');
+      if (site === 'always' && !p.req.site.canAlways) throw new Error(p.alwaysRefusal ?? 'Always allow is not offered for this site.');
+      this.sites.set(id, site);
+    }
+    return this.settle(id, allow);
+  }
+
+  /** The site answer that came with a card's yes (once: a second call gets nothing). Read right after the request settles. */
+  takeSite(id: string): SiteAnswer | undefined {
+    const s = this.sites.get(id);
+    this.sites.delete(id);
+    return s;
+  }
+  private readonly sites = new Map<string, SiteAnswer>();
 
   cancelForTask(taskId: string): void {
     for (const [id, p] of [...this.items]) if (p.req.taskId === taskId) this.settle(id, false);

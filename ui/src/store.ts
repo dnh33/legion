@@ -566,9 +566,9 @@ export function settleApproval(id: string, allow: boolean, announce = true) {
   });
 }
 
-export async function decide(id: string, allow: boolean) {
+export async function decide(id: string, allow: boolean, site?: 'always' | 'goal' | 'once') {
   settleApproval(id, allow, false); // optimistic; the sound waits for the send
-  try { await api.decide(id, allow); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  try { await api.decide(id, allow, site); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**

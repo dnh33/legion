@@ -11,6 +11,7 @@ import { Icon } from './icons';
 import { clickOnly } from '../../../src/shared/approval-keys';
 import { notices, useArmUi, useCardArm } from '../a11y/keyClock';
 import { liveReady } from '../a11y/keyClockCore';
+import { WEB_CARD, WEB_NOTICE } from '../gates/presetsLogic';
 
 /** "Asked by Marshal in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
 function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; inRoomView: boolean }) {
@@ -76,8 +77,9 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
       {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
       {bl ? <BlenderBody a={a} /> : <pre className="approval-sum">{a.summary}</pre>}
       <div className="approval-actions">
-        <button className="btn primary" data-tip="allow-button" onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } void decide(a.id, true); }}>Allow{!noKey && <> <kbd>A</kbd></>}</button>
-        <button className="btn" onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } void decide(a.id, false); }}>Deny <kbd>D</kbd></button>
+        {a.site && <WebAnswers a={a} onAnswer={(allow, site) => void decide(a.id, allow, site)} ready={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return false; } return true; }} />}
+        {!a.site && <button className="btn primary" data-tip="allow-button" onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } void decide(a.id, true); }}>Allow{!noKey && <> <kbd>A</kbd></>}</button>}
+        {!a.site && <button className="btn" onClick={(e) => { if (!arm.click(e.detail, performance.now())) { notReady(); return; } void decide(a.id, false); }}>Deny <kbd>D</kbd></button>}
         {canRemember(a) && <button type="button" className="btn-ghost sm" aria-expanded={remember} onClick={() => setRemember((v) => !v)}>Remember…</button>}
         {ignored && !armed && <span className="approval-note">Ready in a moment</span>}
         <span className="sr-only" role="status" aria-live="polite">{liveReady(blocks)}</span>
@@ -87,6 +89,25 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
     </div>
   );
 }
+
+/** A web card: the four answers. The first yes the owner gives is remembered the way the button says (the site list, this goal, or this one call). */
+function WebAnswers({ a, onAnswer, ready }: { a: ApprovalRequest; onAnswer: (allow: boolean, site?: 'always' | 'goal' | 'once') => void; ready: (e: React.MouseEvent) => boolean }) {
+  const site = a.site!;
+  const many = (site.hosts?.length ?? 0) > 1;
+  const go = (allow: boolean, s?: 'always' | 'goal' | 'once') => (e: React.MouseEvent) => { if (ready(e)) { markNoticeSeen(); onAnswer(allow, s); } };
+  return (
+    <>
+      {site.canAlways && <button type="button" className="btn primary" onClick={go(true, 'always')}>{many ? 'Always allow these sites' : WEB_CARD.buttons.always(site.host)}</button>}
+      <button type="button" className="btn" onClick={go(true, 'goal')}>{WEB_CARD.buttons.goal}</button>
+      <button type="button" className="btn" onClick={go(true, 'once')}>{WEB_CARD.buttons.once}</button>
+      <button type="button" className="btn" onClick={go(false)}>{WEB_CARD.buttons.deny} <kbd>D</kbd></button>
+      {!noticeSeen() && <span className="approval-note">{WEB_NOTICE}</span>}
+    </>
+  );
+}
+const NOTICE_KEY = 'legion.webNoticeSeen';
+function noticeSeen(): boolean { try { return localStorage.getItem(NOTICE_KEY) === '1'; } catch { return false; } }
+function markNoticeSeen(): void { try { localStorage.setItem(NOTICE_KEY, '1'); } catch { /* the notice shows again: harmless */ } }
 
 /** One click turns this answer into a gate rule (Settings → Gates lists it, labelled as from a card), then answers the card. */
 export function RememberChoices({ a }: { a: ApprovalRequest }) {

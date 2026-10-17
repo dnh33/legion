@@ -167,6 +167,7 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
       return {
         legion_browser: buildBrowserServer(agent, job, {
           manager, guard, resolve, approvals: deps.approvals, secrets: () => liveSecrets(deps.config), modeOf: (id, taskId) => resolverMode(deps.engine, id, taskId), gateOff: (id, a) => gateOff(deps.engine, id, a),
+          webAllows: (taskId, agentId, url) => { try { return deps.engine.webReadAllows(taskId, agentId, url) === true; } catch { return false; } },
           statusLine: (taskId) => {
             const e = manager.peek(taskId);
             const d = detect();

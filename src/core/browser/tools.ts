@@ -36,6 +36,8 @@ export interface BrowserToolDeps {
   statusLine(taskId: string): string;
   /** Whether the module-cards gate is off for this run (read with the run's start project; also writes the would-have-asked line). Absent: it is on. */
   gateOff?: GateOff;
+  /** Whether the web check lets this address through with no card (a built-in docs site, an approved one). Used only in Smart. Absent: it never does. */
+  webAllows?(taskId: string | undefined, agentId: string, url: string): boolean;
 }
 
 const TOOL = (n: string): string => `mcp__${BROWSER_SERVER_NAME}__${n}`;
@@ -87,12 +89,14 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
       if (!v.ok) return text(`Refused: ${v.reason}. Nothing was opened.`, true);
       const first = !e.firstUseApproved;
       const fresh = !e.session.origins.has(v.origin);
+      // Smart only: a site the web check lets through (built-in docs, an approved site) opens with no card. Ask and Accept edits keep the module's card.
+      const siteOk = mode() === 'smart' && (() => { try { return d.webAllows?.(job?.taskId, agent.id, v.url.href) === true; } catch { return false; } })();
       if (first) {
         // the one rule (OWNER RULE 2026-10-04): `full` never cards — not even here. The run is tainted either way.
-        const ok = skipCards(`browser_open ${v.url.href}`) ? true : await ask('browser_open', `Open a web page: ${v.url.href.slice(0, 300)}. This task will then count as having read outside content.`, { url: v.url.href, first: true });
+        const ok = siteOk || skipCards(`browser_open ${v.url.href}`) ? true : await ask('browser_open', `Open a web page: ${v.url.href.slice(0, 300)}. This task will then count as having read outside content.`, { url: v.url.href, first: true });
         if (!ok) return text('The user did not approve opening that page. Nothing was opened.', true);
         e.firstUseApproved = true;
-      } else if (fresh && !skipCards(`browser_open new site ${v.url.origin}`)) {
+      } else if (fresh && !siteOk && !skipCards(`browser_open new site ${v.url.origin}`)) {
         const ok = await ask('browser_open', `Go to a new site: ${v.url.origin}. This task already read outside content.`, { url: v.url.href, newSite: v.url.origin });
         if (!ok) return text('The user did not approve that site. Nothing was opened.', true);
       }

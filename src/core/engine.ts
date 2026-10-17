@@ -25,7 +25,7 @@ import { WebSession } from './web-session.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
 import { loadDocsHosts } from '../shared/docs-hosts.js';
-import { webCardSummary } from '../shared/web-copy.js';
+import { webCardSummary, WEB_CARD, WEB_MANY_BODY } from '../shared/web-copy.js';
 import { GATES } from '../shared/gates-registry.js';
 import type { GateValue } from '../shared/gates-registry.js';
 import type { ActivityLog } from './activity/index.js';
@@ -219,6 +219,11 @@ export function taintsRun(toolName: string): boolean {
 const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
 /** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
 const GUARD_MEMO_MS = 5000;
+/** New sites raised by one run within this long go out as one card (the first call opens the window). */
+const WEB_BATCH_MS = 10;
+type Decision = { allow: boolean; message?: string };
+interface WebBatchEntry { toolName: string; input: Record<string, unknown>; v: Extract<WebVerdict, { kind: 'ask' }>; resolve: (d: Decision) => void }
+interface WebBatch { entries: WebBatchEntry[] }
 /** The same text for the same input whatever the order of its keys: the key of a shared guard card. */
 const canonicalJson = (v: unknown): string => {
   try { return JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x)) ?? ''; } catch { return String(v); }
@@ -1577,27 +1582,113 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     try { this.activity?.append({ kind: 'note', text: `Web: ${toolName} ${host ?? ''}`.trim(), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
   }
 
-  /** The card for a web call the check did not let through. The owner's yes lets this call run. */
-  private async askWeb(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, v: Extract<WebVerdict, { kind: 'ask' }>): Promise<{ allow: boolean; message?: string }> {
-    const host = v.host ?? '';
-    let path = '', search: string | undefined;
-    if (toolName === 'WebSearch') search = String(input.query ?? '').slice(0, 300);
-    else { try { const u = new URL(String(input.url)); path = (u.pathname + u.search).slice(0, 160); } catch { path = ''; } }
-    const o = job.origin;
-    let timedOut = false; let waited: number | undefined;
-    const allowed = await this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
-      onTimeout: (ms) => { timedOut = true; waited = ms; },
-      ...this.askExtras(job, agent, toolName, input),
-      noRemember: true,
-      summary: webCardSummary({ why: v.why, host: host || 'this address', path, ...(search !== undefined ? { search } : {}) }).slice(0, 390),
-      site: { host, canAlways: v.canAlways },
+  /** New sites raised together by one run, waiting to go out as one card (see `askWeb`). */
+  private readonly webBatches = new Map<string, WebBatch>();
+
+  /**
+   * The card for a web call the check did not let through; its answer decides this call. Calls to new sites raised together (a model asks for
+   * several pages in one turn) go out as ONE card listing the sites, and one answer covers all of them. The window is short: the first
+   * call opens it, and the card goes out a moment later with every new site that arrived by then.
+   */
+  private askWeb(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, v: Extract<WebVerdict, { kind: 'ask' }>): Promise<Decision> {
+    return new Promise<Decision>((resolveCall) => {
+      const entry: WebBatchEntry = { toolName, input, v, resolve: resolveCall };
+      // only a plain new site is batched: a card with its own reason (a query, a port, a long search) says so on its own
+      if (!(v.why === 'new-host' && v.host && toolName === 'WebFetch')) { void this.raiseWebCard(job, agent, [entry]); return; }
+      let batch = this.webBatches.get(job.taskId);
+      if (!batch) {
+        const b: WebBatch = { entries: [] };
+        batch = b; this.webBatches.set(job.taskId, b);
+        setTimeout(() => { this.webBatches.delete(job.taskId); void this.raiseWebCard(job, agent, b.entries); }, WEB_BATCH_MS);
+      }
+      batch.entries.push(entry);
     });
-    if (allowed) { this.noteWebRead(job, agent, toolName, input, v.host); return { allow: true }; }
-    if (timedOut) {
-      try { this.activity?.append({ kind: 'note', text: `Waited for you on ${host || 'a web address'}`, taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
-      return { allow: false, message: `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` };
+  }
+
+  /** Raises the one card for these calls and applies the owner's answer to each: Always allow (the site list), Allow for this goal, Allow once, or No. */
+  private async raiseWebCard(job: Job, agent: AgentProfile, entries: WebBatchEntry[]): Promise<void> {
+    const decide = (d: Decision): void => { for (const e of entries) e.resolve(d); };
+    try {
+      // a run that ended while the card waited to go out has nobody to answer for
+      if (!this.active.has(job.taskId)) { decide({ allow: false, message: 'The run ended before this web request could be asked.' }); return; }
+      const first = entries[0]!;
+      const hosts = [...new Set(entries.map((e) => e.v.host ?? '').filter((h) => h !== ''))];
+      const many = hosts.length > 1;
+      const host = hosts[0] ?? '';
+      let path = '', search: string | undefined;
+      if (first.toolName === 'WebSearch') search = String(first.input.query ?? '').slice(0, 300);
+      else { try { const u = new URL(String(first.input.url)); path = (u.pathname + u.search).slice(0, 160); } catch { path = ''; } }
+      const signer = this.gates?.canAllowHosts?.() === true;
+      const canAlways = signer && entries.every((e) => e.v.canAlways);
+      const summary = many
+        ? `${WEB_CARD.many(hosts.length, hosts)}\n${WEB_MANY_BODY}`
+        : webCardSummary({ why: first.v.why, host: host || 'this address', path, ...(search !== undefined ? { search } : {}) });
+      const o = job.origin;
+      let timedOut = false; let waited: number | undefined; let id: string | undefined;
+      const allowed = await this.approvals.request(job.taskId, agent.id, first.toolName, first.input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+        onTimeout: (ms) => { timedOut = true; waited = ms; },
+        ...this.askExtras(job, agent, first.toolName, first.input),
+        noRemember: true,
+        summary: summary.slice(0, 390),
+        site: { host, canAlways, ...(many ? { hosts } : {}) },
+        ...(signer ? {} : { alwaysRefusal: "Always allow needs a key from your computer's keystore to sign the site list, and none is available. Use Allow for this goal or Allow once." }),
+        onOpen: (req) => { id = req.id; },
+      });
+      const site = id ? this.approvals.takeSite?.(id) : undefined;
+      if (!allowed) {
+        if (timedOut) {
+          try { this.activity?.append({ kind: 'note', text: `Waited for you on ${hosts.join(', ') || 'a web address'}`, taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+          decide({ allow: false, message: `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` });
+        } else decide({ allow: false, message: 'The user denied this web request.' });
+        return;
+      }
+      if (site === 'goal') for (const h of hosts) this.trustHostForGoal(job.taskId, h);
+      if (site === 'always') this.allowHostsFromCard(job, agent, hosts);
+      for (const e of entries) { this.noteWebRead(job, agent, e.toolName, e.input, e.v.host); e.resolve({ allow: true }); }
+    } catch (err) {
+      // a failure here must never turn into a silent allow
+      decide({ allow: false, message: 'Legion could not ask about this web request, so it was not run.' });
+      try { this.activity?.append({ kind: 'note', text: `Web card failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
     }
-    return { allow: false, message: 'The user denied this web request.' };
+  }
+
+  /**
+   * The owner answered Always allow on a card: the sites join the signed site list (the same store path as a Settings edit, which signs it) with no native
+   * confirm, because the card the owner answered is the confirmation. The change is logged like other gate changes. If the list cannot be written the
+   * call still runs once (the owner said yes to it) and the log says the site was not saved.
+   */
+  private allowHostsFromCard(job: Job, agent: AgentProfile, hosts: string[]): void {
+    void job; void agent;
+    const log = (text: string): void => { try { this.activity?.append({ kind: 'gate-changed', text, data: { scope: 'app' } }); } catch { /* advisory */ } };
+    const saved: string[] = [];
+    for (const h of hosts) {
+      try { this.gates?.allowHost?.(h); saved.push(h); } catch (err) { log(`Could not save ${h} to the site list: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300)); }
+    }
+    if (!saved.length) return;
+    log('Site list changed for all projects (from a web card)');
+    for (const h of saved) log(`Agents may read ${h} without asking.`);
+    try { this.bus.emit({ type: 'gates.updated' }); } catch { /* advisory */ }
+  }
+
+  /** The owner allowed a site for this goal: it opens with no card for the rest of the run. (PR 2 keeps it for the run; the goal record will persist it.) */
+  trustHostForGoal(taskId: string, host: string): void {
+    const h = host.trim().toLowerCase().replace(/\.$/, '');
+    if (h) this.active.get(taskId)?.web.trustForGoal(h);
+  }
+
+  /**
+   * Whether the browser tool may open this address in Smart with no first-page card: the web check lets it through (a built-in docs site, an approved
+   * site, or one allowed for this goal). False for anything that would ask, for a run that is not live, and when the web-reads gate is off for the run.
+   */
+  webReadAllows(taskId: string | undefined, _agentId: string, rawUrl: string): boolean {
+    const act = taskId ? this.active.get(taskId) : undefined;
+    if (!taskId || !act) return false;
+    const job = { taskId, projectAtStart: act.projectAtStart, outsideOf: act.outsideOf } as unknown as Job;
+    if (this.gates?.gate('web-reads', startProjectOf(job)) === false) return false;
+    const v = webVerdict({ tool: 'browser_open', input: { url: rawUrl } }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => act.web.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: act.web.secretRead });
+    if (v.kind !== 'allow') return false;
+    if (v.host) { try { this.gates?.webLastUsed?.touch(v.host); } catch { /* advisory */ } }
+    return true;
   }
 
   /**

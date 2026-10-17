@@ -534,7 +534,10 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/approvals', () => ctx.approvals.pending());
   route('POST', '/api/approvals/:id', ({ params, body }) => {
     if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'body {allow:boolean} required');
-    return { ok: ctx.approvals.resolve(params[0], body.allow) };
+    // a web card's yes may say how far it reaches: for good, for this goal, or once
+    if (body.site !== undefined && body.site !== 'always' && body.site !== 'goal' && body.site !== 'once') throw new HttpError(400, 'site must be always, goal or once');
+    try { return { ok: ctx.approvals.resolve(params[0], body.allow, body.site) }; }
+    catch (e) { throw new HttpError(400, e instanceof Error ? e.message : 'That answer is not allowed on this card.'); }
   });
   // The app is about to send an answer in the last seconds of an ask's wait: delay the core's deny (once, a few seconds). It never answers the ask.
   route('POST', '/api/approvals/:id/hold', ({ params, body }) => {
