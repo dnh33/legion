@@ -50,7 +50,8 @@ const SECRET_LONG = new Set(['--data', '--data-raw', '--data-binary', '--data-ur
   '--post-data', '--post-file', '--body-data', '--body-file', '--password', '--http-password', '--proxy-password', '--ftp-password']);
 /** PowerShell web parameters with a secret value (`-Headers @{...}`, `-Body`, `-Credential`, `-Token`, `-Form`). Case does not matter, and PowerShell takes any unique start of a name. */
 const PS_SECRET = ['headers', 'body', 'credential', 'token', 'form', 'proxycredential'];
-const psSecret = (name: string): boolean => name.length >= 3 && PS_SECRET.some((p) => p.startsWith(name.toLowerCase()));
+// `-Proxy` (an address) and `-ProxyUseDefaultCredentials` share the start of `-ProxyCredential`, so that one needs `-ProxyC` at least
+const psSecret = (name: string): boolean => name.length >= 3 && PS_SECRET.some((p) => p.startsWith(name.toLowerCase()) && (p !== 'proxycredential' || name.length >= 6));
 /** curl's short options that take a value (its manual). The value of one marked secret is dropped; any other ends the cluster and its value is kept. Case matters: `-D` dumps headers. */
 const CURL_TAKES_VALUE = new Set('AbcCdDeEFHKmoPQrtTuUwxXYyz');
 const CURL_SECRET = new Set('bdEFHTuU');
@@ -60,17 +61,25 @@ const continuation = (s: string, i: number): number => {
   return s[i + 1] === '\n' ? 2 : s[i + 1] === '\r' && s[i + 2] === '\n' ? 3 : 0;
 };
 const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
-/** The words of a command as [start, end) offsets: quotes and PowerShell's `@{ ... }` keep spaces in, a continuation counts as space, an unclosed quote or brace runs to the end. */
+/** Inside double quotes, `\` (shells) and a backtick (PowerShell) escape the next character. */
+const escapes = (c: string): boolean => c === '\\' || c === '`';
+/** A PowerShell hashtable opens with `@{`; inside one, every `{` nests. A bare `{` (a shell function, a script block) is not grouping. */
+const opensHash = (s: string, i: number, depth: number): boolean => s[i] === '{' && (depth > 0 || s[i - 1] === '@');
+/**
+ * The words of a command as [start, end) offsets: quotes, PowerShell's `@{ ... }` and `( ... )` keep spaces in, a continuation counts as
+ * space, and an unclosed quote, hashtable or bracket runs to the end (so its value is dropped whole).
+ */
 function words(s: string): Array<[number, number]> {
   const out: Array<[number, number]> = []; let i = 0;
   while (i < s.length) {
     for (;;) { const k = isSpace(s[i]) ? 1 : continuation(s, i); if (k === 0 || i >= s.length) break; i += k; }
     if (i >= s.length) break;
-    const start = i; let q: string | undefined; let depth = 0;
-    while (i < s.length && (q !== undefined || depth > 0 || (!isSpace(s[i]) && continuation(s, i) === 0))) {
+    const start = i; let q: string | undefined; let depth = 0; let parens = 0;
+    while (i < s.length && (q !== undefined || depth > 0 || parens > 0 || (!isSpace(s[i]) && continuation(s, i) === 0))) {
       const c = s[i]!;
-      if (q !== undefined) { if (c === '\\' && q === '"') i++; else if (c === q) q = undefined; } else if (c === '"' || c === "'") q = c;
-      else if (c === '{') depth++; else if (c === '}' && depth > 0) depth--;
+      if (q !== undefined) { if (escapes(c) && q === '"') i++; else if (c === q) q = undefined; } else if (c === '"' || c === "'") q = c;
+      else if (opensHash(s, i, depth)) depth++; else if (c === '}' && depth > 0) depth--;
+      else if (c === '(') parens++; else if (c === ')' && parens > 0) parens--;
       i++;
     }
     out.push([start, Math.min(i, s.length)]);
@@ -114,12 +123,12 @@ function segments(s: string): string[] {
   const out: string[] = []; let cur = ''; let q: string | undefined; let depth = 0;
   for (let i = 0; i < s.length; i++) {
     const c = s[i]!;
-    if (q) { cur += c; if (c === '\\' && q === '"' && i + 1 < s.length) cur += s[++i]; else if (c === q) q = undefined; continue; }
+    if (q) { cur += c; if (escapes(c) && q === '"' && i + 1 < s.length) cur += s[++i]; else if (c === q) q = undefined; continue; }
     const k = continuation(s, i);
     if (k > 0) { cur += s.slice(i, i + k); i += k - 1; continue; }
     if (c === '"' || c === "'") { q = c; cur += c; continue; }
-    // a `;` inside PowerShell's @{ a = 1; b = 2 } does not end the command
-    if (c === '{') depth++; else if (c === '}' && depth > 0) depth--;
+    // a `;` inside PowerShell's @{ a = 1; b = 2 } does not end the command; one in a shell function's { ... } does
+    if (opensHash(s, i, depth)) depth++; else if (c === '}' && depth > 0) depth--;
     const redirect = c === '&' && (s[i - 1] === '>' || s[i + 1] === '>');
     if (depth === 0 && !redirect && (c === ';' || c === '|' || c === '&' || c === '\n')) { out.push(cur, c); cur = ''; continue; }
     cur += c;
@@ -131,14 +140,21 @@ function segments(s: string): string[] {
  * Drops the bodies, logins, headers and cookies of curl, wget and PowerShell web calls; every other command in the line is kept as written.
  * curl's short letters are read when any curl appears in the segment (`wget x $(curl -u a:b y)` is one segment).
  */
-export const scrubShell = (s: string): string => segments(s).map((seg) => {
-  const m = WEB_TOOL.exec(seg);
-  if (!m) return seg;
-  let at = m.index + m[0].length;
-  if ((m[1] === '"' || m[1] === "'") && seg[at] === m[1]) at++; // "curl" written in quotes
-  const curl = [...seg.matchAll(WEB_TOOLS)].some((x) => x[2]!.toLowerCase() === 'curl');
-  return seg.slice(0, at) + scrubWebArgs(seg.slice(at), curl);
-}).join('');
+/** `$h = @{ ... }`: a PowerShell hashtable kept in a variable. On a line with a web call it may be the headers or the splatted call, so it is dropped. */
+const HASH_ASSIGN = /^(\s*\$[\w:]+\s*=\s*)@\{[\s\S]*$/;
+export const scrubShell = (s: string): string => { const web = WEB_TOOL.test(s); return segments(s).map((seg) => {
+  if (web && HASH_ASSIGN.test(seg)) return seg.replace(HASH_ASSIGN, '$1@{ <omitted> }');
+  const found = [...seg.matchAll(WEB_TOOLS)];
+  if (found.length === 0) return seg;
+  const curl = found.some((x) => x[2]!.toLowerCase() === 'curl');
+  // each call is read from its own program word, the last first, so a call inside $( ) or ( ) is read too and earlier offsets stay right
+  for (const m of found.reverse()) {
+    let at = m.index! + m[0].length;
+    if ((m[1] === '"' || m[1] === "'") && seg[at] === m[1]) at++; // "curl" written in quotes
+    seg = seg.slice(0, at) + scrubWebArgs(seg.slice(at), curl);
+  }
+  return seg;
+}).join(''); };
 /** An address without its userinfo, query string and fragment. Text that is not an address comes back as it was. */
 export function scrubUrl(u: string): string {
   try { const x = new URL(u); x.username = ''; x.password = ''; x.search = ''; x.hash = ''; return x.toString().replace(/\/$/, u.endsWith('/') ? '/' : ''); } catch { /* not parseable: cut by hand */ }

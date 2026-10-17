@@ -74,6 +74,18 @@ test('scrubShell reads PowerShell web calls, a curl after a wget, and curl TLS p
   assert.equal(scrubShell('irm https://x -Method Get -ContentType application/json -OutFile o.json'), 'irm https://x -Method Get -ContentType application/json -OutFile o.json');
   assert.equal(scrubShell('$h = @{ a = 1; b = 2 }; ls -ld x'), '$h = @{ a = 1; b = 2 }; ls -ld x');
 });
+test('scrubShell: braces count only as @{ }, (...) values stay whole, a backtick escapes a quote, $h = @{...} before a web call is dropped', () => {
+  for (const cmd of ['curl {a -u a:SECRETVALUE x', 'curl x{ -u a:SECRETVALUE y', 'irm x -Body (ConvertTo-Json @{k="SECRETVALUE"})',
+    'irm x -Authentication Bearer -Token (ConvertTo-SecureString "SECRETVALUE" -AsPlainText -Force)', 'irm x -Credential (New-Object PSCredential("u", "SECRETVALUE"))',
+    'irm x -Body "a`"b SECRETVALUE"', '$h=@{Authorization="Bearer SECRETVALUE"}; irm x -Headers $h', '$p = @{ Uri = "x"; Headers = @{ Authorization = "Bearer SECRETVALUE" } }; irm @p']) {
+    const out = scrubShell(cmd);
+    assert.ok(!out.includes('SECRETVALUE'), JSON.stringify(cmd) + ' -> ' + out);
+  }
+  for (const cmd of ['f() { curl x; ls -ld dir; }', 'if ($x) { curl x; ls -ld dir }', 'echo {; curl x; ls -ld dir'])
+    assert.ok(scrubShell(cmd).includes('ls -ld dir'), cmd + ' -> ' + scrubShell(cmd));
+  assert.equal(scrubShell('irm https://x -Proxy http://p:8080 -OutFile o'), 'irm https://x -Proxy http://p:8080 -OutFile o');
+  assert.equal(scrubShell('$n = @{ a = 1 }; ls -ld x'), '$n = @{ a = 1 }; ls -ld x');
+});
 test('scrubUrl cuts a malformed address by hand: no userinfo, no query', () => {
   assert.equal(scrubUrl('mongodb://usr:pw1@h1:27017,h2:27017/db?replicaSet=r'), 'mongodb://h1:27017,h2:27017/db');
   assert.equal(scrubUrl('postgres://usr:pw1@h:abc/db'), 'postgres://h:abc/db');
