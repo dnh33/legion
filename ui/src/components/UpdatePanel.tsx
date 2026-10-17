@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import { errText } from '../store';
-import { journeyRows, journeySummary, type JourneyViewLike } from '../updateJourneyView';
+import { journeyRows, journeyStarted, journeySummary, type JourneyViewLike } from '../updateJourneyView';
 import '../styles/update.css';
 
 /** GET /api/update/status (admin only). Mirrors src/core/updater/index.ts UpdateStatus. */
@@ -158,7 +158,7 @@ export function UpdatePanel() {
           )}
         </div>
       )}
-      {st.journey && <JourneyList v={st.journey} />}
+      {st.journey && journeyStarted(st.journey) && <JourneyList v={st.journey} />}
       {st.blocked && st.blocked.length > 0 && (
         <div className="upd-card">
           {st.blocked.map((b) => (

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { pureBadgeState } from '../ui/src/updateBadgeState.js';
-import { journeyRows, journeySummary } from '../ui/src/updateJourneyView.js';
+import { journeyRows, journeySummary, journeyStarted } from '../ui/src/updateJourneyView.js';
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const read = (rel: string): string => readFileSync(join(REPO, rel), 'utf8');
@@ -68,4 +68,17 @@ test('H2 r2: the About summary says the update did not finish and the core text 
   assert.equal(b.kind, 'updated'); assert.equal(b.tone, 'done');
   assert.match(read('ui/src/components/UpdateBadge.tsx'), /upd-badge-updated tone-done/);
   assert.match(read('ui/src/styles/update-badge.css'), /\.upd-badge\.tone-done \.upd-badge-dot \{ background: var\(--accent\)/);
+});
+
+test('H2 panel: the step list stays hidden until a step after Checking has begun, or the journey has ended', () => {
+  const mk = (states: string[], result: string) => ({
+    id: 'ab12cd34', from: '0.3.1', to: '0.3.2', kind: 'code', result, startedAt: 'x',
+    steps: [{ id: 'checking', n: '1', label: 'Checking', state: states[0] }, { id: 'preparing', n: '6', label: 'Preparing', state: states[1] }, { id: 'downloading', n: '3', label: 'Downloading', state: states[2] }],
+  }) as never;
+  assert.equal(journeyStarted(mk(['done', 'skipped', 'pending'], 'running')), false, 'update found, nothing started');
+  assert.equal(journeyStarted(mk(['active', 'pending', 'pending'], 'running')), false);
+  assert.equal(journeyStarted(mk(['done', 'skipped', 'active'], 'running')), true);
+  assert.equal(journeyStarted(mk(['done', 'skipped', 'failed'], 'failed')), true);
+  assert.equal(journeyStarted(mk(['done', 'skipped', 'pending'], 'ok')), true, 'an ended journey is always shown');
+  assert.match(read('ui/src/components/UpdatePanel.tsx'), /st\.journey && journeyStarted\(st\.journey\)/);
 });
