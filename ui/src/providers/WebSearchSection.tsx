@@ -75,7 +75,7 @@ export function WebSearchSection() {
           <input className="narrow" inputMode="decimal" spellCheck={false} value={cap} onChange={(e) => { setCap(e.target.value); setCapErr(''); }} aria-describedby="ws-cap-note" />
         </label>
         <button type="button" className="btn sm" disabled={!!busy || cap === String(v.tregMaxCostUsd)} onClick={() => { const r = parseCap(cap, v.capLimits); if (r.ok) void saveCap(r.value); else setCapErr(r.error); }}>Save cap</button>
-        <span id="ws-cap-note" className="field-note">treg only. The most one treg call may cost, in US dollars.</span>
+        <span id="ws-cap-note" className="field-note">treg only. The most a single treg call may cost, in US dollars.</span>
       </div>
       {capErr && <p className="set-error" role="alert">{capErr}</p>}
       <form className="prov-row" onSubmit={(e) => { e.preventDefault(); if (addr.trim()) void saveAddress(addr.trim()); }}>
