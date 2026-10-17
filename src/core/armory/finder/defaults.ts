@@ -41,3 +41,15 @@ export const EMBED_QUERY_BUDGET_MS = 300;
 export const EMBED_TURN_TIMEOUT_MS = 500;
 /** The local model's helper process stops after this long without a request. */
 export const MODEL_IDLE_MS = 5 * 60_000;
+
+/**
+ * The Haiku rerank. Provisional, tuned in Task 11. It runs only when the top three scores are within RERANK_MARGIN of each other
+ * (on the normalised scale, 0..1). It sees the top RERANK_CANDIDATES skills, the message cut to RERANK_TEXT_CHARS and each
+ * description cut to RERANK_DESC_CHARS.
+ */
+export const RERANK_MARGIN = 0.15;
+export const RERANK_CANDIDATES = 8;
+export const RERANK_TEXT_CHARS = 2000;
+export const RERANK_DESC_CHARS = 200;
+/** After the deadline the turn goes on without the rerank, but the call may run on to this ceiling so its cost is still counted. */
+export const RERANK_HARD_MS = 30_000;

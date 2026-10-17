@@ -12,6 +12,8 @@ export interface RankOpts {
   minScore: number;
   /** Past this many milliseconds the rank gives up. */
   deadlineMs: number;
+  /** The most results the cut may keep (the rerank asks for more than the note shows). Default 5. */
+  maxK?: number;
   /** Multiplies a skill's score. Default 1. */
   boost?: (id: string) => number;
   /** Monotonic clock in milliseconds. Default performance.now. */
@@ -51,7 +53,7 @@ export function rank(ix: FinderIndex, query: string, opts: RankOpts): { results:
 
   // Plain comparisons, not localeCompare, so the order does not depend on the machine's locale.
   ranked.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const k = Number.isFinite(opts.k) ? Math.min(MAX_K, Math.max(1, Math.floor(opts.k))) : DEFAULT_K;
+  const k = Number.isFinite(opts.k) ? Math.min(opts.maxK ?? MAX_K, Math.max(1, Math.floor(opts.k))) : DEFAULT_K;
   return { results: ranked.slice(0, k), timedOut: false };
 }
 

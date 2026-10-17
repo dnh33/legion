@@ -32,7 +32,7 @@ import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, upd
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
-import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, THRESHOLDS } from './finder/defaults.js';
+import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, RERANK_CANDIDATES, THRESHOLDS } from './finder/defaults.js';
 import { cachedPassages, createVectorCache, MAX_NEW_PASSAGES, passageVectors } from './finder/embed.js';
 import type { Embedder, VectorCache } from './finder/embed.js';
 import { createFinderModel } from './finder/model.js';
@@ -45,6 +45,8 @@ import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
 import { rank, rankFused } from './finder/rank.js';
 import type { Ranked } from './finder/rank.js';
+import { isCloseMatch, rerankPick, rerankScores } from './finder/rerank.js';
+import type { RerankQuery } from './finder/rerank.js';
 import { createUsageStore, skillIdOfLoad } from './finder/usage.js';
 import { oneLine } from '../kg/text.js';
 import type { SkillRecord, SkillState } from './store.js';
@@ -73,6 +75,8 @@ export interface ArmoryOptions {
   providerTarget?: (providerId: string) => ProviderTarget | undefined;
   /** Replaces the embedder a ranker would use. Tests only. */
   finderEmbedder?: (ranker: 'local' | 'provider') => Embedder | undefined;
+  /** The query the Haiku rerank runs (rerank.ts). Tests pass a fake; absent, the Claude Code SDK's query. */
+  rerankQuery?: RerankQuery;
 }
 
 /** What the last listing of Claude Code skills found, and how. 'disk-fallback' reads installed_plugins.json and settings.json instead. */
@@ -223,6 +227,10 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     return new Set(onSkillIds(agent, all, deliveredFor.delivered));
   };
   const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
+  // The rerank's child process: the same environment and settings as the Claude Code listing (no connectors, the owner's executable).
+  const rerankEnv = () => (deps.config
+    ? { env: buildChildEnv(deps.config, { probe: true }), settings: { ...connectorSettings(deps.config, { probe: true }).settings }, ...(deps.config.claude.executablePath ? { executablePath: deps.config.claude.executablePath } : {}) }
+    : {});
   let usage: ReturnType<typeof createUsageStore> | undefined;
   const usageStore = () => (usage ??= createUsageStore(deps.dataDir));
   // Embeddings. The local model (a helper process) and the provider embedder are optional rankers; the vector cache holds one vector per
@@ -364,19 +372,41 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const { docs, ix } = finderIndex();
       const boost = usageStore().boostFor(agent.id);
       const sub = { ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) };
+      // With the rerank on, the ranking keeps the top RERANK_CANDIDATES so the rerank can choose among them; otherwise it keeps k.
+      const cut = f.rerank ? RERANK_CANDIDATES : f.k;
       // Embeddings first, when the ranker has them and they answer within the budget. Any failure, or too few vectors yet, means keywords.
       let results: Ranked[] | undefined;
+      let fused = false;
       const emb = embedderFor(f);
       if (emb) {
         const st = await embedState(emb, docsOf(docs, cand), ctx.prompt, EMBED_QUERY_BUDGET_MS);
-        const fused = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: f.k, minScore: FUSED_THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }) : null;
-        if (fused && !fused.timedOut) results = fused.results;
+        const got = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: cut, maxK: RERANK_CANDIDATES, minScore: FUSED_THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }) : null;
+        if (got && !got.timedOut) { results = got.results; fused = true; }
       }
-      results ??= rank(sub, ctx.prompt, { k: f.k, minScore: THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }).results;
-      const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(results, docs);
+      if (!results) results = rank(sub, ctx.prompt, { k: cut, maxK: RERANK_CANDIDATES, minScore: THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }).results;
+      const wide = results;
+      let chosen = wide.slice(0, f.k);
+      // The optional Haiku rerank: only when the top scores are close. Its answer is ids from this list, or undefined (keep the order).
+      // The best raw BM25 is read here, not from rank(), because the margin normalises keyword scores by it (the fused path does not need it).
+      if (f.rerank && wide.length >= 2) {
+        const best = fused ? 0 : Math.max(0, ...[...scoreIndex(sub, ctx.prompt).values()].map((h) => h.score));
+        if (isCloseMatch(rerankScores(wide, fused, best))) {
+          const pick = await rerankPick({
+            dataDir: deps.dataDir,
+            text: ctx.prompt,
+            candidates: wide.map((r) => ({ id: r.id, description: docs.get(r.id)?.description ?? '' })),
+            k: f.k,
+            monthlyUsd: f.rerankMonthlyUsd,
+            queryFn: opts.rerankQuery,
+            ...rerankEnv(),
+          });
+          if (pick.ids) chosen = pick.ids.map((id) => wide.find((r) => r.id === id)!);
+        }
+      }
+      const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(chosen, docs);
       if (!text) return undefined;
-      const suggested = results.map((r) => r.id);
-      return { text, suggested, why: results };
+      const suggested = chosen.map((r) => r.id);
+      return { text, suggested, why: chosen };
     },
 
     // Called by the engine only for a note it accepted in time.
