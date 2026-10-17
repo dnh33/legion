@@ -569,6 +569,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       });
       add('DELETE', '/api/armory/finder/model', () => {
         if (model.busy()) throw new HttpError(409, 'Wait for the model download to finish first.');
+        vectors?.clear(); // the file goes with the model; the copy in memory must not write it back
         return model.remove();
       });
 

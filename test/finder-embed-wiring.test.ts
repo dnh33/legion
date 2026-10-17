@@ -62,6 +62,18 @@ describe('the note with embeddings', () => {
     assert.equal(f.passages().length, 1, 'the cached vectors are used; nothing is embedded twice');
   });
 
+  it('removing the model also empties the vector cache in memory: the skills are embedded again afterwards', async () => {
+    const f = fakeEmbedder();
+    const r = await rigWith(f.e);
+    await turn(r, NO_KEYWORDS);
+    await r.mod.finderSettled();
+    assert.equal(f.passages().length, 1);
+    await r.call('DELETE', '/api/armory/finder/model');
+    await turn(r, NO_KEYWORDS);
+    await r.mod.finderSettled();
+    assert.equal(f.passages().length, 2, 'the cache held nothing, so the skills were embedded a second time');
+  });
+
   it('never names a skill that is off for the agent, even when it is the closest by meaning', async () => {
     const f = fakeEmbedder();
     const r = await rigWith(f.e);

@@ -86,7 +86,7 @@ export const ALLOWLIST: Allow = {
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
   [PROBE_FILE]: { kinds: ['loopback-http-client'], reason: 'the read-only wallet STATUS probe: one POST per allowlisted method to a loopback address, never a server, never another host (rules below)' },
   'src/core/armory/finder/local-model.ts': { kinds: ['child-process'], reason: 'the skill finder\'s local model runs in a helper process (fork of embed-worker.js, one child at a time, no shell, no network of its own); it is started by a skill search or a turn note only after you downloaded the model on an approval card, stops after 5 idle minutes, and is killed through its own handle on idle, dispose and removal' },
-  'src/core/armory/finder/embed-worker.ts': { kinds: ['dynamic-import'], reason: 'the helper process of the local model loads the ONNX runtime and the tokenizer library from the model folder (file addresses built from the folder it was started with); those files were fetched only on an approval card and each one matched its pinned sha256 before it was moved into place; the worker imports nothing from Legion, has no network access and writes no file' },
+  'src/core/armory/finder/embed-worker.ts': { kinds: ['dynamic-import'], reason: 'the helper process of the local model loads the ONNX runtime and the tokenizer library from the model folder (file addresses built from the folder it was started with); those files were fetched only on an approval card and each one matched its pinned sha256 when it was downloaded, and the worker checks the size and sha256 of all seven files again each time it loads, using the very bytes it hashed (the model, the tokenizer files and the .wasm as bytes, the two library files from a data: address of those bytes); only the runtime loader file is imported from the file straight after its check; the worker imports nothing from Legion, has no network access and writes no file' },
   'src/core/armory/finder/embed.ts': { kinds: ['decode'], reason: 'the vector cache stores each embedding as base64 text of its float32 bytes and decodes it back into numbers; the bytes are never interpreted as a name or a command' },
   'src/core/exec/agent-shell.ts': { kinds: ['child-process'], reason: 'on Windows with Git Bash, a timeout or cancel of the host shell tool runs Git\'s own ps.exe and kill.exe to kill the command\'s bash process group (a background job leaves the Windows process tree); nothing else' },
   'src/core/exec/direct-host.ts': { kinds: ['child-process'], reason: 'the host shell tool runs one child process per approved command on this machine (killed by process tree on timeout or cancel); it is behind the approval gate and never under src/core/providers/' },
@@ -388,7 +388,7 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST, opts: { pins?: 
       else if (HTTP_MODULE.test(spec)) used.set('inbound-http', `${spec}`);
       else if (CHILD_MODULE.test(spec)) used.set('child-process', `${spec}`);
     }
-    if (/\bimport\s*\(\s*[^'"`\s]/.test(kept)) used.set('dynamic-import', 'dynamic import with a specifier that is not a string literal');
+    if (/\bimport\s*\(\s*(?:[^'"`\s]|`[^`]*\$\{)/.test(kept)) used.set('dynamic-import', 'dynamic import with a specifier that is not a string literal');
     if (/\brequire\s*\(\s*[^'"`\s]/.test(kept)) bad('require() with a specifier that is not a string literal');
 
     // decoding that can hide a name

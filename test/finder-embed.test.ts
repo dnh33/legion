@@ -1,7 +1,7 @@
 /** Skill finder embeddings: cosine, the vector cache, the lazy passage batch and the fusion with keywords. A fake embedder, never a model. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { buildIndex } from '../src/core/armory/finder/bm25.js';
 import type { FinderDoc } from '../src/core/armory/finder/doc.js';
@@ -51,6 +51,21 @@ describe('the vector cache', () => {
     assert.deepEqual([...b.get('m1', 'hello')!], [0.5, -0.25, 1]);
     assert.equal(b.get('m2', 'hello'), undefined, 'another model never reads it');
     assert.equal(b.get('m1', 'hello!'), undefined, 'another text is another key');
+  });
+
+  it('clear forgets the vectors and the unsaved change, so a later save does not bring the file back', () => {
+    const dir = tempDir('finder-vec-');
+    const c = createVectorCache(dir);
+    c.set('m', 't', Float32Array.from([1]));
+    c.save();
+    assert.ok(existsSync(vectorsPath(dir)));
+    c.set('m', 'u', Float32Array.from([2]));
+    rmSync(vectorsPath(dir), { force: true }); // what removing the model does
+    c.clear();
+    assert.equal(c.size, 0);
+    assert.equal(c.get('m', 't'), undefined);
+    c.save();
+    assert.equal(existsSync(vectorsPath(dir)), false, 'nothing is written back');
   });
 
   it('starts empty on a corrupt file, and a failed write does not throw', () => {

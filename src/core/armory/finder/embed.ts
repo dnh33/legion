@@ -48,6 +48,8 @@ export interface VectorCache {
   set(modelId: string, text: string, vec: Float32Array): void;
   /** Writes the file when something changed. Never throws. */
   save(): void;
+  /** Forgets every vector in memory and drops any unsaved change, so a later save() cannot bring a deleted file back. */
+  clear(): void;
   readonly size: number;
 }
 
@@ -108,6 +110,7 @@ export function createVectorCache(dataDir: string, max = MAX_CACHED_VECTORS): Ve
         try { rmSync(tmp, { force: true }); } catch { /* leave it */ }
       }
     },
+    clear() { map.clear(); dirty = false; },
     get size() { return map.size; },
   };
 }
