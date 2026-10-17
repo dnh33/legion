@@ -41,7 +41,7 @@ import type { FinderModelOpts } from './finder/model.js';
 import { createProviderEmbedder } from './finder/provider-embed.js';
 import type { ProviderTarget } from '../providers/http.js';
 import type { FinderSettings, FinderThreshold } from '../../shared/armory-view.js';
-import { savedWhen } from '../../shared/armory-view.js';
+import { savedWhen, WARN_ABOVE } from '../../shared/armory-view.js';
 import { docFromEntry } from './finder/doc.js';
 import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
@@ -120,8 +120,8 @@ export interface ArmoryModule extends CoreModule {
   finderSettled(): Promise<void>;
 }
 
-/** Settings warns above this many skill descriptions in one agent's prompt. */
-export const SKILL_WARN_ABOVE = 40;
+/** Settings warns above this many skill descriptions in one agent's prompt; the short list's auto rule uses it too. One value, shared with the UI. */
+export const SKILL_WARN_ABOVE = WARN_ABOVE;
 /** Most skill ids one bulk state change may carry. */
 export const MAX_BULK = 1000;
 

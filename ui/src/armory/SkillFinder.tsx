@@ -8,7 +8,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/icons';
 import { RERANK_LATENCY_NOTE } from '../../../src/core/armory/finder/defaults';
-import { endSentence, isLocalHostUrl, PROVIDER_DISCLOSURE, PROVIDER_DISCLOSURE_LOCAL } from '../../../src/shared/armory-view';
+import { endSentence, isLocalHostUrl, PROVIDER_DISCLOSURE, PROVIDER_DISCLOSURE_LOCAL, WARN_ABOVE } from '../../../src/shared/armory-view';
 import type { AgentRef, FinderSettings } from '../../../src/shared/armory-view';
 import { getProviders, loadProviders, useProviders } from '../providers/providersStore';
 import {
@@ -108,7 +108,7 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
           control={(
             <select aria-labelledby={`${id('slim')}-l`} aria-describedby={`${id('slim')}-h`} value={slimValue} disabled={!f.searchTool}
               onChange={(e) => { const v = e.target.value; void setFinder({ slimListing: v === 'auto' ? 'auto' : v === 'true' }); }}>
-              <option value="auto">When an agent has more than 40 skills</option>
+              <option value="auto">When an agent has more than {WARN_ABOVE} skills</option>
               <option value="true">Always</option>
               <option value="false">Never</option>
             </select>
