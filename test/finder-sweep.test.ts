@@ -1,7 +1,7 @@
 /** Catalog-size sweep (scripts/skill-finder-sweep.mjs). A fake query and a fake fetch only: no network call, no model call. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -210,17 +210,27 @@ function fakeQuery(log: { probes: number; text: number; homes: Set<string> }) {
     log.probes++;
     log.homes.add(String(options.env.HOME));
     assert.deepEqual(options.tools, ['Skill']);
-    assert.equal(options.maxTurns, 1);
     assert.equal(options.persistSession, false);
     assert.deepEqual(options.settingSources, ['user']);
     assert.equal(options.settings.disableAllHooks, true);
+    const search = options.mcpServers?.legion_armory;
+    if (search) {
+      assert.equal(options.maxTurns, 4);
+      assert.deepEqual(options.allowedTools, ['mcp__legion_armory__armory_find']);
+    } else assert.equal(options.maxTurns, 1);
     const slim = options.settings.skillListingBudgetFraction === 0.002 && options.settings.skillListingMaxDescChars === 120;
     // The probe calls a skill named after the first word of the request, so the full list finds more than the short one.
     const word = /(?:deal with|getting) (\w+)/.exec(String(prompt))?.[1];
     const dir = join(String(options.env.HOME), '.claude', 'skills');
     const names = existsSync(dir) ? readdirSync(dir) : [];
     const hit = names.find((n) => n.startsWith(word ?? '\u0000'));
-    if (hit && !slim) yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: hit } }] } };
+    // A short list with the hint searches first, then calls the skill; the usage is spread over two turns.
+    const hinted = String(options.systemPrompt?.append ?? '').includes('armory_find');
+    if (search && hinted) {
+      await search.find(String(word ?? 'stuff'), 5);
+      yield { type: 'assistant', message: { id: 'm1', usage: { input_tokens: 5, cache_read_input_tokens: 40 }, content: [{ type: 'tool_use', name: 'mcp__legion_armory__armory_find', input: { query: 'x' } }] } };
+    }
+    if (hit && (!slim || hinted)) yield { type: 'assistant', message: { id: 'm2', usage: { input_tokens: 5, cache_read_input_tokens: slim ? 60 : 1000 }, content: [{ type: 'tool_use', name: 'Skill', input: { skill: hit } }] } };
     yield { type: 'result', total_cost_usd: 0.01, usage: { input_tokens: 10, cache_read_input_tokens: slim ? 100 : 1000, cache_creation_input_tokens: 0 } };
   })();
 }
@@ -238,15 +248,20 @@ describe('sweep: the whole job on fakes', () => {
     const log = { probes: 0, text: 0, homes: new Set<string>() };
     const root = tempDir('sweep-run-');
     const lines: string[] = [];
-    const { summary, result } = await sweep.runSweep({ query: fakeQuery(log), fetch: fn, smoke: true, cap: 5, root, log: (m: string) => lines.push(m), sleep: async () => {} });
-    assert.ok(log.probes > 0 && log.probes % 2 === 0);
-    assert.ok(summary.indexOf('Pre-registered rule') < summary.indexOf('## Results'));
+    // Legion's real index and ranking, from the build; only the server is a stand-in that exposes the find function to the fake model.
+    const real = await sweep.loadArmory();
+    const armory = { ...real, buildFindServer: (_job: unknown, find: unknown) => ({ type: 'sdk', name: 'legion_armory', find }) };
+    const { summary, result } = await sweep.runSweep({ query: fakeQuery(log), fetch: fn, mode: 'smoke', cap: 5, root, armory, log: (m: string) => lines.push(m), sleep: async () => {} });
+    assert.ok(log.probes > 0);
+    assert.ok(summary.indexOf('Pre-registered rule') < summary.indexOf('## Arms'));
     assert.ok(summary.includes('Smoke run'));
     assert.equal(result.seed, 20261018);
-    assert.equal(result.sizes.length, 1);
-    assert.equal(result.sizes[0].size, 5);
-    assert.ok(result.sizes[0].pairs <= 2 && result.sizes[0].negatives <= 2);
-    assert.ok(result.sizes[0].tokenSaving > 0.8, 'the fake short list is much smaller');
+    assert.equal(result.mode, 'smoke');
+    assert.deepEqual(result.sizes, [5]);
+    assert.equal(result.arms.length, 1);
+    assert.equal(result.arms[0].arm, 'SFH120');
+    assert.ok(result.arms[0].calls >= 1 && result.arms[0].calls <= 4);
+    assert.ok(result.arms[0].searchCalled > 0, 'the multi-turn path ran: the fake model searched');
     assert.ok(result.spentUsd <= 5);
     // Numbers only: no request text from the fake model reaches the summary, the result or the log lines.
     for (const text of [summary, JSON.stringify(result), lines.join('\n')]) {
@@ -268,5 +283,307 @@ describe('sweep: the whole job on fakes', () => {
     const cat = await sweep.buildCatalog({ fetch: fn, token: 't', target: 3, sleep: async () => {} });
     assert.equal(cat.source, 'github-search');
     assert.equal(cat.skills.length, 3);
+  });
+});
+
+// ---- Task 11f: the short list with the search tool ----
+
+/** A fake query that plays back messages and hands the options to a spy. */
+const playback = (messages: any[], spy: (options: any) => void = () => {}) => ({ options }: any) => (async function* () {
+  spy(options);
+  for (const m of messages) yield m;
+})();
+const tool = (name: string, input: Record<string, unknown>, id = 'm', usage: Record<string, number> | undefined = undefined) =>
+  ({ type: 'assistant', message: { id, ...(usage ? { usage } : {}), content: [{ type: 'tool_use', name, input }] } });
+const FIND = 'mcp__legion_armory__armory_find';
+
+describe('sweep 11f: the arms', () => {
+  it('has the four arms with the exact settings and the verbatim hint', () => {
+    assert.deepEqual(sweep.ARMS_11F.map((a: any) => a.name), ['AF', 'SF120', 'SFH120', 'SFH250']);
+    assert.ok(sweep.ARMS_11F.every((a: any) => a.search === true), 'every 11f arm has the search tool');
+    const by = Object.fromEntries(sweep.ARMS_11F.map((a: any) => [a.name, a]));
+    assert.deepEqual(by.AF.settings, {});
+    assert.deepEqual(by.SF120.settings, { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 });
+    assert.deepEqual(by.SFH120.settings, { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 });
+    assert.deepEqual(by.SFH250.settings, { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 250 });
+    assert.equal(sweep.HINT, 'Your skill list shows short descriptions. If no listed skill clearly fits, call armory_find with what you want to do before answering.');
+    assert.ok(by.SFH120.append.endsWith(sweep.HINT) && by.SFH250.append.endsWith(sweep.HINT));
+    assert.ok(!by.AF.append.includes('armory_find') && !by.SF120.append.includes('armory_find'));
+    assert.equal(sweep.BASELINE_11F, 'AF');
+  });
+  it('keeps the 11e arms (one turn, no search) and uses one search arm for the smoke run', () => {
+    assert.deepEqual(sweep.ARMS_11E.map((a: any) => a.name), ['A', 'S']);
+    assert.ok(sweep.ARMS_11E.every((a: any) => a.search === false));
+    assert.deepEqual(sweep.ARMS_11E[1].settings, sweep.SLIM_SETTINGS);
+    assert.equal(sweep.ARMS_SMOKE.length, 1);
+    assert.equal(sweep.ARMS_SMOKE[0].search, true);
+  });
+  it('uses the sizes, counts and cap of the brief', () => {
+    assert.deepEqual(sweep.ACCURACY_SIZES, [40, 60, 100, 200]);
+    assert.equal(sweep.ACCURACY_POSITIVES, 100);
+    assert.equal(sweep.ACCURACY_NEGATIVES, 60);
+    assert.equal(sweep.ACCURACY_CONCURRENCY, 6);
+    assert.equal(sweep.ACCURACY_CAP_USD, 15);
+    assert.equal(sweep.MAX_TURNS, 4);
+    assert.equal(sweep.SEED, 20261018);
+  });
+  it('prints the 11f rule, with the new false-call test, before any result', () => {
+    const text = sweep.ruleText11f();
+    assert.ok(text.includes('at most 2 more false calls'));
+    assert.ok(text.includes('finer than one call in 60'));
+    assert.ok(text.includes('15 percent'));
+    const out = sweep.renderSummary11f({
+      rows: {}, decision: { arms: [], best: null }, catalog: { source: 'x', counts: { fetched: 0, noDescription: 0, duplicate: 0, notFound: 0, fetchError: 0, nonGithub: 0 } },
+      prompts: { stats: { written: 0, kept: 0, negWritten: 0, negKept: 0 } }, spend: { spent: 0, calls: 0 }, cap: 15, stopped: false, smoke: false, armStats: [],
+    });
+    assert.ok(out.indexOf('Pre-registered rule') < out.indexOf('## Arms'));
+    assert.ok(out.indexOf('Pre-registered rule') < out.indexOf('## Results'));
+  });
+});
+
+describe('sweep 11f: a run with search', () => {
+  it('counts the first Skill call as the gold hit, whatever search calls come before it', async () => {
+    const seen: any[] = [];
+    const base = { model: 'haiku', prompt: 'p', cwd: '.', env: {} };
+    const search = tool(FIND, { query: 'invoices' }, 'a');
+    const result = { type: 'result', total_cost_usd: 0.01, subtype: 'success', usage: { input_tokens: 1 } };
+    const hit = await shared.runSkillCall(playback([search, search, tool('Skill', { skill: 'pdf-export' }, 'b'), result], (o) => seen.push(o)), { ...base, maxTurns: 4 });
+    assert.equal(hit.called, 'pdf-export');
+    assert.equal(sweep.isGold(hit.called, 'pdf-export'), true);
+    const wrongFirst = await shared.runSkillCall(playback([search, tool('Skill', { skill: 'other' }, 'b'), tool('Skill', { skill: 'pdf-export' }, 'c'), result]), base);
+    assert.equal(wrongFirst.called, 'other');
+    assert.equal(sweep.isGold(wrongFirst.called, 'pdf-export'), false, 'only the first Skill call counts');
+    const searchOnly = await shared.runSkillCall(playback([search, search, result]), base);
+    assert.equal(searchOnly.called, null);
+    assert.equal(sweep.isGold(searchOnly.called, 'pdf-export'), false);
+    assert.equal(seen[0].maxTurns, 4);
+  });
+  it('records and denies every Skill call, and passes the search server and tool', async () => {
+    let options: any;
+    await shared.runSkillCall(playback([{ type: 'result', total_cost_usd: 0, usage: {} }], (o) => { options = o; }), {
+      model: 'haiku', prompt: 'p', cwd: '.', env: {}, maxTurns: 4, mcpServers: { legion_armory: { name: 'x' } }, allowedTools: [FIND],
+    });
+    assert.deepEqual(options.tools, ['Skill']);
+    assert.deepEqual(options.allowedTools, [FIND]);
+    assert.equal(options.mcpServers.legion_armory.name, 'x');
+    const answer = await options.hooks.PreToolUse[0].hooks[0]({ hook_event_name: 'PreToolUse', tool_name: 'Skill', tool_input: { skill: 'a' } });
+    assert.equal(answer.hookSpecificOutput.permissionDecision, 'deny');
+  });
+  it('sums input tokens over every turn', async () => {
+    const turn1 = tool(FIND, { query: 'a' }, 'm1', { input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 0, output_tokens: 5 });
+    const turn2 = tool('Skill', { skill: 's' }, 'm2', { input_tokens: 20, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 5 });
+    // A second block of turn 2 repeats its usage: it must count once.
+    const again = tool('Skill', { skill: 's' }, 'm2', { input_tokens: 20, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 5 });
+    const lastOnly = { type: 'result', total_cost_usd: 0.01, subtype: 'success', usage: { input_tokens: 20, cache_read_input_tokens: 300, cache_creation_input_tokens: 50 } };
+    const r1 = await shared.runSkillCall(playback([turn1, turn2, again, lastOnly]), { model: 'haiku', prompt: 'p', cwd: '.', env: {}, maxTurns: 4 });
+    assert.equal(shared.inputTokens(r1.tokens), 10 + 100 + 20 + 300 + 50, 'a result that reports only the last turn is raised to the sum');
+    const cumulative = { type: 'result', total_cost_usd: 0.01, subtype: 'success', usage: { input_tokens: 30, cache_read_input_tokens: 400, cache_creation_input_tokens: 50 } };
+    const r2 = await shared.runSkillCall(playback([turn1, turn2, cumulative]), { model: 'haiku', prompt: 'p', cwd: '.', env: {}, maxTurns: 4 });
+    assert.equal(shared.inputTokens(r2.tokens), 480, 'a cumulative result is not counted twice');
+    assert.equal(shared.inputTokens(shared.sumUsage([{ input_tokens: 1 }, { cache_read_input_tokens: 2 }, undefined])), 3);
+  });
+  it('runs a search arm: records the searches and whether the gold skill was in the top five', async () => {
+    const dir = tempDir('sweep-search-');
+    const items = [{ size: 5, i: 0, kind: 'pos', prompt: 'p0', gold: 'pdf-export' }, { size: 5, i: 0, kind: 'neg', prompt: 'n0', gold: null }];
+    const arms = [{ name: 'AF', settings: {}, append: 'x', search: true }, { name: 'SF', settings: {}, append: 'x', search: true }];
+    const query = ({ prompt, options }: any) => (async function* () {
+      // SF searches (and finds the gold skill) but then calls nothing; AF calls a wrong skill without searching.
+      if (String(prompt) === 'p0' && options.settings.mark === 'sf') await options.mcpServers.legion_armory.find('pdf', 5);
+      if (options.settings.mark === 'af') yield tool('Skill', { skill: 'wrong' }, 'a');
+      yield { type: 'result', total_cost_usd: 0.001, subtype: 'success', usage: { input_tokens: 1 } };
+    })();
+    const search = {
+      forSize: () => async () => [{ id: 'a' }, { id: 'pdf-export' }, { id: 'b' }],
+      buildServer: (find: any) => ({ id: 'server', find }),
+    };
+    arms[0].settings = { mark: 'af' } as any;
+    arms[1].settings = { mark: 'sf' } as any;
+    const { records } = await sweep.runArms({ query, spend: sweep.makeSpend(5), items, homes: new Map([[5, join(dir, 'h')]]), arms, search, concurrency: 1, workDir: dir });
+    const sf = records.find((r: any) => r.arm === 'SF' && r.kind === 'pos');
+    assert.equal(sf.searches, 1);
+    assert.equal(sf.goldInTop5, true);
+    assert.equal(sf.hit, false);
+    const af = records.find((r: any) => r.arm === 'AF' && r.kind === 'pos');
+    assert.equal(af.searches, 0);
+    assert.equal(af.called, true);
+    assert.equal(records.length, 4);
+    await assert.rejects(() => sweep.runArms({ query, spend: sweep.makeSpend(5), items, homes: new Map(), arms, concurrency: 1, workDir: dir }), { code: 'NO_SEARCH' });
+  });
+});
+
+/** Records for compareArms: n positives and m negatives for two arms. */
+function recs(size: number, base: { pos: boolean[]; neg: boolean[] }, arm: { pos: boolean[]; neg: boolean[] }, extra: Record<string, unknown> = {}) {
+  const out: any[] = [];
+  for (const [name, d] of [['AF', base], ['X', arm]] as const) {
+    d.pos.forEach((hit, i) => out.push({ size, i, kind: 'pos', arm: name, called: hit, hit, tokens: name === 'AF' ? 1000 : 700, cost: 0, error: null, searches: 0, goldInTop5: false, ...extra }));
+    d.neg.forEach((called, i) => out.push({ size, i, kind: 'neg', arm: name, called, hit: false, tokens: name === 'AF' ? 1000 : 700, cost: 0, error: null, searches: 0, goldInTop5: false }));
+  }
+  return out;
+}
+const flags = (n: number, trueAt: number[]) => Array.from({ length: n }, (_, i) => trueAt.includes(i));
+
+describe('sweep 11f: the false-call rule and the comparison', () => {
+  it('allows at most two extra false calls in 60 and pairs the negatives', () => {
+    const base = { pos: flags(20, [...Array(20).keys()]), neg: flags(60, [0, 1, 2, 3, 4]) };
+    const withExtra = (k: number) => compareArms_(base, { pos: base.pos, neg: flags(60, [0, 1, 2, 3, 4, ...Array.from({ length: k }, (_, j) => 10 + j)]) });
+    const r2 = withExtra(2);
+    assert.equal(r2.falseExtra, 2);
+    assert.equal(r2.falseMore, 2);
+    assert.equal(sweep.rowPasses11f(r2), true, '2 extra calls pass');
+    const r3 = withExtra(3);
+    assert.equal(r3.falseExtra, 3);
+    assert.equal(sweep.rowPasses11f(r3), false, '3 extra calls fail');
+    // Same count of false calls, different prompts: no net increase.
+    const swapped = compareArms_(base, { pos: base.pos, neg: flags(60, [5, 6, 7, 8, 9]) });
+    assert.equal(swapped.falseExtra, 0);
+    assert.equal(swapped.falseMore, 5);
+    assert.equal(swapped.falseFewer, 5);
+    assert.equal(sweep.rowPasses11f(swapped), true);
+  });
+  it('fails a significant increase even when the count is small, and checks the other three tests', () => {
+    const ok = { pairs: 100, negatives: 60, table: { both: 80, aOnly: 2, sOnly: 2, neither: 16 }, diff: 0, mcnemarP: 1, falseMore: 1, falseFewer: 1, falseExtra: 0, falseP: 1, tokenSaving: 0.4 };
+    assert.equal(sweep.rowPasses11f(ok), true);
+    assert.equal(sweep.rowPasses11f({ ...ok, falseP: 0.01, falseMore: 9, falseFewer: 1, falseExtra: 2 }), false, 'a significant rise fails');
+    assert.equal(sweep.rowPasses11f({ ...ok, falseP: 0.01, falseMore: 1, falseFewer: 9, falseExtra: -2 }), true, 'a significant fall is fine');
+    assert.equal(sweep.rowPasses11f({ ...ok, diff: -0.04 }), false);
+    assert.equal(sweep.rowPasses11f({ ...ok, diff: -0.03 }), true);
+    assert.equal(sweep.rowPasses11f({ ...ok, mcnemarP: 0.01, table: { both: 70, aOnly: 12, sOnly: 1, neither: 17 } }), false);
+    assert.equal(sweep.rowPasses11f({ ...ok, tokenSaving: 0.149 }), false);
+    assert.equal(sweep.rowPasses11f({ ...ok, tokenSaving: null }), false);
+    assert.equal(sweep.rowPasses11f({ ...ok, negatives: 0 }), false);
+    assert.equal(sweep.rowPasses11f({ ...ok, pairs: 0 }), false);
+  });
+  it('compares gold, tokens, search use and the miss split', () => {
+    const base = { pos: flags(10, [0, 1, 2, 3, 4, 5, 6, 7]), neg: flags(4, []) };
+    const arm = { pos: flags(10, [0, 1, 2, 3, 4, 5]), neg: flags(4, []) };
+    const records = recs(40, base, arm);
+    // Arm misses are positives 6..9: two searched, and one of those had the gold skill in its top five.
+    const misses = records.filter((r: any) => r.arm === 'X' && r.kind === 'pos' && !r.hit);
+    misses[0].searches = 1; misses[0].goldInTop5 = true;
+    misses[1].searches = 2;
+    const row = sweep.compareArms(records, 40, 'AF', 'X');
+    assert.equal(row.pairs, 10);
+    assert.deepEqual(row.table, { both: 6, aOnly: 2, sOnly: 0, neither: 2 });
+    assert.equal(row.diff, -0.2);
+    assert.equal(row.tokenSaving, 0.3);
+    assert.equal(row.misses, 4);
+    assert.equal(row.missesSearched, 2);
+    assert.equal(row.missesGoldInTop5, 1);
+    assert.equal(row.searchRate, round4(2 / 14));
+    assert.equal(sweep.compareArms(records, 60, 'AF', 'X').pairs, 0, 'a size with no records has no pairs');
+  });
+  it('names where each arm passes from, and the best arm by lowest N then most tokens saved', () => {
+    const row = (size: number, over: Record<string, unknown> = {}) => ({
+      size, pairs: 100, negatives: 60, table: { both: 80, aOnly: 2, sOnly: 2, neither: 16 }, diff: 0, mcnemarP: 1, falseMore: 0, falseFewer: 0, falseExtra: 0, falseP: 1, tokenSaving: 0.3, ...over,
+    });
+    const sizes = [40, 60, 100, 200];
+    const d = sweep.decideAccuracy({
+      SF120: sizes.map((s) => row(s, s < 100 ? { diff: -0.1 } : { tokenSaving: 0.2 })),
+      SFH120: sizes.map((s) => row(s, s < 100 ? { diff: -0.1 } : { tokenSaving: 0.4 })),
+      SFH250: sizes.map((s) => row(s, s === 200 ? { falseExtra: 3 } : {})),
+    });
+    const n = Object.fromEntries(d.arms.map((a: any) => [a.arm, a.n]));
+    assert.deepEqual(n, { SF120: 100, SFH120: 100, SFH250: null });
+    assert.equal(d.best, 'SFH120', 'a tie on N goes to the larger saving');
+    assert.equal(sweep.decideAccuracy({ SF120: sizes.map((s) => row(s, { tokenSaving: 0.05 })) }).best, null);
+    const lowest = sweep.decideAccuracy({ A1: sizes.map((s) => row(s, s < 100 ? { diff: -0.1 } : {})), A2: sizes.map((s) => row(s, s < 60 ? { diff: -0.1 } : {})) });
+    assert.equal(lowest.best, 'A2');
+  });
+});
+
+const round4 = (x: number) => Math.round(x * 10000) / 10000;
+function compareArms_(base: { pos: boolean[]; neg: boolean[] }, arm: { pos: boolean[]; neg: boolean[] }) {
+  return sweep.compareArms(recs(40, base, arm), 40, 'AF', 'X');
+}
+
+describe('sweep 11f: the mode file', () => {
+  it('reads the mode from the file text', () => {
+    assert.equal(sweep.parseSweepMode(''), 'accuracy-11f');
+    assert.equal(sweep.parseSweepMode(undefined), 'accuracy-11f');
+    assert.equal(sweep.parseSweepMode('smoke\n'), 'smoke');
+    assert.equal(sweep.parseSweepMode('  Full-11E \r\n'), 'full-11e');
+    assert.equal(sweep.parseSweepMode('# the mode\n\naccuracy-11f # default\n'), 'accuracy-11f');
+    assert.equal(sweep.parseSweepMode('# nothing but a note\n'), 'accuracy-11f');
+    assert.throws(() => sweep.parseSweepMode('smoek'), { code: 'BAD_MODE' });
+  });
+  it('picks the mode from --mode, then the file, then the default', () => {
+    const dir = tempDir('sweep-mode-');
+    const file = join(dir, '.sweep-mode');
+    assert.equal(sweep.chooseMode({}), 'accuracy-11f');
+    assert.equal(sweep.chooseMode({ modeFile: file }), 'accuracy-11f', 'a missing file gives the default');
+    writeFileSync(file, 'smoke\n');
+    assert.equal(sweep.chooseMode({ modeFile: file }), 'smoke');
+    assert.equal(sweep.chooseMode({ modeFile: file, mode: 'full-11e' }), 'full-11e');
+  });
+  it('is wired into the workflow with the 240 minute limit', () => {
+    const yml = readFileSync(new URL('.github/workflows/skill-finder-sweep.yml', REPO), 'utf8');
+    assert.match(yml, /timeout-minutes: 240/);
+    assert.match(yml, /--mode-file \.sweep-mode/);
+  });
+});
+
+describe('sweep 11f: Legion\'s own search tool', () => {
+  it('builds the real armory_find server and ranks by keyword over the size\'s skills', async () => {
+    const mods = await sweep.loadArmory();
+    assert.equal(mods.serverName, 'legion_armory');
+    const items = [
+      { name: 'pdf-export', description: 'Export invoices and reports to PDF files.' },
+      { name: 'git-helper', description: 'Rebase, merge and resolve git conflicts.' },
+      { name: 'long-one', description: `Spreadsheet work. ${'word '.repeat(100)}` },
+    ];
+    const search = sweep.makeSearch(mods, [{ size: 3, items }]);
+    const find = search.forSize(3);
+    const hits = find('export invoices to pdf', 5);
+    assert.equal(hits[0].id, 'pdf-export');
+    assert.ok(hits[0].score > 0 && hits[0].thirdParty === false);
+    assert.ok(hits.every((h: any) => h.score > 0), 'a skill with no matching word is left out');
+    assert.deepEqual(find('zzzz qqqq', 5), []);
+    assert.ok(find('spreadsheet', 5)[0].description.length <= 200);
+    assert.equal(find('export invoices to pdf', 1).length, 1);
+    const server = search.buildServer(find);
+    assert.equal(server.type, 'sdk');
+    assert.equal(server.name, 'legion_armory');
+    const tools = (server.instance as any)?._registeredTools;
+    if (tools) {
+      assert.deepEqual(Object.keys(tools), ['armory_find']);
+      assert.match(tools.armory_find.description, /^Search the skills the owner has turned on for you/);
+    }
+  });
+  it('keeps the description cut equal to the one in Legion\'s armory', () => {
+    const src = readFileSync(new URL('src/core/armory/index.ts', REPO), 'utf8');
+    const m = /const MAX_FIND_DESCRIPTION = (\d+);/.exec(src);
+    assert.ok(m, 'the constant still exists in the armory');
+    assert.equal(sweep.FIND_DESCRIPTION_CHARS, Number(m![1]));
+  });
+});
+
+describe('sweep 11f: the whole accuracy job on fakes', () => {
+  it('runs every arm against the baseline at a size and prints the rule, the arms, the results and the decision', async () => {
+    const names = Array.from({ length: 50 }, (_, i) => `tool-${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}x`);
+    const fn = async (url: string) => {
+      const ok = (body: string) => ({ ok: true, status: 200, text: async () => body });
+      if (url === 'https://skills.sh/') return ok(`<html>${names.map((n) => `<a href="/o/r/${n}">${n}</a>`).join('')}</html>`);
+      if (url.startsWith('https://skills.sh/')) return ok('<html></html>');
+      if (url.includes('/git/trees/')) return ok(JSON.stringify({ tree: names.map((n) => ({ type: 'blob', path: `skills/${n}/SKILL.md` })) }));
+      const raw = /skills\/([^/]+)\/SKILL\.md/.exec(url);
+      return raw ? ok(`---\nname: ${raw[1]}\ndescription: Helps with ${raw[1].replace(/-/g, ' ')} work.\n---\nbody`) : { ok: false, status: 404, text: async () => '' };
+    };
+    const log = { probes: 0, text: 0, homes: new Set<string>() };
+    const root = tempDir('sweep-11f-');
+    const real = await sweep.loadArmory();
+    const armory = { ...real, buildFindServer: (_job: unknown, find: unknown) => ({ type: 'sdk', name: 'legion_armory', find }) };
+    const { summary, result } = await sweep.runSweep({ query: fakeQuery(log), fetch: fn, mode: 'accuracy-11f', cap: 5, root, armory, log: () => {}, sleep: async () => {} });
+    assert.equal(result.mode, 'accuracy-11f');
+    assert.deepEqual(result.sizes, [40], 'only the sizes the catalog can fill');
+    assert.deepEqual(result.arms.map((a: any) => a.arm), ['AF', 'SF120', 'SFH120', 'SFH250']);
+    assert.ok(result.arms.every((a: any) => a.calls === result.arms[0].calls), 'every arm ran the same items');
+    assert.deepEqual(Object.keys(result.rows), ['SF120', 'SFH120', 'SFH250']);
+    assert.ok(result.rows.SFH120[0].pairs > 0);
+    assert.ok(result.arms.find((a: any) => a.arm === 'SFH120').searchCalled > 0, 'the hint arm searched');
+    assert.equal(result.arms.find((a: any) => a.arm === 'AF').searchCalled, 0);
+    assert.ok(summary.indexOf('Pre-registered rule') < summary.indexOf('## Results against AF'));
+    assert.ok(summary.includes('## Search use and misses') && summary.includes('## Decision'));
+    assert.equal(readdirSync(root).length, 0);
+    await assert.rejects(() => sweep.runSweep({ query: fakeQuery(log), fetch: fakeFetch().fn, mode: 'accuracy-11f', cap: 5, root, armory, log: () => {}, sleep: async () => {} }), { code: 'CATALOG' });
   });
 });

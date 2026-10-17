@@ -65,13 +65,36 @@ export function mcnemar(b, c) {
   return Math.min(1, 2 * p);
 }
 
+/** Adds up the usage of several turns. Each turn is the usage object of one assistant message. */
+export function sumUsage(list) {
+  const t = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+  for (const u of list) {
+    t.input += u?.input_tokens ?? 0;
+    t.cacheRead += u?.cache_read_input_tokens ?? 0;
+    t.cacheWrite += u?.cache_creation_input_tokens ?? 0;
+    t.output += u?.output_tokens ?? 0;
+  }
+  return t;
+}
+
+/** Input tokens of a run: fresh, cache-read and cache-write, all turns. */
+export const inputTokens = (t) => (t ? t.input + t.cacheRead + t.cacheWrite : null);
+
+/** The result message's usage should already cover every turn; if it reports less than the turns add up to, the larger count wins. */
+export function largerUsage(a, b) {
+  return inputTokens(b) > inputTokens(a) ? b : a;
+}
+
 /**
- * One turn with only the Skill tool. A PreToolUse hook records every Skill call and denies it, so no skill text loads.
+ * One run with the Skill tool (one turn by default). A PreToolUse hook records every Skill call and denies it, so no skill text loads.
  * `opts.note` adds a UserPromptSubmit note; `opts.skills`, `opts.env`, `opts.settings`, `opts.settingSources` and `opts.append`
- * shape the run. Returns { called, calls, cost, tokens, subtype, init, error, ms, fired } and never the prompt.
+ * shape the run. `opts.maxTurns`, `opts.mcpServers` and `opts.allowedTools` let a run use more turns and a search tool. `called` is the
+ * FIRST Skill call; calls to other tools before it do not change that. Tokens are counted over every turn. Returns
+ * { called, calls, cost, tokens, subtype, init, error, ms, fired } and never the prompt.
  */
 export async function runSkillCall(query, opts) {
   const rec = { called: null, calls: 0, cost: 0, fired: 0, init: null, subtype: null, ms: 0 };
+  const turns = new Map(); // assistant message id -> usage; one entry per turn, since a message repeats its usage on every block
   const t0 = performance.now();
   const hooks = {
     PreToolUse: [{ matcher: 'Skill', hooks: [async (input) => {
@@ -91,8 +114,9 @@ export async function runSkillCall(query, opts) {
     const q = query({
       prompt: opts.prompt,
       options: {
-        model: opts.model, maxTurns: 1, cwd: opts.cwd, settingSources: opts.settingSources ?? ['user'], strictMcpConfig: true, persistSession: false,
+        model: opts.model, maxTurns: opts.maxTurns ?? 1, cwd: opts.cwd, settingSources: opts.settingSources ?? ['user'], strictMcpConfig: true, persistSession: false,
         tools: ['Skill'], ...(opts.skills ? { skills: opts.skills } : {}),
+        ...(opts.mcpServers ? { mcpServers: opts.mcpServers } : {}), ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
         systemPrompt: { type: 'preset', preset: 'claude_code', append: opts.append },
         // Hooks from the user's settings are off: they add text that changes from call to call (it breaks the prompt cache).
         // The hooks passed here still run.
@@ -102,6 +126,7 @@ export async function runSkillCall(query, opts) {
     });
     for await (const m of q) {
       if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null };
+      if (m.type === 'assistant' && m.message?.usage) turns.set(m.message.id ?? `t${turns.size}`, m.message.usage);
       if (m.type === 'assistant' && rec.called === null) {
         for (const b of m.message?.content ?? []) if (b?.type === 'tool_use' && b.name === 'Skill' && rec.called === null) rec.called = String(b.input?.skill ?? '');
       }
@@ -111,6 +136,7 @@ export async function runSkillCall(query, opts) {
         rec.tokens = { input: m.usage?.input_tokens ?? 0, cacheRead: m.usage?.cache_read_input_tokens ?? 0, cacheWrite: m.usage?.cache_creation_input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
       }
     }
+    if (rec.tokens) rec.tokens = largerUsage(rec.tokens, sumUsage([...turns.values()]));
   } catch (e) {
     // The turn limit ends the stream with an error after the result: expected, not a failure.
     if (rec.subtype === null) rec.error = String(e?.code ?? e?.name ?? 'error');
