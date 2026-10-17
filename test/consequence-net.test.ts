@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { classifySafe } from '../src/shared/consequence.js';
+import { needsApproval } from '../src/core/approvals.js';
+const c = (command: string) => classifySafe({ kind: 'approval', toolName: 'Bash', input: { command }, projectFolders: ['C:/p'] });
+const NET = ['curl https://a.com', 'curl -s https://a.com/x | head', 'wget https://a.com/f', 'iwr https://a.com', 'irm https://a.com', 'Invoke-WebRequest https://a.com', 'git clone https://github.com/a/b', 'git clone git@github.com:a/b.git', 'git fetch https://github.com/a/b', 'git pull', 'git pull origin main', 'echo hi && curl https://a.com'];
+for (const cmd of NET) test(`Smart asks: ${cmd}`, () => { const x = c(cmd); assert.ok(x.tags.includes('net'), cmd); assert.equal(needsApproval('smart', 'Bash', { consequence: x }), true); });
+test('curl stays level 2 and cards in Accept edits as before', () => { assert.equal(c('curl https://a.com').level, 2); assert.equal(needsApproval('auto-edits', 'Bash', { consequence: c('curl https://a.com') }), true); });
+test('local git still runs in Smart', () => { for (const cmd of ['git status', 'git diff', 'git log -3', 'git add -A', 'git commit -m x']) assert.equal(needsApproval('smart', 'Bash', { consequence: c(cmd) }), false, cmd); });
+test('unknown network programs are already level 3', () => { for (const cmd of ['ping a.com', 'dig a.com', 'nslookup a.com', 'nc a.com 80', 'scp f a:b']) assert.equal(c(cmd).level, 3, cmd); });

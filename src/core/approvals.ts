@@ -105,10 +105,13 @@ export async function guardAsk(
   return true;
 }
 
-/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards; Smart cards level 3 or unknown. */
+/** Smart's card test: a level 3 ask (unknown is level 3 too) and any ask that reaches the network (`net`), whatever its level. */
+export const smartCards = (c: Consequence): boolean => c.level >= 3 || c.tags.includes('net');
+
+/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards; Smart cards per `smartCards`. */
 export function decideGuard(mode: RunMode, consequence?: Consequence): GuardDecision {
   if (mode === 'full') return { needsCard: false, mode };
-  if (mode === 'smart') return { needsCard: (consequence ?? unknownConsequence()).level >= 3, mode };
+  if (mode === 'smart') return { needsCard: smartCards(consequence ?? unknownConsequence()), mode };
   // Ask, Accept edits and smart-edits: a module guard always cards (Accept edits already does)
   return { needsCard: true, mode };
 }
@@ -122,7 +125,7 @@ export function needsApproval(mode: RunMode, toolName: string, opts: { capped?: 
   if (BROWSER_TOOL_NAMES.has(toolName)) return false;
   if (mode === 'full') return false;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
-  if (mode === 'smart') return (opts.consequence ?? unknownConsequence()).level >= 3;
+  if (mode === 'smart') return smartCards(opts.consequence ?? unknownConsequence());
   // smart-edits (held by Smart and by Accept edits): an edit cards where Smart would (level 3), every other call cards where Accept edits would
   if (mode === 'smart-edits') return EDIT_TOOLS.has(toolName) ? (opts.consequence ?? unknownConsequence()).level >= 3 : true;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';

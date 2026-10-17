@@ -14,7 +14,7 @@
 import { refuseCatastrophic, unjudgeableCommand } from '../core/exec/shell-floor.js';
 import { AWAY_COPY } from './away-copy.js';
 
-export type ConsequenceTag = 'spends' | 'leaves' | 'deletes' | 'irreversible' | 'edits' | 'reads' | 'decides' | 'unknown';
+export type ConsequenceTag = 'spends' | 'leaves' | 'deletes' | 'irreversible' | 'edits' | 'reads' | 'decides' | 'unknown' | 'net';
 export type ConsequenceLevel = 0 | 1 | 2 | 3;
 export interface Consequence { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; certain: boolean }
 
@@ -97,12 +97,20 @@ const R1: Sub = { level: 1, tags: ['reads'], chip: C.readOnly };
 /** git reads that can write a file (--output) or run a configured program (--ext-diff, --textconv). */
 const GITREAD: Sub = { level: 1, tags: ['reads'], chip: C.readOnly, unknownFlags: ['--ext-diff', '--textconv'], flagRules: [{ flags: ['--output'], to: { level: 2, tags: ['edits'], chip: C.writesFile, certain: true } }] };
 const R2: Sub = { level: 2, tags: ['edits'], chip: C.edits };
+/** A git command that talks to a remote: it reaches the network, so Smart asks for it (level 2 stays). */
+const NETSUB: Sub = { level: 2, tags: ['net'], chip: C.fetches };
 
 /** A method word that sends data out. */
 const WRITE_METHOD = /^(post|put|delete|patch)$/i;
 
+/** A web request leaves your computer: every Consequence a web rule returns carries `net` on top of its own tags (an upload keeps `leaves`). */
+const netTagged = (rule: (args: string[]) => Consequence | undefined) => (args: string[]): Consequence | undefined => {
+  const c = rule(args);
+  return c && { ...c, tags: [...new Set<ConsequenceTag>([...c.tags, 'net'])] };
+};
+
 /** curl's options, case sensitive (-d data, -F form, -T upload, -X method), also clustered or attached: `-sSd @f`, `-d@secrets`, `-XPOST`. */
-const curlRule = (args: string[]): Consequence | undefined => {
+const curlRule = netTagged((args: string[]): Consequence | undefined => {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a.startsWith('--')) {
@@ -121,10 +129,10 @@ const curlRule = (args: string[]): Consequence | undefined => {
     }
   }
   return undefined;
-};
+});
 
 /** wget's options that send a body or use another method. */
-const wgetRule = (args: string[]): Consequence | undefined => {
+const wgetRule = netTagged((args: string[]): Consequence | undefined => {
   for (let i = 0; i < args.length; i++) {
     const l = args[i]!.toLowerCase();
     if (/^--(post|body)-(data|file)/.test(l)) return LEAVES();
@@ -132,17 +140,17 @@ const wgetRule = (args: string[]): Consequence | undefined => {
     if (l.startsWith('--method=')) { if (!/^(get|head)$/i.test(l.slice(9))) return LEAVES(); continue; }
   }
   return undefined;
-};
+});
 
 /** PowerShell's web cmdlets (and the aliases curl and wget are there): parameters may be shortened (-me Post). */
-const pwshWebRule = (args: string[]): Consequence | undefined => {
+const pwshWebRule = netTagged((args: string[]): Consequence | undefined => {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (/^-me(t(h(o(d)?)?)?)?$/i.test(a)) { if (!/^(get|head)$/i.test(args[i + 1] ?? 'get')) return LEAVES(); continue; }
     if (/^-(b|bo|bod|body|in|inf|infi|infil|infile|fo|for|form)$/i.test(a)) return LEAVES();
   }
   return undefined;
-};
+});
 
 const webRule = (args: string[]): Consequence | undefined => curlRule(args) ?? wgetRule(args) ?? pwshWebRule(args);
 
@@ -184,18 +192,18 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
   shred: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
   unlink: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
   // leaves your computer
-  curl: { level: 2, tags: [], chip: C.fetches, inspect: webRule },
-  wget: { level: 2, tags: [], chip: C.fetches, inspect: webRule },
-  'invoke-webrequest': { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
-  iwr: { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
-  'invoke-restmethod': { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
-  irm: { level: 2, tags: [], chip: C.fetches, inspect: pwshWebRule },
+  curl: { level: 2, tags: ['net'], chip: C.fetches, inspect: webRule },
+  wget: { level: 2, tags: ['net'], chip: C.fetches, inspect: webRule },
+  'invoke-webrequest': { level: 2, tags: ['net'], chip: C.fetches, inspect: pwshWebRule },
+  iwr: { level: 2, tags: ['net'], chip: C.fetches, inspect: pwshWebRule },
+  'invoke-restmethod': { level: 2, tags: ['net'], chip: C.fetches, inspect: pwshWebRule },
+  irm: { level: 2, tags: ['net'], chip: C.fetches, inspect: pwshWebRule },
   git: {
     level: 1, tags: ['reads'], chip: C.readOnly,
     subs: {
       status: R1, 'ls-files': R1, 'rev-parse': R1, describe: R1, shortlog: R1,
       log: GITREAD, diff: GITREAD, show: GITREAD, blame: GITREAD,
-      add: R2, commit: R2, pull: R2, merge: R2,
+      add: R2, commit: R2, merge: R2, pull: NETSUB, fetch: NETSUB, clone: NETSUB,
       push: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Pushing' },
       clean: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
       reset: { ...R2, flagRules: [{ flags: ['--hard'], to: DELETES() }] },
