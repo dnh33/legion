@@ -41,6 +41,7 @@ import type { FinderModelOpts } from './finder/model.js';
 import { createProviderEmbedder } from './finder/provider-embed.js';
 import type { ProviderTarget } from '../providers/http.js';
 import type { FinderSettings } from '../../shared/armory-view.js';
+import { savedWhen } from '../../shared/armory-view.js';
 import { docFromEntry } from './finder/doc.js';
 import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
@@ -183,9 +184,10 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
           // The saved listing is used only when it came from the same inherit switch (it always does: only a listing with the switch on is saved).
           const saved = readListingCache(deps.dataDir);
           if (saved && saved.inherit === wasInherit) {
-            const date = saved.at.slice(0, 10);
-            next = { ...base, mode: 'sdk-cached', reason: `Using the skill list Claude Code gave on ${date}; the live listing failed: ${why}`, skills: saved.skills, cli: new Set(saved.cli), plugins: saved.plugins };
-            log(`armory: Claude Code listing failed, using the list it gave on ${date}: ${why}`);
+            const when = savedWhen(saved.at);
+            // `at` is the saved list's own time (what the screen shows). `atMs` stays the failed attempt's, so the retry clock is unchanged.
+            next = { ...base, at: saved.at, mode: 'sdk-cached', reason: `Using the skill list Claude Code gave on ${when}; the live listing failed: ${why}`, skills: saved.skills, cli: new Set(saved.cli), plugins: saved.plugins };
+            log(`armory: Claude Code listing failed, using the list it gave on ${when}: ${why}`);
           } else {
             next = { ...base, mode: 'disk-fallback', reason: why, plugins: 0 };
             log(`armory: Claude Code listing failed, reading the disk instead: ${why}`);
@@ -512,9 +514,10 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         const byPlugin: Record<string, number> = {};
         for (const e of all) if (e.source === 'claude-plugin' && e.plugin) byPlugin[e.plugin] = (byPlugin[e.plugin] ?? 0) + 1;
         const n = (s: string): number => all.filter((e) => e.source === s).length;
-        // Switched-on skills that no listing finds: agents do not get them, so the screen says so. Counted from the records, as saved.
+        // Switched-on skills that no listing finds: agents do not get them, so the screen says so. Matched by id only, as saved: a record
+        // whose source no longer matches its catalog entry still counts as found. The ids are sorted; the screen shows at most 50.
         const listed = new Set(all.map((e) => e.id));
-        const unmatchedOn = Object.entries(file.skills).filter(([id, r]) => r.state === 'on' && !listed.has(id)).length;
+        const unmatchedIds = Object.entries(file.skills).filter(([id, r]) => r.state === 'on' && !listed.has(id)).map(([id]) => id).sort();
         return {
           inherit: inherit(),
           ccNoticeSeen: file.ccNoticeSeen === true,
@@ -533,7 +536,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
           discovery: disc?.mode ?? 'disk-fallback',
           discoveryReason: disc?.reason ?? null,
           discoveryPlugins: disc?.plugins ?? 0,
-          unmatchedOn,
+          unmatchedOn: unmatchedIds.length,
+          unmatchedOnIds: unmatchedIds.slice(0, 50),
         };
       };
       // The first read asks Claude Code what it loads (a few seconds); the answer is kept until a refresh.

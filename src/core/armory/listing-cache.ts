@@ -20,7 +20,11 @@ export interface ListingCache {
 }
 
 export const LISTING_CACHE_MAX_BYTES = 2 * 1024 * 1024;
-const SOURCES: readonly SkillSource[] = ['yours', 'imported', 'claude-personal', 'claude-plugin', 'claude-builtin'];
+/**
+ * Only the sources the live listing produces (discover.ts discoverFromSdk). The owner's own skills ('yours') and imported ones are never
+ * read from here: their files, hashes and taint checks come from the Armory folder and armory.json. A planted entry of either is dropped.
+ */
+const SOURCES: readonly SkillSource[] = ['claude-personal', 'claude-plugin', 'claude-builtin'];
 const FITS = ['fit', 'self', 'other'] as const;
 
 export const listingCachePath = (dataDir: string): string => join(armoryDir(dataDir), 'sdk-listing.json');
@@ -41,7 +45,7 @@ export function writeListingCache(dataDir: string, cache: ListingCache): void {
   }
 }
 
-/** One saved skill, or undefined when the four required fields are not strings or the source is not one Legion knows. */
+/** One saved skill, or undefined when a required field is not a string or the source is not one the live listing produces. */
 function skillOf(v: unknown): DiscoveredSkill | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const r = v as Record<string, unknown>;

@@ -322,9 +322,11 @@ export function ArmorySection() {
 
 /** "Listed from Claude Code 3 minutes ago" with Refresh, and a plain warning when Claude Code could not be asked. */
 function Discovery({ data, nowMs, refreshing, error }: { data: ArmoryData; nowMs: number; refreshing: boolean; error: string | null }) {
+  const [showWhich, setShowWhich] = useState(false);
   const line = discoveryLine(data, nowMs);
   const warn = discoveryWarning(data);
   const unmatched = unmatchedNote(data.unmatchedOn ?? 0);
+  const ids = data.unmatchedOnIds ?? [];
   if (!line) return null;
   return (
     <div className="arm-disc">
@@ -335,7 +337,24 @@ function Discovery({ data, nowMs, refreshing, error }: { data: ArmoryData; nowMs
         </button>
       </p>
       {warn ? <p className="arm-banner">{warn}</p> : null}
-      {unmatched ? <p className="arm-banner">{unmatched}</p> : null}
+      {unmatched ? (
+        <div className="arm-disc">
+          <p className="arm-banner">
+            <span>{unmatched}</span>{' '}
+            <button type="button" className="btn-ghost sm" aria-expanded={showWhich} onClick={() => setShowWhich((v) => !v)}>
+              {showWhich ? 'Hide which' : 'Show which'}
+            </button>
+          </p>
+          {showWhich ? (
+            <>
+              <ul className="set-hint">
+                {ids.map((id) => <li key={id}>{id}</li>)}
+              </ul>
+              {(data.unmatchedOn ?? 0) > ids.length ? <p className="set-hint">Only the first {ids.length} are listed.</p> : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {error ? <p className="house-rowerr" role="alert"><Icon name="x" size={12} /> <span>{endSentence(`Could not refresh: ${error}`)} The list below is as it was.</span></p> : null}
     </div>
   );

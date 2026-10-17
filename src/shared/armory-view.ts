@@ -84,6 +84,8 @@ export interface ArmoryData {
   discoveryPlugins?: number;
   /** Switched-on skills that no listing finds, so agents do not get them. Missing on an older core. */
   unmatchedOn?: number;
+  /** Their ids, sorted, at most 50 (the "Show which" list). Missing on an older core. */
+  unmatchedOnIds?: string[];
 }
 
 export interface EffectiveEntry { id: string; name: string; description?: string; source?: string; path?: string }
@@ -425,9 +427,23 @@ export function relativeTime(iso: string | null | undefined, nowMs: number): str
   return unit(Math.round(hr / 24), 'day');
 }
 
-/** The line under the header: when Claude Code was last asked. Empty when your Claude Code skills are not used at all. */
-export function discoveryLine(d: Pick<ArmoryData, 'inherit' | 'discoveredAt'>, nowMs: number): string {
+/** A saved listing's time for the screen and the core's reason text: the local date and time, e.g. "17 Oct 2026, 14:05". Empty when not a time. */
+export function savedWhen(at: string): string {
+  const t = new Date(at);
+  if (Number.isNaN(t.getTime())) return '';
+  return t.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * The line under the header. Empty when your Claude Code skills are not used at all. When the saved list is shown (sdk-cached), it
+ * says when that list was taken, not "just now": the time is the saved list's own.
+ */
+export function discoveryLine(d: Pick<ArmoryData, 'inherit' | 'discoveredAt' | 'discovery'>, nowMs: number): string {
   if (!d.inherit) return '';
+  if (d.discovery === 'sdk-cached') {
+    const when = d.discoveredAt ? savedWhen(d.discoveredAt) : '';
+    if (when) return `Using the skill list Claude Code gave on ${when}.`;
+  }
   const when = relativeTime(d.discoveredAt, nowMs);
   return when ? `Listed from Claude Code ${when}.` : 'Not listed from Claude Code yet.';
 }
@@ -448,7 +464,9 @@ export function discoveryWarning(d: Pick<ArmoryData, 'inherit' | 'discovery' | '
 
 /** Said under the Discovery line when some switched-on skills are not in the current list. Empty at zero. */
 export function unmatchedNote(n: number): string {
-  return n > 0 ? `${n} of your switched-on skills were not found in the current list, so agents do not get them.` : '';
+  if (n <= 0) return '';
+  if (n === 1) return '1 switched-on skill was not found in the current list, so agents do not get it.';
+  return `${n} switched-on skills were not found in the current list, so agents do not get them.`;
 }
 
 /* ---- which agents ---- */
