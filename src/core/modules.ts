@@ -107,6 +107,10 @@ export interface CoreModule {
   claudeSkills?(agent: AgentProfile): { skills: string[]; plugins: string[] };
   /** A note for one turn, or undefined. Never throws into the engine; the engine also bounds the wait. */
   turnNote?(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined>;
+  /** The engine accepted this note and the model will see it: count the skills as suggested. A note that timed out is never reported. */
+  noteShown?(agentId: string, taskId: string, ids: string[]): void;
+  /** The catalog id a Skill (or armory_skill) tool call loads, or undefined when the name is unknown or ambiguous. */
+  skillLoadId?(toolName: string, input: unknown): string | undefined;
   /** Which finder hooks and settings this agent's run gets. The first module that answers decides; none means no finder. */
   finderWiring?(agent: AgentProfile): FinderWiring;
   /** Whether the owner allowed skills to run inline shell commands (Armory switch). The engine blocks it unless some module says true. */

@@ -55,6 +55,8 @@ export interface ArmoryOptions {
   log?: (m: string) => void;
   /** Lists what the Claude Code SDK loads (handshake.ts). Tests pass a fake: no test ever starts a real Claude Code. */
   sdkProbe?: SdkProbe;
+  /** Reads a skill file for the finder (first 64 KB). Tests pass a counting fake. */
+  finderRead?: (path: string) => string | null;
   /** How long a failed listing is kept before the next read tries again, ms. Default 5 minutes. */
   retryMs?: number;
 }
@@ -168,11 +170,26 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
   // The finder's index, built from the catalog and kept as long as the catalog array is the same one. It covers every skill; a call
   // drops the ones this agent may not use before it scores (the idf is counted over the whole set, which is fine for ranking).
+  const docCache = new Map<string, { key: string; doc: FinderDoc }>();
+  let deliveredFor: { entries: CatalogEntry[]; delivered: ReadonlySet<string> } | undefined;
   let fx: { entries: CatalogEntry[]; docs: Map<string, FinderDoc>; ix: FinderIndex } | undefined;
   const finderIndex = (): { docs: Map<string, FinderDoc>; ix: FinderIndex } => {
     const entries = catalog();
     if (!fx || fx.entries !== entries) {
-      const list = entries.map((e) => docFromEntry(e));
+      // A doc is read again only when its file changed (path, mtime and size) or the catalog's own fields did.
+      const live = new Set<string>();
+      const list = entries.map((e) => {
+        let stamp = '';
+        if (e.path !== null) { try { const st = statSync(e.path); stamp = `${st.mtimeMs}|${st.size}`; } catch { stamp = 'gone'; } }
+        const key = [e.id, e.path ?? '', stamp, e.source, e.name, e.description].join('\u0000');
+        live.add(e.id);
+        const hit = docCache.get(e.id);
+        if (hit && hit.key === key) return hit.doc;
+        const doc = docFromEntry(e, opts.finderRead);
+        docCache.set(e.id, { key, doc });
+        return doc;
+      });
+      for (const id of docCache.keys()) if (!live.has(id)) docCache.delete(id);
       fx = { entries, docs: new Map(list.map((d) => [d.id, d] as const)), ix: buildIndex(list) };
     }
     return fx;
@@ -181,8 +198,11 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
   const candidateIds = (agent: AgentProfile, runtime: 'claude' | 'provider'): Set<string> => {
     const all = catalog();
     if (runtime === 'provider') return new Set(providerSkills(all, agent).map((e) => e.id));
-    const d = syncDelivery(deps.dataDir, new Set(all.filter((e) => owned(e) && !e.unsafeReason).map((e) => e.name)));
-    return new Set(onSkillIds(agent, all, d.delivered));
+    // The delivery sync is file work: done once per catalog, not once per note.
+    if (!deliveredFor || deliveredFor.entries !== all) {
+      deliveredFor = { entries: all, delivered: syncDelivery(deps.dataDir, new Set(all.filter((e) => owned(e) && !e.unsafeReason).map((e) => e.name))).delivered };
+    }
+    return new Set(onSkillIds(agent, all, deliveredFor.delivered));
   };
   const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
   let usage: ReturnType<typeof createUsageStore> | undefined;
@@ -277,19 +297,27 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(results, docs);
       if (!text) return undefined;
       const suggested = results.map((r) => r.id);
-      usageStore().noteSuggested(agent.id, suggested);
-      const seen = suggestedBy.get(ctx.taskId) ?? new Set<string>();
-      for (const id of suggested) seen.add(id);
-      suggestedBy.set(ctx.taskId, seen);
       return { text, suggested, why: results };
     },
 
-    onToolUse(agentId: string, taskId: string, toolName: string, input?: unknown) {
+    // Called by the engine only for a note it accepted in time.
+    noteShown(agentId: string, taskId: string, ids: string[]) {
+      usageStore().noteSuggested(agentId, ids);
+      const seen = suggestedBy.get(taskId) ?? new Set<string>();
+      for (const id of ids) seen.add(id);
+      suggestedBy.set(taskId, seen);
+    },
+
+    skillLoadId(toolName: string, input?: unknown) {
       const raw = skillIdOfLoad(toolName, input);
-      if (!raw) return;
+      if (!raw) return undefined;
       const { hits, ambiguous } = resolveName(catalog(), raw);
-      if (ambiguous || hits.length !== 1) return;
-      const id = hits[0]!.id;
+      return ambiguous || hits.length !== 1 ? undefined : hits[0]!.id;
+    },
+
+    onToolUse(agentId: string, taskId: string, toolName: string, input?: unknown) {
+      const id = mod.skillLoadId!(toolName, input);
+      if (!id) return;
       usageStore().noteLoaded(agentId, id);
       const set = loadedBy.get(taskId) ?? new Set<string>();
       set.add(id);

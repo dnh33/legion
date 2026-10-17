@@ -154,3 +154,114 @@ describe('finder on the Claude path', () => {
     assert.ok(boost('sp:invoice-audit') < 1, 'suggested and not loaded counts as ignored');
   });
 });
+
+describe('finder fixes: doc cache, late hooks, load matching, shown notes, subagent turns', () => {
+  const taskIdOf = (s: ReturnType<typeof setup>) => s.store.listTasks()[0]!.id;
+  const idx = (o: Opts) => o.hooks.PreToolUse.findIndex((h: any) => h.matcher === 'Agent|Task');
+  const skillLoad = (o: Opts, id: string, extra: Record<string, unknown> = {}) =>
+    fire(o, 'PreToolUse', { tool_name: 'Skill', tool_use_id: `tu_${id}_${Math.random()}`, tool_input: { skill: id }, ...extra });
+
+  it('reads a skill file again only when it changed', async () => {
+    const { utimesSync } = await import('node:fs');
+    const reads: string[] = [];
+    const rig = armoryRig({ cc: CC, modOpts: { finderRead: (p) => { reads.push(p); return md('x', 'd'); } } });
+    const e = await own(rig, { name: 'solo-skill', description: 'Solo thing for tests', body: 'b' });
+    const path = rig.mod.catalog().find((c) => c.id === e.id)!.path!;
+    await drive(rig, PROMPT, async (o) => {
+      const find = o.mcpServers.legion_armory.instance._registeredTools.armory_find.handler;
+      await find({ query: 'solo thing tests' }, {});
+      const n = reads.length;
+      assert.ok(n >= 1);
+      await find({ query: 'solo thing tests' }, {});
+      assert.equal(reads.length, n, 'unchanged files are not read again');
+      const t = new Date(Date.now() + 60_000);
+      utimesSync(path, t, t);
+      await find({ query: 'solo thing tests' }, {});
+      assert.equal(reads.length, n + 1, 'only the changed file is read');
+      assert.equal(reads.at(-1), path);
+    });
+  });
+
+  it('a hook that fires after the run ended does nothing', async () => {
+    const rig = await rigWith();
+    let seen: Opts;
+    const { s } = await drive(rig, PROMPT, async (o) => { seen = o; });
+    const before = s.store.getTask(taskIdOf(s))!.skillTurns;
+    assert.deepEqual(await fire(seen, 'UserPromptSubmit', { prompt: PROMPT }), { continue: true });
+    assert.deepEqual(await fire(seen, 'SubagentStart', { agent_id: 'x', agent_type: 'reviewer' }), { continue: true });
+    assert.deepEqual(s.store.getTask(taskIdOf(s))!.skillTurns, before);
+  });
+
+  it('a system-sourced prompt gets no note', async () => {
+    const rig = await rigWith();
+    let out: unknown;
+    await drive(rig, PROMPT, async (o) => { out = await fire(o, 'UserPromptSubmit', { prompt: PROMPT, source: 'system' }); });
+    assert.deepEqual(out, { continue: true });
+  });
+
+  it('the subagent queue keeps the newest 20 briefs', async () => {
+    const rig = await rigWith();
+    const outs: (string | undefined)[] = [];
+    await drive(rig, 'zebra quantum yodel nonsense', async (o) => {
+      for (let i = 0; i < 25; i++) await fire(o, 'PreToolUse', { tool_name: 'Agent', tool_use_id: `a${i}`, tool_input: { subagent_type: `t${i}`, prompt: PROMPT } }, idx(o));
+      outs.push(ctxOf(await fire(o, 'SubagentStart', { agent_id: 'a', agent_type: 't4' })));
+      outs.push(ctxOf(await fire(o, 'SubagentStart', { agent_id: 'b', agent_type: 't5' })));
+    });
+    assert.equal(outs[0], undefined, 'the 5 oldest were dropped');
+    assert.match(outs[1]!, /invoice-pdf-export/);
+  });
+
+  it('a slow module gets no note and its suggestions are not counted; a throwing module does not stop the next one', async () => {
+    const { existsSync, readFileSync } = await import('node:fs');
+    const { usageFilePath } = await import('../src/core/armory/finder/usage.js');
+    const rig = await rigWith();
+    const slow = { id: 'slow', turnNote: () => new Promise<undefined>(() => undefined) };
+    const bad = { id: 'bad', turnNote: () => { throw new Error('boom'); } };
+    const rejecting = { id: 'rej', turnNote: () => Promise.reject(new Error('boom')) };
+    const run = async (mods: any[]) => {
+      let out: any;
+      const s = setup((c) => (async function* () { yield init('s'); out = await fire(c.options, 'UserPromptSubmit', { prompt: 'x' }); yield ok('d', 's'); })(), { modules: [...mods, rig.mod] });
+      await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: PROMPT, source: 'ui' }));
+      return out;
+    };
+    const t0 = Date.now();
+    assert.deepEqual(await run([slow]), { continue: true });
+    assert.ok(Date.now() - t0 < 2000, 'bounded by the engine timeout');
+    assert.ok(!existsSync(usageFilePath(rig.dataDir)), 'nothing counted for a note nobody saw');
+    assert.match(ctxOf(await run([bad, rejecting]))!, /invoice-pdf-export/);
+    const u = JSON.parse(readFileSync(usageFilePath(rig.dataDir), 'utf8'));
+    assert.equal(u.alpha['legion-armory:invoice-pdf-export'].suggested, 1);
+  });
+
+  it('credits a load only to the skill it resolves to (other:name does not mark sp:name; a bare name does)', async () => {
+    const rig = await rigWith();
+    const { task } = await drive(rig, PROMPT, async (o) => {
+      await fire(o, 'UserPromptSubmit', { prompt: 'x' });
+      await skillLoad(o, 'other:invoice-audit');
+      assert.ok(true);
+    });
+    assert.ok(task.skillTurns![0]!.suggested.includes('sp:invoice-audit'));
+    assert.deepEqual(task.skillTurns![0]!.loaded, []);
+    const r2 = await drive(rig, PROMPT, async (o) => {
+      await fire(o, 'UserPromptSubmit', { prompt: 'x' });
+      await skillLoad(o, 'invoice-audit');
+    });
+    assert.deepEqual(r2.task.skillTurns![0]!.loaded, ['sp:invoice-audit']);
+  });
+
+  it('marks subagent notes and credits loads by who made them', async () => {
+    const rig = await rigWith();
+    const { task } = await drive(rig, PROMPT, async (o) => {
+      await fire(o, 'UserPromptSubmit', { prompt: 'x' });
+      await fire(o, 'PreToolUse', { tool_name: 'Agent', tool_use_id: 'a1', tool_input: { subagent_type: 'reviewer', prompt: PROMPT } }, idx(o));
+      await fire(o, 'SubagentStart', { agent_id: 'sub1', agent_type: 'reviewer' });
+      await skillLoad(o, 'legion-armory:invoice-pdf-export', { agent_id: 'sub1' });
+      await skillLoad(o, 'sp:invoice-audit');
+    });
+    const [main, sub] = task.skillTurns!;
+    assert.equal(main!.subagent, undefined);
+    assert.equal(sub!.subagent, 'reviewer');
+    assert.deepEqual(sub!.loaded, ['legion-armory:invoice-pdf-export']);
+    assert.deepEqual(main!.loaded, ['sp:invoice-audit']);
+  });
+});

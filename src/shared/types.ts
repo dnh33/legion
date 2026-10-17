@@ -233,6 +233,8 @@ export interface SkillTurn {
   at: string;
   suggested: string[];
   loaded: string[];
+  /** Set for a note made when a subagent started: its agent type. */
+  subagent?: string;
   why: { id: string; score: number; matched: string[] }[];
 }
 

@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempDir } from './tmp-cleanup.js';
 import { createArmoryModule } from '../src/core/armory/index.js';
-import type { ArmoryModule } from '../src/core/armory/index.js';
+import type { ArmoryModule, ArmoryOptions } from '../src/core/armory/index.js';
 import type { SdkProbe } from '../src/core/armory/handshake.js';
 import type { ModuleDeps, RouteAdder } from '../src/core/modules.js';
 import { defaultConfig } from '../src/shared/config.js';
@@ -58,7 +58,7 @@ export interface ArmoryRig {
 /** The default probe in tests: there is no Claude Code here, so the listing fails and the disk is read (the fallback). */
 export const noSdk: SdkProbe = async () => { throw new Error('no Claude Code in tests'); };
 
-export function armoryRig(o: { inherit?: boolean; cc?: CcFixture; agents?: AgentProfile[]; sdkProbe?: SdkProbe } = {}): ArmoryRig {
+export function armoryRig(o: { inherit?: boolean; cc?: CcFixture; agents?: AgentProfile[]; sdkProbe?: SdkProbe; modOpts?: Partial<ArmoryOptions> } = {}): ArmoryRig {
   const dataDir = tempDir('legion-armory-');
   const home = tempDir('legion-cchome-');
   fakeClaude(home, o.cc);
@@ -66,7 +66,7 @@ export function armoryRig(o: { inherit?: boolean; cc?: CcFixture; agents?: Agent
   config.claude.inheritClaudeCodeSettings = o.inherit ?? true;
   const agents = new Map((o.agents ?? [mkAgent('alpha'), mkAgent('beta')]).map((a) => [a.id, a]));
   const deps = { dataDir, config, store: { getAgent: (id: string) => agents.get(id), listAgents: () => [...agents.values()] } } as unknown as ModuleDeps;
-  const mod = createArmoryModule(deps, { claudeHome: home, ttlMs: 0, sdkProbe: o.sdkProbe ?? noSdk });
+  const mod = createArmoryModule(deps, { claudeHome: home, ttlMs: 0, sdkProbe: o.sdkProbe ?? noSdk, ...(o.modOpts ?? {}) });
   const handlers = new Map<string, (c: unknown) => unknown>();
   const paths: string[] = [];
   const add: RouteAdder = (m, p, h) => { paths.push(`${m} ${p}`); handlers.set(`${m} ${p}`, h as (c: unknown) => unknown); };

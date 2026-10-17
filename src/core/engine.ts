@@ -46,7 +46,7 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView, TodoItem } from '../shared/types.js';
-import { DEADLINE_MS } from './armory/finder/defaults.js';
+import { RERANK_TURN_TIMEOUT_MS, TURN_TIMEOUT_MS } from './armory/finder/defaults.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -1315,37 +1315,54 @@ export class Engine {
   /** The first note a module gives for this turn. Bounded in time and never throws: a slow or broken module means no note. */
   private async turnNote(agent: AgentProfile, ctx: TurnContext, rerank: boolean): Promise<TurnNote | undefined> {
     let timer: NodeJS.Timeout | undefined;
-    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => r(undefined), rerank ? 2500 : DEADLINE_MS * 4); });
+    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => r(undefined), rerank ? RERANK_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS); });
     try {
       for (const m of this.modules) {
         if (!m.turnNote) continue;
-        const note = await Promise.race([m.turnNote(agent, ctx).catch(() => undefined), limit]);
-        if (note && note.text) return note;
+        try {
+          const note = await Promise.race([m.turnNote(agent, ctx).catch(() => undefined), limit]);
+          if (!note || !note.text) continue;
+          // Only a note accepted in time is counted as shown.
+          try { m.noteShown?.(agent.id, ctx.taskId, note.suggested); } catch { /* ignore */ }
+          return note;
+        } catch { /* a module that throws gives no note; the next one is asked */ }
       }
       return undefined;
-    } catch { return undefined; } finally { if (timer) clearTimeout(timer); }
+    } finally { if (timer) clearTimeout(timer); }
   }
 
   /** Keeps a note on the task (newest 50) so the screen can show it. */
-  private recordSkillTurn(taskId: string, note: TurnNote): void {
+  private recordSkillTurn(taskId: string, note: TurnNote, subagent?: string): void {
     const prev = this.store.getTask(taskId)?.skillTurns ?? [];
-    const entry = { at: nowIso(), suggested: note.suggested, loaded: [] as string[], why: note.why.map((w) => ({ id: w.id, score: w.score, matched: w.matched })) };
+    const entry = { at: nowIso(), suggested: note.suggested, loaded: [] as string[], ...(subagent ? { subagent } : {}), why: note.why.map((w) => ({ id: w.id, score: w.score, matched: w.matched })) };
     this.patchTask(taskId, { skillTurns: [...prev, entry].slice(-50) });
   }
 
   /** A Skill (or provider armory_skill) load that matches a skill the last note named is added to that note's `loaded`. */
-  private noteSkillLoaded(taskId: string, toolName: string, input: unknown): void {
+  private noteSkillLoaded(taskId: string, toolName: string, input: unknown, inSubagent: boolean): void {
     if (toolName !== 'Skill' && !toolName.endsWith('armory_skill')) return;
-    const o = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-    const raw = toolName === 'Skill' ? o.skill : o.id;
-    if (typeof raw !== 'string' || !raw.trim()) return;
-    const short = (x: string): string => x.trim().replace(/^\//, '').toLowerCase().split(':').pop() ?? '';
+    // The module resolves the name against the catalog (exact id first; an ambiguous bare name counts for none).
+    let id: string | undefined;
+    for (const m of this.modules) {
+      try { id = m.skillLoadId?.(toolName, input); } catch { id = undefined; }
+      if (id) break;
+    }
+    if (!id) return;
     const turns = this.store.getTask(taskId)?.skillTurns;
-    const last = turns?.at(-1);
-    if (!turns || !last) return;
-    const hit = last.suggested.find((id) => id.toLowerCase() === raw.trim().toLowerCase() || short(id) === short(raw));
-    if (!hit || last.loaded.includes(hit)) return;
-    this.patchTask(taskId, { skillTurns: [...turns.slice(0, -1), { ...last, loaded: [...last.loaded, hit] }] });
+    if (!turns) return;
+    // A load inside a subagent is credited to the last subagent note; a load by the main agent to the last main note.
+    let at = -1;
+    for (let i = turns.length - 1; i >= 0; i--) if ((turns[i]!.subagent !== undefined) === inSubagent) { at = i; break; }
+    const turn = turns[at];
+    if (!turn || !turn.suggested.includes(id) || turn.loaded.includes(id)) return;
+    const next = turns.slice();
+    next[at] = { ...turn, loaded: [...turn.loaded, id] };
+    this.patchTask(taskId, { skillTurns: next });
+  }
+
+  /** Whether a finder hook may still act: the run is live and its task is still running. */
+  private finderLive(act: Active, taskId: string): boolean {
+    return !act.cancelled && this.store.getTask(taskId)?.status === 'running';
   }
 
   private modulePreamble(agent: AgentProfile, ctx: PreambleContext): string {
@@ -1357,7 +1374,7 @@ export class Engine {
   }
 
   /** One tool_use seen (in the message stream or by the PreToolUse hook; whichever comes first wins): taint, then tell modules. */
-  private noteToolUse(job: Job, act: Active, toolName: string, toolUseId?: string, input?: unknown): void {
+  private noteToolUse(job: Job, act: Active, toolName: string, toolUseId?: string, input?: unknown, inSubagent = false): void {
     if (toolUseId) {
       if (act.toolUses.has(toolUseId)) return;
       act.toolUses.add(toolUseId);
@@ -1368,7 +1385,7 @@ export class Engine {
     for (const m of this.modules) {
       try { m.onToolUse?.(job.agentId, job.taskId, toolName, input); } catch { /* ignore */ }
     }
-    try { this.noteSkillLoaded(job.taskId, toolName, input); } catch { /* ignore */ }
+    try { this.noteSkillLoaded(job.taskId, toolName, input, inSubagent); } catch { /* ignore */ }
   }
 
   /**
@@ -1626,7 +1643,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         PreToolUse: [
           {
             hooks: [async (input) => {
-              if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id, input.tool_input);
+              if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id, input.tool_input, typeof input.agent_id === 'string' && input.agent_id !== '');
               return { continue: true };
             }],
           },
@@ -1742,21 +1759,21 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const none = { continue: true as const };
     let firstRanked = false;
     options.hooks!.UserPromptSubmit = [{ hooks: [async (input) => {
-      if (input.hook_event_name !== 'UserPromptSubmit') return none;
+      if (input.hook_event_name !== 'UserPromptSubmit' || !this.finderLive(act, job.taskId)) return none;
       try {
         // Wake-ups and system events are not something the person wrote.
         if (input.source && input.source !== 'user' && input.source !== 'sdk') return none;
         const text = firstRanked ? input.prompt : (act.rankText ?? input.prompt);
         firstRanked = true;
         const note = await this.turnNote(agent, { prompt: text, taskId: job.taskId, runtime: 'claude' }, finder.rerank);
-        if (!note) return none;
+        if (!note || !this.finderLive(act, job.taskId)) return none;
         this.recordSkillTurn(job.taskId, note);
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: note.text } };
       } catch { return none; }
     }] }];
     if (!finder.subagents) return;
     options.hooks!.PreToolUse!.push({ matcher: 'Agent|Task', hooks: [async (input) => {
-      if (input.hook_event_name !== 'PreToolUse') return none;
+      if (input.hook_event_name !== 'PreToolUse' || !this.finderLive(act, job.taskId)) return none;
       const ti = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input as Record<string, unknown> : {};
       if (typeof ti.prompt === 'string' && ti.prompt.trim()) {
         const list = act.subagentBriefs ??= [];
@@ -1766,15 +1783,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       return none;
     }] });
     options.hooks!.SubagentStart = [{ hooks: [async (input) => {
-      if (input.hook_event_name !== 'SubagentStart') return none;
+      if (input.hook_event_name !== 'SubagentStart' || !this.finderLive(act, job.taskId)) return none;
       try {
         const list = act.subagentBriefs ?? [];
         const i = list.findIndex((b) => b.type === input.agent_type);
         const text = i >= 0 ? list.splice(i, 1)[0]!.prompt : act.rankText;
         if (!text) return none;
         const note = await this.turnNote(agent, { prompt: text, taskId: job.taskId, runtime: 'claude', subagentType: input.agent_type }, finder.rerank);
-        if (!note) return none;
-        this.recordSkillTurn(job.taskId, note);
+        if (!note || !this.finderLive(act, job.taskId)) return none;
+        this.recordSkillTurn(job.taskId, note, input.agent_type);
         return { hookSpecificOutput: { hookEventName: 'SubagentStart' as const, additionalContext: note.text } };
       } catch { return none; }
     }] }];
@@ -2135,7 +2152,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         } else if (pg && wasThinking) this.emitProgress(taskId, act);
         for (const b of blocks) {
           if (b?.type !== 'tool_use') continue;
-          this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined, b.input);
+          this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined, b.input, !!msg.parent_tool_use_id);
           let json: string;
           try { json = JSON.stringify(b.input ?? {}); } catch { json = '{}'; }
           if (json.length > 500) json = json.slice(0, 499) + '…';
