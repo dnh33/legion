@@ -198,7 +198,8 @@ agent session; pass the path.
 ### 7. THE GATE — mandatory, must end in "Pre-flight passed"
 
 ```
-node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v> [--stone-lock <package-lock.json of v0.3.0>]
+gh release download v<previous> -R dnh33/legion -p legion-update-manifest-2.json -D D:/bots/legion-prev-<previous>
+node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v> --prev-manifest D:/bots/legion-prev-<previous>/legion-update-manifest-2.json [--stone-lock <package-lock.json of v0.3.0>]
 node scripts/release-verify.mjs   --dir D:/bots/legion-pkg-<v> [--stone-lock <package-lock.json of v0.3.0>]
 ```
 
