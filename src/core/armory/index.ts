@@ -404,7 +404,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     finderWiring(agent: AgentProfile): FinderWiring {
       const f = finderSettings(agent);
       const emb = embedderFor(f);
-      return { suggest: suggestOn(f, emb !== undefined), subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank, embeddings: emb !== undefined };
+      // The slim listing relies on the search tool to find what it no longer describes: no search, no slim listing.
+      return { suggest: suggestOn(f, emb !== undefined), subagents: f.subagents, slimListing: f.slimListing && f.searchTool, rerank: f.rerank, embeddings: emb !== undefined };
     },
 
     async turnNote(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined> {

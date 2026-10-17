@@ -138,6 +138,8 @@ describe('finder on the Claude path', () => {
     let o1: Opts;
     await drive(rig, PROMPT, async (o) => { o1 = o; });
     assert.ok(!o1.mcpServers.legion_armory);
+    // the slim listing hides descriptions the search tool would have found: without search, the full listing comes back
+    assert.ok(!('skillListingBudgetFraction' in o1.settings) && !('skillListingMaxDescChars' in o1.settings));
   });
 
   it('records skillTurns (capped at 50), the load, and ignored skills at run end', async () => {
