@@ -1,4 +1,5 @@
 /** Ranks the skills for one message: the BM25F score times an optional boost, then a floor, a sort and a cut to k. */
+import { performance } from 'node:perf_hooks';
 import { scoreIndex } from './bm25.js';
 import type { FinderIndex } from './bm25.js';
 import { DEFAULT_K } from './defaults.js';
@@ -12,7 +13,7 @@ export interface RankOpts {
   deadlineMs: number;
   /** Multiplies a skill's score. Default 1. */
   boost?: (id: string) => number;
-  /** Clock in milliseconds. Default Date.now. */
+  /** Monotonic clock in milliseconds. Default performance.now. */
   now?: () => number;
 }
 
@@ -29,7 +30,7 @@ const MAX_K = 5;
 
 export function rank(ix: FinderIndex, query: string, opts: RankOpts): { results: Ranked[]; timedOut: boolean } {
   if (query.trim() === '') return { results: [], timedOut: false };
-  const now = opts.now ?? (() => Date.now());
+  const now = opts.now ?? (() => performance.now());
   const start = now();
   const overdue = (): boolean => now() - start > opts.deadlineMs;
 

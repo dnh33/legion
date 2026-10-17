@@ -8,15 +8,18 @@ import type { Ranked } from './rank.js';
 
 const HEADER = 'Skills that may fit this request:';
 const MAX_DESCRIPTION = 200;
+const MAX_ID = 120;
 
 function build(results: Ranked[], docs: Map<string, FinderDoc>, last: string): string | undefined {
   if (results.length === 0) return undefined;
   const lines = results.map((r) => {
+    // One line per result, whatever the id holds.
+    const id = oneLine(r.id).slice(0, MAX_ID).trimEnd();
     const doc = docs.get(r.id);
     // Fail closed: a skill with no doc shows as third-party, so no text of an unknown skill reaches the model.
-    if (!doc || doc.thirdParty) return `- ${r.id} (third-party)`;
+    if (!doc || doc.thirdParty) return `- ${id} (third-party)`;
     const description = oneLine(doc.description).slice(0, MAX_DESCRIPTION).trimEnd();
-    return description ? `- ${r.id}: ${description}` : `- ${r.id}`;
+    return description ? `- ${id}: ${description}` : `- ${id}`;
   });
   return [HEADER, ...lines, last].join('\n');
 }

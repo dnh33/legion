@@ -3,6 +3,7 @@
  * Each field's term count is weighted and length-normalised first, then the sum is saturated once (BM25F).
  */
 import { tokenize } from '../../kg/text.js';
+import { ARMORY_PLUGIN } from '../../../shared/skill-ids.js';
 import type { FinderDoc } from './doc.js';
 import { B, FIELD_WEIGHTS, K1 } from './defaults.js';
 
@@ -31,14 +32,25 @@ export interface ScoredHit {
   matched: string[];
 }
 
-/** The tokens of each field. The name field also holds the id's parts, split on ':', '-' and '_'. */
+/**
+ * The tokens of each field. The id splits at its first ':' into a namespace and a short name.
+ * - The short name's parts (split on '-' and '_') join the name field.
+ * - The Armory's own namespace is dropped, since every Armory skill has it.
+ * - Any other namespace (a plugin's name) scores at the headings weight, not the name weight.
+ * The name field's tokens are deduped first, so an id part that repeats the name is counted once.
+ */
 function fieldTokens(d: FinderDoc): Record<Field, string[]> {
-  const idParts = d.id.split(/[:\-_]/).flatMap((p) => tokenize(p));
+  const colon = d.id.indexOf(':');
+  const namespace = colon === -1 ? null : d.id.slice(0, colon);
+  const shortName = colon === -1 ? d.id : d.id.slice(colon + 1);
+  const shortTokens = shortName.split(/[\-_]/).flatMap((p) => tokenize(p));
+  const headings = tokenize(d.headings);
+  if (namespace !== null && namespace !== ARMORY_PLUGIN) headings.push(...tokenize(namespace));
   return {
-    name: [...tokenize(d.name), ...idParts],
+    name: [...new Set([...tokenize(d.name), ...shortTokens])],
     description: tokenize(d.description),
     whenToUse: tokenize(d.whenToUse),
-    headings: tokenize(d.headings),
+    headings,
   };
 }
 
