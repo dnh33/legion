@@ -18,6 +18,7 @@ import { BoardStore } from '../src/core/projects/board/store.js';
 import { createBoardModule } from '../src/core/projects/board/index.js';
 import { gateOff } from '../src/core/permission-mode.js';
 import { PRESETS } from '../src/shared/gates-registry.js';
+import { BOARD_LIMITS } from '../src/shared/board.js';
 import type { Preset } from '../src/shared/gates-registry.js';
 import type { ApprovalRequest, LegionEvent, RunMode } from '../src/shared/types.js';
 import type { RoomRequest } from '../src/core/comms/hub.js';
@@ -306,5 +307,39 @@ test('M4: with module-cards off the shell floor and the deny rules still apply',
     assert.equal(floor.allow, false, 'the shell floor refuses');
     const rule = await r.run('Edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' });
     assert.equal(rule.allow, false, 'the deny rule applies');
+  } finally { r.stop(); }
+});
+
+test('I4: a proposal sent straight to Backlog keeps the places for the owner and the per-agent open-item cap, like create', async () => {
+  const r = await presetRig('ask', { 'proposals-inbox': false });
+  try {
+    const b = boardRun(r);
+    const L = BOARD_LIMITS;
+    // fill the board up to the places kept for the owner with the owner's own items
+    const fillTo = (n: number) => { while (b.board.view(b.proj).items.length < n) b.board.create(b.proj, { title: `o${b.board.view(b.proj).items.length}` } as never); };
+    fillTo(L.itemsPerProject - L.botReserve);
+    const res = await b.call('propose', { title: 'Into the owner places' });
+    assert.equal(res.isError, true, 'the places kept for the owner stay free');
+    assert.match(res.text, /kept for the owner/);
+    assert.equal((await b.call('create', { title: 'Same cap through create' })).isError, true, 'create refuses at the same size');
+  } finally { r.stop(); }
+  const r2 = await presetRig('ask', { 'proposals-inbox': false });
+  try {
+    const b = boardRun(r2);
+    for (let k = 0; k < BOARD_LIMITS.botOpenPerAgent; k++) b.board.create(b.proj, { title: `mine${k}` }, { kind: 'agent', id: 'a1' });
+    const res = await b.call('propose', { title: 'One too many' });
+    assert.equal(res.isError, true, 'the per-agent open-item cap applies');
+    assert.match(res.text, /open items you created/);
+  } finally { r2.stop(); }
+});
+
+test('M5: the propose tool description does not promise the Inbox', async () => {
+  const r = await presetRig('ask', { 'proposals-inbox': false });
+  try {
+    const b = boardOf(r);
+    const t = await mcp(b.cfg);
+    const d = (await t.c.listTools()).tools.find((x) => x.name === 'propose')!.description ?? '';
+    assert.doesNotMatch(d, /is not on the board until/, d);
+    assert.match(d, /turned the Inbox off/);
   } finally { r.stop(); }
 });

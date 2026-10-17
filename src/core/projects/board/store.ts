@@ -589,8 +589,10 @@ export class BoardStore {
     const sug = input.suggestedAssignee;
     if (sug !== undefined && (typeof sug !== 'string' || !proj.members.includes(sug))) throw new BoardError(400, 'suggestedAssignee must be a member agent id');
     const inbox = [...b.items.values()].filter((i) => i.proposal);
-    if (b.items.size >= BOARD_LIMITS.itemsPerProject) throw new BoardError(409, 'The board is full; the owner has to clear items first.');
-    // direct (proposals-inbox is off): the item is a normal Backlog item, so the Inbox caps do not apply. The board size, the write and propose rate limits do.
+    // direct (proposals-inbox is off): the item is a normal Backlog item, so the Inbox caps do not apply; it goes through the same places as botCreate
+    // (the places kept for the owner and the per-agent open-item cap). The write and propose rate limits apply either way.
+    if (opts.direct) this.botPlaceCaps(b, agentId);
+    else if (b.items.size >= BOARD_LIMITS.itemsPerProject) throw new BoardError(409, 'The board is full; the owner has to clear items first.');
     if (!opts.direct && inbox.length >= BOARD_LIMITS.inboxPerProject) throw new BoardError(409, `The Inbox already holds ${inbox.length} proposals waiting for the owner. Nothing was saved; do not propose more until they are reviewed.`);
     if (!opts.direct && inbox.filter((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId).length >= BOARD_LIMITS.inboxPerAgent) throw new BoardError(409, `You already have ${BOARD_LIMITS.inboxPerAgent} proposals waiting for the owner. Nothing was saved.`);
     const key = (t: string) => t.toLowerCase();
@@ -653,6 +655,12 @@ export class BoardStore {
     return cleanAssignee(v, proj);
   }
 
+  /** Where an agent may put a new live item: not in the places kept for the owner, and not past its own open-item cap. Shared by botCreate and a direct propose. */
+  private botPlaceCaps(b: { items: Map<string, WorkItem> }, agentId: string): void {
+    if (b.items.size >= BOARD_LIMITS.itemsPerProject - BOARD_LIMITS.botReserve) throw new BoardError(409, 'The board is nearly full (the last places are kept for the owner). Close or merge items instead of adding more, or ask the owner to clear finished ones.');
+    if ([...b.items.values()].filter((x) => x.createdBy.kind === 'agent' && x.createdBy.id === agentId && x.status !== 'done' && !x.proposal).length >= BOARD_LIMITS.botOpenPerAgent) throw new BoardError(409, `You already have ${BOARD_LIMITS.botOpenPerAgent} open items you created. Finish or update those first.`);
+  }
+
   /** A member agent creates a live item. Its text is the agent's, so the item is `untrusted` (a run on it is capped) until the owner marks it reviewed. */
   botCreate(proj: ProjectRef, agentId: string, input: { title?: unknown; description?: unknown; status?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown }, run: BotRun): WorkItem {
     const b = this.writable(proj);
@@ -665,8 +673,7 @@ export class BoardStore {
     const labels = input.labels === undefined ? [] : cleanLabels(input.labels);
     const due = input.due === undefined ? undefined : cleanDue(input.due);
     const assignee = input.assignee === undefined ? null : this.botAssignee(input.assignee, proj, run);
-    if (b.items.size >= BOARD_LIMITS.itemsPerProject - BOARD_LIMITS.botReserve) throw new BoardError(409, 'The board is nearly full (the last places are kept for the owner). Close or merge items instead of adding more, or ask the owner to clear finished ones.');
-    if ([...b.items.values()].filter((x) => x.createdBy.kind === 'agent' && x.createdBy.id === agentId && x.status !== 'done' && !x.proposal).length >= BOARD_LIMITS.botOpenPerAgent) throw new BoardError(409, `You already have ${BOARD_LIMITS.botOpenPerAgent} open items you created. Finish or update those first.`);
+    this.botPlaceCaps(b, agentId);
     this.tick(this.botWrites, agentId, BOARD_LIMITS.botWritesPerWindow, BOARD_LIMITS.proposalWindowMs, 'Too many board writes from you in a short time. Wait a few minutes.');
     this.tick(this.creates, `${proj.id}|${agentId}`, BOARD_LIMITS.botCreatesPerWindow, BOARD_LIMITS.proposalWindowMs, `You may create at most ${BOARD_LIMITS.botCreatesPerWindow} items per ${BOARD_LIMITS.proposalWindowMs / 60000} minutes. Put the rest in one item.`);
     const by = this.botBy(agentId, run);

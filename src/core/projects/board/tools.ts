@@ -73,7 +73,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     }));
   const priorityEnum = z.enum(['low', 'normal', 'high']);
   const labelsArg = z.array(z.string()).optional().describe('At most 5 short labels.');
-  const propose = tool('propose', 'Suggest a new work item for the owner to review. It waits in the owner\'s Inbox and is not on the board until the owner accepts it. Use create instead when the item is plainly part of your work. Never put secrets in it.',
+  const propose = tool('propose', 'Suggest a new work item for the owner to review. By default it waits in the owner\'s Inbox until the owner accepts it; if the owner turned the Inbox off, it goes to the Backlog marked as your text. The result says which. Use create instead when the item is plainly part of your work. Never put secrets in it.',
     {
       title: z.string(), description: z.string().optional(), priority: priorityEnum.optional(), labels: labelsArg, suggestedAssignee: z.string().optional().describe('A member agent id; the owner decides.'),
     },
