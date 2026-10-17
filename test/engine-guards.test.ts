@@ -13,7 +13,7 @@ const using = async (body: (r: GatesRig) => Promise<void>) => {
   const r = await gatesRig({ preset: 'smart', follow: true });
   try { await body(r); } finally { r.stop(); }
 };
-const WHY = /changed a build or script file/;
+const WHY = /a build or script file here changed since you last allowed one/;
 /** The call is decided; a card (if any) is answered. Returns whether one was raised. */
 const decide = async (r: GatesRig, command: string, allowed: boolean) => {
   const p = r.call('Bash', { command }); await r.tick();
