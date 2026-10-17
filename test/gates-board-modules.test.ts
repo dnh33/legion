@@ -343,3 +343,77 @@ test('M5: the propose tool description does not promise the Inbox', async () => 
     assert.match(d, /turned the Inbox off/);
   } finally { r.stop(); }
 });
+
+// ---- the browser script card, the new-site card on a click, and the module-cards off lines (review task 7+8, M4 and re-review 1)
+
+const TOUR_PAGES = {
+  'https://a.test/': { title: 'Home', text: 'hi', elements: { '#go': { href: 'https://b.test/', goes: 'https://b.test/' } } },
+  'https://b.test/': { title: 'Elsewhere', text: 'other site' },
+};
+const TOUR_DNS = fakeResolver({ 'a.test': ['93.184.216.34'], 'b.test': ['93.184.216.35'] });
+
+/** Opens a page, runs a script and clicks a link to a second site, saying yes to every card. Returns the card summaries in order. */
+async function browserTour(r: GatesRig, steps: Array<'eval' | 'click'>): Promise<string[]> {
+  const fake = await startFakeCdp({ pages: TOUR_PAGES });
+  const bus = new EventBus();
+  const approvals = new ApprovalBroker(bus);
+  const cards: string[] = [];
+  bus.on((e: LegionEvent) => { if (e.type === 'approval.requested') { cards.push(`${e.approval.toolName}: ${e.approval.summary}`); setImmediate(() => approvals.resolve(e.approval.id, true)); } });
+  const manager: BrowserManager = new BrowserManager((taskId) => new BrowserSession({
+    guard: () => ({}), resolve: TOUR_DNS,
+    approveOrigin: async (o, u) => (await manager.peek(taskId)?.approveOrigin?.(o, u)) ?? false,
+    async launch() {
+      const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`);
+      return { cdp, pid: undefined, port: fake.port, args: [], exited: new Promise(() => undefined), stop: async () => { cdp.close(); } };
+    },
+  }));
+  try {
+    const job = { taskId: r.task.id, taint: () => false, markTainted: () => undefined } as any;
+    const cfg = buildBrowserServer(r.agent, job, { manager, guard: () => ({}), resolve: TOUR_DNS, approvals, secrets: () => [], statusLine: () => '', modeOf: (id, tid) => engineOf(r).runModeOf(id, tid), gateOff: (id, a) => gateOff(r.engine, id, a) });
+    const t = await mcp(cfg);
+    await t.call('browser_open', { url: 'https://a.test/' });
+    for (const s of steps) {
+      if (s === 'eval') await t.call('browser_eval', { expression: 'document.title' });
+      else await t.call('browser_click', { selector: '#go' });
+    }
+    await t.c.close();
+    return cards;
+  } finally { await manager.disposeAll(); await fake.close(); }
+}
+
+test('browser_eval gets a card in Ask, Accept edits and Smart, none in Bypass', async () => {
+  for (const p of PRESETS) {
+    const r = await presetRig(p);
+    try {
+      const cards = await browserTour(r, ['eval']);
+      assert.equal(cards.some((c) => /^.*browser_eval: Run a script/.test(c)), EXPECT[p], `browser_eval in ${p}: ${cards.join(' | ')}`);
+    } finally { r.stop(); }
+  }
+});
+
+test('a click that reaches a new site gets the new-site card the same way', async () => {
+  for (const p of PRESETS) {
+    const r = await presetRig(p);
+    try {
+      const cards = await browserTour(r, ['click']);
+      assert.equal(cards.some((c) => /moved the page to a new site: https:\/\/b\.test/.test(c)), EXPECT[p], `new-site card in ${p}: ${cards.join(' | ')}`);
+    } finally { r.stop(); }
+  }
+});
+
+test('module-cards off by an owner override in an Ask project: browser and room actions write the would-have-asked line, and no card', async () => {
+  const r = await presetRig('ask', { 'module-cards': false });
+  try {
+    const cards = await browserTour(r, ['eval', 'click']);
+    assert.deepEqual(cards, [], 'no browser card of any kind');
+    const t = lines(r).filter((x) => /because Ask before browser, Blender and room actions is off$/.test(x));
+    assert.ok(t.some((x) => /browser_open https:\/\/a\.test/.test(x)), `first page line: ${t.join(' | ')}`);
+    assert.ok(t.some((x) => /browser_eval document\.title/.test(x)), `script line: ${t.join(' | ')}`);
+    assert.ok(t.some((x) => /new site https:\/\/b\.test/.test(x)), `new-site line: ${t.join(' | ')}`);
+    const before = lines(r).length;
+    assert.equal(await roomSurface.fire(r), false, 'no room card either');
+    assert.ok(lines(r).length > before, 'the room action wrote its line');
+  } finally { r.stop(); }
+  const on = await presetRig('ask');
+  try { await browserTour(on, ['eval', 'click']); assert.deepEqual(lines(on), [], 'no line while the cards are on'); } finally { on.stop(); }
+});
