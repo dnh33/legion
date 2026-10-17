@@ -1,0 +1,30 @@
+{"prompt":"Match the bank payout lines against open invoices and flag totals that do not add up","skill":"ledger-reconcile","subset":"implicit"}
+{"prompt":"Use ledger-reconcile on the March payouts","skill":"ledger-reconcile","subset":"named"}
+{"prompt":"The payout total is off by forty euros, find which invoice is wrong","skill":"ledger-reconcile","subset":"implicit"}
+{"prompt":"Audit the storefront product pages for missing alt text and stale prices","skill":"widget-audit","subset":"implicit"}
+{"prompt":"Run a widget-audit before the catalogue launch on Friday","skill":"widget-audit","subset":"named"}
+{"prompt":"Find broken links and stale prices across the product pages","skill":"widget-audit","subset":"implicit"}
+{"prompt":"Plan my raised beds and crop rotation for the spring vegetable garden","skill":"acme:garden-planner","subset":"implicit"}
+{"prompt":"Help me set planting dates for the garden beds this year","skill":"acme:garden-planner","subset":"implicit"}
+{"prompt":"Use garden-planner for the vegetable beds this year","skill":"acme:garden-planner","subset":"named"}
+{"prompt":"My kettle has limescale, how do I descale it with citric acid","skill":"kettle-descale","subset":"implicit"}
+{"prompt":"Descale the kettle again, it is making noises","skill":"kettle-descale","subset":"implicit"}
+{"prompt":"Use kettle-descale on the coffee machine too","skill":"kettle-descale","subset":"named"}
+{"prompt":"Summarise the tide tables for the harbour for next week","skill":"tide-chart-summary","subset":"implicit"}
+{"prompt":"Give me a tide summary for the harbour over the weekend","skill":"tide-chart-summary","subset":"implicit"}
+{"prompt":"Scale this recipe down for four servings, ingredient amounts too","skill":"recipe-scaler","subset":"implicit"}
+{"prompt":"Use recipe-scaler on this cake for six servings","skill":"recipe-scaler","subset":"named"}
+{"prompt":"Write a polite reminder for the overdue customer invoices","skill":"invoice-chaser","subset":"implicit"}
+{"prompt":"Chase the overdue invoices with friendly reminder emails","skill":"invoice-chaser","subset":"implicit"}
+{"prompt":"Use invoice-chaser for the three late accounts","skill":"invoice-chaser","subset":"named"}
+{"prompt":"Turn my meeting notes into minutes with decisions and owners","skill":"meeting-minutes","subset":"implicit"}
+{"prompt":"Write up the meeting minutes and list the owner of each decision","skill":"meeting-minutes","subset":"implicit"}
+{"prompt":"Keep a service log for my bicycle: chain, brakes and tyres","skill":"bike-service-log","subset":"implicit"}
+{"prompt":"Log the bike service, new chain fitted and brakes adjusted","skill":"bike-service-log","subset":"implicit"}
+{"prompt":"Write a short brief for a sub-agent that checks the logs","skill":"legion-armory:brief-writer","subset":"implicit"}
+{"prompt":"Use brief-writer to draft the task brief for the reviewer","skill":"legion-armory:brief-writer","subset":"named"}
+{"prompt":"Project the weekly cash flow from invoices and recurring costs","skill":"forecast-cashflow","subset":"implicit"}
+{"prompt":"What will my cash flow look like over the next twelve weeks","skill":"forecast-cashflow","subset":"implicit"}
+{"prompt":"Check my passport photo against the size and background rules","skill":"passport-photo-check","subset":"implicit"}
+{"prompt":"Does this photo meet the passport size and background rules","skill":"passport-photo-check","subset":"implicit"}
+{"prompt":"Run passport-photo-check on the selfie I uploaded","skill":"passport-photo-check","subset":"named"}
