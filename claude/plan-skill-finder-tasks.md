@@ -186,6 +186,23 @@ Files to modify: the finder state for spend, in `<dataDir>/skill-finder/spend.js
 - **Spend:** read `total_cost_usd`, add it to the month, and skip the rerank once over `rerankMonthlyUsd`. `queryFn` is injectable (like `ProbeQueryFn`).
 - **Tests:** the margin trigger, a forged id dropped, invalid JSON, the timeout, the cap, and that the options carry no tools.
 
+### Task 9b: Armory keeps your skill choices when Claude Code's listing fails
+
+The owner folded this into the branch (2026-10-17). Diagnosis: 104 'on' records, 68 of whose ids the disk discovery never finds (whole plugins such as every `design:*` and `engineering:*`). It is not an id-format mismatch. The logs show 0 listing failures so far.
+
+Files to modify: `src/core/armory/index.ts` (`refresh`/`ensure`, code-facts: index.ts 97-134), `src/core/armory/store.ts` (or a new `listing-cache.ts`), `src/shared/armory-view.ts`, `ui/src/armory/ArmorySection.tsx` (Discovery line).
+Test: `test/armory-listing-cache.test.ts`.
+
+- **Every successful SDK listing is saved** to `<dataDir>/armory/sdk-listing.json`: `{ at, inherit, skills: DiscoveredSkill[], cli: string[] }`. Atomic write, 2 MB cap.
+- **When the SDK listing fails**, use the saved listing if its `inherit` matches. The mode is `'sdk-cached'`, and the reason says "Using the skill list Claude Code gave on <date>; the live listing failed: <why>". Read the disk only when no saved listing exists.
+- **`overview()`** adds `unmatchedOn`: how many 'on' records match no listed skill. The Discovery line shows "N of your switched-on skills were not found in the current list, so agents do not get them" when N > 0, with the existing Refresh action.
+- **Tests:**
+  - A failed probe with a saved listing keeps every 'on' choice, and `claudeSkills` returns them.
+  - A failed probe without one reports `unmatchedOn`.
+  - A successful probe overwrites the saved listing.
+  - A corrupt file is ignored.
+  - An `inherit` mismatch ignores the cache.
+
 ### Task 10: KG per-prompt recall to the user turn (only if Task 11 confirms the cache break)
 
 Measure first (Task 11 cache check). If cache reads drop on resumed turns because the knowledge-graph preamble changes:
@@ -198,7 +215,16 @@ Measure first (Task 11 cache check). If cache reads drop on resumed turns becaus
 - **Set B:** the controller dispatches a Sonnet agent to write 30 to 50 long-tail prompts (enabled skills with zero Set A hits) into `claude/skill-finder-private/setB.jsonl`. The owner spot-checks 10.
 - **Runs:** the scorer on Set A, Set B and the negatives for keyword, local, provider (when configured) and the rerank (sampled, at most $1).
 - **Writes:** the tuned values into `defaults.ts` (thresholds, fusion weight, margin) and the slim-listing default rule result. Figures go in `claude/skill-finder-tracker.md`, never prompts.
-- **Cache check:** two resumed Haiku turns with different prompts, `cache_read_input_tokens` read from the result usage, with and without the KG preamble change (at most $1). The result decides Task 10.
+- **Cache check:** DONE by the controller's live probe (ledger): a changing system prompt re-writes everything after the change point, so Task 10 is needed.
+- **Set B** is already built to Anthropic's eval guidance: 463 prompts graded by Haiku (ledger). The scorer adds its subsets (longtail / ambiguous / long; an ambiguous case counts a hit on `skill` or `alt`).
+- **Metrics:** report **note precision** (a shown note contains the gold skill) next to recall. It decides the default together with the false-note rate (pre-registered ruling in the ledger: keyword default ON only if false-note ≤ 0.15 and precision ≥ 0.50).
+- **Raw-cosine floor:** with embeddings on, add an absolute raw-cosine floor next to the fused threshold. e5 cosines sit in a narrow band, so min-max alone always passes the top skill. Tune it on the negatives.
+- **Outcome eval** (Anthropic: test with the models you plan to use).
+  - 60 prompts (30 from Set A, 30 from Set B) and 20 negatives through the real SDK, with the owner's skill listing, on Haiku and Sonnet.
+  - Condition A is the listing only. Condition B is the listing plus the finder note (tuned default ranker, and the local model in a temp data dir).
+  - Measure the rate at which the first Skill call is the gold skill, and false Skill calls on the negatives.
+  - `maxTurns` 1 (allow Skill only), a total cap of $5, and stop at the cap.
+- **The owner sees** the tuned numbers and the resulting defaults in one question-UI message before release.
 
 ### Task 12: Armory UI: the Skill finder section and the test box
 
