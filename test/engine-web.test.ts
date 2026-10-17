@@ -152,3 +152,13 @@ test('a search card keeps the query out of the summary (and so out of the log)',
   const p = r.call('WebSearch', { query: 'SECRETVALUE'.repeat(40) }); await r.tick(60);
   assert.ok(!r.pending()[0]!.summary.includes('SECRETVALUE')); r.answer(false); await p;
 }));
+
+test('the decider: after connector data a gate deny rule for the host wins before the egress card (no card, denied)', () => smart(async (r) => {
+  r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
+  r.setRules([rule('deny', { hosts: ['example.com'] })]);
+  const p = r.call('WebFetch', url('https://example.com/'));
+  const first = await Promise.race([p, pause(2000).then(() => 'hung' as const)]);
+  if (first === 'hung') { for (const c of r.pending()) r.approvals.resolve(c.id, false); await p; }
+  assert.notEqual(first, 'hung', 'no card may open: the deny rule decides'); assert.equal((first as { allow: boolean }).allow, false);
+}));

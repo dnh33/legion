@@ -226,7 +226,7 @@ interface WebBatchEntry { toolName: string; input: Record<string, unknown>; v: E
 interface WebBatch { entries: WebBatchEntry[] }
 /** The same text for the same input whatever the order of its keys: the key of a shared guard card. */
 const canonicalJson = (v: unknown): string => {
-  try { return JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x)) ?? ''; } catch { return String(v); }
+  try { return JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x)) ?? ''; } catch { return newId('unkeyed'); } // an input that cannot be written out never shares a card with another call
 };
 
 function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
@@ -1934,10 +1934,6 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; /** false: the floor's card is raised by a hook for this path; only its refusals apply here. */ floorCard?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
     const effective = (): RunMode => this.modeNow(job, agent);
     return async (toolName, input) => {
-      // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
-      // (no await when no card is due: the card of a normal tool must still be raised synchronously)
-      const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
-      if (egress) return egress;
       const mode = effective();
       const capped = job.origin?.approvalCeiling === 'ask';
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
@@ -1945,6 +1941,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // With "Your ask rules" off, an ask rule is skipped by judging as full (deny still wins there).
       const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, this.asksSkipped(job) ? 'full' : mode, capped);
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
+      // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
+      // (no await when no card is due: the card of a normal tool must still be raised synchronously)
+      // It comes after the deny rules, so a yes on it never passes a call they refuse (the hook path has the same order).
+      const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
+      if (egress) return egress;
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
