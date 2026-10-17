@@ -769,6 +769,17 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .ma-note { margin-left: 6px; color: var(--accent-text); min-width: 0; white-space: nowrap; }
 @media (hover: none) { .msg-actions { opacity: 1; } }
 
+/* the skill finder's line under a reply: quiet text; a click opens the note with the ids, scores and matched words */
+.skl-lines { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin: 6px 0 0; min-width: 0; }
+.skl { display: block; max-width: 100%; margin-left: -6px; padding: 1px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11.5px; line-height: 1.5; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.skl:hover, .skl[aria-expanded='true'] { background: var(--surface-3); color: var(--text-2); }
+.skl-pop { position: fixed; z-index: 90; box-sizing: border-box; width: min(380px, calc(100vw - 16px)); overflow-y: auto; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: 0 14px 36px rgba(0, 0, 0, .4); color: var(--text-2); font-size: 12px; line-height: 1.5; outline: 0; animation: pop-in 120ms var(--ease); }
+.skl-pop p { margin: 0 0 4px; }
+.skl-pop p:not(:first-child) { margin-top: 8px; }
+.skl-pop .skl-pop-h { color: var(--text); font-weight: 600; }
+.skl-pop ul { margin: 0; padding: 0; list-style: none; }
+.skl-pop li { padding: 2px 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
 /* long conversations: windowed rows, the older-messages row, search inside a thread */
 .vrow { display: flow-root; }
 .vrow.hit > * { outline: 2px solid var(--accent, #7aa2ff); outline-offset: 4px; border-radius: var(--r-sm); }

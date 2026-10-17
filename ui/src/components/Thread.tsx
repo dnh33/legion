@@ -14,6 +14,7 @@ import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
 import { QuestionCard } from './QuestionCard';
 import { Icon } from './icons';
+import { skillLinesByMessage } from '../../../src/shared/skill-line';
 import { ThreadRuns } from '../projects/page/ThreadRuns';
 import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
@@ -209,6 +210,8 @@ export function Thread() {
   });
 
   const items = useMemo(() => group(messages), [messages]);
+  // the finder's notes, each under the reply it belongs to
+  const skillLines = useMemo(() => skillLinesByMessage(messages, task?.skillTurns), [messages, task?.skillTurns]);
   const results = useMemo(() => toolResults(messages), [messages]);
   const lastUser = useMemo(() => [...messages].reverse().find((m) => m.role === 'user' && !m.fromAgentId), [messages]);
   const empty = items.length === 0 && !stream && !running;
@@ -291,7 +294,7 @@ export function Thread() {
                 const k = itemKey(it);
                 return (
                   <Row key={k} k={k} onSize={onSize} hit={hitId !== null && (it.k === 'msg' ? it.m.id === hitId : it.items.some((x) => x.id === hitId))}>
-                    {it.k === 'tools' ? <ToolGroup items={it.items} results={results} /> : <MessageView m={it.m} agent={agent} task={task} />}
+                    {it.k === 'tools' ? <ToolGroup items={it.items} results={results} /> : <MessageView m={it.m} agent={agent} task={task} skillTurns={skillLines.get(it.m.id)} />}
                   </Row>
                 );
               })}

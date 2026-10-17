@@ -1,7 +1,8 @@
 import { memo } from 'react';
-import type { AgentProfile, ChatMessage, Task } from '../../../src/shared/types';
+import type { AgentProfile, ChatMessage, SkillTurn, Task } from '../../../src/shared/types';
 import { CopyMenu } from './CopyMenu';
 import { Markdown } from './Markdown';
+import { SkillLines } from './SkillLine';
 import { modelLabel } from '../models';
 import { useProviders } from '../providers/providersStore';
 import { selectTask, useStore } from '../store';
@@ -28,7 +29,7 @@ export function splitPrefix(text: string): { model: string | null; text: string 
   return b ? { model: b[1], text: b[2] } : { model: null, text };
 }
 
-function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
+function MessageViewImpl({ m, agent, task, streaming, skillTurns }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean; /** The finder's notes that belong under this reply. */ skillTurns?: SkillTurn[] }) {
   if (m.role === 'user' && (m.fromAgentId || parseReply(m.text))) return <AgentMessage from={m.fromAgentId ?? parseReply(m.text)!.name} text={m.text} />;
   // the Continue button's own instruction to Claude: shown as the action it was, not as a paragraph the user never typed
   if (m.role === 'user' && m.text === CONTINUE_PROMPT) return <div className="msg system">Continued where it stopped</div>;
@@ -42,6 +43,7 @@ function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, '
         <ModelTag task={task} />
       </div>
       <Markdown text={m.text} caret={streaming} />
+      {!streaming && skillTurns && <SkillLines turns={skillTurns} />}
       {!streaming && m.text.trim() !== '' && <CopyMenu text={m.text} />}
     </div>
   );
@@ -89,6 +91,12 @@ function AgentMessage({ from, text }: { from: string; text: string }) {
 }
 
 type MVProps = Parameters<typeof MessageViewImpl>[0];
+/** The notes under a reply, compared by what the line shows: a new array with the same notes does not redraw the bubble. */
+function sameTurns(a?: SkillTurn[], b?: SkillTurn[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((t, i) => t.at === b[i]!.at && t.subagent === b[i]!.subagent && t.suggested.join('|') === b[i]!.suggested.join('|') && t.loaded.join('|') === b[i]!.loaded.join('|'));
+}
 /**
  * A history bubble re-renders only when what it draws changes: its text/role, the agent, the model tag (task.model / task.escalated, the only
  * task fields it reads) or the streaming caret. The live bubble gets a new `m` object per frame, so only it re-renders while text streams
@@ -97,4 +105,5 @@ type MVProps = Parameters<typeof MessageViewImpl>[0];
 export const MessageView = memo(MessageViewImpl, (p: MVProps, n: MVProps) =>
   (p.m === n.m || (p.m.text === n.m.text && p.m.role === n.m.role && p.m.fromAgentId === n.m.fromAgentId))
   && p.agent === n.agent && p.streaming === n.streaming
-  && p.task?.model === n.task?.model && p.task?.escalated === n.task?.escalated);
+  && p.task?.model === n.task?.model && p.task?.escalated === n.task?.escalated
+  && sameTurns(p.skillTurns, n.skillTurns));

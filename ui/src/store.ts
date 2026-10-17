@@ -613,7 +613,7 @@ export const openPalette = () => setState({ palette: true, doctorOpen: false, ed
 export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
 export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
-export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null }) {
+export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>, 'taskList' | 'skillFinderK'> & { name: string; taskList?: 'on' | 'off' | null; skillFinderK?: number | null }) {
   try {
     const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
     // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"

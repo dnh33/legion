@@ -113,3 +113,17 @@ describe('the rerank spend line', () => {
     assert.deepEqual(await rig.call('GET', '/api/armory/finder/rerank-spend'), { month, spentUsd: 0.42, capUsd: 3 });
   });
 });
+
+describe('the finder settings read route', () => {
+  it('is admin-only like the write route, and answers the same block the Armory shows', async () => {
+    assert.equal(isClientRoute('GET', '/api/armory/finder'), false);
+    assert.equal(gate({ method: 'GET', path: '/api/armory/finder', adminOk: false, bearerOk: true, hasSecret: true }).allow, false);
+    assert.equal(gate({ method: 'GET', path: '/api/armory/finder', adminOk: true, bearerOk: true, hasSecret: true }).allow, true);
+    const rig = armoryRig({});
+    assert.equal((await rig.call('GET', '/api/armory/finder')).chatLine, true);
+    await rig.call('POST', '/api/armory/finder', { chatLine: false });
+    const after = await rig.call('GET', '/api/armory/finder');
+    assert.equal(after.chatLine, false);
+    assert.deepEqual(after, (await rig.call('GET', '/api/armory')).finder);
+  });
+});

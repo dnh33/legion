@@ -9,6 +9,7 @@
 //   provremote   the provider is on another computer (the disclosure keeps the full line)
 //   prov         one embedding-capable provider is set up; with fnd-provider the provider ranker is chosen
 //   noticeseen   the first-contact notice was already answered
+//   chatoff      "Show suggestions in chat" is off
 //   unm60        60 switched-on skills that no listing finds
 const mk = (id, source, description, state = 'on', extra = {}) => ({
   id, name: id.includes(':') ? id.split(':')[1] : id, description, source, plugin: source === 'claude-plugin' ? id.split(':')[0] : null,
@@ -30,7 +31,7 @@ export function armoryState(flags) {
   const finder = {
     suggest: flags.has('fnd-suggest-auto') ? 'auto' : all || flags.has('fnd-suggest-on'), searchTool: !flags.has('nosearch'), subagents: true,
     ranker: all || flags.has('fnd-local') ? 'local' : flags.has('fnd-provider') ? 'provider' : 'keyword', rerank: all, rerankMonthlyUsd: all ? 2 : 1,
-    slimListing: 'auto', k: 3, threshold: 'balanced', chatLine: true, noticeSeen: flags.has('noticeseen') || all,
+    slimListing: 'auto', k: 3, threshold: 'balanced', chatLine: !flags.has('chatoff'), noticeSeen: flags.has('noticeseen') || all,
     ...(flags.has('fnd-provider') ? { providerId: 'local-embed', providerModel: 'nomic-embed-text' } : {}),
   };
   const model = flags.has('mdl-dl') ? { state: 'downloading', progress: 0.4 } : flags.has('mdl-ready') || all ? { state: 'ready', bytes: 143_000_000 }
@@ -56,6 +57,7 @@ export async function armoryRoutes({ ctx, req, res, p, url, send, readBody, slee
     send(res, 200, { inherit: true, ccNoticeSeen: true, pluginRoot: '/p', allowSkillShell: false, finder: a.finder, skills: SKILLS, discoveredAt: new Date().toISOString(), discovery: 'sdk', discoveryReason: null, discoveryPlugins: 2, unmatchedOn: unm.length, unmatchedOnIds: unm });
     return true;
   }
+  if (p === '/api/armory/finder' && m === 'GET') { send(res, 200, a.finder); return true; }
   if (p === '/api/armory/finder' && m === 'POST') { Object.assign(a.finder, await readBody(req)); for (const k of Object.keys(a.finder)) if (a.finder[k] === '') delete a.finder[k]; a.spend.capUsd = a.finder.rerankMonthlyUsd; send(res, 200, a.finder); return true; }
   if (p === '/api/armory/finder/model' && m === 'GET') { send(res, 200, a.model); return true; }
   if (p === '/api/armory/finder/model/get' && m === 'POST') {

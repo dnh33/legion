@@ -5,6 +5,8 @@ import { closeOverlays, loadCatalog, openSettings, removeAgent, saveAgent, useSt
 import { providerModelGroups, loadProviders, useProviders } from '../providers/providersStore';
 import { Modal } from './Modal';
 import { AgentSkills, settingOf, valueOf } from '../armory/AgentSkills';
+import { AgentFinder } from '../armory/AgentFinder';
+import { finderBody, finderFormOf } from '../../../src/shared/agent-finder';
 import { MAX_AGENT_SKILLS } from '../../../src/shared/armory-view';
 import { revealSkill } from '../armory/armoryStore';
 import { connectorsShellWarning } from '../../../src/shared/connectors-view';
@@ -35,6 +37,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [hostTimeout, setHostTimeout] = useState(existing?.host?.timeoutSeconds === undefined ? '' : String(existing.host.timeoutSeconds));
   const [hostEnv, setHostEnv] = useState<'allow' | 'masked' | 'block'>(existing?.host?.envFiles ?? 'masked');
   const [skills, setSkills] = useState(() => valueOf(existing?.skills));
+  const [finder, setFinder] = useState(() => finderFormOf(existing ?? {}));
   // shown as the effective setting; saved only once the owner changes it, so an untouched agent keeps following the default
   const [taskList, setTaskList] = useState(() => nativeTaskListOn(existing ?? { id: '' }));
   const startTaskList = useRef(taskList);
@@ -44,7 +47,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList, finder]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -86,8 +89,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     setBusy(true);
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
-    const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
+    const body: Omit<Partial<AgentProfile>, 'taskList' | 'skillFinderK'> & { name: string; taskList?: 'on' | 'off' | null; skillFinderK?: number | null } = {
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills), ...finderBody(finder),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
@@ -144,6 +147,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
           </div>
         ) : null}
+        <AgentFinder value={finder} onChange={setFinder} />
         <fieldset>
           <legend>Connectors</legend>
           <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} onRetry={retryArea} />

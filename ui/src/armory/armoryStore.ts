@@ -106,6 +106,8 @@ export interface ArmoryUiState {
   modelWaiting: boolean;
   modelError: string | null;
   spend: RerankSpend | null;
+  /** Whether the chat shows the finder's line under a reply (the owner's "Show suggestions in chat"). Null until read. */
+  chatLine: boolean | null;
   reading: ReadState | null;
   /** The skill just added or created, drawn with a highlight for a few seconds. */
   highlight: string | null;
@@ -121,7 +123,7 @@ export interface ArmoryUiState {
 let state: ArmoryUiState = {
   data: null, loaded: false, loading: false, loadError: null, refreshing: false, refreshError: null, absent: false, switching: [], rowErrors: {}, resetting: null, resetErrors: {},
   undo: null, removed: null, busyIds: [], busyOps: {}, undone: null, reveal: null, promoted: null, noticeBusy: false, noticeError: null, shellBusy: false, shellError: null,
-  finderBusy: 0, finderError: null, model: null, modelBusy: false, modelWaiting: false, modelError: null, spend: null,
+  finderBusy: 0, finderError: null, model: null, modelBusy: false, modelWaiting: false, modelError: null, spend: null, chatLine: null,
   reading: null, highlight: null, effective: {}, focusRow: null, savedOff: null, notice: '',
 };
 const listeners = new Set<() => void>();
@@ -237,7 +239,7 @@ export async function loadArmory(opts: { minBusyMs?: number } = {}): Promise<voi
   set({ loading: true });
   try {
     const data = await request<ArmoryData>('GET', '/api/armory');
-    set({ data, loaded: true, loadError: null, absent: false, rowErrors: {}, resetErrors: {} });
+    set({ data, loaded: true, loadError: null, absent: false, rowErrors: {}, resetErrors: {}, ...(data.finder ? { chatLine: data.finder.chatLine } : {}) });
   } catch (e) {
     set({ loadError: msg(e), absent: e instanceof ApiError && e.status === 404 });
   } finally {
@@ -545,6 +547,11 @@ export async function setAllowShell(allow: boolean): Promise<void> {
 }
 
 /* ---- the skill finder ---- */
+/** Reads "Show suggestions in chat" without building the Armory (the chat needs only this one switch). A failure leaves the line hidden. */
+export async function loadChatLine(): Promise<void> {
+  if (state.chatLine !== null) return;
+  try { set({ chatLine: (await request<FinderSettings>('GET', '/api/armory/finder')).chatLine }); } catch { /* an older core: no line */ }
+}
 /**
  * A finder setting (one key or several). Optimistic; the core answers with the whole block, which replaces ours. A failure puts back
  * only the keys this change touched (another change may be in flight) and says why beside the section.
@@ -558,7 +565,7 @@ export async function setFinder(patch: Partial<FinderSettings>): Promise<boolean
     if (!state.data?.finder) return;
     const next: Record<string, unknown> = { ...state.data.finder, ...over };
     for (const k of Object.keys(over)) if (over[k] === undefined || over[k] === '') delete next[k];
-    set({ data: { ...state.data, finder: next as unknown as FinderSettings } });
+    set({ data: { ...state.data, finder: next as unknown as FinderSettings }, ...('chatLine' in over ? { chatLine: next.chatLine as boolean } : {}) });
   };
   apply(patch as Record<string, unknown>);
   set({ finderBusy: state.finderBusy + 1, finderError: null });

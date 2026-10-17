@@ -661,6 +661,10 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         return finderFor(file);
       });
 
+      // The finder's settings as the owner has them. The chat reads it for "Show suggestions in chat" without building the catalog.
+      // Admin-only like the write route above.
+      add('GET', '/api/armory/finder', () => finderFor(readArmoryFile(deps.dataDir)));
+
       // The finder's local model. Admin-only (not on the client list): a download needs the owner's click AND an approval card,
       // and an agent has no route to start one.
       add('GET', '/api/armory/finder/model', () => model.status());

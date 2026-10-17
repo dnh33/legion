@@ -117,6 +117,27 @@ function makeDb(flags) {
       { id: 'br4', taskId: 't1', role: 'user', text: '[Reply from Scout \u00b7 task t4] RFC 6749 section 6 covers refresh; rotation is in the OAuth 2.1 draft. Five bullets: 1) issue a new refresh token on every use...', at: ago(28), fromAgentId: 'scout' },
     );
   }
+  // Skill finder notes on t1 (the chat line). Flags: skl-sug (suggested, none loaded), skl-one (one loaded), skl-long (long ids), skl-sub (a subagent note too),
+  // skl-four (four notes on one reply), skl-late (the note is after the last reply: no line yet). af-on | af-off: the Marshal's Skill finder mode in the agent editor.
+  {
+    const w = (id, score, matched) => ({ id, score, matched });
+    const t1 = db.tasks.find((t) => t.id === 't1');
+    const before5 = ago(34), before7 = ago(32.5);
+    if (t1 && f('skl-sug')) t1.skillTurns = [{ at: before5, suggested: ['legion-armory:invoice-pdf-export', 'sp:invoice-audit'], loaded: [], why: [w('legion-armory:invoice-pdf-export', 12.34, ['invoice', 'pdf', 'export']), w('sp:invoice-audit', 7.1, ['invoice'])] }];
+    if (t1 && f('skl-one')) t1.skillTurns = [{ at: before5, suggested: ['legion-armory:invoice-pdf-export', 'sp:invoice-audit'], loaded: ['legion-armory:invoice-pdf-export'], why: [w('legion-armory:invoice-pdf-export', 12.34, ['invoice', 'pdf', 'export']), w('sp:invoice-audit', 7.1, [])] }];
+    if (t1 && f('skl-long')) {
+      const a = 'legion-armory:' + 'quarterly-financial-statement-reconciliation-and-export-'.repeat(3) + 'v2', b = 'design:a-skill-with-an-extremely-long-name-that-keeps-going-' + 'and-going-'.repeat(6) + 'end', c = 'verify';
+      t1.skillTurns = [{ at: before5, suggested: [a, b, c], loaded: [a, b], why: [w(a, 21.04, ['quarterly', 'financial', 'statement', 'reconciliation', 'export', 'invoice']), w(b, 9.8, ['going']), w(c, 3, [])] }];
+    }
+    if (t1 && f('skl-sub')) t1.skillTurns = [
+      { at: before5, suggested: ['legion-armory:invoice-pdf-export'], loaded: ['legion-armory:invoice-pdf-export'], why: [w('legion-armory:invoice-pdf-export', 12.34, ['invoice', 'pdf'])] },
+      { at: before5, suggested: ['sp:brainstorming', 'legion-armory:design-polish'], loaded: ['legion-armory:design-polish'], subagent: 'reviewer', why: [w('sp:brainstorming', 8.2, ['design']), w('legion-armory:design-polish', 6.5, ['design', 'polish'])] },
+    ];
+    if (t1 && f('skl-four')) t1.skillTurns = ['invoice-pdf-export', 'release-notes', 'db-tune', 'design-polish'].map((n, i) => ({ at: before5, suggested: ['legion-armory:' + n], loaded: i === 0 ? ['legion-armory:' + n] : [], ...(i === 2 ? { subagent: 'reviewer' } : {}), why: [w('legion-armory:' + n, 10 - i, ['words'])] }));
+    if (t1 && f('skl-late')) t1.skillTurns = [{ at: ago(1), suggested: ['legion-armory:db-tune'], loaded: [], why: [w('legion-armory:db-tune', 5, ['db'])] }];
+    if (f('af-on')) Object.assign(db.agents[0], { skillFinder: 'on', skillFinderK: 4 });
+    if (f('af-off')) Object.assign(db.agents[0], { skillFinder: 'off', skillFinderK: 2 });
+  }
   if (f('many')) for (let i = 0; i < 16; i++) db.tasks.push({ id: 'x' + i, agentId: 'zealot', title: 'Extra task number ' + (i + 1), status: 'done', source: 'ui', requestedModel: 'auto', createdAt: ago(1000 + i), updatedAt: ago(10 + i) });
   if (f('lots')) { // a big history (MOCK_TASKS, default 20000), 70% on the lead, like the real app after months of use
     const N = Number(process.env.MOCK_TASKS || 20000), W = 'refactor billing module fix flaky test review pull request migrate database write docs summarise report'.split(' ');
@@ -382,7 +403,8 @@ http.createServer(async (req, res) => {
     const rec = vm({ agentId: id, state: act === 'start' ? 'running' : 'archived' });
     db.vms = db.vms.filter((v) => v.agentId !== id).concat(rec); emit(ctx, { type: 'vm.updated', vm: rec }); return send(res, 200, rec);
   }
+  if (p === '/api/__patches') return send(res, 200, ctx.patches ?? []);
   if (p === '/api/agents' && req.method === 'POST') { const b = await readBody(req); const a = agent(b.name.toLowerCase().replace(/\W+/g, '-'), b.name, b.emoji || '\u2726', b.description || '', b.model || 'auto', b.approval || 'ask', !!b.vm?.enabled); db.agents.push(a); return send(res, 201, a); }
-  if ((m = p.match(/^\/api\/agents\/([^/]+)$/))) { const a = db.agents.find((x) => x.id === m[1]); if (req.method === 'PATCH' && a) { Object.assign(a, await readBody(req)); return send(res, 200, a); } if (req.method === 'DELETE') { db.agents = db.agents.filter((x) => x.id !== m[1]); return send(res, 200, { ok: true }); } }
+  if ((m = p.match(/^\/api\/agents\/([^/]+)$/))) { const a = db.agents.find((x) => x.id === m[1]); if (req.method === 'PATCH' && a) { const pb = await readBody(req); (ctx.patches ??= []).push({ id: a.id, body: pb }); Object.assign(a, pb); return send(res, 200, a); } if (req.method === 'DELETE') { db.agents = db.agents.filter((x) => x.id !== m[1]); return send(res, 200, { ok: true }); } }
   send(res, 404, { error: 'not found' });
 }).listen(PORT, '127.0.0.1', () => console.log(`mock legion core on http://127.0.0.1:${PORT}`));
