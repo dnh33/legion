@@ -7,7 +7,7 @@ import { PassThrough } from 'node:stream';
 import { readLaunchSecrets } from '../src/core/admin.js';
 import { ProviderKeyring } from '../src/core/providers/keyring.js';
 import { keyFileFor, keyStoreDoctor, keyStoreLine, ProviderKeys, sealedFileFor } from '../src/core/providers/secrets.js';
-import { updateCommitted } from '../src/core/providers/update-committed.js';
+import { updateCommitted } from '../src/core/updater/committed.js';
 import { runDoctor } from '../src/core/doctor.js';
 import { defaultConfig } from '../src/shared/config.js';
 import { clearRegisteredSecrets, redact } from '../src/core/log/redact.js';

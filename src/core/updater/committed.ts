@@ -5,7 +5,7 @@
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { MARKER_FILE_NAME, readJournal, UPDATE_DIR } from '../updater/apply.js';
+import { MARKER_FILE_NAME, readJournal, UPDATE_DIR } from './apply.js';
 
 export function updateCommitted(installDir: string): boolean {
   try {

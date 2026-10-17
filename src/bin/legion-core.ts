@@ -5,7 +5,7 @@ import { describeError, setFatalSink } from '../core/log/install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
 import { ProviderKeyring } from '../core/providers/keyring.js';
-import { updateCommitted } from '../core/providers/update-committed.js';
+import { updateCommitted } from '../core/updater/committed.js';
 import { createProvidersModule } from '../core/providers/routes.js';
 import { WebSearchService } from '../core/web-search/index.js';
 import { createWebSearchModule } from '../core/web-search/routes.js';
