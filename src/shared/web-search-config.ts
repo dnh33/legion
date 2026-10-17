@@ -62,3 +62,8 @@ export function normalizeWebSearch(v: unknown): WebSearchConfig {
   }
   return out;
 }
+
+/** The fixed API host each key-based provider's key is sent to (its key is bound to this origin). Shown in the native confirmation. */
+export const WEB_PROVIDER_HOSTS: Readonly<Record<'treg' | 'exa' | 'tavily' | 'brave', string>> = {
+  treg: 'treg.to', exa: 'api.exa.ai', tavily: 'api.tavily.com', brave: 'api.search.brave.com',
+};

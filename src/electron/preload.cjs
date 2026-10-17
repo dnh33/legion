@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('legion', {
   providerChange(change) {
     return ipcRenderer.invoke('legion:provider-change', change);
   },
+  // Settings, Web search: saving a provider key and a private-network SearXNG address. Main shows the native confirmation and holds the native secret.
+  webSearchChange(change) {
+    return ipcRenderer.invoke('legion:web-search-change', change);
+  },
   // Project folder and member changes: main shows the native confirmation (and the folder chooser) and holds the native secret.
   projectChange(change) {
     return ipcRenderer.invoke('legion:project-change', change);

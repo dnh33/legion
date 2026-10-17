@@ -5,6 +5,7 @@ import { openExternal } from '../api';
 import { useStore } from '../store';
 import { keyFieldFor, visibleCards } from './cards';
 import { feedbackFor } from './feedback';
+import { WebSearchSection } from './WebSearchSection';
 import './providers.css';
 
 const PLAIN_ID = /^[a-z][a-z0-9-]{1,31}$/;
@@ -148,6 +149,7 @@ export function ProvidersSection() {
           </div>
           <p className="field-note">Cost is shown only when a provider returns token counts and you have entered prices. Room spend limits count known costs only, so an agent on a provider with unknown cost adds nothing to a room's meter.</p>
         </fieldset>
+        <WebSearchSection />
         <ComingNext />
         <p className="field-note">Going back to an older Legion version: the older version ignores this page. An agent still set to a provider model will fail with a model error there; it never sends anything to a provider.</p>
       </>}

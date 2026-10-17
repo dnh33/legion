@@ -17,6 +17,8 @@ declare global {
       bsvPolicy?(action: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       connectorConnect?(): Promise<{ ok: boolean; error?: string; cancelled?: boolean }>;
       providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Settings, Web search: a provider key or a private-network SearXNG address. Main shows the native confirmation and calls the core with a secret this window never holds. */
+      webSearchChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       onBsvChanged?(cb: () => void): () => void;
       /** Tells the desktop which project page and thread this window shows (ids only), so it does not notify for what you are looking at. */
