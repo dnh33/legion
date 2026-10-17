@@ -16,10 +16,10 @@ export interface PendingNotice { id: WebProviderId; name: string; notice: string
 export interface TestResult { id: string; ok: boolean; detail: string }
 
 export interface WebSearchUiState {
-  view: WebSearchView | null; loaded: boolean; busy: string | null; error: string | null;
+  view: WebSearchView | null; loaded: boolean; loadError: string | null; busy: string | null; error: string | null;
   notes: Record<string, string>; pending: PendingNotice | null; test: TestResult | null;
 }
-let state: WebSearchUiState = { view: null, loaded: false, busy: null, error: null, notes: {}, pending: null, test: null };
+let state: WebSearchUiState = { view: null, loaded: false, loadError: null, busy: null, error: null, notes: {}, pending: null, test: null };
 const listeners = new Set<() => void>();
 const set = (p: Partial<WebSearchUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -29,7 +29,9 @@ const msg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.mes
 const BASE = '/api/settings/web-search';
 
 export async function loadWebSearch(): Promise<void> {
-  try { set({ view: await request<WebSearchView>('GET', BASE), loaded: true }); } catch { set({ loaded: true }); /* an older core without the route: the section stays hidden */ }
+  try { set({ view: await request<WebSearchView>('GET', BASE), loaded: true, loadError: null }); }
+  // an older core without the route (404): the section stays hidden; any other failure says so
+  catch (e) { set({ loaded: true, loadError: e instanceof ApiError && e.status === 404 ? null : `Web search settings did not load: ${msg(e)}` }); }
 }
 
 async function act(id: string, fn: () => Promise<WebSearchView | void>): Promise<boolean> {
@@ -38,6 +40,14 @@ async function act(id: string, fn: () => Promise<WebSearchView | void>): Promise
   try { const v = await fn(); if (v) set({ view: v }); return true; } catch (e) { set({ error: msg(e) }); return false; } finally { set({ busy: null }); }
 }
 const setNote = (id: string, text: string) => set({ notes: { ...state.notes, [id]: text } });
+/** What a sent change did, in words: every action shows a result. */
+const doneNote = (body: Record<string, unknown>): string =>
+  body.searxng === null ? 'Address removed.' : body.searxng !== undefined ? 'Address saved.' : body.tregMaxCostUsd !== undefined ? 'Cap saved.' : 'Saved.';
+async function sendAndNote(body: Record<string, unknown>, needsNative: boolean, id: string): Promise<WebSearchView | void> {
+  const v = await send(body, needsNative, id);
+  if (v) setNote(id, doneNote(body));
+  return v;
+}
 
 /** Sends a change the core has already accepted a check for. A private SearXNG address goes through the app's native confirmation. */
 async function send(body: Record<string, unknown>, needsNative: boolean, id: string): Promise<WebSearchView | void> {
@@ -64,11 +74,12 @@ function change(id: string, body: Record<string, unknown>): Promise<boolean> {
       return;
     }
     set({ pending: null });
-    return send(body, chk.needsNative === true, id);
+    return sendAndNote(body, chk.needsNative === true, id);
   });
 }
 
-export const chooseProvider = (job: WebJob, value: string): Promise<boolean> => { set({ pending: null }); return change(job, { [job]: value }); };
+// a test result belongs to the provider it ran on: a new pick or key clears it
+export const chooseProvider = (job: WebJob, value: string): Promise<boolean> => { set({ pending: null, test: null }); return change(job, { [job]: value }); };
 export const saveCap = (usd: number): Promise<boolean> => change('cap', { tregMaxCostUsd: usd });
 export const saveAddress = (baseUrl: string): Promise<boolean> => change('searxng', { searxng: { baseUrl } });
 export const clearAddress = (): Promise<boolean> => change('searxng', { searxng: null });
@@ -80,11 +91,14 @@ export function acceptNotice(): Promise<boolean> {
   if (!p) return Promise.resolve(false);
   return act(p.id, async () => {
     set({ pending: null });
-    return send({ ...p.body, acknowledge: p.id }, p.needsNative, p.id);
+    // the note goes with the select or address that changed, not under the provider's key row
+    const noteId = p.body.search !== undefined ? 'search' : p.body.read !== undefined ? 'read' : p.body.searxng !== undefined ? 'searxng' : p.id;
+    return sendAndNote({ ...p.body, acknowledge: p.id }, p.needsNative, noteId);
   });
 }
 
 export function saveKey(provider: WebProviderId, key: string): Promise<boolean> {
+  set({ test: null });
   return act(provider, async () => {
     const bridge = window.legion?.webSearchChange;
     if (!bridge) throw new Error('Saving a key needs the Legion app window (it shows a confirmation). Open the app to do this.');

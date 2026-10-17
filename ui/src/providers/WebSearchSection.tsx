@@ -36,12 +36,13 @@ export function WebSearchSection() {
   const error = useWebSearch((s) => s.error);
   const pending = useWebSearch((s) => s.pending);
   const test = useWebSearch((s) => s.test);
-  const note = useWebSearch((s) => s.notes.searxng ?? s.notes.search ?? s.notes.read);
+  const note = useWebSearch((s) => s.notes.searxng ?? s.notes.cap ?? s.notes.search ?? s.notes.read);
+  const loadError = useWebSearch((s) => s.loadError);
   const [cap, setCap] = useState(''); const [capErr, setCapErr] = useState('');
   const [addr, setAddr] = useState('');
   useEffect(() => { void loadWebSearch(); }, []);
   useEffect(() => { if (v) { setCap(String(v.tregMaxCostUsd)); setAddr(v.searxng?.baseUrl ?? ''); } }, [v?.tregMaxCostUsd, v?.searxng?.baseUrl]);
-  if (!v) return null;
+  if (!v) return loadError ? <p className="set-error" role="alert">{loadError}</p> : null;
   const jobs: Array<{ job: WebJob; label: string }> = [{ job: 'search', label: 'Search with' }, { job: 'read', label: 'Read pages with' }];
   const target: WebProviderId | undefined = v.search !== 'builtin' ? v.search : v.read !== 'builtin' ? v.read : undefined;
   const missing = [pickedNotReady(v, 'search'), pickedNotReady(v, 'read')].filter((x, i, a): x is string => !!x && a.indexOf(x) === i);

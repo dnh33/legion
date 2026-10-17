@@ -80,3 +80,11 @@ test('errors: core down, unknown provider, a check the core refuses, a refused w
   assert.match((await webSearchChange({ kind: 'address', baseUrl: 'https://u.example' }, deps({ check: { ok: false, error: 'Bad address.' } }).d)).error ?? '', /Bad address/);
   assert.match((await webSearchChange({ kind: 'key', provider: 'exa', key: KEY }, deps({ status: 403 }).d)).error ?? '', /refused by core/);
 });
+
+test('the hosts the key dialog names are the hosts the adapters send the key to', async () => {
+  const { WEB_PROVIDER_HOSTS } = await import('../src/shared/web-search-config.js');
+  const { ADAPTERS } = await import('../src/core/web-search/adapters.js');
+  for (const id of ['treg', 'exa', 'tavily', 'brave'] as const) {
+    assert.equal(new URL(ADAPTERS[id].origin({} as never)!).host, WEB_PROVIDER_HOSTS[id], id);
+  }
+});

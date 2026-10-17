@@ -59,7 +59,7 @@ export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Pro
     const label = dialogLine(row.label, 60) || ch.provider;
     title = 'Save an API key?'; confirmLabel = 'Save key';
     message = `Save an API key for ${label}?`;
-    detail = `Legion will send requests to ${WEB_PROVIDER_HOSTS[ch.provider]} and send this key only there. It is stored in its own file in your Legion data folder, not in the settings file, and Legion will not show it again.`;
+    detail = `Legion will send requests to ${WEB_PROVIDER_HOSTS[ch.provider]} and send this key only there. It is stored in its own file in your Legion data folder, not in the settings file, and Legion will not show it in full again.`;
     route = '/api/settings/web-search/key'; method = 'POST'; body = { provider: ch.provider, key: ch.key };
   } else {
     body = { searxng: { baseUrl: ch.baseUrl }, ...(ch.acknowledge ? { acknowledge: ch.acknowledge } : {}) };
