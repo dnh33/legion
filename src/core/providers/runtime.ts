@@ -119,6 +119,15 @@ export class ProviderRuntime {
   /** True when `model` names a provider (configured, preset, or just provider-shaped): used by the caps that keep a bot on the owner's provider. */
   isProviderModel(model: string | undefined): boolean { return providerPrefix(model) !== undefined; }
 
+  /**
+   * The target for a call that is not a model run (the skill finder's embeddings): the saved entry for `id`, or the preset's own
+   * entry, with its key. Undefined when there is none, or the provider is turned off.
+   */
+  targetFor(id: string): ProviderTarget | undefined {
+    const entry = this.cfg.entries[id] ?? PROVIDER_PRESETS.find((p) => p.id === id)?.entry;
+    return entry && entry.enabled ? this.target(id, entry) : undefined;
+  }
+
   private target(id: string, entry: ProviderEntry): ProviderTarget {
     const ep = checkEndpoint(entry.baseUrl, { allowPrivate: entry.allowPrivateNetwork === true });
     const origin = ep.ok ? ep.origin : '';
