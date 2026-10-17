@@ -9,7 +9,7 @@ import { after, test } from 'node:test';
 import { armoryRig, mkAgent } from './armory-rig.js';
 import { isClientRoute, gate } from '../src/core/admin.js';
 import { armoryFilePath, readArmoryFile } from '../src/core/armory/store.js';
-import { FINDER_DEFAULTS, cleanFinder, finderFor } from '../src/core/armory/finder/settings.js';
+import { FINDER_DEFAULTS, cleanFinder, finderFor, finderPatch, suggestOn } from '../src/core/armory/finder/settings.js';
 import { AUTH } from './helpers-c.js';
 import { closeAll, mount } from './token-harness.js';
 
@@ -19,7 +19,7 @@ test('defaults: a fresh Armory reports the full finder block, and the defaults a
   const rig = armoryRig();
   const out = await rig.call('GET', '/api/armory');
   assert.deepEqual(out.finder, {
-    suggest: true, searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1,
+    suggest: 'auto', searchTool: true, subagents: true, ranker: 'keyword', rerank: false, rerankMonthlyUsd: 1,
     slimListing: false, k: 3, threshold: 'balanced', chatLine: true, noticeSeen: false,
   });
   assert.deepEqual(FINDER_DEFAULTS, out.finder);
@@ -133,4 +133,25 @@ test('agent settings: skillFinder is inherit, on or off; skillFinderK is a whole
   assert.equal(created.status, 201);
   assert.equal(created.json.skillFinder, 'on');
   assert.equal(created.json.skillFinderK, 2);
+});
+
+test("suggest 'auto': read, patched, resolved by the ranker and the model, and overridden per agent", () => {
+  assert.equal(FINDER_DEFAULTS.suggest, 'auto', 'the default is auto');
+  assert.deepEqual(cleanFinder({ suggest: 'auto' }), { suggest: 'auto' });
+  assert.deepEqual(cleanFinder({ suggest: true }), { suggest: true }, 'an old boolean is kept as it is');
+  assert.equal(cleanFinder({ suggest: 'maybe' }), undefined);
+  assert.deepEqual(finderPatch({ suggest: 'auto' }), { suggest: 'auto' });
+  assert.throws(() => finderPatch({ suggest: 'maybe' }), /suggest must be true, false or "auto"/);
+  // auto is on only for the local ranker with its model installed
+  assert.equal(suggestOn({ suggest: 'auto', ranker: 'keyword' }, true), false);
+  assert.equal(suggestOn({ suggest: 'auto', ranker: 'provider' }, true), false);
+  assert.equal(suggestOn({ suggest: 'auto', ranker: 'local' }, false), false);
+  assert.equal(suggestOn({ suggest: 'auto', ranker: 'local' }, true), true);
+  assert.equal(suggestOn({ suggest: true, ranker: 'keyword' }, false), true, 'an explicit on stays on');
+  assert.equal(suggestOn({ suggest: false, ranker: 'local' }, true), false, 'an explicit off stays off');
+  // a per-agent switch is explicit
+  const file = {};
+  assert.equal(finderFor(file).suggest, 'auto');
+  assert.equal(finderFor(file, mkAgent('a', { skillFinder: 'on' })).suggest, true);
+  assert.equal(finderFor(file, mkAgent('a', { skillFinder: 'off' })).suggest, false);
 });

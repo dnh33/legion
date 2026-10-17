@@ -30,7 +30,7 @@ import type { SdkProbe } from './handshake.js';
 import { readListingCache, writeListingCache } from './listing-cache.js';
 import type { CatalogEntry } from './catalog.js';
 import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, updateArmoryFile, writeSkillFolder, STATES } from './store.js';
-import { applyFinderPatch, FinderInputError, finderFor, finderPatch } from './finder/settings.js';
+import { applyFinderPatch, FinderInputError, finderFor, finderPatch, suggestOn } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
 import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, RERANK_CANDIDATES, THRESHOLDS } from './finder/defaults.js';
@@ -387,12 +387,12 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
     finderWiring(agent: AgentProfile): FinderWiring {
       const f = finderSettings(agent);
-      return { suggest: f.suggest, subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank, embeddings: embedderFor(f) !== undefined };
+      return { suggest: suggestOn(f, embedderFor(f) !== undefined), subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank, embeddings: embedderFor(f) !== undefined };
     },
 
     async turnNote(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined> {
       const f = finderSettings(agent);
-      if (!f.suggest || (ctx.subagentType !== undefined && !f.subagents)) return undefined;
+      if (!suggestOn(f, embedderFor(f) !== undefined) || (ctx.subagentType !== undefined && !f.subagents)) return undefined;
       if (ctx.prompt.trim().split(/\s+/).filter(Boolean).length < MIN_WORDS) return undefined;
       const cand = candidateIds(agent, ctx.runtime);
       if (!cand.size) return undefined;

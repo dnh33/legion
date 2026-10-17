@@ -21,7 +21,7 @@ async function rig() {
   const man = await r.call('POST', '/api/armory/skill', { name: 'manual-invoice-export', description: 'Export invoices to PDF for accounting', body: 'b' });
   await r.call('POST', '/api/armory/state', { id: man.id, state: 'manual' });
   await r.call('POST', '/api/armory/skill', { name: 'off-invoice-export', description: 'Export invoices to PDF for accounting', body: 'b' });
-  await r.call('POST', '/api/armory/finder', { threshold: 'eager' });
+  await r.call('POST', '/api/armory/finder', { suggest: true, threshold: 'eager' });
   return r;
 }
 

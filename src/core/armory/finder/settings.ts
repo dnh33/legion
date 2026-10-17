@@ -12,7 +12,7 @@ import type { AgentProfile } from '../../../shared/types.js';
 import { DEFAULT_K, THRESHOLDS } from './defaults.js';
 
 export const FINDER_DEFAULTS: FinderSettings = {
-  suggest: true,
+  suggest: 'auto',
   searchTool: true,
   subagents: true,
   ranker: 'keyword',
@@ -60,6 +60,8 @@ function check(key: FinderKey, v: unknown): Checked {
       return RANKERS.includes(v as FinderRanker) ? { ok: true, value: v } : { ok: false, reason: `ranker must be one of: ${RANKERS.join(', ')}` };
     case 'threshold':
       return THRESHOLD_NAMES.includes(v as FinderThreshold) ? { ok: true, value: v } : { ok: false, reason: `threshold must be one of: ${THRESHOLD_NAMES.join(', ')}` };
+    case 'suggest':
+      return v === true || v === false || v === 'auto' ? { ok: true, value: v } : { ok: false, reason: 'suggest must be true, false or "auto"' };
     case 'providerId':
     case 'providerModel':
       if (typeof v !== 'string' || v.length > FINDER_MAX_TEXT) return { ok: false, reason: `${key} must be a string of at most ${FINDER_MAX_TEXT} characters` };
@@ -112,6 +114,11 @@ export function applyFinderPatch(stored: Partial<FinderSettings> | undefined, pa
     else next[key] = v;
   }
   return next as Partial<FinderSettings>;
+}
+
+/** Whether the note is on for these settings. 'auto' is on only for the local ranker once its model is installed (`localReady`). */
+export function suggestOn(f: Pick<FinderSettings, 'suggest' | 'ranker'>, localReady: boolean): boolean {
+  return f.suggest === 'auto' ? f.ranker === 'local' && localReady : f.suggest;
 }
 
 /**

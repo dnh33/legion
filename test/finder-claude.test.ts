@@ -18,7 +18,7 @@ async function rigWith(prep?: (r: ReturnType<typeof armoryRig>) => Promise<void>
   const man = await rig.call('POST', '/api/armory/skill', { name: 'manual-invoice-export', description: 'Export invoices to PDF for accounting', body: 'b' });
   await rig.call('POST', '/api/armory/state', { id: man.id, state: 'manual' });
   await rig.call('POST', '/api/armory/skill', { name: 'off-invoice-export', description: 'Export invoices to PDF for accounting', body: 'b' });
-  await rig.call('POST', '/api/armory/finder', { threshold: 'eager' });
+  await rig.call('POST', '/api/armory/finder', { suggest: true, threshold: 'eager' });
   await prep?.(rig);
   return rig;
 }

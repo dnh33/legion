@@ -135,7 +135,7 @@ describe('the note with embeddings', () => {
 
   it('the keyword ranker never calls the embedder', async () => {
     const f = fakeEmbedder();
-    const r = await rigWith(f.e, { ranker: 'keyword', threshold: 'eager' });
+    const r = await rigWith(f.e, { suggest: true, ranker: 'keyword', threshold: 'eager' });
     const note = await turn(r, 'please polish the typography of these pages');
     assert.ok(note);
     await r.mod.finderSettled();
@@ -163,7 +163,7 @@ describe('the note with embeddings', () => {
   });
 
   it('with the local ranker and no model installed, the note is the keyword note and nothing is spawned', async () => {
-    const r = await rigWith(undefined, { ranker: 'local', threshold: 'eager' });
+    const r = await rigWith(undefined, { suggest: true, ranker: 'local', threshold: 'eager' });
     const note = await turn(r, 'please polish the typography of these pages');
     assert.deepEqual(note?.suggested, [ID('design-polish')]);
   });
@@ -209,7 +209,7 @@ describe('the provider ranker', () => {
     await own(r, { name: 'design-polish', description: 'Polish typography, spacing and colour for pages', body: 'b' });
     await own(r, { name: 'db-tune', description: 'Tune database queries and indexes', body: 'b' });
     await own(r, { name: 'garden-notes', description: 'Helps with garden things', body: 'b' });
-    await r.call('POST', '/api/armory/finder', { ranker: 'provider', providerId: 'p1', providerModel: 'embed-x', threshold: 'eager' });
+    await r.call('POST', '/api/armory/finder', { suggest: true, ranker: 'provider', providerId: 'p1', providerModel: 'embed-x', threshold: 'eager' });
     assert.equal(r.mod.finderWiring!(r.agents.get('alpha')!).embeddings, true);
     const ask = (prompt: string) => r.mod.turnNote!(r.agents.get('alpha')!, { prompt, taskId: 't1', runtime: 'provider' });
     await ask(NO_KEYWORDS);
@@ -227,5 +227,23 @@ describe('the provider ranker', () => {
     assert.equal(r.mod.finderWiring!(r.agents.get('alpha')!).embeddings, false);
     await r.call('POST', '/api/armory/finder', { providerId: 'gone', providerModel: 'm' });
     assert.equal(r.mod.finderWiring!(r.agents.get('alpha')!).embeddings, false);
+  });
+});
+
+describe("suggest 'auto' (the default)", () => {
+  it('is off for the keyword ranker, off for the local ranker without its model, and on for the local ranker with it', async () => {
+    const f = fakeEmbedder();
+    const prompt = 'please polish the typography of these pages';
+    const keyword = await rigWith(f.e, { threshold: 'eager' });
+    assert.equal(keyword.mod.finderWiring!(keyword.agents.get('alpha')!).suggest, false, 'keyword ranker: auto is off');
+    assert.equal(await turn(keyword, prompt), undefined, 'and no note is made');
+    const noModel = await rigWith(undefined, { ranker: 'local', threshold: 'eager' });
+    assert.equal(noModel.mod.finderWiring!(noModel.agents.get('alpha')!).suggest, false, 'local ranker, no model: auto is off');
+    const local = await rigWith(f.e, { ranker: 'local', threshold: 'eager' });
+    assert.equal(local.mod.finderWiring!(local.agents.get('alpha')!).suggest, true, 'local ranker with a model: auto is on');
+    assert.ok(await turn(local, prompt));
+    await local.call('POST', '/api/armory/finder', { suggest: false });
+    assert.equal(local.mod.finderWiring!(local.agents.get('alpha')!).suggest, false, 'an explicit off wins');
+    assert.equal(await turn(local, prompt), undefined);
   });
 });
