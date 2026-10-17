@@ -15,19 +15,30 @@ export function unixCloneWouldApply(version) {
 }
 
 /**
- * -> { level: 'pass' | 'warn' | 'fail' | 'skip', message }.
- * `prevDepsSha256` is the previous release's manifest depsSha256 (null when it was not given).
+ * The dependency hash the updater compares (dependencyHash in src/core/updater/package.ts: the lock with its own version fields blanked
+ * out). NOT the manifest's depsHash, which is the raw file hash and changes on every release. Needs `npm run build` (reads dist).
  */
-export function unixApplyVerdict({ version, requiresFullInstall, depsSha256, prevDepsSha256 }) {
+export async function unixDepsHashOfLock(lockText) {
+  const { dependencyHash } = await import(new URL(`../../dist/src/core/updater/package.js?p=${Date.now()}`, import.meta.url).href);
+  return dependencyHash(lockText);
+}
+
+/**
+ * -> { level: 'pass' | 'warn' | 'fail' | 'skip', message }.
+ * `depsHash` and `prevDepsHash` are dependency hashes (unixDepsHashOfLock) of this release's lock and the previous release's lock;
+ * `prevDepsHash` is null when the previous lock was not given.
+ */
+export function unixApplyVerdict({ version, requiresFullInstall, depsHash, prevDepsHash }) {
   if (!unixCloneWouldApply(version)) return { level: 'skip', message: `Mac/Linux apply check: ${version} is not newer than ${FIRST_UNIX_UPDATER}, so no managed clone applies it` };
   const notice = 'Mac and Linux users will get the "run the installer again" notice instead of an automatic update';
-  if (!prevDepsSha256) {
+  if (!prevDepsHash) {
     return requiresFullInstall === true
-      ? { level: 'warn', message: `${version} is a full-install release: ${notice}. (Pass --prev-manifest <previous release manifest> to also compare the dependency hash.)` }
-      : { level: 'warn', message: `Mac/Linux apply check: the previous release's dependency hash was not given, so "code-only with an equal dependency hash" is unchecked. Pass --prev-manifest <previous legion-update-manifest.json> or --prev-deps-sha256 <hex>. If the dependencies changed, ${notice}.` };
+      ? { level: 'warn', message: `${version} is a full-install release: ${notice}. (Pass --prev-lock <the previous release's package-lock.json> or --prev-tag v<previous> to also compare the dependency hash.)` }
+      : { level: 'warn', message: `Mac/Linux apply check: the previous release's dependency hash was not given, so "code-only with an equal dependency hash" is unchecked. Pass --prev-lock <the previous release's package-lock.json> or --prev-tag v<previous> (read with git show). If the dependencies changed, ${notice}.` };
   }
-  const same = String(depsSha256).toLowerCase() === String(prevDepsSha256).toLowerCase();
-  if (requiresFullInstall !== true && !same) return { level: 'fail', message: `the manifest says requiresFullInstall is false, but its dependency hash differs from the previous release's (${String(depsSha256).slice(0, 12)} vs ${String(prevDepsSha256).slice(0, 12)}): the dependencies changed, so it must say requiresFullInstall true. As written, Mac and Linux installs would apply code that needs different dependencies` };
+  if (!depsHash) return { level: 'fail', message: `Mac/Linux apply check: the app zip has no package-lock.json, so the dependency hash cannot be compared with the previous release's` };
+  const same = String(depsHash).toLowerCase() === String(prevDepsHash).toLowerCase();
+  if (requiresFullInstall !== true && !same) return { level: 'fail', message: `the manifest says requiresFullInstall is false, but this release's dependencies differ from the previous release's (dependency hash ${String(depsHash).slice(0, 12)} vs ${String(prevDepsHash).slice(0, 12)}, with each lock's own version ignored). Either the dependencies really changed, and then the release must say requiresFullInstall true, or the wrong previous lock was given. As written, Mac and Linux installs would apply code that needs different dependencies` };
   if (requiresFullInstall === true) return { level: 'warn', message: `${version} needs a full install${same ? ' (its dependency hash equals the previous release\'s, so check that this is intended)' : ''}: ${notice}` };
   return { level: 'pass', message: 'Mac/Linux: code-only with a dependency hash equal to the previous release\'s, so managed clones apply it automatically' };
 }

@@ -19,6 +19,7 @@
  * Exits non-zero and prints what is wrong. Run it after building + signing, before `gh release create`.
  */
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -26,10 +27,10 @@ import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO, requireR
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 import { carryForFolder } from './lib/stone-carry.mjs';
-import { unixApplyVerdict } from './lib/unix-apply-check.mjs';
+import { unixApplyVerdict, unixDepsHashOfLock } from './lib/unix-apply-check.mjs';
 import { frozenParserProblems, sourcesFromGit } from './lib/frozen-parser.mjs';
 
-const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v', 'prev-manifest': 'v', 'prev-deps-sha256': 'v' });
+const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v', 'prev-lock': 'v', 'prev-tag': 'v' });
 requireRehearsalFor(a, ['no-network', 'stones']);
 
 // --pkg is REQUIRED, with no default. It used to fall back to a hardcoded owner-local folder, which was wrong twice over:
@@ -171,11 +172,21 @@ else {
   }
   // Mac and Linux installs made by install.sh apply only code-only releases whose dependency hash equals the previous release's.
   {
-    let prev = a['prev-deps-sha256'] ?? null;
-    if (!prev && a['prev-manifest']) {
-      try { prev = JSON.parse(readFileSync(a['prev-manifest'], 'utf8')).depsSha256 ?? null; } catch (e) { fail(`could not read depsSha256 from --prev-manifest: ${e.message}`); }
+    // The previous release's lock: a file (--prev-lock) or the tag's lock (--prev-tag, git show). Compared as dependency hashes, as the updater does.
+    let prevLock = null;
+    if (a['prev-lock']) {
+      try { prevLock = readFileSync(a['prev-lock'], 'utf8'); } catch (e) { fail(`could not read --prev-lock: ${e.message}`); }
+    } else if (a['prev-tag']) {
+      const g = spawnSync('git', ['-C', REPO, 'show', `${a['prev-tag']}:package-lock.json`], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+      if (g.status === 0) prevLock = g.stdout; else fail(`could not read package-lock.json at ${a['prev-tag']} (git show): ${String(g.stderr).trim()}`);
     }
-    const v = unixApplyVerdict({ version, requiresFullInstall: m.requiresFullInstall, depsSha256: m.depsSha256, prevDepsSha256: prev });
+    const thisLock = existsSync(appZip) ? readZipEntry(readFileSync(appZip), `legion-${version}/package-lock.json`) : null;
+    let depsHash = null; let prevDepsHash = null;
+    try {
+      if (thisLock) depsHash = await unixDepsHashOfLock(thisLock.toString('utf8'));
+      if (prevLock !== null) prevDepsHash = await unixDepsHashOfLock(prevLock);
+    } catch (e) { fail(`could not compute the dependency hash (run npm run build first): ${e.message}`); }
+    const v = unixApplyVerdict({ version, requiresFullInstall: m.requiresFullInstall, depsHash, prevDepsHash });
     if (v.level === 'fail') fail(v.message); else if (v.level === 'warn') warn(v.message); else pass(v.message);
   }
   if (!m.notes || !String(m.notes).trim()) fail('manifest has no release notes — people read these before updating');
