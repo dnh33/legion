@@ -1315,12 +1315,16 @@ export class Engine {
   /** The first note a module gives for this turn. Bounded in time and never throws: a slow or broken module means no note. */
   private async turnNote(agent: AgentProfile, ctx: TurnContext, rerank: boolean): Promise<TurnNote | undefined> {
     let timer: NodeJS.Timeout | undefined;
-    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => r(undefined), rerank ? RERANK_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS); });
+    // Once the limit has passed, the turn goes on without a note, and no later module is asked.
+    let timedOut = false as boolean;
+    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => { timedOut = true; r(undefined); }, rerank ? RERANK_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS); });
     try {
       for (const m of this.modules) {
+        if (timedOut) break;
         if (!m.turnNote) continue;
         try {
           const note = await Promise.race([m.turnNote(agent, ctx).catch(() => undefined), limit]);
+          if (timedOut) break;
           if (!note || !note.text) continue;
           // Only a note accepted in time is counted as shown.
           try { m.noteShown?.(agent.id, ctx.taskId, note.suggested); } catch { /* ignore */ }
@@ -1363,6 +1367,18 @@ export class Engine {
   /** Whether a finder hook may still act: the run is live and its task is still running. */
   private finderLive(act: Active, taskId: string): boolean {
     return !act.cancelled && this.store.getTask(taskId)?.status === 'running';
+  }
+
+  /**
+   * One turn's note, recorded on the task. Shared by the Claude hooks and the provider path. No note is returned, and none is
+   * recorded, unless the run is still live both before and after the ranking.
+   */
+  private async liveTurnNote(agent: AgentProfile, act: Active, ctx: TurnContext, rerank: boolean): Promise<TurnNote | undefined> {
+    if (!this.finderLive(act, ctx.taskId)) return undefined;
+    const note = await this.turnNote(agent, ctx, rerank);
+    if (!note || !this.finderLive(act, ctx.taskId)) return undefined;
+    this.recordSkillTurn(ctx.taskId, note, ctx.subagentType);
+    return note;
   }
 
   private modulePreamble(agent: AgentProfile, ctx: PreambleContext): string {
@@ -1765,9 +1781,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (input.source && input.source !== 'user' && input.source !== 'sdk') return none;
         const text = firstRanked ? input.prompt : (act.rankText ?? input.prompt);
         firstRanked = true;
-        const note = await this.turnNote(agent, { prompt: text, taskId: job.taskId, runtime: 'claude' }, finder.rerank);
-        if (!note || !this.finderLive(act, job.taskId)) return none;
-        this.recordSkillTurn(job.taskId, note);
+        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude' }, finder.rerank);
+        if (!note) return none;
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: note.text } };
       } catch { return none; }
     }] }];
@@ -1789,9 +1804,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const i = list.findIndex((b) => b.type === input.agent_type);
         const text = i >= 0 ? list.splice(i, 1)[0]!.prompt : act.rankText;
         if (!text) return none;
-        const note = await this.turnNote(agent, { prompt: text, taskId: job.taskId, runtime: 'claude', subagentType: input.agent_type }, finder.rerank);
-        if (!note || !this.finderLive(act, job.taskId)) return none;
-        this.recordSkillTurn(job.taskId, note, input.agent_type);
+        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude', subagentType: input.agent_type }, finder.rerank);
+        if (!note) return none;
         return { hookSpecificOutput: { hookEventName: 'SubagentStart' as const, additionalContext: note.text } };
       } catch { return none; }
     }] }];
@@ -1874,6 +1888,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (!projectHere && job.projectAtStart && this.projects) this.noteProjectLost(taskId, job.projectAtStart, agent);
     // only the agent shell writes files on a provider run
     if (agent.host?.enabled) this.noteSharedFolder(taskId, agent, projectHere);
+    // The skill finder's note goes in front of this turn's prompt, never in the system prompt. It ranks the task's own words, so
+    // the bridge header is left out. The stored message keeps the raw text: only the request sent to the model carries the note.
+    const finder = this.finderWiring(agent);
+    const rankText = act.rankText;
+    const note = finder.suggest && rankText ? await this.liveTurnNote(agent, act, { prompt: rankText, taskId, runtime: 'provider' }, finder.rerank) : undefined;
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts
@@ -1887,7 +1906,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : '')
         // the project's own rules and folder, last, as on the Claude path (council A5: provider runs had none)
         + (projectHere ? '\n\n' + projectSection({ name: projectHere.name, instructions: projectHere.instructions, folder: projectHere.folder }, { files: agent.host?.enabled === true }) : ''),
-      prompt, stored: this.store.listMessages(taskId),
+      prompt: note ? note.text + '\n\n' + prompt : prompt, stored: this.store.listMessages(taskId),
       taskListText: () => renderForModel(this.taskLists.load(taskId)),
       servers, external,
       authorize: decide,
