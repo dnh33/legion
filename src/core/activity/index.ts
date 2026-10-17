@@ -43,26 +43,72 @@ const STATUS_MAX = 20_000;
 
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 /** Redacts first on a bounded head, then cuts: a token must never be cut in half and slip past the rules. */
-/** A flag's argument: double-quoted (escapes kept), single-quoted, or one bare word. */
-const ARG = String.raw`("(?:\\.|[^"\\])*"|'[^']*'|\S+)`;
-/** curl and wget long options whose argument is a body, an uploaded file, a login, a header or a cookie (after a space or `=`). */
-const LONG_FLAG = new RegExp(String.raw`(^|\s)(--data(?:-raw|-binary|-urlencode|-ascii)?|--form(?:-string)?|--upload-file|--json|--user|--proxy-user|--header|--proxy-header|--cookie|--oauth2-bearer|--post-data|--post-file|--body-data|--body-file|--password|--http-password|--proxy-password|--ftp-password)(?:=|\s+)${ARG}`, 'g');
-/**
- * curl short options with such an argument (-d -F -T -u -U -H -b), alone or ending a cluster (`-sSd`), the value attached (`-dVALUE`) or after a space.
- * Case matters: `-D` dumps headers, `-f` fails. wget's short letters mean other things, so only its long options are read.
- */
-const CURL_SHORT = new RegExp(String.raw`(^|\s)(-[a-zA-Z]*?[dFTuUHb])(?:(?=[^\s=])${ARG}|(?:=|\s+)${ARG})`, 'g');
-const OMIT = (_m: string, pre: string, flag: string): string => `${pre}${flag} <omitted>`;
+/** curl and wget long options whose value is a body, an uploaded file, a login, a password, a header or a cookie (after a space or `=`). */
+const SECRET_LONG = new Set(['--data', '--data-raw', '--data-binary', '--data-urlencode', '--data-ascii', '--form', '--form-string', '--upload-file', '--json', '--user', '--proxy-user',
+  '--pass', '--proxy-pass', '--cert', '--proxy-cert', '--header', '--proxy-header', '--cookie', '--oauth2-bearer',
+  '--post-data', '--post-file', '--body-data', '--body-file', '--password', '--http-password', '--proxy-password', '--ftp-password']);
+/** curl's short options that take a value (its manual). The value of one marked secret is dropped; any other ends the cluster and its value is kept. Case matters: `-D` dumps headers. */
+const CURL_TAKES_VALUE = new Set('AbcCdDeEFHKmoPQrtTuUwxXYyz');
+const CURL_SECRET = new Set('bdEFHTuU');
+/** A line break that continues the command (`\`, a PowerShell backtick or cmd's `^` before a newline): its length, or 0. */
+const continuation = (s: string, i: number): number => {
+  if (s[i] !== '\\' && s[i] !== '`' && s[i] !== '^') return 0;
+  return s[i + 1] === '\n' ? 2 : s[i + 1] === '\r' && s[i + 2] === '\n' ? 3 : 0;
+};
+const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+/** The words of a command as [start, end) offsets: quotes keep spaces in, a continuation counts as space, an unclosed quote runs to the end. */
+function words(s: string): Array<[number, number]> {
+  const out: Array<[number, number]> = []; let i = 0;
+  while (i < s.length) {
+    for (;;) { const k = isSpace(s[i]) ? 1 : continuation(s, i); if (k === 0 || i >= s.length) break; i += k; }
+    if (i >= s.length) break;
+    const start = i; let q: string | undefined;
+    while (i < s.length && (q !== undefined || (!isSpace(s[i]) && continuation(s, i) === 0))) {
+      const c = s[i]!;
+      if (q !== undefined) { if (c === '\\' && q === '"') i++; else if (c === q) q = undefined; } else if (c === '"' || c === "'") q = c;
+      i++;
+    }
+    out.push([start, Math.min(i, s.length)]);
+  }
+  return out;
+}
+/** The text after `curl` or `wget` with each secret value replaced by `<omitted>`; read word by word, so a value is never mistaken for a flag. */
+function scrubWebArgs(tail: string, curl: boolean): string {
+  const ws = words(tail); const cuts: Array<[number, number, string]> = [];
+  const next = (k: number): boolean => { const w = ws[k + 1]; if (w) cuts.push([w[0], w[1], '<omitted>']); return !!w; };
+  for (let k = 0; k < ws.length; k++) {
+    const [a, b] = ws[k]!; const w = tail.slice(a, b);
+    if (w.startsWith('--')) {
+      const eq = w.indexOf('=');
+      if (!SECRET_LONG.has(eq < 0 ? w : w.slice(0, eq))) continue;
+      if (eq >= 0) cuts.push([a + eq + 1, b, '<omitted>']); else if (next(k)) k++;
+      continue;
+    }
+    if (!curl || w.length < 2 || w[0] !== '-') continue;
+    for (let j = 1; j < w.length; j++) {
+      if (!CURL_TAKES_VALUE.has(w[j]!)) continue;
+      const secret = CURL_SECRET.has(w[j]!);
+      if (j + 1 < w.length) { if (secret) cuts.push([a + j + 1, b, ' <omitted>']); } else if (secret ? next(k) : k + 1 < ws.length) k++;
+      break;
+    }
+  }
+  let out = tail;
+  for (const [a, b, t] of cuts.reverse()) out = out.slice(0, a) + t + out.slice(b);
+  return out;
+}
 /** The program word in one command segment, so `ls -ld` and `docker run -d` keep their flags. */
-const WEB_TOOL = /(^|[\s"'/\\])(curl|wget)(?:\.exe)?(?=\s|$)/i;
-/** A line cut at `;`, `|`, `&` and newlines outside quotes; the separators stay as their own pieces, so joining gives the line back. */
+const WEB_TOOL = /(^|[\s"'`(=/\\])(curl|wget)(?:\.exe)?(?=[\s"'`)]|$)/i;
+/** A line cut at `;`, `|`, `&` and newlines outside quotes (not at a continued line or a redirect like `2>&1`); separators stay as pieces, so joining gives the line back. */
 function segments(s: string): string[] {
   const out: string[] = []; let cur = ''; let q: string | undefined;
   for (let i = 0; i < s.length; i++) {
     const c = s[i]!;
     if (q) { cur += c; if (c === '\\' && q === '"' && i + 1 < s.length) cur += s[++i]; else if (c === q) q = undefined; continue; }
+    const k = continuation(s, i);
+    if (k > 0) { cur += s.slice(i, i + k); i += k - 1; continue; }
     if (c === '"' || c === "'") { q = c; cur += c; continue; }
-    if (c === ';' || c === '|' || c === '&' || c === '\n') { out.push(cur, c); cur = ''; continue; }
+    const redirect = c === '&' && (s[i - 1] === '>' || s[i + 1] === '>');
+    if (!redirect && (c === ';' || c === '|' || c === '&' || c === '\n')) { out.push(cur, c); cur = ''; continue; }
     cur += c;
   }
   out.push(cur);
@@ -72,15 +118,21 @@ function segments(s: string): string[] {
 export const scrubShell = (s: string): string => segments(s).map((seg) => {
   const m = WEB_TOOL.exec(seg);
   if (!m) return seg;
-  const at = m.index + m[0].length;
-  const tail = seg.slice(at).replace(LONG_FLAG, OMIT);
-  return seg.slice(0, at) + (m[2]!.toLowerCase() === 'curl' ? tail.replace(CURL_SHORT, OMIT) : tail);
+  let at = m.index + m[0].length;
+  if ((m[1] === '"' || m[1] === "'") && seg[at] === m[1]) at++; // "curl" written in quotes
+  return seg.slice(0, at) + scrubWebArgs(seg.slice(at), m[2]!.toLowerCase() === 'curl');
 }).join('');
 /** An address without its userinfo, query string and fragment. Text that is not an address comes back as it was. */
 export function scrubUrl(u: string): string {
-  try { const x = new URL(u); x.username = ''; x.password = ''; x.search = ''; x.hash = ''; return x.toString().replace(/\/$/, u.endsWith('/') ? '/' : ''); } catch { return u; }
+  try { const x = new URL(u); x.username = ''; x.password = ''; x.search = ''; x.hash = ''; return x.toString().replace(/\/$/, u.endsWith('/') ? '/' : ''); } catch { /* not parseable: cut by hand */ }
+  const m = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/is.exec(u);
+  if (!m) return u;
+  // a password may hold `?`, `/` or `#`, so everything up to the last `@` goes (a path with an `@` loses its head: safe)
+  const rest = m[2]!.slice(m[2]!.lastIndexOf('@') + 1);
+  return m[1]! + rest.split(/[?#]/)[0]!;
 }
-const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/\S+/gi;
+// the look-behind keeps the scan linear on long runs such as `a.a.a.a`
+const URL_IN_TEXT = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 const TRAILING = /[.,;:!?)\]}>'"]+$/;
 /** Every address in a line is cut down to scheme, host and path, and curl body flags are dropped, before the log redactor runs. */
 export const scrubLine = (s: string): string => scrubShell(s).replace(URL_IN_TEXT, (m) => { const tail = TRAILING.exec(m)?.[0] ?? ''; return scrubUrl(m.slice(0, m.length - tail.length)) + tail; });

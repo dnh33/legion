@@ -51,6 +51,27 @@ test('scrubShell drops curl and wget logins, headers, cookies and attached value
   }
   assert.equal(scrubShell('curl -fsSL https://a.com/x'), 'curl -fsSL https://a.com/x');
 });
+test('scrubShell: a value-taking flag before a secret one does not hide it (-XPOST, -oout), continued lines, $(...), backticks and redirects', () => {
+  for (const cmd of ['curl -XPOST -H "Authorization: Bearer SECRETVALUE" https://x', 'curl -XPOST -u a:SECRETVALUE https://x', 'curl -XGET -b sid=SECRETVALUE x',
+    'curl -s \\\n  -u a:SECRETVALUE \\\n  https://x', 'curl -s \\\r\n  -H "X-Key: SECRETVALUE" https://x', 'curl.exe -s `\n -u a:SECRETVALUE https://x',
+    'x=$(curl -u a:SECRETVALUE https://x)', '`curl -u a:SECRETVALUE x`', '(curl -u a:SECRETVALUE x)', '"curl" -u a:SECRETVALUE x',
+    'curl 2>&1 -u a:SECRETVALUE x', 'curl &>/dev/null -u a:SECRETVALUE x', "curl -H 'X: SECRETVALUE", 'curl --pass SECRETVALUE --cert c.pem x', 'curl -E c.pem:SECRETVALUE x', 'curl --cert=c.pem:SECRETVALUE x']) {
+    const out = scrubShell(cmd);
+    assert.ok(!out.includes('SECRETVALUE'), JSON.stringify(cmd) + ' -> ' + out);
+  }
+  assert.equal(scrubShell('curl -XPOST https://x'), 'curl -XPOST https://x');
+  assert.equal(scrubShell('curl -oout.bin https://x'), 'curl -oout.bin https://x');
+  assert.equal(scrubShell('curl -XDELETE -H "X-Key: S" https://x'), 'curl -XDELETE -H <omitted> https://x');
+  assert.equal(scrubShell('curl -w "%{http_code}" -o out -L -A agent -e ref -m 5 -x http://p https://x'), 'curl -w "%{http_code}" -o out -L -A agent -e ref -m 5 -x http://p https://x');
+});
+test('scrubUrl cuts a malformed address by hand: no userinfo, no query', () => {
+  assert.equal(scrubUrl('mongodb://usr:pw1@h1:27017,h2:27017/db?replicaSet=r'), 'mongodb://h1:27017,h2:27017/db');
+  assert.equal(scrubUrl('postgres://usr:pw1@h:abc/db'), 'postgres://h:abc/db');
+  assert.equal(scrubUrl('postgres://usr:pa?ss@h/db'), 'postgres://h/db');
+});
+test('scrubLine stays fast on long runs', () => {
+  const t = Date.now(); scrubLine('a.'.repeat(5000)); scrubLine('curl ' + '-a'.repeat(5000)); assert.ok(Date.now() - t < 500, `${Date.now() - t} ms`);
+});
 test('scrubLine drops userinfo and query from any scheme', () => {
   assert.equal(scrubLine('psql postgres://usr:pw1@h:5432/db?sslmode=x'), 'psql postgres://h:5432/db');
   assert.equal(scrubLine('get ftp://usr:pw1@h/f'), 'get ftp://h/f');
