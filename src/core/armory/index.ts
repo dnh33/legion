@@ -47,7 +47,7 @@ import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
 import { rank, rankFused } from './finder/rank.js';
 import type { Ranked } from './finder/rank.js';
-import { isCloseMatch, RerankSession, rerankScores } from './finder/rerank.js';
+import { isCloseMatch, monthKey, readSpend, RerankSession, rerankScores } from './finder/rerank.js';
 import type { RerankLaunch, RerankQuery, RerankSessionOpts } from './finder/rerank.js';
 import { createUsageStore, skillIdOfLoad } from './finder/usage.js';
 import { oneLine } from '../kg/text.js';
@@ -142,6 +142,10 @@ const MIN_WORDS = 3;
 const MAX_FIND_DESCRIPTION = 200;
 /** armory_find waits for the model's call, so it can be more patient than a turn's note (a cold start of the local model fits). */
 const FIND_EMBED_BUDGET_MS = 2000;
+/** One row of a search: the score the search tool sorts by, and the parts it is made of (the Armory's test box shows them). */
+interface SearchRow { id: string; score: number; bm25: number; cosine?: number; boost: number; matched: string[]; thirdParty: boolean; description?: string }
+/** Rows the Armory's test box keeps. */
+const TEST_BOX_MAX = 10;
 
 export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): ArmoryModule {
   const log = opts.log ?? (() => undefined);
@@ -321,30 +325,32 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
    * A search over the agent's own skill set. No score floor, up to 10 results. A third-party skill comes back without any description.
    * With an embedder the order is the fused one; if it cannot answer in time, the order is the keyword one.
    */
-  const findFor = (agent: AgentProfile, runtime: 'claude' | 'provider'): FindFn => async (query, limit): Promise<FindHit[]> => {
-    const cand = candidateIds(agent, runtime);
+  const rankSearch = async (cand: ReadonlySet<string>, agentId: string, settings: FinderSettings, query: string, limit: number): Promise<SearchRow[]> => {
     const { docs, ix } = finderIndex();
-    const boost = usageStore().boostFor(agent.id);
+    const boost = usageStore().boostFor(agentId);
     const sub = { ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) };
-    const emb = embedderFor(finderSettings(agent));
-    let ordered: { id: string; score: number }[] | undefined;
+    const emb = embedderFor(settings);
+    let ordered: Omit<SearchRow, 'thirdParty' | 'description'>[] | undefined;
     if (emb) {
       const st = await embedState(emb, docsOf(docs, cand), query, FIND_EMBED_BUDGET_MS);
       // The search has no floor: a search that names the closest skills is useful even when none is close enough for a note.
       const fused = st ? rankFused(sub, query, st.qv, st.vecs, { k: limit, maxK: limit, minScore: 0, cosineFloor: -1, weight: tune.searchWeight, deadlineMs: DEADLINE_MS, boost }) : null;
-      if (fused && !fused.timedOut) ordered = fused.results.map((r) => ({ id: r.id, score: r.score }));
+      if (fused && !fused.timedOut) ordered = fused.results.map((r) => ({ id: r.id, score: r.score, bm25: r.bm25, ...(r.cosine !== undefined ? { cosine: r.cosine } : {}), boost: r.boost, matched: r.matched }));
     }
-    ordered ??= [...scoreIndex(sub, query)].map(([id, h]) => ({ id, score: h.score * boost(id) }))
+    ordered ??= [...scoreIndex(sub, query)].map(([id, h]) => ({ id, score: h.score * boost(id), bm25: h.score, boost: boost(id), matched: h.matched }))
       .filter((h) => h.score > 0)
       .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, limit);
-    return ordered.map(({ id, score }) => {
-      const doc = docs.get(id);
+    return ordered.map((r) => {
+      const doc = docs.get(r.id);
       const thirdParty = !doc || doc.thirdParty;
       const description = thirdParty || !doc ? '' : oneLine(doc.description).slice(0, MAX_FIND_DESCRIPTION).trimEnd();
-      return { id, score, thirdParty, ...(description ? { description } : {}) };
+      return { ...r, thirdParty, ...(description ? { description } : {}) };
     });
   };
+  const findFor = (agent: AgentProfile, runtime: 'claude' | 'provider'): FindFn => async (query, limit): Promise<FindHit[]> =>
+    (await rankSearch(candidateIds(agent, runtime), agent.id, finderSettings(agent), query, limit))
+      .map(({ id, score, thirdParty, description }) => ({ id, score, thirdParty, ...(description ? { description } : {}) }));
 
   const view = (e: CatalogEntry) => ({
     id: e.id, name: e.name, description: e.description, source: e.source,
@@ -664,6 +670,26 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         if (model.busy()) throw new HttpError(409, 'Wait for the model download to finish first.');
         vectors?.clear(); // the file goes with the model; the copy in memory must not write it back
         return model.remove();
+      });
+
+      // The test box: which skills the search tool would name for a message, with the parts of each score. It calls the same ranking the
+      // search tool calls. With an agent: that agent's skills. Without: every skill that is on in the Armory. A third-party skill is listed by id only.
+      add('POST', '/api/armory/finder/test', async (c) => {
+        const b = need(c.body);
+        const query = typeof b.query === 'string' ? b.query.trim() : '';
+        if (!query) throw new HttpError(400, 'Type a message to test');
+        if (b.agent !== undefined && typeof b.agent !== 'string') throw new HttpError(400, 'agent must be an agent id');
+        const agent = typeof b.agent === 'string' && b.agent ? deps.store.getAgent(b.agent) : undefined;
+        if (typeof b.agent === 'string' && b.agent && !agent) throw new HttpError(404, `Unknown agent "${b.agent.slice(0, 80)}"`);
+        const settings = agent ? finderSettings(agent) : finderFor(readArmoryFile(deps.dataDir));
+        const cand = agent ? candidateIds(agent, 'claude') : new Set(catalog().filter((e) => access(e, { id: '', skills: undefined }) === 'on').map((e) => e.id));
+        const rows = (await rankSearch(cand, agent?.id ?? '', settings, query.slice(0, 4000), TEST_BOX_MAX)).map(({ description: _d, ...r }) => r);
+        return { query, scope: agent ? 'agent' : 'on', candidates: cand.size, rows };
+      });
+      // This month's rerank spend and the cap, from the file the rerank keeps its ledger in.
+      add('GET', '/api/armory/finder/rerank-spend', () => {
+        const month = monthKey(new Date());
+        return { month, spentUsd: readSpend(deps.dataDir)[month] ?? 0, capUsd: finderFor(readArmoryFile(deps.dataDir)).rerankMonthlyUsd };
       });
 
       // {seen:false} brings the notice back (Undo of "Turn all on" from the notice). No body, or seen:true, marks it seen.
