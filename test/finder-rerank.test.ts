@@ -19,12 +19,12 @@ async function until(cond: () => boolean, ms = 2000): Promise<void> {
   }
 }
 
-interface Reply { text?: string; cost?: number; afterMs?: number; never?: boolean; error?: boolean; throws?: boolean }
+interface Reply { text?: string; cost?: number; afterMs?: number; hidden?: number; never?: boolean; error?: boolean; throws?: boolean }
 interface Made { options: any; messages: string[]; closed: boolean }
 
 /**
- * A fake streaming query: it reads each user message as it arrives and answers it as `script` says. `cost` is what that turn cost;
- * a result's total_cost_usd is per turn on a streaming session, not a running total. Records every session it makes.
+ * A fake streaming query: it reads each user message as it arrives and answers it as `script` says. `cost` is what that turn cost and `hidden` an extra background call
+ * billed in the same turn; a result's total_cost_usd is the session's CUMULATIVE cost, like the real session. Records every session it makes.
  */
 function fakeSessions(script: (n: number, text: string, made: Made) => Reply = () => ({ text: '[]' })) {
   const made: Made[] = [];
@@ -32,6 +32,7 @@ function fakeSessions(script: (n: number, text: string, made: Made) => Reply = (
     const rec: Made = { options: a.options, messages: [], closed: false };
     made.push(rec);
     let n = 0;
+    let total = 0;
     const gen = (async function* () {
       for await (const m of a.prompt as AsyncIterable<any>) {
         if (rec.closed) return;
@@ -41,8 +42,9 @@ function fakeSessions(script: (n: number, text: string, made: Made) => Reply = (
         if (r.never) await new Promise<void>(() => undefined);
         if (r.afterMs) await sleep(r.afterMs);
         if (r.throws) throw new Error('boom');
+        total += (r.cost ?? 0) + (r.hidden ?? 0);
         yield { type: 'assistant', message: { content: [{ type: 'text', text: r.text ?? '' }] } };
-        yield { type: 'result', subtype: r.error ? 'error_during_execution' : 'success', is_error: !!r.error, result: r.text ?? '', total_cost_usd: r.cost ?? 0 };
+        yield { type: 'result', subtype: r.error ? 'error_during_execution' : 'success', is_error: !!r.error, result: r.text ?? '', total_cost_usd: total };
       }
     })();
     return Object.assign(gen, { close: () => { rec.closed = true; } });
@@ -363,17 +365,17 @@ describe('rerank: spend', () => {
     s.close();
   });
 
-  it('books each result as the cost of that turn alone, so growing per-turn costs reach the cap at the right time', async () => {
+  it('books the difference between cumulative totals, hidden background cost included, and reaches the cap at the right time', async () => {
     const dir = tempDir('legion-rerank-');
     const costs = [0.00055, 0.00087, 0.00093, 0.00099];
-    const f = fakeSessions((n) => ({ text: '["a"]', cost: costs[n] }));
+    const f = fakeSessions((n) => ({ text: '["a"]', cost: costs[n], ...(n === 2 ? { hidden: 0.0004 } : {}) }));
     const { s } = sessionOf(dir, f);
     await warmUp(s);
     for (let i = 1; i < 4; i++) assert.deepEqual(await s.pick(ask()), ['a']);
-    assert.ok(near(readSpend(dir)[thisMonth()], costs.reduce((a, b) => a + b, 0)), 'the sum of the four turns, not a sum of running totals');
-    // 0.00334 spent: a request fits a cap of 0.0054 (0.00334 + 0.002) but not 0.0053.
-    assert.equal(await s.pick(ask({ monthlyUsd: 0.0053 })), undefined);
-    assert.deepEqual(await s.pick(ask({ monthlyUsd: 0.0054 })), ['a']);
+    assert.ok(near(readSpend(dir)[thisMonth()], costs.reduce((a, b) => a + b, 0) + 0.0004), 'the final cumulative total, not a sum of running totals');
+    // 0.00374 spent: a request fits a cap of 0.0058 (0.00374 + 0.002) but not 0.0057.
+    assert.equal(await s.pick(ask({ monthlyUsd: 0.0057 })), undefined);
+    assert.deepEqual(await s.pick(ask({ monthlyUsd: 0.0058 })), ['a']);
     s.close();
   });
 

@@ -173,6 +173,8 @@ interface Live {
   ac: AbortController;
   closed: boolean;
   ready: boolean;
+  /** The cumulative cost the last result carried (0 for a new session). */
+  lastTotal: number;
   pending?: Pending;
   served: number;
   said: string;
@@ -273,7 +275,7 @@ export class RerankSession {
       ...(launch.executablePath ? { pathToClaudeCodeExecutable: launch.executablePath } : {}),
       abortController: ac,
     };
-    const live = { closed: false, ready: false, served: 0, said: '', inbox: [], ended: false, ac } as unknown as Live;
+    const live = { closed: false, ready: false, lastTotal: 0, served: 0, said: '', inbox: [], ended: false, ac } as unknown as Live;
     async function* input(): AsyncGenerator<SDKUserMessage> {
       for (;;) {
         if (live.inbox.length) { yield live.inbox.shift()!; continue; }
@@ -337,8 +339,11 @@ export class RerankSession {
   private onResult(live: Live, m: Record<string, unknown>): void {
     const est = this.o.reserveUsd ?? RERANK_RESERVE_USD;
     const total = typeof m.total_cost_usd === 'number' && Number.isFinite(m.total_cost_usd) ? m.total_cost_usd : undefined;
-    // On a streaming session each result's total_cost_usd is the cost of that turn alone, not a running total.
-    const delta = total === undefined ? undefined : Math.max(0, total);
+    // On a streaming session total_cost_usd is CUMULATIVE for the session (the controller's probe: modelUsage cache-read tokens grew by
+    // exactly each result's usage, and costUSD rose 0.000034, 0.00044, 0.00050, 0.00056). A request books the difference since the
+    // previous result. The difference can include a hidden background model call; that is real spend, so it is booked too.
+    const delta = total === undefined ? undefined : Math.max(0, total - live.lastTotal);
+    if (total !== undefined) live.lastTotal = Math.max(live.lastTotal, total);
     const p = live.pending;
     if (!p) return;
     live.pending = undefined;
