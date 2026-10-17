@@ -127,7 +127,7 @@ function looserThan(before: GateSettings, next: GateSettings, isApp: boolean, ap
 export const PRESET_NAME: Record<Preset, string> = { ask: 'Ask', 'accept-edits': 'Accept edits', smart: 'Smart', bypass: 'Bypass' };
 const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
   'accept-edits': 'File edits run without asking. Everything else still asks.',
-  smart: "Legion decides when to ask. It asks only before an action that sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
+  smart: "Legion decides when to ask. It asks only before an action that reaches the web, sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
   bypass: 'No permission cards. Agents run commands, change files and write to GitHub without asking. Everything is logged.',
 };
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";

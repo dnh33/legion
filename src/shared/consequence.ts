@@ -203,7 +203,7 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
     subs: {
       status: R1, 'ls-files': R1, 'rev-parse': R1, describe: R1, shortlog: R1,
       log: GITREAD, diff: GITREAD, show: GITREAD, blame: GITREAD,
-      add: R2, commit: R2, merge: R2, pull: NETSUB, fetch: NETSUB, clone: NETSUB,
+      add: R2, commit: R2, merge: R2, pull: { ...R2, tags: ['edits', 'net'] }, fetch: NETSUB, clone: NETSUB,
       push: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Pushing' },
       clean: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
       reset: { ...R2, flagRules: [{ flags: ['--hard'], to: DELETES() }] },

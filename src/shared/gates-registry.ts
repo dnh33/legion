@@ -94,7 +94,7 @@ export const LIMIT_GATE_IDS: readonly string[] = GATES.filter((g) => g.family ==
 export const PRESET_LINES: Record<Preset, string> = {
   ask: 'Every action asks, as now.',
   'accept-edits': 'File edits run. Everything else asks.',
-  smart: "Asks before anything that sends data out, deletes, spends, can't be undone, or that Legion can't classify.",
+  smart: "Asks before anything that reaches the web, sends data out, deletes, spends, can't be undone, or that Legion can't classify.",
   bypass: "No permission cards. Your deny rules and Legion's safety rails still apply. Everything is logged.",
 };
 
