@@ -52,7 +52,7 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             nohup xvfb-run -a "$dir/node_modules/.bin/electron" "$dir" --no-sandbox --disable-gpu >"$RUNNER_TEMP/logs/app.log" 2>&1 &
           else
-            ELECTRON_ENABLE_LOGGING=1 nohup "$dir/node_modules/.bin/electron" "$dir" --disable-gpu --disable-software-rasterizer >"$RUNNER_TEMP/logs/app.log" 2>&1 &
+            ELECTRON_ENABLE_LOGGING=1 nohup "$dir/node_modules/.bin/electron" "$dir" --disable-gpu --disable-software-rasterizer --use-mock-keychain >"$RUNNER_TEMP/logs/app.log" 2>&1 &
           fi
           ok=0; start=$(date +%s)
           for i in $(seq 1 120); do
@@ -61,7 +61,7 @@ jobs:
           done
           echo "elapsed $(( $(date +%s) - start ))s ok=$ok"
           cat "$RUNNER_TEMP/logs/health.json" 2>/dev/null || true; echo
-          [ "$ok" = 1 ] || { echo "--- ps"; ps aux | grep -i -E "electron|legion|node" | grep -v grep | cut -c1-220; echo "--- listeners"; (lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true) | head -20; }
+          [ "$ok" = 1 ] || { echo "--- ps"; ps aux | grep -i -E "electron|legion|node" | grep -v grep | cut -c1-220; [ "$RUNNER_OS" != macOS ] || { pid=$(pgrep -f "Contents/MacOS/Electron " | head -1); echo "--- sample $pid"; sample "$pid" 2 2>&1 | head -60; }; echo "--- listeners"; (lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true) | head -20; }
           echo "--- app.log tail"; tail -n 40 "$RUNNER_TEMP/logs/app.log"
           find "$LEGION_HOME" -name '*.log' -exec sh -c 'echo "--- $1"; tail -n 20 "$1"' _ {} \; || true
           cp -R "$LEGION_HOME" "$RUNNER_TEMP/logs/legion-home" 2>/dev/null || true
