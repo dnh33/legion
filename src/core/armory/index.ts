@@ -27,6 +27,7 @@ import { claudeHomeDir, discoverFromSdk } from './discover.js';
 import type { DiscoveredSkill } from './discover.js';
 import { sdkHandshake } from './handshake.js';
 import type { SdkProbe } from './handshake.js';
+import { readListingCache, writeListingCache } from './listing-cache.js';
 import type { CatalogEntry } from './catalog.js';
 import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, updateArmoryFile, writeSkillFolder, STATES } from './store.js';
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch } from './finder/settings.js';
@@ -81,17 +82,20 @@ export interface ArmoryOptions {
   rerankTuning?: Partial<RerankSessionOpts>;
 }
 
-/** What the last listing of Claude Code skills found, and how. 'disk-fallback' reads installed_plugins.json and settings.json instead. */
+/**
+ * What the last listing of Claude Code skills found, and how. 'sdk-cached': the live listing failed, so the one saved at its last
+ * success is used (listing-cache.ts). 'disk-fallback': no usable saved listing either, so installed_plugins.json and settings.json are read.
+ */
 interface Discovery {
   at: string;
   atMs: number;
-  mode: 'sdk' | 'disk-fallback';
+  mode: 'sdk' | 'sdk-cached' | 'disk-fallback';
   reason: string | null;
   /** The inherit switch when it ran: a change of the switch lists again. */
   inherit: boolean;
-  /** Present only for 'sdk'. */
+  /** Present for 'sdk' and 'sdk-cached'. */
   skills?: DiscoveredSkill[];
-  /** Present only for 'sdk': the commands of Claude Code itself (not skills, not plugin commands). */
+  /** Present for 'sdk' and 'sdk-cached': the commands of Claude Code itself (not skills, not plugin commands). */
   cli?: Set<string>;
   plugins: number;
 }
@@ -135,10 +139,12 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
   let inflight: Promise<Discovery> | undefined;
   const inherit = (): boolean => deps.config?.claude?.inheritClaudeCodeSettings !== false;
   const drop = (): void => { cache = undefined; };
+  /** True when the last listing gave Claude Code's skills and commands: a live answer or the saved one from its last success. */
+  const listedByClaude = (): boolean => disc?.mode === 'sdk' || disc?.mode === 'sdk-cached';
   const catalog = (): CatalogEntry[] => {
     const now = Date.now();
     if (!cache || ttl <= 0 || now - cache.at > ttl) {
-      const fromSdk = disc?.mode === 'sdk' && disc.inherit === inherit() ? disc.skills : undefined;
+      const fromSdk = disc && listedByClaude() && disc.inherit === inherit() ? disc.skills : undefined;
       cache = { at: now, entries: buildCatalog({ dataDir: deps.dataDir, inheritClaudeCode: inherit(), ...(opts.claudeHome ? { claudeHome: opts.claudeHome } : {}), ...(fromSdk ? { claudeSkills: fromSdk } : {}) }) };
     }
     return cache.entries;
@@ -166,10 +172,24 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
           if (snap.modelMessages > 0 || snap.costUsd > 0) log(`armory: WARNING the Claude Code listing saw ${snap.modelMessages} model message(s), cost ${snap.costUsd}`);
           next = { ...base, mode: 'sdk', reason: null, skills, cli, plugins: snap.plugins.length };
           log(`armory: Claude Code lists ${snap.plugins.length} plugin(s) and ${skills.length} skill(s)`);
+          // Kept for the next failed listing. A save that fails (or is too big) costs only that fallback, so it never fails the listing.
+          try {
+            writeListingCache(deps.dataDir, { at: base.at, inherit: true, plugins: snap.plugins.length, skills, cli: [...cli] });
+          } catch (err) {
+            log(`armory: could not save the Claude Code listing: ${err instanceof Error ? err.message : String(err)}`);
+          }
         } catch (e) {
-          const why = e instanceof Error ? e.message : String(e);
-          next = { ...base, mode: 'disk-fallback', reason: why.slice(0, 300) || 'The Claude Code listing failed.', plugins: 0 };
-          log(`armory: Claude Code listing failed, reading the disk instead: ${next.reason}`);
+          const why = (e instanceof Error ? e.message : String(e)).slice(0, 300) || 'The Claude Code listing failed.';
+          // The saved listing is used only when it came from the same inherit switch (it always does: only a listing with the switch on is saved).
+          const saved = readListingCache(deps.dataDir);
+          if (saved && saved.inherit === wasInherit) {
+            const date = saved.at.slice(0, 10);
+            next = { ...base, mode: 'sdk-cached', reason: `Using the skill list Claude Code gave on ${date}; the live listing failed: ${why}`, skills: saved.skills, cli: new Set(saved.cli), plugins: saved.plugins };
+            log(`armory: Claude Code listing failed, using the list it gave on ${date}: ${why}`);
+          } else {
+            next = { ...base, mode: 'disk-fallback', reason: why, plugins: 0 };
+            log(`armory: Claude Code listing failed, reading the disk instead: ${why}`);
+          }
         }
       }
       disc = next;
@@ -481,7 +501,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
     refuseSlashCommand: (agent: AgentProfile, prompt: string) => {
       // Claude Code's own commands: what the SDK listed, plus the constant (a listing can miss a headless command such as /compact)
-      const known = disc?.mode === 'sdk' && disc.cli ? new Set([...CLI_COMMANDS, ...disc.cli]) : CLI_COMMANDS;
+      const known = listedByClaude() && disc?.cli ? new Set([...CLI_COMMANDS, ...disc.cli]) : CLI_COMMANDS;
       return refusedCommand(catalog(), agent, prompt, known);
     },
 
@@ -492,6 +512,9 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         const byPlugin: Record<string, number> = {};
         for (const e of all) if (e.source === 'claude-plugin' && e.plugin) byPlugin[e.plugin] = (byPlugin[e.plugin] ?? 0) + 1;
         const n = (s: string): number => all.filter((e) => e.source === s).length;
+        // Switched-on skills that no listing finds: agents do not get them, so the screen says so. Counted from the records, as saved.
+        const listed = new Set(all.map((e) => e.id));
+        const unmatchedOn = Object.entries(file.skills).filter(([id, r]) => r.state === 'on' && !listed.has(id)).length;
         return {
           inherit: inherit(),
           ccNoticeSeen: file.ccNoticeSeen === true,
@@ -510,6 +533,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
           discovery: disc?.mode ?? 'disk-fallback',
           discoveryReason: disc?.reason ?? null,
           discoveryPlugins: disc?.plugins ?? 0,
+          unmatchedOn,
         };
       };
       // The first read asks Claude Code what it loads (a few seconds); the answer is kept until a refresh.
@@ -717,7 +741,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         const agent = deps.store.getAgent(agentId);
         if (!agent) throw new HttpError(404, `Unknown agent "${agentId.slice(0, 80)}"`);
         const entries = catalog();
-        const known = disc?.mode === 'sdk' && disc.cli ? new Set([...CLI_COMMANDS, ...disc.cli]) : CLI_COMMANDS;
+        const known = listedByClaude() && disc?.cli ? new Set([...CLI_COMMANDS, ...disc.cli]) : CLI_COMMANDS;
         const names = new Set<string>([...known]);
         for (const e of entries) { const cmd = commandOf(e); if (cmd) { names.add(cmd.toLowerCase()); names.add(e.name.toLowerCase()); } }
         const refused = [...names].filter((n) => refusedCommand(entries, agent, `/${n}`, known) !== undefined).sort();

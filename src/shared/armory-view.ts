@@ -75,10 +75,15 @@ export interface ArmoryData {
   skills: ArmorySkill[];
   /** When Claude Code was last asked what it loads (an ISO time), or null. Missing on an older core. */
   discoveredAt?: string | null;
-  /** 'sdk': Claude Code answered. 'disk-fallback': its folders were read instead, so the list may miss skills. */
-  discovery?: 'sdk' | 'disk-fallback';
+  /**
+   * 'sdk': Claude Code answered. 'sdk-cached': it did not, so the list it gave last time is used (the reason says when).
+   * 'disk-fallback': no usable saved list either, so its folders were read, and the list may miss skills.
+   */
+  discovery?: 'sdk' | 'sdk-cached' | 'disk-fallback';
   discoveryReason?: string | null;
   discoveryPlugins?: number;
+  /** Switched-on skills that no listing finds, so agents do not get them. Missing on an older core. */
+  unmatchedOn?: number;
 }
 
 export interface EffectiveEntry { id: string; name: string; description?: string; source?: string; path?: string }
@@ -432,9 +437,18 @@ export function discoveryLine(d: Pick<ArmoryData, 'inherit' | 'discoveredAt'>, n
  * owner turned inheriting off (then nothing from Claude Code is listed on purpose, and the screen already says so).
  */
 export function discoveryWarning(d: Pick<ArmoryData, 'inherit' | 'discovery' | 'discoveryReason'>): string {
+  if (d.inherit && d.discovery === 'sdk-cached') {
+    const saved = String(d.discoveryReason ?? '').replace(/\s+/g, ' ').trim();
+    return saved ? endSentence(saved) : '';
+  }
   if (!d.inherit || d.discovery !== 'disk-fallback') return '';
   const why = String(d.discoveryReason ?? '').replace(/\s+/g, ' ').trim().replace(/[.!?…\s]+$/, '');
   return `Could not ask Claude Code${why ? ` (${why})` : ''}, so this list comes from its folders and may miss skills. Refresh to try again.`;
+}
+
+/** Said under the Discovery line when some switched-on skills are not in the current list. Empty at zero. */
+export function unmatchedNote(n: number): string {
+  return n > 0 ? `${n} of your switched-on skills were not found in the current list, so agents do not get them.` : '';
 }
 
 /* ---- which agents ---- */

@@ -29,7 +29,7 @@ import {
 } from './armoryStore';
 import {
   agentsButtonName, agentsLabel, budgetSummary, bulkLabel, bulkName, buildGroups, commandView, endSentence, FILTERS, groupLabel,
-  discoveryLine, HIDDEN_TEXT_FLAG, HIDDEN_TEXT_WHY, discoveryWarning, HEADER_TEXT, isJunkPath, KEPT_OFF_TAG, lockedNote, matchCount, nextHeader, NOTICE_TEXT, parseOpen, plural, rowTag, runsNote, SHELL_ON_LINE, SHELL_SCOPE, SHELL_WARNING, shellConfirm, seesText, showSearch,
+  discoveryLine, HIDDEN_TEXT_FLAG, HIDDEN_TEXT_WHY, discoveryWarning, unmatchedNote, HEADER_TEXT, isJunkPath, KEPT_OFF_TAG, lockedNote, matchCount, nextHeader, NOTICE_TEXT, parseOpen, plural, rowTag, runsNote, SHELL_ON_LINE, SHELL_SCOPE, SHELL_WARNING, shellConfirm, seesText, showSearch,
   STATE_FILTERS, stateLabel, totalLine, turnAllOnTargets,
 } from '../../../src/shared/armory-view';
 import type { AgentRef, ArmoryData, ArmoryFilter, ArmoryGroup, ArmorySkill, ArmoryStateFilter, BulkConsequence } from '../../../src/shared/armory-view';
@@ -324,6 +324,7 @@ export function ArmorySection() {
 function Discovery({ data, nowMs, refreshing, error }: { data: ArmoryData; nowMs: number; refreshing: boolean; error: string | null }) {
   const line = discoveryLine(data, nowMs);
   const warn = discoveryWarning(data);
+  const unmatched = unmatchedNote(data.unmatchedOn ?? 0);
   if (!line) return null;
   return (
     <div className="arm-disc">
@@ -334,6 +335,7 @@ function Discovery({ data, nowMs, refreshing, error }: { data: ArmoryData; nowMs
         </button>
       </p>
       {warn ? <p className="arm-banner">{warn}</p> : null}
+      {unmatched ? <p className="arm-banner">{unmatched}</p> : null}
       {error ? <p className="house-rowerr" role="alert"><Icon name="x" size={12} /> <span>{endSentence(`Could not refresh: ${error}`)} The list below is as it was.</span></p> : null}
     </div>
   );

@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- The Armory keeps the skills you switched on when Claude Code cannot give its skill list. It uses the list from its last good read and says when that was. If a switched-on skill is not in the current list, the Armory says how many, so you can see which ones agents will not get.
+
 ## [0.3.2] - 2026-10-16
 
 0.3.1 was held back after an update problem, so for most people this update also brings everything listed under 0.3.1. It installs by itself. From 0.3.0 it is a larger download, about 285 MB: Legion closes for about a minute and reopens by itself. If you open it early, press Update again.

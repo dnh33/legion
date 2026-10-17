@@ -260,8 +260,10 @@ export async function refreshDiscovery(): Promise<boolean> {
   }
   if (ok) {
     const d = state.data;
-    announce(d?.inherit !== false && d?.discovery === 'disk-fallback'
-      ? `Refreshed, but Claude Code could not be asked. ${plural(d.skills.length, 'skill')} listed from its folders.`
+    const failed = d?.inherit !== false && (d?.discovery === 'disk-fallback' || d?.discovery === 'sdk-cached');
+    const from = d?.discovery === 'sdk-cached' ? 'from the list it gave last time' : 'from its folders';
+    announce(failed
+      ? `Refreshed, but Claude Code could not be asked. ${plural(d?.skills.length ?? 0, 'skill')} listed ${from}.`
       : `Refreshed from Claude Code. ${plural(d?.skills.length ?? 0, 'skill')} listed.`);
   } else announce(endSentence(`Could not refresh: ${state.refreshError}`));
   return ok;
