@@ -42,5 +42,13 @@ test('the web search code and copy name no other agent product', () => {
   const walk = (d: string): void => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.ts$/.test(n)) files.push(p); } };
   const root = join(process.cwd(), 'src');
   walk(join(root, 'core', 'web-search')); files.push(join(root, 'shared', 'web-search-copy.ts'), join(root, 'shared', 'web-search-config.ts'));
-  for (const f of files) assert.ok(!/Hermes|Codex|Grok/i.test(readFileSync(f, 'utf8')), f);
+  // the names are kept encoded so this test does not spell them either
+  const names = ['SGVybWVz', 'Q29kZXg=', 'R3Jvaw=='].map((b) => Buffer.from(b, 'base64').toString());
+  const banned = new RegExp(names.join('|'), 'i');
+  for (const f of files) assert.ok(!banned.test(readFileSync(f, 'utf8')), f);
+});
+
+test('SearXNG with no address says to add its address, not a key', async () => {
+  const { ERR_NO_ADDRESS } = await import('../src/shared/web-search-copy.js');
+  assert.equal(ERR_NO_ADDRESS('SearXNG'), 'SearXNG is not set up. Add its address in Settings, Web search.');
 });

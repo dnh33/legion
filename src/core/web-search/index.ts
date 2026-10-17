@@ -5,7 +5,7 @@
  * as the built-in tools (engine.ts askGuards). A provider call that fails is shown as the error; it never falls back to another
  * provider and never to the built-in tool. Provider output is data: it reaches the agent only as a tool result, behind a fixed first line.
  */
-import { COST_LINE, CREDITS_LINE, ERR_NOT_PICKED, ERR_NOT_SET_UP, ERR_PRIVATE, ERR_REFUSED, NO_PAGE_TEXT, NO_RESULTS, WEB_RESULT_HEAD, CAP_MESSAGE } from '../../shared/web-search-copy.js';
+import { COST_LINE, CREDITS_LINE, ERR_NOT_PICKED, ERR_NOT_SET_UP, ERR_NO_ADDRESS, ERR_PRIVATE, ERR_REFUSED, NO_PAGE_TEXT, NO_RESULTS, WEB_RESULT_HEAD, CAP_MESSAGE } from '../../shared/web-search-copy.js';
 import { TREG_CAP_MAX, TREG_CAP_MIN, WEB_PROVIDERS, clampTregCap, defaultWebSearch, isWebProviderId, webProviderMeta } from '../../shared/web-search-config.js';
 import type { ProviderKeys } from '../providers/secrets.js';
 import { ADAPTERS } from './adapters.js';
@@ -111,13 +111,13 @@ export class WebSearchService {
   private async send(id: WebProviderId, build: (ctx: { key?: string; cfg: WebSearchConfig; limit: number }) => WebRequest, limit: number, signal?: AbortSignal): Promise<{ status: number; headers: Record<string, string>; json: unknown }> {
     const a = ADAPTERS[id]; const cfg = this.deps.config();
     const origin = a.origin(cfg);
-    if (!origin) throw new WebProviderError('not_ready', ERR_NOT_SET_UP(a.label));
+    if (!origin) throw new WebProviderError('not_ready', id === 'searxng' ? ERR_NO_ADDRESS(a.label) : ERR_NOT_SET_UP(a.label));
     const key = a.needsKey ? this.deps.keys.get(keyIdOf(id), origin) : undefined;
     if (a.needsKey && !key) throw new WebProviderError('not_ready', ERR_NOT_SET_UP(a.label));
     let allowHttp = false;
     if (id === 'searxng') {
       const addr = checkSearxngAddress(cfg.searxng?.baseUrl);
-      if (!addr.ok) throw new WebProviderError('not_ready', ERR_NOT_SET_UP(a.label));
+      if (!addr.ok) throw new WebProviderError('not_ready', ERR_NO_ADDRESS(a.label));
       // a loopback or private-network address was confirmed by the app, or it is not used
       if (addr.private && cfg.searxng?.allowPrivateNetwork !== true) throw new WebProviderError('refused', ERR_PRIVATE);
       allowHttp = addr.http;
@@ -209,7 +209,8 @@ export function validateWebSearchPatch(raw: unknown, current: WebSearchConfig = 
   if ((nextSearch === 'searxng' || nextRead === 'searxng') && !nextSearxng) return bad('Add the SearXNG address first.');
 
   // the one-time notice: for a provider newly picked, and for SearXNG again when its host changes
-  const hostChanged = !!current.searxng && patch.searxng !== undefined && patch.searxng !== null && hostOf(current.searxng.baseUrl) !== hostOf(patch.searxng.baseUrl);
+  // with no current address (cleared, or never set) any new address counts as a new host, so clearing it cannot skip the notice
+  const hostChanged = patch.searxng !== undefined && patch.searxng !== null && (!current.searxng || hostOf(current.searxng.baseUrl) !== hostOf(patch.searxng.baseUrl));
   let needsNotice: WebProviderId | undefined;
   for (const id of [patch.search, patch.read]) {
     if (!id || id === 'builtin') continue;

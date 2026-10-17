@@ -48,7 +48,7 @@ function rows(list: unknown[], fields: { title: string[]; url: string[]; snippet
     if (!isObj(r)) continue;
     const url = first(r, fields.url);
     if (!url || !/^https?:\/\//i.test(url)) continue;
-    out.push({ title: clip(first(r, fields.title) ?? url, TITLE_MAX), url, snippet: clip((first(r, fields.snippet) ?? '').replace(/\s+/g, ' ').trim(), SNIPPET_MAX) });
+    out.push({ title: clip((first(r, fields.title) ?? url).replace(/\s+/g, ' ').trim(), TITLE_MAX), url, snippet: clip((first(r, fields.snippet) ?? '').replace(/\s+/g, ' ').trim(), SNIPPET_MAX) });
   }
   return out;
 }

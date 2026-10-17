@@ -20,6 +20,9 @@ test('enabling a provider needs the one-time acknowledgement; changing a SearXNG
   const acked = { ...defaultConfig().webSearch, acknowledged: { exa: '2026-10-16' } }; assert.equal(validateWebSearchPatch({ search: 'exa' }, acked).needsNotice, undefined);
   const sx = { ...defaultConfig().webSearch, searxng: { baseUrl: 'https://a.example.org' }, acknowledged: { searxng: '2026-10-16' } };
   assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://b.example.org' } }, sx).needsNotice, 'searxng');
+  // clearing the address first must not skip the notice for the next host
+  const cleared = { ...defaultConfig().webSearch, acknowledged: { searxng: '2026-10-16' } };
+  assert.equal(validateWebSearchPatch({ search: 'searxng', searxng: { baseUrl: 'https://evil.example.net' } }, cleared).needsNotice, 'searxng');
 });
 test('SearXNG: a loopback or private address needs the native confirm flag; a user name in the URL is refused', () => {
   assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'http://192.168.1.5:8080' } }).needsNative, true);

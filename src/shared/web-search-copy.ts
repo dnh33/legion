@@ -16,6 +16,8 @@ export const COST_LINE = (micro: number, name = 'treg'): string => `Charged $${d
 export const CAP_MESSAGE = (capUsd: number): string => `treg stopped this call at your cap of $${capUsd}. Raise the cap in Settings, Web search.`;
 
 export const ERR_NOT_SET_UP = (name: string): string => `${name} is not set up. Add its key in Settings, Web search.`;
+/** SearXNG has no key: its address is what is missing. */
+export const ERR_NO_ADDRESS = (name: string): string => `${name} is not set up. Add its address in Settings, Web search.`;
 export const ERR_NOT_PICKED = 'No provider is picked for this. Choose one in Settings, Web search.';
 export const ERR_AUTH = 'The key was refused. Check it in Settings, Web search.';
 export const ERR_JSON_DISABLED = 'This SearXNG address does not allow JSON results. Turn the json format on in its settings.yml, search.formats.';
