@@ -31,7 +31,7 @@ import { DirectHostBackend } from './exec/direct-host.js';
 import { agentShell, floorShell } from './exec/agent-shell.js';
 import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
-import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
+import type { CoreModule, FinderWiring, ModuleJob, PreambleContext, TaskEndOutcome, TurnContext, TurnNote } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
 import { QuestionBroker } from './questions.js';
@@ -46,6 +46,7 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView, TodoItem } from '../shared/types.js';
+import { DEADLINE_MS } from './armory/finder/defaults.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -322,6 +323,10 @@ interface Job {
 }
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
+  /** The task's own words for this run (no sender header). The skill finder ranks this, never the header. */
+  rankText?: string;
+  /** What the model asked its subagents to do, oldest first (at most 20): the finder ranks these at SubagentStart. */
+  subagentBriefs?: { type: string; prompt: string }[];
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
@@ -1076,6 +1081,7 @@ export class Engine {
     const from = job.header && job.fromAgentId ? this.store.getAgent(job.fromAgentId) : undefined;
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
     const sendPrompt = (job.header ? job.header + '\n' : '') + sendText;
+    act.rankText = sendText;
 
     const hadSession = !!this.store.getTask(job.taskId)?.sessionId;
     // The same /command check for text that is re-sent later from the task's history (the raw text, and the text after a /model prefix is removed).
@@ -1298,6 +1304,50 @@ export class Engine {
     return out;
   }
 
+  /** Which finder hooks and settings this run gets. The first module that answers decides; none means no finder. */
+  private finderWiring(agent: AgentProfile): FinderWiring {
+    for (const m of this.modules) {
+      try { const w = m.finderWiring?.(agent); if (w) return w; } catch { /* ignore */ }
+    }
+    return { suggest: false, subagents: false, slimListing: false, rerank: false };
+  }
+
+  /** The first note a module gives for this turn. Bounded in time and never throws: a slow or broken module means no note. */
+  private async turnNote(agent: AgentProfile, ctx: TurnContext, rerank: boolean): Promise<TurnNote | undefined> {
+    let timer: NodeJS.Timeout | undefined;
+    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => r(undefined), rerank ? 2500 : DEADLINE_MS * 4); });
+    try {
+      for (const m of this.modules) {
+        if (!m.turnNote) continue;
+        const note = await Promise.race([m.turnNote(agent, ctx).catch(() => undefined), limit]);
+        if (note && note.text) return note;
+      }
+      return undefined;
+    } catch { return undefined; } finally { if (timer) clearTimeout(timer); }
+  }
+
+  /** Keeps a note on the task (newest 50) so the screen can show it. */
+  private recordSkillTurn(taskId: string, note: TurnNote): void {
+    const prev = this.store.getTask(taskId)?.skillTurns ?? [];
+    const entry = { at: nowIso(), suggested: note.suggested, loaded: [] as string[], why: note.why.map((w) => ({ id: w.id, score: w.score, matched: w.matched })) };
+    this.patchTask(taskId, { skillTurns: [...prev, entry].slice(-50) });
+  }
+
+  /** A Skill (or provider armory_skill) load that matches a skill the last note named is added to that note's `loaded`. */
+  private noteSkillLoaded(taskId: string, toolName: string, input: unknown): void {
+    if (toolName !== 'Skill' && !toolName.endsWith('armory_skill')) return;
+    const o = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    const raw = toolName === 'Skill' ? o.skill : o.id;
+    if (typeof raw !== 'string' || !raw.trim()) return;
+    const short = (x: string): string => x.trim().replace(/^\//, '').toLowerCase().split(':').pop() ?? '';
+    const turns = this.store.getTask(taskId)?.skillTurns;
+    const last = turns?.at(-1);
+    if (!turns || !last) return;
+    const hit = last.suggested.find((id) => id.toLowerCase() === raw.trim().toLowerCase() || short(id) === short(raw));
+    if (!hit || last.loaded.includes(hit)) return;
+    this.patchTask(taskId, { skillTurns: [...turns.slice(0, -1), { ...last, loaded: [...last.loaded, hit] }] });
+  }
+
   private modulePreamble(agent: AgentProfile, ctx: PreambleContext): string {
     let out = '';
     for (const m of this.modules) {
@@ -1318,6 +1368,7 @@ export class Engine {
     for (const m of this.modules) {
       try { m.onToolUse?.(job.agentId, job.taskId, toolName, input); } catch { /* ignore */ }
     }
+    try { this.noteSkillLoaded(job.taskId, toolName, input); } catch { /* ignore */ }
   }
 
   /**
@@ -1524,6 +1575,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
     this.noteSharedFolder(job.taskId, agent, project);
     const servers = this.buildMcpServers(agent, job, act);
+    const finder = this.finderWiring(agent);
     const skillSet = this.moduleSkills(agent);
     const allowSkillShell = this.skillShellAllowed();
     const maxBudgetUsd = this.perRunBudget(job);
@@ -1564,7 +1616,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       env: buildChildEnv(this.config),
       // SDK Settings.disableSkillShellExecution (sdk.d.ts:7156): inline shell in skills and slash commands runs before the model sees the text and never
       // reaches canUseTool, so it is replaced by a placeholder unless the owner allowed it in the Armory. Merged into the same flag layer as the connector switch.
-      settings: { ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell },
+      settings: {
+        ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell,
+        // The skill finder's slim listing: a smaller skill list in the system prompt, because the finder names the likely ones per turn.
+        ...(finder.slimListing ? { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 } : {}),
+      },
       // Runs before every tool executes (also in bypass mode), so taint is set before the tool can act on outside content.
       hooks: {
         PreToolUse: [
@@ -1673,7 +1729,55 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         return text ? { hookSpecificOutput: { hookEventName: 'SessionStart' as const, additionalContext: text } } : { continue: true };
       }] }];
     }
+    if (finder.suggest) this.addFinderHooks(options, job, agent, act, finder);
     return options;
+  }
+
+  /**
+   * The skill finder's hooks. A note goes in as hook context for one turn, never into the system prompt. Any failure means no note.
+   * UserPromptSubmit: the first fire ranks the task's own words (its input holds the sender header too); a later fire is a message
+   * the person sent mid-run and ranks its own text. SubagentStart ranks what the model asked the subagent to do.
+   */
+  private addFinderHooks(options: Options, job: Job, agent: AgentProfile, act: Active, finder: FinderWiring): void {
+    const none = { continue: true as const };
+    let firstRanked = false;
+    options.hooks!.UserPromptSubmit = [{ hooks: [async (input) => {
+      if (input.hook_event_name !== 'UserPromptSubmit') return none;
+      try {
+        // Wake-ups and system events are not something the person wrote.
+        if (input.source && input.source !== 'user' && input.source !== 'sdk') return none;
+        const text = firstRanked ? input.prompt : (act.rankText ?? input.prompt);
+        firstRanked = true;
+        const note = await this.turnNote(agent, { prompt: text, taskId: job.taskId, runtime: 'claude' }, finder.rerank);
+        if (!note) return none;
+        this.recordSkillTurn(job.taskId, note);
+        return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: note.text } };
+      } catch { return none; }
+    }] }];
+    if (!finder.subagents) return;
+    options.hooks!.PreToolUse!.push({ matcher: 'Agent|Task', hooks: [async (input) => {
+      if (input.hook_event_name !== 'PreToolUse') return none;
+      const ti = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input as Record<string, unknown> : {};
+      if (typeof ti.prompt === 'string' && ti.prompt.trim()) {
+        const list = act.subagentBriefs ??= [];
+        list.push({ type: typeof ti.subagent_type === 'string' && ti.subagent_type ? ti.subagent_type : 'general-purpose', prompt: ti.prompt });
+        if (list.length > 20) list.splice(0, list.length - 20);
+      }
+      return none;
+    }] });
+    options.hooks!.SubagentStart = [{ hooks: [async (input) => {
+      if (input.hook_event_name !== 'SubagentStart') return none;
+      try {
+        const list = act.subagentBriefs ?? [];
+        const i = list.findIndex((b) => b.type === input.agent_type);
+        const text = i >= 0 ? list.splice(i, 1)[0]!.prompt : act.rankText;
+        if (!text) return none;
+        const note = await this.turnNote(agent, { prompt: text, taskId: job.taskId, runtime: 'claude', subagentType: input.agent_type }, finder.rerank);
+        if (!note) return none;
+        this.recordSkillTurn(job.taskId, note);
+        return { hookSpecificOutput: { hookEventName: 'SubagentStart' as const, additionalContext: note.text } };
+      } catch { return none; }
+    }] }];
   }
 
   /**
