@@ -133,7 +133,7 @@ async function main() {
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
   // In-app updates (plan: claude/plan-updater.md): checks and stages a signed release; main applies it when the core is idle. No overrides are passed here.
   const updater = createUpdaterModule(moduleDeps, {
-    root: installRoot, nativeSecret, log, gates: gatesCore,
+    root: installRoot, nativeSecret, log,
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];

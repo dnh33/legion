@@ -40,12 +40,6 @@ export interface UpdaterOptions {
   nativeSecret?: string | undefined;
   log?: (...a: unknown[]) => void;
   probes?: Record<string, BusyProbe>;
-  /**
-   * The gate reader. `update-consent` is a global gate: off means a found update downloads and installs by itself once Legion is idle, with no click.
-   * Absent (tests, an install without gates): consent stays the owner's click.
-   * A goal that is running is a busy reason like any other: the goal module registers a probe named 'a goal is running' (absent today, so absent = not running).
-   */
-  gates?: { gate(id: string): unknown };
   // The rest exist for tests. legion-core.ts passes none of them (test/updater-surface.test.ts checks that).
   source?: UpdateSource; keys?: readonly UpdateKey[]; fetchImpl?: FetchLike; version?: string; platform?: NodeJS.Platform;
   now?: () => number; timers?: boolean; freeBytes?: (dir: string) => number;
@@ -72,9 +66,7 @@ export interface UpdaterModule extends CoreModule {
   registerBusyProbe(name: string, probe: BusyProbe): void;
   check(manual?: boolean): Promise<void>;
   status(): Promise<UpdateStatus>;
-  install(o?: { byGate?: boolean }): Promise<{ ok: boolean; declined?: boolean }>;
-  /** Records the owner's yes for exactly the staged version they were shown; 409 when the staged version is another one or none. */
-  approveStaged(version: unknown): { ok: true };
+  install(o?: { auto?: boolean }): Promise<{ ok: boolean; declined?: boolean }>;
   drain(): Promise<{ stopped: Array<{ id: string; agentId: string }>; settled: boolean }>;
   commit(o?: { force?: boolean }): Promise<{ installDir: string; stagedDir: string; from: string; to: string; names?: readonly string[]; updateId?: string }>;
   abortCommit(): void;
@@ -104,10 +96,6 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   // the owner's own click is never held back.
   const stageFailedAt = new Map<string, number>();
   const STAGE_RETRY_MS = 24 * 3600_000;
-  // `update-consent` off: nobody has to say yes. Read at every use, so switching the gate takes the next status or check.
-  // An update staged by the gate alone never sets `consent` (that is the owner's click, or their auto-install setting): switching the gate
-  // back on therefore stops the apply until the owner says yes. A throwing reader means the gate is on.
-  const consentOff = (): boolean => { try { return opts.gates?.gate('update-consent') === false; } catch { return false; } };
   let error: string | undefined;
   let progress: { bytes: number; total: number } | undefined;
   let nextAllowedAt = 0;
@@ -223,10 +211,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     // release that ships a signed full package (route 'full'). A notify-only release has nothing to download.
     if (available && !staged && mode === 'apply' && planRelease(available.manifest).route !== 'notify') {
       const failedAt = stageFailedAt.get(available.manifest.version);
-      if (failedAt === undefined || now() - failedAt >= STAGE_RETRY_MS) {
-        if (files.settings().autoInstallWhenIdle) void module.install().catch(() => undefined); // the setting is the owner's consent
-        else if (consentOff()) void module.install({ byGate: true }).catch(() => undefined); // the gate stages it, and grants no consent
-      }
+      if ((failedAt === undefined || now() - failedAt >= STAGE_RETRY_MS) && files.settings().autoInstallWhenIdle) void module.install({ auto: true }).catch(() => undefined);
     }
   }
 
@@ -286,22 +271,14 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         // What is blocked and until when. The owner met this as a bare "rejected: version X failed its first start"
         // with no way out, and had to guess that Check now was the unlock. Naming it here is the whole fix.
         ...(blocked.length ? { blocked } : {}),
-        ...(staged ? { staged: { version: staged.version, kind: staged.kind } } : {}), consent: consent || consentOff(),
-        readyToApply: mode === 'apply' && !!staged && (consent || consentOff()) && reasons.length === 0 && clock.isQuiet(now()),
+        ...(staged ? { staged: { version: staged.version, kind: staged.kind } } : {}), consent,
+        readyToApply: mode === 'apply' && !!staged && consent && reasons.length === 0 && clock.isQuiet(now()),
         busy: { idle: reasons.length === 0 && clock.isQuiet(now()), reasons, quietMs: clock.quietMs(now()) },
         ...(outcome ? { outcome } : {}),
         ...(journey ? { journey } : {}),
         ...(updated ? { updated } : {}),
         ...(s.stoppedForUpdate.length ? { stopped: { tasks: s.stoppedForUpdate, ...(s.stoppedAt ? { at: s.stoppedAt } : {}) } } : {}),
       };
-    },
-
-    approveStaged(version) {
-      // The owner's yes in the Restart dialog, for the version that dialog named. It never downloads or stages: if what is
-      // staged changed while the dialog was open (a newer check, a discard), nothing is approved and the owner is asked again.
-      if (typeof version !== 'string' || !staged || staged.version !== version) throw new HttpError(409, 'The update changed while you were being asked. Look at the update panel again.');
-      consent = true;
-      return { ok: true };
     },
 
     async install(o = {}): Promise<{ ok: boolean; declined?: boolean }> {
@@ -318,11 +295,10 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         const mp = isUpdateInProgress(opts.marker);
         if (mp.inProgress) throw new HttpError(409, 'Another Legion update is already in progress. Wait for it to finish.');
       }
-      if (staged?.version === a.version) { if (!o.byGate) consent = true; return { ok: true }; }
+      if (staged?.version === a.version) { consent = true; return { ok: true }; }
       error = undefined;
       // CONSENT. There is no approval card on either path, and that is deliberate (owner directive 2026-10-03).
-      //   - byGate           -> `update-consent` is off: this stages the package, and records no consent (see consentOff). Every check below runs the same.
-      //   - the setting      -> the owner turned on "Install updates automatically when idle". That toggle carries its own
+      //   - o.auto === true  -> the owner turned on "Install updates automatically when idle". That toggle carries its own
       //     confirmation (window.confirm on the setting, UpdatePanel.tsx:83) and its label PROMISES "without asking again",
       //     so raising a card here would contradict the UI. It is the working escape hatch for installs that predate this fix.
       //   - anything else    -> the owner clicked Update (the button fires POST /api/update/install, index.ts:285). The click
@@ -347,7 +323,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         staged = plan.route === 'full'
           ? await stageFullPackage(stageOpts)
           : await stagePackage({ ...stageOpts, installedDepsHash: installedDepsHash() });
-        if (!o.byGate) consent = true; phase = 'staged'; stageFailedAt.delete(a.version);
+        consent = true; phase = 'staged'; stageFailedAt.delete(a.version);
         staged4();
         return { ok: true };
       } catch (e) {
@@ -362,7 +338,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
           jr('downloading', 'start', { bytes: 0, total: last.total, note: 'this release changes dependencies: downloading the full package' });
           try {
             staged = await stageFullPackage(stageOpts);
-            if (!o.byGate) consent = true; phase = 'staged'; stageFailedAt.delete(a.version);
+            consent = true; phase = 'staged'; stageFailedAt.delete(a.version);
             staged4();
             return { ok: true };
           } catch (e2) { e = e2; }
@@ -405,7 +381,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
 
     async commit(o = {}) {
       if (mode !== 'apply') throw new HttpError(409, 'This install cannot be updated from inside Legion.');
-      if (!staged || !(consent || consentOff())) throw new HttpError(409, 'No update is staged and approved.');
+      if (!staged || !consent) throw new HttpError(409, 'No update is staged and approved.');
       const info = stagedInfo(opts.root, staged.version);
       if (!info) throw new HttpError(409, 'The staged update is incomplete; download it again.');
       const forced = !!o.force && now() - drainedAt < 60_000;
@@ -445,7 +421,6 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         return files.saveSettings(patch);
       });
       add('POST', '/api/update/install', async () => { const r = await module.install(); return { ...r, status: await module.status() }; });
-      add('POST', '/api/update/approve', async (c) => { needNative(c.req); const v = c.body && typeof c.body === 'object' ? (c.body as { version?: unknown }).version : undefined; return { ...module.approveStaged(v), status: await module.status() }; });
       add('POST', '/api/update/cancel', async () => { if (phase === 'downloading' || phase === 'committing') throw new HttpError(409, 'Busy; try again in a moment.'); clearStage(); return module.status(); });
       // The way out of a block. Without this the only way to retry a rolled-back version was to wait out the window
       // or hand-edit state.json, and the panel said nothing about either. Admin-gated like every other route, so it

@@ -181,8 +181,7 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
   try {
     const st = await h.ownCoreCall('GET', '/api/update/status');
     if (!st || st.status !== 200) return { ok: false, error: 'Legion could not reach its own core.' };
-    // the timer (not forced) only applies an update the owner approved; a forced restart asks below, and that answer is the approval
-    if (!st.json.staged || (!st.json.consent && !force)) return { ok: false, error: 'No approved update is ready.' };
+    if (!st.json.staged || !st.json.consent) return { ok: false, error: 'No approved update is ready.' };
     if (force) {
       if (dialogOpen) return { ok: false, error: 'A confirmation is already open.' };
       dialogOpen = true;
@@ -193,11 +192,6 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
         const r = w && !w.isDestroyed() && w.isVisible() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
         if (r.response !== 1) return { ok: false, cancelled: true };
       } finally { dialogOpen = false; }
-      // an update the gate staged carries no consent: the owner's yes in the dialog above records it, the same as the Update button
-      if (!st.json.consent) {
-        const c = await h.ownCoreCall('POST', '/api/update/approve', { version: st.json.staged.version }, true);
-        if (!c || c.status !== 200 || c.json?.ok !== true) return { ok: false, error: c?.status === 409 ? 'The update changed while you were being asked. Look at the update panel again.' : 'Legion could not record your yes for this update.' };
-      }
       const d = await h.ownCoreCall('POST', '/api/update/drain', {}, true);
       if (!d || d.status !== 200) return { ok: false, error: 'Legion could not stop the running work cleanly.' };
     } else if (!st.json.readyToApply) return { ok: false, error: 'Legion is not idle yet.' };

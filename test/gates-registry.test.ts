@@ -61,6 +61,6 @@ test('PERMISSION_GATE_IDS is exactly the permission family', () => {
   assert.ok(PERMISSION_GATE_IDS.includes('tool-cards')); assert.ok(!PERMISSION_GATE_IDS.includes('rail-shell-floor')); assert.ok(!PERMISSION_GATE_IDS.includes('qa-evidence'));
 });
 
-test('update consent is not part of any preset: Bypass changes agent cards only, never how Legion updates', () => {
-  for (const p of PRESETS) assert.equal(gateValue('update-consent', { app: { version: 1, preset: p } }), true, p);
+test('there is no update-consent gate: automatic installs stay the Updates panel setting', () => {
+  assert.ok(!GATES.some((g) => g.id === 'update-consent'));
 });

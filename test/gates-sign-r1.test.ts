@@ -138,10 +138,10 @@ test('C2: with no key, removing a cap is refused', () => {
 
 test('I2: app-level overrides are refused (a patch) and ignored (a file), with or without a key', () => {
   const { dir, open } = mk(); const s = open();
-  assert.throws(() => s.patchApp({ overrides: { 'update-consent': false } }), (e: unknown) => e instanceof GatesError && e.status === 400);
+  assert.throws(() => s.patchApp({ overrides: { 'tool-cards': false } }), (e: unknown) => e instanceof GatesError && e.status === 400);
   const nk = new GatesStore(join(cleanupTemp('legion-gr1-ao-'), 'gates'), { allowed: PRESETS });
   assert.throws(() => nk.patchApp({ overrides: { 'tool-cards': false } }), (e: unknown) => e instanceof GatesError && e.status === 400);
-  writeFileSync(join(dir, 'app.json'), JSON.stringify({ version: 1, overrides: { 'update-consent': false } }));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ version: 1, overrides: { 'tool-cards': false } }));
   assert.equal(open().app().overrides, undefined);
 });
 

@@ -1,8 +1,8 @@
-/** Gates PR 2, task 9: the attempt caps, the update consent and the digest hold follow the registry; three gates stay on in every preset. */
+/** Gates PR 2, task 9: the attempt caps and the digest hold follow the registry; three gates stay on in every preset. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AttemptLedger, attemptLimits, MAX_ATTEMPTS_PER_BOT, MAX_ATTEMPTS_PER_ITEM } from '../src/core/marshal/ledger.js';
-import { gateValue, PRESETS, type GateValue } from '../src/shared/gates-registry.js';
+import { gateValue, PRESETS } from '../src/shared/gates-registry.js';
 import { createUpdaterModule, type UpdaterModule } from '../src/core/updater/index.js';
 import { createHold, holdMs, HOLD_IRREVERSIBLE_MS, HOLD_MS } from '../ui/src/projects/hold.js';
 import { ApprovalBroker } from '../src/core/approvals.js';
@@ -14,7 +14,7 @@ import { LOCK, makeKey, makeRelease, startFakeServer } from './updater-helpers.j
 import { BoardStore } from '../src/core/projects/board/store.js';
 import { MarshalDriver } from '../src/core/marshal/driver.js';
 import type { MarshalPorts } from '../src/core/marshal/orchestrator.js';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const I = 'wi_aaaaaaaaaaaa';
@@ -81,27 +81,27 @@ test('attemptLimits: a limit gives per-item = limit and per-bot = half; off is u
 
 const K = makeKey('k1');
 const T0 = Date.parse('2026-10-20T12:00:00Z');
-async function updater(gate: GateValue | undefined | (() => GateValue), probes: Record<string, () => boolean> = {}, release = makeRelease(K, '0.2.1')) {
+async function updater(probes: Record<string, () => boolean> = {}, release = makeRelease(K, '0.2.1'), autoInstallWhenIdle = false) {
   const srv = await startFakeServer(release);
   const root = tempDir('upd-root-'); const data = tempDir('upd-data-');
   writeFileSync(join(root, 'package-lock.json'), LOCK);
+  if (autoInstallWhenIdle) { mkdirSync(join(data, 'updater'), { recursive: true }); writeFileSync(join(data, 'updater', 'settings.json'), JSON.stringify({ autoInstallWhenIdle: true })); }
   const store = new Store(data); const bus = new EventBus();
   const deps = { config: {}, store, bus, engine: { running: () => [], cancel: () => true, startTask: () => ({}) }, approvals: new ApprovalBroker(bus), dataDir: data, bsvEnabled: () => false } as unknown as ModuleDeps;
   const clock = { t: T0 };
   const mod: UpdaterModule = createUpdaterModule(deps, {
     root, nativeSecret: 'n'.repeat(64), source: srv.source, keys: [K.key], version: '0.2.0', platform: 'win32', timers: false, now: () => clock.t, probes, freeBytes: () => 10 ** 12,
-    ...(gate === undefined ? {} : { gates: { gate: typeof gate === 'function' ? gate : () => gate } }),
   });
   return { mod, srv, clock };
 }
 const waitFor = async (cond: () => Promise<boolean>) => { for (let i = 0; i < 300 && !(await cond()); i++) await new Promise((r) => setTimeout(r, 10)); assert.ok(await cond(), 'timed out'); };
 
-test('update-consent off: the update stages by itself; readyToApply is true when idle and no goal runs, false while a goal runs', async () => {
+test('a running goal blocks readyToApply and is named as the reason; absent probe means not running', async () => {
   let goal = false;
-  const r = await updater(false, { 'a goal is running': () => goal });
+  const r = await updater({ 'a goal is running': () => goal });
   try {
     await r.mod.check(true);
-    await waitFor(async () => (await r.mod.status()).phase === 'staged'); // no click, no auto setting
+    assert.deepEqual(await r.mod.install(), { ok: true }); // the owner's click
     r.clock.t += 120_000;
     goal = true;
     let s = await r.mod.status();
@@ -112,64 +112,34 @@ test('update-consent off: the update stages by itself; readyToApply is true when
     r.clock.t += 120_000;
     s = await r.mod.status();
     assert.equal(s.readyToApply, true);
-    await r.mod.commit(); // the commit needs no click either
   } finally { await r.srv.close(); }
+  const r2 = await updater();
+  try {
+    await r2.mod.check(true);
+    await r2.mod.install();
+    r2.clock.t += 120_000;
+    assert.equal((await r2.mod.status()).readyToApply, true);
+  } finally { await r2.srv.close(); }
 });
 
-test('update-consent off with no goal probe registered: absent means not running', async () => {
-  const r = await updater(false);
+test('without the Updates panel setting nothing is downloaded until the owner clicks', async () => {
+  const r = await updater();
   try {
     await r.mod.check(true);
-    await waitFor(async () => (await r.mod.status()).phase === 'staged');
+    await new Promise((res) => setTimeout(res, 100));
+    const s = await r.mod.status();
+    assert.equal(s.phase, 'idle'); assert.equal(s.staged, undefined); assert.equal(s.consent, false);
+    assert.equal(r.srv.hits.filter((h) => h.includes('/releases/download/')).length, 0);
+    assert.deepEqual(await r.mod.install(), { ok: true });
     r.clock.t += 120_000;
     assert.equal((await r.mod.status()).readyToApply, true);
   } finally { await r.srv.close(); }
 });
 
-test('update-consent on (and no gate reader at all): unchanged, nothing is downloaded until the owner clicks', async () => {
-  const throwing = () => { throw new Error('gates core is down'); };
-  for (const g of [true, undefined, throwing] as const) {
-    const r = await updater(g);
-    try {
-      await r.mod.check(true);
-      await new Promise((res) => setTimeout(res, 100));
-      const s = await r.mod.status();
-      assert.equal(s.phase, 'idle'); assert.equal(s.staged, undefined);
-      assert.equal(r.srv.hits.filter((h) => h.includes('/releases/download/')).length, 0);
-      assert.deepEqual(await r.mod.install(), { ok: true });
-      r.clock.t += 120_000;
-      assert.equal((await r.mod.status()).readyToApply, true);
-    } finally { await r.srv.close(); }
-  }
-});
-
-test('update-consent: an update staged while the gate was off does not carry the owner consent; switching it on stops the apply', async () => {
-  let value: GateValue = false;
-  const r = await updater(() => value);
-  try {
-    await r.mod.check(true);
-    await waitFor(async () => (await r.mod.status()).phase === 'staged');
-    r.clock.t += 120_000;
-    await r.mod.status();
-    r.clock.t += 120_000;
-    let s = await r.mod.status();
-    assert.equal(s.readyToApply, true); assert.equal(s.consent, true, 'gate off: the panel reports no consent needed');
-    value = true; // the owner switches "Ask before an update installs" back on
-    s = await r.mod.status();
-    assert.equal(s.readyToApply, false); assert.equal(s.consent, false, 'no click was ever given');
-    await assert.rejects(() => r.mod.commit(), (e: { status?: number }) => e.status === 409);
-    value = false;
-    assert.equal((await r.mod.status()).readyToApply, true, 'and switching it off again resumes');
-    value = true;
-    assert.deepEqual(await r.mod.install(), { ok: true }); // the owner clicks: that is consent
-    assert.equal((await r.mod.status()).readyToApply, true);
-  } finally { await r.srv.close(); }
-});
-
-test('update-consent off: a version whose staging failed is not downloaded again for 24 hours', async () => {
+test('autoInstallWhenIdle: a version whose staging failed is not downloaded again for 24 hours', async () => {
   const rel = makeRelease(K, '0.2.1');
   const bad = { ...rel, zip: Buffer.alloc(rel.zip.length, 7) }; // the manifest still names the real hash, so staging fails
-  const r = await updater(false, {}, bad);
+  const r = await updater({}, bad, true);
   try {
     const dl = () => r.srv.hits.filter((h) => h.includes('/releases/download/')).length;
     await r.mod.check(true);
@@ -228,44 +198,4 @@ test('createHold: only holdOff sends at once; a total of 0 or less without it co
 
 test('stall-ladder, ask-timeout-deny and budget-stop are true in every preset (the registry says so, so no preset can switch them off)', () => {
   for (const id of ['stall-ladder', 'ask-timeout-deny', 'budget-stop']) for (const p of PRESETS) assert.equal(gateValue(id, app(p)), true, `${id} in ${p}`);
-});
-
-test('a gate-staged update: Restart and install records consent only after the native yes; the idle timer never applies it', async () => {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const root = fileURLToPath(new URL('../..', import.meta.url));
-  const main = readFileSync(`${root}/src/electron/updater-main.ts`, 'utf8');
-  const fn = main.slice(main.indexOf('async function applyNow('), main.indexOf('async function applyNow(') + 4000);
-  assert.match(fn, /!st\.json\.staged \|\| \(!st\.json\.consent && !force\)/, 'without force (the timer) consent is required');
-  const yes = fn.indexOf('if (r.response !== 1) return'), rec = fn.indexOf("'/api/update/approve', { version: st.json.staged.version }"), drain = fn.indexOf("'/api/update/drain'");
-  assert.ok(yes > 0 && rec > yes && drain > rec, 'consent is recorded after the dialog yes and before the drain');
-  const panel = readFileSync(`${root}/ui/src/components/UpdatePanel.tsx`, 'utf8');
-  assert.match(panel, /st\.consent \? 'Legion installs it by itself[^']*' : 'Legion waits for your yes\./, 'the panel does not promise a self-install without consent');
-});
-
-test('approveStaged records consent only for the staged version the dialog named, and never downloads', async () => {
-  const { isClientRoute } = await import('../src/core/admin.js');
-  assert.equal(isClientRoute('POST', '/api/update/approve'), false, 'admin only');
-  let value: GateValue = false;
-  const r = await updater(() => value);
-  try {
-    await r.mod.check(true);
-    await waitFor(async () => (await r.mod.status()).phase === 'staged');
-    const v = (await r.mod.status()).staged!.version;
-    value = true; // the owner switches "Ask before an update installs" back on
-    const dl = () => r.srv.hits.filter((h) => h.includes('/releases/download/')).length;
-    const before = dl();
-    for (const other of ['9.9.9', undefined, 42, '']) assert.throws(() => r.mod.approveStaged(other), (e: { status?: number }) => e.status === 409);
-    assert.equal((await r.mod.status()).consent, false, 'a different version approves nothing');
-    assert.deepEqual(r.mod.approveStaged(v), { ok: true });
-    assert.equal((await r.mod.status()).consent, true);
-    assert.equal(dl(), before, 'approving downloads nothing');
-  } finally { await r.srv.close(); }
-});
-
-test('the approve route answers only the native app (the Restart dialog), like drain and commit', async () => {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const src = readFileSync(fileURLToPath(new URL('../../src/core/updater/index.ts', import.meta.url)), 'utf8');
-  assert.match(src, /add\('POST', '\/api\/update\/approve', async \(c\) => \{ needNative\(c\.req\);/);
 });
