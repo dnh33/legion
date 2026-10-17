@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { createUpdaterModule, installMode, INSTALL_MARKER_FILE, type UpdaterModule } from '../src/core/updater/index.js';
-import { parseRoute, planRelease, UNIX_DEPS_TEXT } from '../src/core/updater/deps-change.js';
+import { parseRoute, planRelease, unixDepsText, UNIX_DEPS_TEXT } from '../src/core/updater/deps-change.js';
 import { buildJob, commitMatches, windowShown } from '../src/core/updater/main-logic.js';
 import { CODE_SET, FULL_PACKAGE_SET, windowLaunchPlan } from '../src/core/updater/apply.js';
 import { Store } from '../src/core/store.js';
@@ -65,6 +65,17 @@ test('installMode off win32: a realpath that throws is a checkout, never a crash
   assert.equal(installMode({ root, platform: 'linux', ...f, realpath: () => { throw new Error('EACCES'); } }), 'checkout');
 });
 
+test('the dependency notice says to close Legion first and carries --dir only when the folder is not the installer default', () => {
+  const home = '/home/u';
+  assert.equal(unixDepsText('/home/u/.local/share/legion', home), UNIX_DEPS_TEXT, 'the default folder: no --dir');
+  assert.equal(unixDepsText(undefined, home), UNIX_DEPS_TEXT);
+  assert.match(UNIX_DEPS_TEXT, /close Legion, then run the installer again: curl -fsSL https:\/\/getlegion\.xyz \| sh/);
+  const other = unixDepsText('/opt/my legion', home);
+  assert.match(other, /close Legion, then run the installer again: curl -fsSL https:\/\/getlegion\.xyz \| sh -s -- --dir '\/opt\/my legion'/);
+  assert.match(unixDepsText("/opt/it's", home), /--dir '\/opt\/it'\''s'/, 'a quote in the path is closed, escaped and reopened');
+  assert.doesNotMatch(other, /—/);
+});
+
 const base = { depsSha256: 'a'.repeat(64) };
 const fullAsset = { name: 'legion-0.3.5-win-x64.zip', size: 1, sha256: 'b'.repeat(64) };
 test('planRelease off win32: a dependency release is notify with the installer copy, signed full package or not; code stays code', () => {
@@ -77,7 +88,7 @@ test('planRelease off win32: a dependency release is notify with the installer c
     }
     assert.equal(planRelease({ ...base, requiresFullInstall: false, fullAsset }, p).route, 'code');
   }
-  assert.equal(UNIX_DEPS_TEXT, "This update changes Legion's dependencies. On Mac and Linux, run the installer again to get it: curl -fsSL https://getlegion.xyz | sh (your data in ~/.legion stays).");
+  assert.equal(UNIX_DEPS_TEXT, "This update changes Legion's dependencies. On Mac and Linux, close Legion, then run the installer again: curl -fsSL https://getlegion.xyz | sh (your data in ~/.legion stays).");
   assert.equal(planRelease({ ...base, requiresFullInstall: true, fullAsset }, 'win32').route, 'full', 'win32 is untouched');
 });
 
@@ -126,8 +137,10 @@ test('the update window is win32 only: the plan is none and the window is not sh
 test('panel text: hand-made clones are told to fetch tags and check out the tag, never git pull; Mac and Linux get the installer line and the close-and-reopen line', () => {
   assert.equal(CHECKOUT_TEXT, 'This is a git checkout. Update it yourself: git fetch --tags, check out the new tag, then npm ci and npm run build.');
   assert.doesNotMatch(CHECKOUT_TEXT, /git pull/);
-  assert.equal(depsNotifyText('linux'), UNIX_DEPS_TEXT);
+  assert.equal(depsNotifyText('linux'), UNIX_DEPS_TEXT, 'the panel copy equals the core copy');
   assert.equal(depsNotifyText('darwin'), UNIX_DEPS_TEXT);
+  assert.equal(depsNotifyText('linux', 'from the core'), 'from the core', 'the core text (with --dir) wins when the status carries it');
+  assert.match(depsNotifyText('win32', 'from the core'), /setup\.cmd/, 'win32 ignores it');
   assert.match(depsNotifyText('win32'), /setup\.cmd/);
   assert.match(closeAndReopenText('darwin') ?? '', /close and reopen/);
   assert.equal(closeAndReopenText('win32'), undefined, 'win32 keeps its update window text');
@@ -182,8 +195,8 @@ test('module, Linux managed clone: a dependency release with a signed full packa
     const s = await r.mod.status();
     assert.equal(s.mode, 'apply');
     assert.equal(s.available?.canFullInstall, false);
-    await assert.rejects(r.mod.install(), (e: Error) => e.message === UNIX_DEPS_TEXT);
-    await assert.rejects(r.mod.install({ auto: true }), (e: Error) => e.message === UNIX_DEPS_TEXT);
+    await assert.rejects(r.mod.install(), (e: Error) => e.message === unixDepsText(r.root));
+    await assert.rejects(r.mod.install({ auto: true }), (e: Error) => e.message === unixDepsText(r.root));
     assert.deepEqual(downloads(r), []);
     noWinZip(r);
   } finally { await r.srv.close(); }
@@ -196,7 +209,8 @@ test('module, Linux managed clone: a lock that changed without the flag (code ro
     await r.mod.check(true);
     assert.deepEqual(await r.mod.install(), { ok: false });
     const s = await r.mod.status();
-    assert.equal(s.error, UNIX_DEPS_TEXT);
+    assert.equal(s.error, unixDepsText(r.root));
+    assert.equal(s.depsText, unixDepsText(r.root), 'the panel shows the same words, with this install folder');
     assert.equal(s.staged, undefined);
     noWinZip(r);
     assert.equal(downloads(r).length, 1, 'only the app package was fetched');

@@ -15,7 +15,7 @@ import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome }
 import { newUpdateId, type JourneyStepId, type JourneyView } from './journey.js';
 import { readLastJourney, recordStep, type StepExtra } from './journey-io.js';
 import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifest2Url, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sig2Url, sigUrl, type UpdateSource } from './config.js';
-import { planRelease, UNIX_DEPS_TEXT } from './deps-change.js';
+import { planRelease, unixDepsText } from './deps-change.js';
 import { isUpdateInProgress, type MarkerDeps } from './update-marker.js';
 import { BOOT_REASON, computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, manifestForUpdater, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
@@ -74,7 +74,7 @@ export interface UpdaterOptions {
 }
 type Phase = 'idle' | 'checking' | 'awaiting-approval' | 'downloading' | 'staged' | 'committing';
 export interface UpdateStatus {
-  mode: InstallMode; /** The system the core runs on: the panel words some notices per system. */ platform: NodeJS.Platform; keyConfigured: boolean; installed: { version: string; publishedAt?: string }; settings: UpdateSettings;
+  mode: InstallMode; /** The system the core runs on: the panel words some notices per system. */ platform: NodeJS.Platform; /** Off Windows: the words for a release that changes dependencies, with this install's folder in the command. */ depsText?: string; keyConfigured: boolean; installed: { version: string; publishedAt?: string }; settings: UpdateSettings;
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
   available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; /** True when a dependency-change release ships a signed full package and can self-apply. */ canFullInstall: boolean };
   phase: Phase; progress?: { bytes: number; total: number }; error?: string;
@@ -109,6 +109,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   const keys = opts.keys ?? UPDATE_KEYS;
   const files = new UpdaterFiles(deps.dataDir);
   const platform = opts.platform ?? process.platform;
+  const depsText = unixDepsText(opts.root);
   const mode = installMode({ root: opts.root, platform });
   const startedAt = now();
   const clock = new QuietClock(startedAt);
@@ -291,7 +292,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         .map((v) => ({ version: v, at: at2[v], retryAfter: at2[v] ? new Date(Date.parse(at2[v]) + FAILED_BLOCK_DAYS * 86_400_000).toISOString() : undefined }))
         .filter((b) => b.retryAfter ? Date.parse(b.retryAfter) <= now() : true);
       return {
-        mode, platform, keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
+        mode, platform, ...(platform !== 'win32' ? { depsText } : {}), keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
         check: { ...(s.lastCheckedAt ? { lastCheckedAt: s.lastCheckedAt } : {}), ...(s.lastResult ? { lastResult: s.lastResult } : {}), ...(nextAllowedAt > now() ? { nextAllowedAt: new Date(nextAllowedAt).toISOString() } : {}) },
         ...(a && plan ? { available: { version: a.version, size: plan.route === 'full' ? (a.fullAsset?.size ?? a.asset.size) : a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall, canFullInstall: plan.route === 'full' } } : {}),
         phase, ...(progress && phase === 'downloading' ? { progress } : {}), ...(error ? { error } : {}),
@@ -315,7 +316,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const plan = planRelease(a, platform);
       // A dependency-change release with no signed full package can only be installed by hand: the human fallback, and
       // what every install that predates full-package support still gets. Off win32 that is every dependency release.
-      if (plan.route !== 'code' && plan.route !== 'full') throw new HttpError(409, platform === 'win32' ? 'This release changes dependencies. Download its source and run setup.cmd.' : UNIX_DEPS_TEXT);
+      if (plan.route !== 'code' && plan.route !== 'full') throw new HttpError(409, platform === 'win32' ? 'This release changes dependencies. Download its source and run setup.cmd.' : depsText);
       if (phase !== 'idle' && phase !== 'staged') throw new HttpError(409, 'An update is already being prepared.');
       // Cross-process guard: refuse if another Legion process already owns an update (update-marker.ts).
       if (opts.marker) {
@@ -374,7 +375,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         stageFailedAt.set(a.version, now());
         if (e instanceof StageError) {
           log('updater stage refused', e.code, e.message); // a refusal must be visible in the app log, not only in the panel
-          error = e.code === 'full-install' ? (platform === 'win32' ? 'This release changes dependencies. Download its source and run setup.cmd.' : UNIX_DEPS_TEXT) : `The update was not installed: ${e.message}`;
+          error = e.code === 'full-install' ? (platform === 'win32' ? 'This release changes dependencies. Download its source and run setup.cmd.' : depsText) : `The update was not installed: ${e.message}`;
           if (e.code === 'full-install' && available) available.manifest = { ...available.manifest, requiresFullInstall: true };
         } else if (e instanceof NetError) {
           log(fellBack ? 'updater full package download failed' : 'updater download failed', e.message);

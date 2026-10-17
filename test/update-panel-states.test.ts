@@ -184,6 +184,6 @@ describe('update panel: a refusal does not print the notes that contradict it', 
     assert.match(panel, /Release notes/, 'the Release notes link is gone');
     // the sentence moved to ui/src/updatePanelText.ts (it is worded per system now); the panel still renders it
     assert.match(readFileSync(join(REPO, 'ui', 'src', 'updatePanelText.ts'), 'utf8'), /run setup\.cmd/, 'the refusal support line is gone');
-    assert.match(panel, /depsNotifyText\(st\.platform\)/, 'the panel no longer renders the refusal line');
+    assert.match(panel, /depsNotifyText\(st\.platform, st\.depsText\)/, 'the panel no longer renders the refusal line');
   });
 });

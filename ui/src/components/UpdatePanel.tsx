@@ -7,7 +7,7 @@ import '../styles/update.css';
 
 /** GET /api/update/status (admin only). Mirrors src/core/updater/index.ts UpdateStatus. */
 interface UpdateStatus {
-  mode: 'apply' | 'checkout' | 'unwritable' | 'unsupported'; platform?: string; keyConfigured: boolean; installed: { version: string };
+  mode: 'apply' | 'checkout' | 'unwritable' | 'unsupported'; platform?: string; depsText?: string; keyConfigured: boolean; installed: { version: string };
   settings: { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number; updateWindow: boolean };
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
   available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; canFullInstall?: boolean };
@@ -135,7 +135,7 @@ export function UpdatePanel() {
           {!notifyOnly && a.notes && <pre className="upd-notes">{a.notes}</pre>}
           {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">{CHECKOUT_TEXT} Legion does not run these for you.</p>}
           {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall && !a.canFullInstall
-            ? <p className="upd-muted">{depsNotifyText(st.platform)}</p>
+            ? <p className="upd-muted">{depsNotifyText(st.platform, st.depsText)}</p>
             : <p className="upd-muted">This install cannot be updated from inside Legion ({st.mode === 'unwritable' ? 'the folder is not writable' : 'unsupported system'}).</p>)}
           {a.requiresFullInstall && a.canFullInstall && !st.staged && (
             <p className="upd-muted">This release changes dependencies, so the update includes them: a larger download, applied the same way.</p>
