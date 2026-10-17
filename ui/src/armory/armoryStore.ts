@@ -548,9 +548,14 @@ export async function setAllowShell(allow: boolean): Promise<void> {
 
 /* ---- the skill finder ---- */
 /** Reads "Show suggestions in chat" without building the Armory (the chat needs only this one switch). A failure leaves the line hidden. */
-export async function loadChatLine(): Promise<void> {
-  if (state.chatLine !== null) return;
-  try { set({ chatLine: (await request<FinderSettings>('GET', '/api/armory/finder')).chatLine }); } catch { /* an older core: no line */ }
+let chatLineLoading: Promise<void> | undefined;
+export function loadChatLine(): Promise<void> {
+  if (state.chatLine !== null) return Promise.resolve();
+  // One request for every line that mounts while it runs; an older core (no route) answers false once, so it is not asked again.
+  chatLineLoading ??= (async () => {
+    try { set({ chatLine: (await request<FinderSettings>('GET', '/api/armory/finder')).chatLine }); } catch { set({ chatLine: false }); }
+  })().finally(() => { chatLineLoading = undefined; });
+  return chatLineLoading;
 }
 /**
  * A finder setting (one key or several). Optimistic; the core answers with the whole block, which replaces ours. A failure puts back

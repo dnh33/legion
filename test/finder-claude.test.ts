@@ -306,6 +306,10 @@ describe('finder fixes: doc cache, late hooks, load matching, shown notes, subag
     const plugin = why.find((w) => w.id === 'sp:invoice-audit')!;
     assert.equal(plugin.thirdParty, true, 'a plugin skill is flagged');
     assert.equal('thirdParty' in own, false, 'the owner own skill is not');
+    // matched words are query words found in the skill's text: for a third-party skill they would reveal its description piece by piece
+    assert.deepEqual(plugin.matched, [], 'no matched words kept for a third-party skill');
+    assert.equal(plugin.score, 0, 'no score kept for a third-party skill');
+    assert.ok(own.matched.length > 0, 'the owner own skill keeps its matched words');
   });
 
   it('marks subagent notes and credits loads by who made them', async () => {
