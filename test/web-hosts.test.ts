@@ -105,3 +105,14 @@ test('hosts added to allowedHosts through the app route are stamped approved; on
     assert.ok(got['b.example.com']?.approvedAt);
   } finally { await r.close(); }
 });
+
+test('reserved key names are ignored on load and on write', () => {
+  const dir = folder(); mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'web-last-used.json'), '{"v":1,"hosts":{"__proto__":{"lastUsed":"2026-10-01T00:00:00.000Z"},"a.com":{"lastUsed":"2026-10-01T00:00:00.000Z"}}}');
+  const w = createWebLastUsed(dir);
+  w.touch('__proto__', new Date('2026-10-02T00:00:00Z'));
+  w.touch('constructor', new Date('2026-10-02T00:00:00Z'));
+  w.approved('prototype', new Date('2026-10-02T00:00:00Z'));
+  assert.deepEqual(Object.keys(w.get()), ['a.com']);
+  assert.equal(Object.getPrototypeOf(w.get()), Object.prototype);
+});

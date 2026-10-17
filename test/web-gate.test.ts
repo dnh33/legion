@@ -68,9 +68,39 @@ test('owner rules: more than 200 hosts are refused, and each entry must equal it
   for (const bad of ['Docs.Stripe.com', 'docs.stripe.com.', 'https://docs.stripe.com', 'docs.stripe.com/x', '*.stripe.com', 'a b.com', 'bücher.de']) {
     assert.throws(() => strict([raw('deny', [bad])]), /site name/i, JSON.stringify(bad));
   }
-  assert.equal(normalizeGates({ rules: [raw('deny', ['Docs.Stripe.com'])] }).rules.length, 0, 'load drops a rule it cannot parse');
+  assert.equal(normalizeGates({ rules: [raw('deny', ['a b.com'])] }).rules.length, 0, 'load drops a rule none of whose sites it can read');
 });
 
 test('owner rules: hosts must be a list', () => {
   assert.throws(() => strict([raw('deny', 'docs.stripe.com')]), /hosts/);
+});
+
+test('a hosts deny or ask also matches an address carried inside the call, in every mode', () => {
+  const wrapped = [
+    'https://r.jina.ai/https://example.com/',
+    'https://trusted.com/r/https://example.com',
+    'https://web.archive.org/web/2020/example.com/x',
+    'https://a.com/?u=https%3A%2F%2Fexample.com',
+  ];
+  for (const then of ['deny', 'ask'] as const) {
+    const r = rule(then, { hosts: ['example.com'] });
+    for (const u of wrapped) assert.equal(verdict(u, [r]), then, `${then} ${u}`);
+    assert.equal(verdict('https://example.org/', [r]), 'baseline', then);
+    assert.equal(verdict('https://r.jina.ai/https://example.org/', [r]), 'baseline', then);
+  }
+  const deny = rule('deny', { hosts: ['example.com'] });
+  for (const u of wrapped) for (const mode of ['ask', 'auto-edits', 'full'] as const) assert.equal(verdict(u, [deny], mode), 'deny', `${mode} ${u}`);
+});
+
+test('a host deny sees through trailing dots', () => {
+  const deny = rule('deny', { hosts: ['example.com'] });
+  assert.equal(verdict('https://example.com../', [deny]), 'deny');
+});
+
+test('owner rules: an empty hosts list is refused, and a bad entry on load keeps the valid ones', () => {
+  assert.throws(() => strict([raw('deny', [])]), /hosts/i);
+  assert.equal(normalizeGates({ rules: [raw('deny', [])] }).rules.length, 0, 'load drops it, never "every site"');
+  const kept = normalizeGates({ rules: [raw('deny', ['Example.com', 'x y', 'b.com'])] }).rules;
+  assert.deepEqual(kept[0]?.when.hosts, ['example.com', 'b.com']);
+  assert.equal(normalizeGates({ rules: [raw('deny', ['x y'])] }).rules.length, 0);
 });

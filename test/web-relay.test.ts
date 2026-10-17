@@ -81,3 +81,17 @@ test('a secret read in the run asks every time: no Always allow', () => {
     assert.equal(can(v), false, u);
   }
 });
+
+test('relay sites match by root: mirrors, subdomains and the named proxies ask and never offer Always', () => {
+  const more = ['archive.li', 'archive.vn', 'archive.md', 'archive.fo', 'wayback.archive.org', 'www.archive.org', 'www.12ft.io', 'www.r.jina.ai', 'jina.ai',
+    'translate.googleusercontent.com', 'webcache.googleusercontent.com', 'docs-python-org.translate.goog', 'i0.wp.com', 'i1.wp.com', 'i2.wp.com', 'i3.wp.com',
+    'images.weserv.nl', 'wsrv.nl', 'api.codetabs.com', 'thingproxy.freeboard.io', 'api.microlink.io', 'ghostarchive.org'];
+  for (const h of more) {
+    const v = f(`https://${h}/x`, { trusted: () => true });
+    assert.equal(kind(v), 'ask', h);
+    assert.equal(why(v), 'new-host', h);
+    assert.equal(can(v), false, h);
+  }
+  for (const h of ['example.com', 'wp.com', 'lh3.googleusercontent.com', 'notarchive.org']) assert.equal(kind(f(`https://${h}/x`)), 'ask', h);
+  assert.equal(can(f('https://lh3.googleusercontent.com/x')), true, 'other googleusercontent hosts are ordinary');
+});

@@ -1,7 +1,7 @@
 // The one rule for web reads (WebFetch, WebSearch, browser_open). Pure: no I/O.
 export const MAX_SEARCH = 300; export const MAX_PATH = 200; export const PATH_BUDGET = 10;
 export function canonicalHost(raw: string): string | undefined {
-  try { const h = new URL(raw).hostname.toLowerCase().replace(/\.$/, ''); return h || undefined; } catch { return undefined; }
+  try { const h = new URL(raw).hostname.toLowerCase().replace(/\.+$/, ''); return h || undefined; } catch { return undefined; }
 }
 export interface WebCall { tool: 'WebFetch' | 'WebSearch' | 'browser_open'; input: Record<string, unknown> }
 export interface WebCtx { trusted: (host: string) => boolean; pathsSeen: (host: string) => number; builtIn: (host: string) => boolean; secretRead: boolean }
@@ -12,12 +12,18 @@ export type WebVerdict =
 // A host that fetches any other address for you (a reader, an archive, a cache, a translator, a CORS proxy). Approving one
 // by name approves the whole web, so such a host always asks, never offers Always allow, and a copy of it in the owner's
 // site list does not count as trusted.
-const RELAY_HOSTS: ReadonlySet<string> = new Set([
-  'treg.to', 'markdown.new', 'r.jina.ai', 's.jina.ai', 'web.archive.org', 'archive.org', 'archive.ph', 'archive.today', 'archive.is',
-  'webcache.googleusercontent.com', 'translate.google.com', '12ft.io', 'scrape.do', 'api.scraperapi.com', 'corsproxy.io',
-  'api.allorigins.win', 'cors-anywhere.herokuapp.com', 'proxy.cors.sh',
-]);
-export const isRelayHost = (h: string): boolean => RELAY_HOSTS.has(h) || h.endsWith('.translate.goog');
+// A listed name matches itself and any subdomain of it (wayback.archive.org, i0.wp.com), after a leading "www." is dropped.
+// Mirrors and subdomains of a relay are relays too: one Always on a mirror would approve the whole web.
+const RELAY_ROOTS: readonly string[] = [
+  'treg.to', 'markdown.new', 'jina.ai', 'archive.org', 'archive.ph', 'archive.today', 'archive.is', 'archive.li', 'archive.vn', 'archive.md', 'archive.fo',
+  'ghostarchive.org', 'webcache.googleusercontent.com', 'translate.googleusercontent.com', 'translate.google.com', 'translate.goog', '12ft.io',
+  'scrape.do', 'api.scraperapi.com', 'corsproxy.io', 'api.allorigins.win', 'cors-anywhere.herokuapp.com', 'proxy.cors.sh',
+  'i0.wp.com', 'i1.wp.com', 'i2.wp.com', 'i3.wp.com', 'images.weserv.nl', 'wsrv.nl', 'api.codetabs.com', 'thingproxy.freeboard.io', 'api.microlink.io',
+];
+export const isRelayHost = (host: string): boolean => {
+  const h = host.replace(/^www\./, '');
+  return RELAY_ROOTS.some((r) => h === r || h.endsWith(`.${r}`));
+};
 
 const NEVER_ALWAYS = (h: string): boolean =>
   isRelayHost(h) || /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith('[') || h === 'localhost' || /\.(localhost|local|internal)$/.test(h) ||
@@ -38,7 +44,7 @@ const looksEncoded = (seg: string): boolean => {
 const encodedLooking = (s: string): boolean => s.split('/').some((seg) => { try { return looksEncoded(decodeURIComponent(seg)); } catch { return looksEncoded(seg); } });
 
 // The first http(s) address inside a URL's path or query, plain or percent-encoded (any case). A tripwire, not a boundary:
-// double encoding and other encodings are not decoded.
+// double encoding and redirect forms that carry no http(s) scheme (//host, backslashes, a cross-scheme http:host) are not followed.
 const EMBEDDED = /https?(?::|%3a)(?:\/|%2f){2}/i;
 export function embeddedUrl(u: URL): string | undefined {
   const rest = u.pathname + u.search;
@@ -46,6 +52,30 @@ export function embeddedUrl(u: URL): string | undefined {
   if (!m) return undefined;
   const tail = rest.slice(m.index).split(/[&\s"'<>]/)[0] ?? '';
   try { return decodeURIComponent(tail); } catch { return tail; }
+}
+
+const HOST_SEGMENT = /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/i;
+/**
+ * Every host a call's address names: its own, the host of an address carried inside it (one level), and, for a relay host,
+ * the first path segment that reads as a host (the scheme-less archive form, web.archive.org/web/2020/example.com/x).
+ * A host rule matches when any of them is in its list.
+ */
+export function callHosts(raw: string): string[] {
+  let u: URL;
+  try { u = new URL(raw); } catch { return []; }
+  const out: string[] = [];
+  const add = (h: string | undefined): void => { if (h && !out.includes(h)) out.push(h); };
+  const own = canonicalHost(raw);
+  add(own);
+  const inner = embeddedUrl(u);
+  if (inner) add(canonicalHost(inner));
+  if (own && isRelayHost(own)) {
+    for (const seg of u.pathname.split('/')) {
+      let d = seg; try { d = decodeURIComponent(seg); } catch { /* keep the raw segment */ }
+      if (HOST_SEGMENT.test(d)) { add(canonicalHost(`https://${d}`)); break; }
+    }
+  }
+  return out;
 }
 
 /** The stricter of two verdicts: any ask wins, and Always allow is offered only if both sides offer it. */
@@ -76,7 +106,7 @@ function judge(call: WebCall, ctx: WebCtx): WebVerdict {
   }
   const raw = typeof call.input.url === 'string' ? call.input.url : '';
   let u: URL; try { u = new URL(raw); } catch { return { kind: 'ask', why: 'new-host', canAlways: false }; }
-  const host = u.hostname.toLowerCase().replace(/\.$/, '');
+  const host = u.hostname.toLowerCase().replace(/\.+$/, '');
   const can = !NEVER_ALWAYS(host);
   const ask = (w: Extract<WebVerdict, { kind: 'ask' }>['why']): WebVerdict => ({ kind: 'ask', host, why: w, canAlways: can });
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return { kind: 'ask', host, why: 'http', canAlways: false };

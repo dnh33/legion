@@ -22,7 +22,7 @@
  * `when` matched (config order) for the "why am I asking?" popover.
  */
 import type { GateRule, GateVerdict, GateWhen } from '../shared/types.js';
-import { canonicalHost } from '../shared/web-verdict.js';
+import { callHosts } from '../shared/web-verdict.js';
 import type { RunMode } from './permission-mode.js';
 
 /**
@@ -379,10 +379,11 @@ export function whenMatches(when: GateWhen, c: GateCall): boolean {
   }
   if (when.projects?.length && !(c.projectId && when.projects.includes(c.projectId))) return false;
   if (when.hosts?.length) {
-    // Exact match on the canonical host of the call's url: no subdomains, no path. No url or no host means no match.
+    // Exact match on a canonical host of the call's `url` field (other url-like fields are not read): its own host, the host of an
+    // address carried inside it, or a relay's scheme-less target. No subdomains, no path. No url or no host means no match.
     const url = c.input?.url;
-    const host = typeof url === 'string' ? canonicalHost(url) : undefined;
-    if (!host || !when.hosts.includes(host)) return false;
+    const hs = typeof url === 'string' ? callHosts(url) : [];
+    if (!hs.some((h) => when.hosts!.includes(h))) return false;
   }
   if (when.contexts?.length) {
     const ctx = { capped: false, roomHop: false, tainted: false, connectorData: false, ...c.ctx };

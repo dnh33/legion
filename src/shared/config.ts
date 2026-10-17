@@ -180,18 +180,21 @@ const GATE_HOST_FORM = /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:.]+\])$/;
  * (approved sites live in the signed site list), and each entry must be its own canonical form: no case, no trailing dot, no
  * wildcard, no scheme or path. Matching is exact, so a form that differs from what the call's host reduces to could never match.
  */
-function gateHosts(v: unknown, isAllow: boolean): string[] | string {
+function gateHosts(v: unknown, isAllow: boolean, strict: boolean): string[] | string {
   if (isAllow) return 'Approved sites go in the site list, not in an allow rule.';
   if (!Array.isArray(v)) return 'A rule\'s hosts must be a list of site names.';
-  if (v.length > GATE_MAX_HOSTS) return `A rule may name at most ${GATE_MAX_HOSTS} sites.`;
+  if (v.length > GATE_MAX_HOSTS && strict) return `A rule may name at most ${GATE_MAX_HOSTS} sites.`;
+  if (!v.length) return 'A rule\'s hosts list must name at least one site.';
   const out: string[] = [];
-  for (const x of v) {
-    if (typeof x !== 'string' || !GATE_HOST_FORM.test(x) || x.includes('..') || canonicalHost(`https://${x}`) !== x) {
-      return `"${String(x).slice(0, 60)}" is not a site name in its plain form. Use lower case and the name only, like docs.python.org.`;
-    }
-    if (!out.includes(x)) out.push(x);
+  for (const raw of v.slice(0, GATE_MAX_HOSTS)) {
+    const plain = typeof raw === 'string' && GATE_HOST_FORM.test(raw) && !raw.includes('..') && canonicalHost(`https://${raw}`) === raw;
+    if (plain) { if (!out.includes(raw)) out.push(raw); continue; }
+    if (strict) return `"${String(raw).slice(0, 60)}" is not a site name in its plain form. Use lower case and the name only, like docs.python.org.`;
+    // On load a hand-edited entry is put into its plain form when that is possible, so a deny rule keeps what it can still name.
+    const fixed = typeof raw === 'string' && !/[\s/@\\*]/.test(raw.trim()) ? canonicalHost(`https://${raw.trim()}`) : undefined;
+    if (fixed && GATE_HOST_FORM.test(fixed) && !fixed.includes('..') && !out.includes(fixed)) out.push(fixed);
   }
-  return out;
+  return out.length ? out : 'None of the rule\'s sites could be read.';
 }
 
 /**
@@ -236,9 +239,9 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
     if (contexts?.length) when.contexts = contexts as GateContext[];
     else if (strict && ctx?.length) bad(`${at}.when.contexts may only hold capped, room-hop, tainted or connector-data`);
     if (w.hosts !== undefined) {
-      const hosts = gateHosts(w.hosts, r.then === 'allow');
+      const hosts = gateHosts(w.hosts, r.then === 'allow', strict);
       if (typeof hosts === 'string') { if (strict) bad(hosts); continue; }
-      if (hosts.length) when.hosts = hosts;
+      when.hosts = hosts;
     }
     rules.push({
       id: r.id, then: r.then as GateVerdict, when,
