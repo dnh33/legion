@@ -26,8 +26,8 @@ export function commitMatches(c: unknown, installDir: string, platform: NodeJS.P
   return norm(resolve(o.installDir as string)) === norm(base) && norm(staged).startsWith(norm(join(base, UPDATE_DIR, 'staging')) + sep);
 }
 
-/** The Chromium switches Legion was started with that the update window must start with too (a machine with no usable GPU or sandbox, such as a CI runner). A normal start has none. */
-const WINDOW_SWITCHES = new Set(['--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage']);
+/** The Chromium switches Legion was started with that the update window must start with too (a machine with no usable GPU, sandbox or login keychain, such as a CI runner; --use-mock-keychain is carried only when the app was started with it). A normal start has none. */
+const WINDOW_SWITCHES = new Set(['--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage', '--use-mock-keychain']);
 export const windowSwitches = (argv: readonly string[]): string[] => argv.filter((a) => WINDOW_SWITCHES.has(a));
 
 /** The "Updating Legion" window is win32 only (a Linux clone would start a second Electron from it). `setting` is the owner's Settings choice; only a real false turns it off. */

@@ -170,7 +170,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, macos-15-intel, ubuntu-24.04-arm]
     env:
       # scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set, and GitHub sets CI=true.
       # The installer must do what a user's install does, so both are cleared for these jobs.
@@ -183,6 +183,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      # Informational: sh here is dash on Ubuntu and bash 3.2 on macOS, so the installer is parsed by both; shellcheck adds a third opinion.
+      - name: shellcheck install.sh (informational)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: shellcheck -s sh scripts/install/install.sh
       - name: install.sh --no-launch into a temp folder, with a fresh HOME
         run: |
           export HOME="$RUNNER_TEMP/home"
@@ -200,9 +205,32 @@ jobs:
           echo "electron binary: $electron"
           test -x "$electron"
           node -e 'const v=require(process.argv[1]).version; if (v!==process.argv[2]) { console.error("installed "+v+", expected "+process.argv[2]); process.exit(1); }' "$dir/package.json" "$expected"
+          # The marker that tells Legion's updater this installer manages the folder (src/core/updater/index.ts managedClone): valid JSON, this folder, this commit.
+          test -f "$dir/.legion-install.json"
+          node -e 'const fs=require("fs"),path=require("path"); const d=process.argv[1]; const m=JSON.parse(fs.readFileSync(path.join(d,".legion-install.json"),"utf8")); const head=fs.readFileSync(path.join(d,".git","HEAD"),"utf8").trim(); const bad=[]; if (m.schema!==1) bad.push("schema"); if (m.manager!=="install.sh") bad.push("manager"); if (m.dir!==fs.realpathSync(d)) bad.push("dir"); if (!/^[0-9a-f]{40}$/.test(head)||m.head!==head) bad.push("head"); if (bad.length) { console.error("marker is wrong: "+bad.join(", ")+" "+JSON.stringify(m)); process.exit(1); } console.log("marker ok: "+m.head);' "$dir"
+          test -z "$(git -C "$dir" status --porcelain)" || { echo "a fresh install is not clean:"; git -C "$dir" status --porcelain; exit 1; }
       - name: install.sh again updates the same folder in place
         run: |
           export HOME="$RUNNER_TEMP/home"
           sh scripts/install/install.sh --no-launch --dir "$RUNNER_TEMP/legion-install-test"
           test -f "$RUNNER_TEMP/legion-install-test/dist/src/electron/main.js"
           test -x "$HOME/.local/bin/legion"
+          test -f "$RUNNER_TEMP/legion-install-test/.legion-install.json"
+      - name: install.sh accepts a folder Legion's own updater has changed, and refuses one you edited
+        run: |
+          export HOME="$RUNNER_TEMP/home"
+          dir="$RUNNER_TEMP/legion-install-test"
+          # What a self-update leaves behind: a changed file of the code set, a stale update folder, build-info.json.
+          echo 'changed by an update' >> "$dir/README.md"
+          mkdir -p "$dir/.update"; echo '{"state":"committed"}' > "$dir/.update/journal.json"; echo '{}' > "$dir/build-info.json"
+          sh scripts/install/install.sh --no-launch --dir "$dir"
+          if grep -q 'changed by an update' "$dir/README.md"; then echo "README.md was not restored"; exit 1; fi
+          test ! -e "$dir/.update/journal.json"
+          test ! -e "$dir/build-info.json"
+          test -f "$dir/.legion-install.json"
+          test -z "$(git -C "$dir" status --porcelain)"
+          # An edit of your own in the program source stops it and is left alone.
+          src=$(git -C "$dir" ls-files 'src/*.ts' | head -n 1)
+          echo '// my edit' >> "$dir/$src"
+          if sh scripts/install/install.sh --no-launch --dir "$dir"; then echo "the installer should have refused"; exit 1; fi
+          grep -q '// my edit' "$dir/$src"

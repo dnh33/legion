@@ -88,10 +88,10 @@ test('an unknown future route value parses to notify, and the known ones are unc
 
 test('relaunch off win32 carries the allowlisted switches in argv order, and nothing else', () => {
   const c = { installDir: '/l', stagedDir: '/l/.update/staging/0.3.5/x', from: '0.3.4', to: '0.3.5' };
-  const argv = ['/l/node_modules/electron/dist/electron', '/l', '--no-sandbox', '--remote-debugging-port=9222', '--disable-gpu', '--inspect', '--disable-dev-shm-usage', '--disable-software-rasterizer'];
+  const argv = ['/l/node_modules/electron/dist/electron', '/l', '--no-sandbox', '--remote-debugging-port=9222', '--disable-gpu', '--inspect', '--disable-dev-shm-usage', '--use-mock-keychain', '--disable-software-rasterizer'];
   for (const platform of ['linux', 'darwin'] as const) {
     const j = buildJob(c, { parentPid: 1, port: 4747, execPath: '/l/node_modules/electron/dist/electron', platform, argv });
-    assert.deepEqual(j.relaunch.args, ['/l', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-software-rasterizer'], platform);
+    assert.deepEqual(j.relaunch.args, ['/l', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--use-mock-keychain', '--disable-software-rasterizer'], platform);
     assert.equal(j.relaunch.cmd, '/l/node_modules/electron/dist/electron');
     assert.deepEqual(j.relaunch.env, { LEGION_UPDATE_HANDOFF: '1' });
   }
