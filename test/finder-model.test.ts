@@ -38,7 +38,7 @@ describe('finder model download', () => {
     assert.ok(text.includes('MIT'), 'licence');
     assert.ok(text.includes('0.7 GB'), 'memory');
     assert.deepEqual(card.hosts, ['cdn.example.com', 'models.example.com']);
-    assert.ok(!/—/.test(text), 'no em dash');
+    assert.ok(!text.includes(String.fromCharCode(0x2014)), 'no em dash');
   });
 
   it('success: each file is hashed, the folder is moved into place and installed.json is written', async () => {

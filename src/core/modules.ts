@@ -76,6 +76,8 @@ export interface FinderWiring {
   subagents: boolean;
   slimListing: boolean;
   rerank: boolean;
+  /** The ranker uses embeddings (a local model that is installed, or a provider), so a turn waits a little longer for its note. */
+  embeddings?: boolean;
 }
 
 export interface CoreModule {

@@ -46,7 +46,7 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView, TodoItem } from '../shared/types.js';
-import { RERANK_TURN_TIMEOUT_MS, TURN_TIMEOUT_MS } from './armory/finder/defaults.js';
+import { EMBED_TURN_TIMEOUT_MS, RERANK_TURN_TIMEOUT_MS, TURN_TIMEOUT_MS } from './armory/finder/defaults.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -1313,11 +1313,16 @@ export class Engine {
   }
 
   /** The first note a module gives for this turn. Bounded in time and never throws: a slow or broken module means no note. */
-  private async turnNote(agent: AgentProfile, ctx: TurnContext, rerank: boolean): Promise<TurnNote | undefined> {
+  /** How long a turn waits for its note: longer when a rerank or an embedding is in the path. */
+  private turnWaitMs(finder: FinderWiring): number {
+    return finder.rerank ? RERANK_TURN_TIMEOUT_MS : finder.embeddings ? EMBED_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS;
+  }
+
+  private async turnNote(agent: AgentProfile, ctx: TurnContext, waitMs: number): Promise<TurnNote | undefined> {
     let timer: NodeJS.Timeout | undefined;
     // Once the limit has passed, the turn goes on without a note, and no later module is asked.
     let timedOut = false as boolean;
-    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => { timedOut = true; r(undefined); }, rerank ? RERANK_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS); });
+    const limit = new Promise<undefined>((r) => { timer = setTimeout(() => { timedOut = true; r(undefined); }, waitMs); });
     try {
       for (const m of this.modules) {
         if (timedOut) break;
@@ -1373,9 +1378,9 @@ export class Engine {
    * One turn's note, recorded on the task. Shared by the Claude hooks and the provider path. No note is returned, and none is
    * recorded, unless the run is still live both before and after the ranking.
    */
-  private async liveTurnNote(agent: AgentProfile, act: Active, ctx: TurnContext, rerank: boolean): Promise<TurnNote | undefined> {
+  private async liveTurnNote(agent: AgentProfile, act: Active, ctx: TurnContext, waitMs: number): Promise<TurnNote | undefined> {
     if (!this.finderLive(act, ctx.taskId)) return undefined;
-    const note = await this.turnNote(agent, ctx, rerank);
+    const note = await this.turnNote(agent, ctx, waitMs);
     if (!note || !this.finderLive(act, ctx.taskId)) return undefined;
     this.recordSkillTurn(ctx.taskId, note, ctx.subagentType);
     return note;
@@ -1781,7 +1786,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (input.source && input.source !== 'user' && input.source !== 'sdk') return none;
         const text = firstRanked ? input.prompt : (act.rankText ?? input.prompt);
         firstRanked = true;
-        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude' }, finder.rerank);
+        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude' }, this.turnWaitMs(finder));
         if (!note) return none;
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: note.text } };
       } catch { return none; }
@@ -1804,7 +1809,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const i = list.findIndex((b) => b.type === input.agent_type);
         const text = i >= 0 ? list.splice(i, 1)[0]!.prompt : act.rankText;
         if (!text) return none;
-        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude', subagentType: input.agent_type }, finder.rerank);
+        const note = await this.liveTurnNote(agent, act, { prompt: text, taskId: job.taskId, runtime: 'claude', subagentType: input.agent_type }, this.turnWaitMs(finder));
         if (!note) return none;
         return { hookSpecificOutput: { hookEventName: 'SubagentStart' as const, additionalContext: note.text } };
       } catch { return none; }
@@ -1892,7 +1897,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     // the bridge header is left out. The stored message keeps the raw text: only the request sent to the model carries the note.
     const finder = this.finderWiring(agent);
     const rankText = act.rankText;
-    const note = finder.suggest && rankText ? await this.liveTurnNote(agent, act, { prompt: rankText, taskId, runtime: 'provider' }, finder.rerank) : undefined;
+    const note = finder.suggest && rankText ? await this.liveTurnNote(agent, act, { prompt: rankText, taskId, runtime: 'provider' }, this.turnWaitMs(finder)) : undefined;
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts

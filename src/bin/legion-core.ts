@@ -121,7 +121,7 @@ async function main() {
   // the house context layer (AGENTS.md, ADRs, glossary, lessons) copied into the data dir and served to every agent
   const house = createHouseModule(moduleDeps, { log, catalog: () => armory.catalog() });
   // the Armory: skills agents can pick up (own skills, imported ones, Claude Code's), and the per-run skills list
-  const armory = createArmoryModule(moduleDeps, { log });
+  const armory = createArmoryModule(moduleDeps, { log, ...(providerRuntime ? { providerTarget: (id: string) => providerRuntime.targetFor(id) } : {}) });
   // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
   const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });

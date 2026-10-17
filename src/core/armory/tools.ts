@@ -34,7 +34,7 @@ export function providerSkills(catalog: readonly CatalogEntry[], agent: Pick<Age
 /** One search result. A third-party skill carries no description: its text never reaches the model through a search. */
 export interface FindHit { id: string; score: number; description?: string; thirdParty: boolean }
 /** Ranks the skills this agent may use for a query. Gives at most `limit` hits, best first. */
-export type FindFn = (query: string, limit: number) => FindHit[];
+export type FindFn = (query: string, limit: number) => FindHit[] | Promise<FindHit[]>;
 
 export const FIND_DEFAULT = 5;
 export const FIND_MAX = 10;
@@ -42,14 +42,14 @@ export const FIND_MAX = 10;
 function findTool(find: FindFn, taint: () => void) {
   return tool(
     'armory_find',
-    'Search the skills the owner has turned on for you by what you want to do. Gives the best matches with a short line each. Load one with the Skill tool (or armory_skill).',
+    'Search the skills the owner has turned on for you by what you want to do. Gives the best matches with a short line each. Load one with the Skill tool or armory_skill.',
     { query: z.string().describe('What you want to do, in plain words.'), limit: z.number().int().min(1).max(FIND_MAX).optional().describe(`How many results, 1 to ${FIND_MAX}. Default ${FIND_DEFAULT}.`) },
     async ({ query, limit }) => {
       const q = String(query ?? '').trim();
       if (!q) return text('Give a short search, for example "export invoices to pdf".', true);
       const n = Number.isFinite(limit) ? Math.min(FIND_MAX, Math.max(1, Math.floor(limit as number))) : FIND_DEFAULT;
       let hits: FindHit[] = [];
-      try { hits = find(q, n); } catch { hits = []; }
+      try { hits = await find(q, n); } catch { hits = []; }
       if (!hits.length) return text('No skill turned on for you matches that search.');
       // Taint if a line carries text of a skill the owner did not write. With the no-description rule none does.
       if (hits.some((h) => h.thirdParty && h.description)) taint();

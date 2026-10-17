@@ -7,11 +7,12 @@
  */
 import type { ApprovalRequest } from './types.js';
 import { BLENDER_ASSET_TOOL, BLENDER_EXEC_TOOL, GET_BLENDER_TOOL } from './blender.js';
+import { FINDER_MODEL_TOOL } from './finder.js';
 
 type Card = Pick<ApprovalRequest, 'toolName'>;
 
 /** True when the card must be allowed by a click. Every blender_exec card counts, whatever its input looks like. */
-export const clickOnly = (a: Card): boolean => a.toolName === BLENDER_EXEC_TOOL || a.toolName === GET_BLENDER_TOOL || a.toolName === BLENDER_ASSET_TOOL;
+export const clickOnly = (a: Card): boolean => a.toolName === BLENDER_EXEC_TOOL || a.toolName === GET_BLENDER_TOOL || a.toolName === BLENDER_ASSET_TOOL || a.toolName === FINDER_MODEL_TOOL;
 
 /**
  * The thread-wide shortcut: A or D answers the first pending card of the open task when focus is not in a field or on a card.

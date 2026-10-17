@@ -32,11 +32,19 @@ import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, upd
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
-import { DEADLINE_MS, THRESHOLDS } from './finder/defaults.js';
+import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, THRESHOLDS } from './finder/defaults.js';
+import { cachedPassages, createVectorCache, MAX_NEW_PASSAGES, passageVectors } from './finder/embed.js';
+import type { Embedder, VectorCache } from './finder/embed.js';
+import { createFinderModel } from './finder/model.js';
+import type { FinderModelOpts } from './finder/model.js';
+import { createProviderEmbedder } from './finder/provider-embed.js';
+import type { ProviderTarget } from '../providers/http.js';
+import type { FinderSettings } from '../../shared/armory-view.js';
 import { docFromEntry } from './finder/doc.js';
 import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
-import { rank } from './finder/rank.js';
+import { rank, rankFused } from './finder/rank.js';
+import type { Ranked } from './finder/rank.js';
 import { createUsageStore, skillIdOfLoad } from './finder/usage.js';
 import { oneLine } from '../kg/text.js';
 import type { SkillRecord, SkillState } from './store.js';
@@ -59,6 +67,12 @@ export interface ArmoryOptions {
   finderRead?: (path: string) => string | null;
   /** How long a failed listing is kept before the next read tries again, ms. Default 5 minutes. */
   retryMs?: number;
+  /** The finder's local model: tests pass fake download ports, a fake approval and a fake helper script. */
+  finderModel?: FinderModelOpts;
+  /** The target of a model provider by id, for the 'provider' ranker (ProviderRuntime.targetFor). Absent: that ranker falls back to keywords. */
+  providerTarget?: (providerId: string) => ProviderTarget | undefined;
+  /** Replaces the embedder a ranker would use. Tests only. */
+  finderEmbedder?: (ranker: 'local' | 'provider') => Embedder | undefined;
 }
 
 /** What the last listing of Claude Code skills found, and how. 'disk-fallback' reads installed_plugins.json and settings.json instead. */
@@ -78,6 +92,8 @@ interface Discovery {
 
 export interface ArmoryModule extends CoreModule {
   catalog(): CatalogEntry[];
+  /** Resolves when the finder has no passage embedding running in the background. For tests. */
+  finderSettled(): Promise<void>;
 }
 
 /** Settings warns above this many skill descriptions in one agent's prompt. */
@@ -100,6 +116,8 @@ export function onSkillIds(agent: AgentProfile, all: readonly CatalogEntry[], de
 
 const MIN_WORDS = 3;
 const MAX_FIND_DESCRIPTION = 200;
+/** armory_find waits for the model's call, so it can be more patient than a turn's note (a cold start of the local model fits). */
+const FIND_EMBED_BUDGET_MS = 2000;
 
 export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): ArmoryModule {
   const log = opts.log ?? (() => undefined);
@@ -207,26 +225,74 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
   const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
   let usage: ReturnType<typeof createUsageStore> | undefined;
   const usageStore = () => (usage ??= createUsageStore(deps.dataDir));
+  // Embeddings. The local model (a helper process) and the provider embedder are optional rankers; the vector cache holds one vector per
+  // skill text. A turn uses the vectors it finds in the cache; skills without one are embedded in the background (at most 64 at a time),
+  // so a turn never waits for them.
+  const model = createFinderModel(deps, { log, ...(opts.finderModel ?? {}) });
+  let vectors: VectorCache | undefined;
+  const vectorCache = (): VectorCache => (vectors ??= createVectorCache(deps.dataDir));
+  let filling: Promise<void> | undefined;
+  const FILL_TIMEOUT_MS = 120_000;
+  const embedderFor = (f: FinderSettings): Embedder | undefined => {
+    if (f.ranker === 'keyword') return undefined;
+    if (opts.finderEmbedder) return opts.finderEmbedder(f.ranker);
+    if (f.ranker === 'local') return model.embedder();
+    if (!f.providerId || !f.providerModel || !opts.providerTarget) return undefined;
+    const target = opts.providerTarget(f.providerId);
+    return target ? createProviderEmbedder({ target, providerId: f.providerId, model: f.providerModel }) : undefined;
+  };
+  /**
+   * The message's vector and the cached vectors of these docs, or undefined when the embedder cannot answer in time (the caller then
+   * uses keywords). Skills with no cached vector are embedded in the background for the next turn.
+   */
+  const embedState = async (emb: Embedder, docs: FinderDoc[], query: string, budgetMs: number): Promise<{ qv: Float32Array; vecs: Map<string, Float32Array> } | undefined> => {
+    const cache = vectorCache();
+    const { have, missing } = cachedPassages(emb.id, cache, docs);
+    if (missing.length && !filling) {
+      filling = passageVectors(emb, cache, missing, AbortSignal.timeout(FILL_TIMEOUT_MS), MAX_NEW_PASSAGES)
+        .then(() => undefined, () => undefined)
+        .finally(() => { filling = undefined; });
+    }
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), budgetMs);
+    try {
+      const [qv] = await emb.embed([query], ac.signal, 'query');
+      return qv ? { qv, vecs: have } : undefined;
+    } catch { return undefined; } finally { clearTimeout(timer); }
+  };
+  /** The docs of the candidate ids. */
+  const docsOf = (docs: Map<string, FinderDoc>, cand: ReadonlySet<string>): FinderDoc[] => [...cand].map((id) => docs.get(id)).filter((d): d is FinderDoc => !!d);
+
   // Per task: what was suggested and what was loaded, to count the ignored ones when the run ends.
   const suggestedBy = new Map<string, Set<string>>();
   const loadedBy = new Map<string, Set<string>>();
 
-  /** A search over the agent's own skill set. No score floor, up to 10 results. A third-party skill comes back without any description. */
-  const findFor = (agent: AgentProfile, runtime: 'claude' | 'provider'): FindFn => (query, limit): FindHit[] => {
+  /**
+   * A search over the agent's own skill set. No score floor, up to 10 results. A third-party skill comes back without any description.
+   * With an embedder the order is the fused one; if it cannot answer in time, the order is the keyword one.
+   */
+  const findFor = (agent: AgentProfile, runtime: 'claude' | 'provider'): FindFn => async (query, limit): Promise<FindHit[]> => {
     const cand = candidateIds(agent, runtime);
     const { docs, ix } = finderIndex();
     const boost = usageStore().boostFor(agent.id);
-    const hits = scoreIndex({ ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) }, query);
-    return [...hits].map(([id, h]) => ({ id, score: h.score * boost(id) }))
+    const sub = { ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) };
+    const emb = embedderFor(finderSettings(agent));
+    let ordered: { id: string; score: number }[] | undefined;
+    if (emb) {
+      const st = await embedState(emb, docsOf(docs, cand), query, FIND_EMBED_BUDGET_MS);
+      const fused = st ? rankFused(sub, query, st.qv, st.vecs, { k: limit, maxK: limit, minScore: 0, deadlineMs: DEADLINE_MS, boost }) : null;
+      if (fused && !fused.timedOut) ordered = fused.results.map((r) => ({ id: r.id, score: r.score }));
+    }
+    ordered ??= [...scoreIndex(sub, query)].map(([id, h]) => ({ id, score: h.score * boost(id) }))
       .filter((h) => h.score > 0)
       .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-      .slice(0, limit)
-      .map(({ id, score }) => {
-        const doc = docs.get(id);
-        const thirdParty = !doc || doc.thirdParty;
-        const description = thirdParty || !doc ? '' : oneLine(doc.description).slice(0, MAX_FIND_DESCRIPTION).trimEnd();
-        return { id, score, thirdParty, ...(description ? { description } : {}) };
-      });
+      .slice(0, limit);
+    return ordered.map(({ id, score }) => {
+      const doc = docs.get(id);
+      const thirdParty = !doc || doc.thirdParty;
+      const description = thirdParty || !doc ? '' : oneLine(doc.description).slice(0, MAX_FIND_DESCRIPTION).trimEnd();
+      return { id, score, thirdParty, ...(description ? { description } : {}) };
+    });
   };
 
   const view = (e: CatalogEntry) => ({
@@ -272,6 +338,11 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     id: 'armory',
     catalog,
 
+    finderSettled: () => filling ?? Promise.resolve(),
+
+    // Stops the local model's helper process, if one is running.
+    async dispose() { model.dispose(); },
+
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
       const searchTool = finderSettings(agent).searchTool;
       // A Claude agent has the skills natively: its server carries only the search. A provider run gets the list and load tools too.
@@ -281,7 +352,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
     finderWiring(agent: AgentProfile): FinderWiring {
       const f = finderSettings(agent);
-      return { suggest: f.suggest, subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank };
+      return { suggest: f.suggest, subagents: f.subagents, slimListing: f.slimListing, rerank: f.rerank, embeddings: embedderFor(f) !== undefined };
     },
 
     async turnNote(agent: AgentProfile, ctx: TurnContext): Promise<TurnNote | undefined> {
@@ -291,9 +362,17 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const cand = candidateIds(agent, ctx.runtime);
       if (!cand.size) return undefined;
       const { docs, ix } = finderIndex();
-      const { results } = rank({ ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) }, ctx.prompt, {
-        k: f.k, minScore: THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost: usageStore().boostFor(agent.id),
-      });
+      const boost = usageStore().boostFor(agent.id);
+      const sub = { ...ix, docs: ix.docs.filter((d) => cand.has(d.id)) };
+      // Embeddings first, when the ranker has them and they answer within the budget. Any failure, or too few vectors yet, means keywords.
+      let results: Ranked[] | undefined;
+      const emb = embedderFor(f);
+      if (emb) {
+        const st = await embedState(emb, docsOf(docs, cand), ctx.prompt, EMBED_QUERY_BUDGET_MS);
+        const fused = st ? rankFused(sub, ctx.prompt, st.qv, st.vecs, { k: f.k, minScore: FUSED_THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }) : null;
+        if (fused && !fused.timedOut) results = fused.results;
+      }
+      results ??= rank(sub, ctx.prompt, { k: f.k, minScore: THRESHOLDS[f.threshold], deadlineMs: DEADLINE_MS, boost }).results;
       const text = (ctx.runtime === 'provider' ? buildProviderNote : buildNote)(results, docs);
       if (!text) return undefined;
       const suggested = results.map((r) => r.id);
@@ -479,6 +558,18 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         const file = updateArmoryFile(deps.dataDir, (f) => { f.finder = applyFinderPatch(f.finder, patch); });
         log(`armory: owner changed the skill finder (${Object.keys(patch).join(', ') || 'no keys'})`);
         return finderFor(file);
+      });
+
+      // The finder's local model. Admin-only (not on the client list): a download needs the owner's click AND an approval card,
+      // and an agent has no route to start one.
+      add('GET', '/api/armory/finder/model', () => model.status());
+      add('POST', '/api/armory/finder/model/get', async () => {
+        if (model.busy()) throw new HttpError(409, 'The model download is already waiting for approval or running.');
+        return model.get();
+      });
+      add('DELETE', '/api/armory/finder/model', () => {
+        if (model.busy()) throw new HttpError(409, 'Wait for the model download to finish first.');
+        return model.remove();
       });
 
       // {seen:false} brings the notice back (Undo of "Turn all on" from the notice). No body, or seen:true, marks it seen.
