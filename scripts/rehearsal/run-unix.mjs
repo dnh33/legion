@@ -75,7 +75,7 @@ const git = (cwd, ...args) => run(`git-${args[0]}`, 'git', args, { cwd });
 function makeBaselineRepo() {
   const src = join(work, 'baseline-src');
   rmSync(src, { recursive: true, force: true });
-  const c = run('baseline-clone', 'git', ['clone', '--quiet', repoRoot, src]);
+  const c = run('baseline-clone', 'git', ['clone', '--quiet', '--no-hardlinks', repoRoot, src]); // copies, not hardlinks: a hardlink race with git's background commit-graph write failed one run
   if (c.status !== 0) throw new Error(`could not clone the checkout: ${c.out}`);
   const patch = (rel, fn) => { const f = join(src, rel); const t = readFileSync(f, 'utf8'); const n = fn(t); if (n === t) throw new Error(`nothing to patch in ${rel}`); writeFileSync(f, n); };
   patch('package.json', (t) => t.replace(/"version":\s*"[^"]+"/, `"version": "${BASE}"`));
@@ -86,7 +86,7 @@ function makeBaselineRepo() {
   }
   const bare = join(site, 'dnh33', 'legion.git');
   rmSync(site, { recursive: true, force: true }); mkdirSync(join(site, 'dnh33'), { recursive: true });
-  const b = run('baseline-bare', 'git', ['clone', '--bare', '--quiet', src, bare]);
+  const b = run('baseline-bare', 'git', ['clone', '--bare', '--quiet', '--no-hardlinks', src, bare]);
   if (b.status !== 0) throw new Error(`could not make the bare repo: ${b.out}`);
   rmSync(src, { recursive: true, force: true });
   log(`baseline repo: tag v${BASE} in ${bare}`);
