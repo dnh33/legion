@@ -4,8 +4,8 @@ Plan: `claude/plan-skill-finder.md` (approved by the owner 2026-10-17). Branch `
 worktree `D:/bots/legion-wt-finder`, base `main` 47582700.
 
 ## Resume here
-Next step: **P1, the eval before any code.** Read the plan's P1 and its gate. If recall@3 is below
-0.70 on either set, stop and ask the owner before P2.
+Next step: **P1, the eval harness.** It tunes defaults and thresholds. It does not gate scope:
+build every step P1-P9 (owner, 2026-10-17: "the FULL AND COMPLETE THING").
 
 ## Rules for whoever implements this
 - The owner's prompts never enter the repo. Use `claude/skill-finder-private/` (gitignored) and
@@ -20,11 +20,14 @@ Next step: **P1, the eval before any code.** Read the plan's P1 and its gate. If
 | --- | --- | --- |
 | P0 worktree + docs | done 2026-10-17 | |
 | P1 eval (Set A, Set B, cache check) | not started | |
-| P2 finder.ts | not started | |
-| P3 Claude path | not started | first verify that `UserPromptSubmit` fires for SDK prompts |
-| P4 provider path | not started | |
-| P5 settings + UI | not started | |
-| P6 review + live check + PR | not started | |
+| P2 finder core (BM25, usage, gates) | not started | |
+| P3 embeddings (local + provider, hybrid) | not started | check whether the runtime can ship code-only |
+| P4 Haiku rerank | not started | |
+| P5 Claude path (hooks, armory_find, slim listing) | not started | first verify that the hooks fire for SDK prompts |
+| P6 provider path | not started | |
+| P7 KG recall to the user turn | not started | only if P1 confirms the cache break |
+| P8 settings + UI | not started | |
+| P9 review + live check + PR | not started | |
 
 ## Numbers (figures only; never paste prompts here)
 _none yet_
