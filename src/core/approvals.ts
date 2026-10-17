@@ -136,6 +136,14 @@ export function needsApproval(mode: RunMode, toolName: string, opts: { capped?: 
   return true;
 }
 
+/**
+ * Whether the engine's web check (a new site asks, a built-in docs or approved site opens) applies to this call: every mode but Bypass, for the two
+ * web tools. It is not part of `needsApproval`: WebFetch and WebSearch stay read-only there, and the check raises its own card (Engine.askGuards).
+ */
+export function webChecksApply(mode: RunMode, toolName: string): boolean {
+  return mode !== 'full' && (toolName === 'WebFetch' || toolName === 'WebSearch');
+}
+
 function compactJson(v: unknown, max: number): string {
   let s: string;
   try { s = JSON.stringify(v) ?? String(v); } catch { s = String(v); }
@@ -204,6 +212,7 @@ export class ApprovalBroker {
     origin?: ApprovalRequest['origin'],
     opts: {
       /** Called when the wait ends in a deny; gets how long the ask really stayed open (quiet hours make that longer than the wait). */ onTimeout?: (waitedMs?: number) => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean;
+      /** A web card: the site and whether Always allow is offered. The four answers go with it. */ site?: { host: string; canAlways: boolean };
       /** The run's project (the engine knows it; a module that does not is asked of the policy by task). */ projectId?: string;
       /** What saying yes would do. Absent: worked out here from the tool and its input. */ consequence?: Consequence;
       /** The ask may be parked when its project is set to park (only the engine's own cards). Needs `onPark`. */ parkable?: boolean;
@@ -216,6 +225,7 @@ export class ApprovalBroker {
       summary: opts.summary ?? summarizeToolInput(toolName, input), input, at: nowIso(),
       ...(origin ? { origin } : {}),
       ...(opts.noRemember ? { noRemember: true } : {}),
+      ...(opts.site ? { site: opts.site } : {}),
       ...(projectId ? { projectId } : {}),
       consequence: opts.consequence ?? classifySafe({ kind: 'approval', toolName, input }),
     };

@@ -13,8 +13,8 @@ export const SUGGEST_AFTER = 3;
 /** A request as the card and the suggestions see it. */
 export interface RememberCall { agentId: string; toolName: string; input: Record<string, unknown> }
 
-/** Cards a rule must not decide: rails (a Blender script, a download, read and clicked every time) and room requests. */
-const NO_REMEMBER = /^(?:mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
+/** Cards a rule must not decide: web reads (a site is allowed on its own card, never tool-wide), rails (a Blender script, a download, read and clicked every time) and room requests. */
+const NO_REMEMBER = /^(?:WebFetch|WebSearch|mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
 
 /** Whether a rule may be remembered for this request at all. A card the core marks `noRemember` (a command it cannot read) never offers one. */
 export function canRemember(a: { toolName: string; noRemember?: boolean }): boolean {
@@ -40,6 +40,8 @@ const runsAnything = (prog: string): boolean => RUNNERS.has(prog.toLowerCase().r
 export function canRememberAllow(a: { toolName: string; input: Record<string, unknown> }): boolean {
   if (!canRemember(a)) return false;
   const command = typeof a.input.command === 'string' ? a.input.command.trim() : '';
+  // a download command reaches any site: sites are allowed one by one on the web card, never by a command rule
+  if (/^(?:curl|wget|iwr|irm|invoke-webrequest)\b/i.test(command)) return false;
   if (!command) return true;
   const parts = allowSubcommands(command);
   if (!parts) return false;

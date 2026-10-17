@@ -420,6 +420,10 @@ export interface PendingQuestion {
 /** A learned gate suggestion (GET /api/gates/suggestions): the rule a Remember would make, earned by `count` allows. */
 export interface GateSuggestion { key: string; when: GateWhen; count: number; agentId: string; toolName: string; input: Record<string, unknown> }
 
+/** How far a yes on a web card reaches: this site for good (the owner's site list), this goal, or this one call. */
+export type SiteAnswer = 'always' | 'goal' | 'once';
+export const SITE_ANSWERS: readonly SiteAnswer[] = ['always', 'goal', 'once'];
+
 export interface ApprovalRequest {
   id: string;
   taskId: string;
@@ -433,6 +437,8 @@ export interface ApprovalRequest {
   origin?: { roomId: string; fromAgentId: string; hop: number };
   /** The card offers no "Remember": the core cannot read what the command will run, so no rule could be scoped safely. */
   noRemember?: boolean;
+  /** A web card: the site it is about, and whether "Always allow" may be offered for it. The card then offers the four answers (see `SiteAnswer`). */
+  site?: { host: string; canAlways: boolean };
   /** The project the run belongs to, set by the core so every client counts the ask in the same project (0.3.0). */
   projectId?: string;
   /** What saying yes would do, set by the core (src/shared/consequence.ts). Absent on a card from an older core. */

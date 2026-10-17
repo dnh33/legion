@@ -54,6 +54,13 @@ export interface GatesCore {
   envKeep(): string[];
   /** When each approved site was approved and last read (advisory, unsigned): only used to suggest removals. Task 17's web pipeline calls `touch`. */
   webLastUsed: WebLastUsed;
+  /** Whether the site list can be written now (it is signed, so this needs the gates key). */
+  canAllowHosts(): boolean;
+  /**
+   * The owner answered "Always allow" on a web card: the site joins the signed site list, like a Settings edit, and gets its approval date.
+   * No native confirm here: the card the owner answered is the confirmation. Throws the store's own error when the list cannot be written (no key).
+   */
+  allowHost(host: string): void;
 }
 
 /**
@@ -92,7 +99,14 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
     const preset: Preset = (startProjectId ? store.project(startProjectId).preset : undefined) ?? store.app().preset ?? 'ask';
     return def[preset] !== false;
   };
-  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder), webLastUsed: createWebLastUsed(store.folder) };
+  const webLastUsed = createWebLastUsed(store.folder);
+  const allowHost = (host: string): void => {
+    const cur = store.app().allowedHosts ?? [];
+    if (cur.includes(host)) return;
+    store.patchApp({ allowedHosts: [...cur, host] });
+    try { webLastUsed.approved(host); } catch { /* advisory */ }
+  };
+  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder), webLastUsed, canAllowHosts: () => store.canSign(), allowHost };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore }

@@ -20,7 +20,12 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, LEGION_SERVER_NAMES } from './approvals.js';
+import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, LEGION_SERVER_NAMES } from './approvals.js';
+import { WebSession } from './web-session.js';
+import { webVerdict } from '../shared/web-verdict.js';
+import type { WebVerdict } from '../shared/web-verdict.js';
+import { loadDocsHosts } from '../shared/docs-hosts.js';
+import { webCardSummary } from '../shared/web-copy.js';
 import { GATES } from '../shared/gates-registry.js';
 import type { GateValue } from '../shared/gates-registry.js';
 import type { ActivityLog } from './activity/index.js';
@@ -212,6 +217,12 @@ export function taintsRun(toolName: string): boolean {
 /** A PreToolUse hook answer that blocks the tool and tells the agent why. */
 /** The one start-project value every mode reader uses for a run: the project it started in, else the project it helps from outside. Never the live membership. */
 const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
+/** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
+const GUARD_MEMO_MS = 5000;
+/** The same text for the same input whatever the order of its keys: the key of a shared guard card. */
+const canonicalJson = (v: unknown): string => {
+  try { return JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x)) ?? ''; } catch { return String(v); }
+};
 
 function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
@@ -351,9 +362,11 @@ interface Job {
   after?: string[];
 }
 /** What the engine reads of the gates core: the gate values, and (optional, so a bare stub still works) the per-project build-file flag. */
-type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited' | 'envKeep'>>;
+type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited' | 'envKeep' | 'store' | 'webLastUsed' | 'canAllowHosts' | 'allowHost'>>;
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
+  /** What the run did on the web: paths read per site (the budget), a secret file read, sites allowed for this goal. */
+  web: WebSession;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
   /** A build or script file was changed in this run. Used only when the run has no project (with a project the flag lives in the gates core, per project). */
@@ -940,7 +953,7 @@ export class Engine {
   private startJob(job: Job): void {
     // the agent may have been switched off while the job waited in the queue
     if (this.isHiddenAgent(job.agentId)) { this.dropHiddenJob(job); return; }
-    const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set() };
+    const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set(), web: new WebSession() };
     act.tainted = !!(job.origin?.tainted || this.store.getTask(job.taskId)?.tainted);
     // one value for the start project: the one the job was queued with, the same one modeNow reads (membership at start time could differ)
     if (job.projectAtStart) act.projectAtStart = job.projectAtStart;
@@ -1504,6 +1517,89 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` : 'The user denied this web request.' });
   }
 
+  private readonly docsHosts: ReadonlySet<string> = loadDocsHosts();
+  /** Guard cards in flight or just answered, by (task, tool, input): the PreToolUse hook and canUseTool both ask, and the owner sees one card. */
+  private readonly guardMemo = new Map<string, { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number }>();
+
+  /** What the run did on the web (a run that is not live gets a throwaway session: nothing is remembered for it). */
+  private webSessionOf(job: Job): WebSession { return this.active.get(job.taskId)?.web ?? new WebSession(); }
+
+  /**
+   * Whether a site opens with no card: the built-in docs list (while the web-reads gate is on), a site the owner approved in the signed site list,
+   * or a site the owner allowed for this goal. The host is canonical (lower case, no trailing dot) and the match is exact: a sub-domain is another site.
+   * A relay host is never trusted here (webVerdict asks for it whatever this says).
+   */
+  private siteTrusted(job: Job, host: string): boolean {
+    if (this.gates?.gate('web-reads', startProjectOf(job)) !== false && this.docsHosts.has(host)) return true;
+    if ((this.gates?.store?.app().allowedHosts ?? []).includes(host)) return true;
+    return this.webSessionOf(job).goalTrusts(host);
+  }
+
+  /**
+   * The guards that raise their own card ahead of every allow: a gate rule, Claude Code's own allow rules or a mode that waves the call through
+   * cannot skip one. Called by toolDecider (canUseTool and the provider path) and by a PreToolUse hook, after a gate deny and the shell floor.
+   * Order: (1) the web check, (2) protected path (Task 23), (3) secret-file read (Task 24). The first that returns a card wins and its answer is final
+   * for that call. Every card carries `noRemember`. An identical call (same task, tool and input) shares the card for 5 seconds after it opens or is answered,
+   * so the hook and canUseTool raise one card. Returns undefined when no guard has anything to say.
+   */
+  private askGuards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    const key = `${job.taskId}\u0000${toolName}\u0000${canonicalJson(input)}`;
+    const hit = this.guardMemo.get(key);
+    if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
+    if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
+    const card = this.webGuard(job, agent, toolName, input, mode);
+    // (2) protected path: Task 23   (3) secret-file read: Task 24
+    if (!card) return undefined;
+    const entry: { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number } = { p: card };
+    const done = (): void => { entry.doneAt = Date.now(); };
+    card.then(done, done);
+    this.guardMemo.set(key, entry);
+    return card;
+  }
+
+  /** Guard (1): a new site asks, a built-in docs or approved site opens. Notes an allowed read (host only, never the address) and counts its path. */
+  private webGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (!webChecksApply(mode, toolName) || this.gates?.gate('web-reads', startProjectOf(job)) === false) return undefined;
+    const sess = this.webSessionOf(job);
+    const v = webVerdict({ tool: toolName as 'WebFetch' | 'WebSearch', input }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => sess.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: sess.secretRead });
+    if (v.kind === 'ask') return this.askWeb(job, agent, toolName, input, v);
+    this.noteWebRead(job, agent, toolName, input, v.host);
+    return undefined;
+  }
+
+  /** A web read went through (allowed by the check or by the owner's answer): count its path for the budget, date the site, and log the host. */
+  private noteWebRead(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, host: string | undefined): void {
+    if (host) {
+      let path = '/'; try { path = new URL(String(input.url)).pathname; } catch { /* the check already read it */ }
+      this.webSessionOf(job).noteFetch(host, path);
+      try { this.gates?.webLastUsed?.touch(host); } catch { /* advisory */ }
+    }
+    try { this.activity?.append({ kind: 'note', text: `Web: ${toolName} ${host ?? ''}`.trim(), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+  }
+
+  /** The card for a web call the check did not let through. The owner's yes lets this call run. */
+  private async askWeb(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, v: Extract<WebVerdict, { kind: 'ask' }>): Promise<{ allow: boolean; message?: string }> {
+    const host = v.host ?? '';
+    let path = '', search: string | undefined;
+    if (toolName === 'WebSearch') search = String(input.query ?? '').slice(0, 300);
+    else { try { const u = new URL(String(input.url)); path = (u.pathname + u.search).slice(0, 160); } catch { path = ''; } }
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const allowed = await this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary: webCardSummary({ why: v.why, host: host || 'this address', path, ...(search !== undefined ? { search } : {}) }).slice(0, 390),
+      site: { host, canAlways: v.canAlways },
+    });
+    if (allowed) { this.noteWebRead(job, agent, toolName, input, v.host); return { allow: true }; }
+    if (timedOut) {
+      try { this.activity?.append({ kind: 'note', text: `Waited for you on ${host || 'a web address'}`, taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+      return { allow: false, message: `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` };
+    }
+    return { allow: false, message: 'The user denied this web request.' };
+  }
+
   /**
    * The safety floor for every shell an agent drives: Legion's own host shell AND Claude Code's Bash and PowerShell tools.
    * A catastrophic command (a whole drive, a system or home folder) or one that runs decoded or encoded text is refused, with
@@ -1757,6 +1853,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
+      // the guards (the web check first) raise their own card ahead of every allow, the owner's tool-cards switch and the baseline
+      const guard = this.askGuards(job, agent, toolName, input, mode);
+      if (guard) return guard;
       // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
       // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
       if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
@@ -1942,6 +2041,23 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (!floor) return { continue: true };
         const d = await floor;
         return d.allow ? preToolAllow('The owner approved this command on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+      }] });
+      // The guards as a hook too, for the same reason: Claude Code's own allow rules decide a call before canUseTool is asked. A gate deny
+      // wins first; an approved guard card is final for that call (the card is shared with canUseTool for 5 seconds, so it is one card).
+      options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const tin = (input.tool_input ?? {}) as Record<string, unknown>;
+        const mode = effective();
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        const card = this.askGuards(job, agent, input.tool_name, tin, mode);
+        if (!card) return { continue: true };
+        const d = await card;
+        if (!d.allow) return preToolDeny(d.message ?? 'The user denied this web request.');
+        // allowing here skips canUseTool, which is where the web-egress card is raised: raise it now
+        const egress = this.webEgressCard(job, agent, input.tool_name, tin);
+        if (egress) { const e = await egress; if (!e.allow) return preToolDeny(e.message ?? 'The user denied this web request.'); }
+        return preToolAllow('The owner approved this site on its card.');
       }] });
       // the hook above owns the floor's card for Claude's shell tools, so it is not asked a second time here
       const decide = this.toolDecider(job, agent, { floorCard: false });
