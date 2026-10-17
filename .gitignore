@@ -32,3 +32,6 @@ docs/images/relic.png
 .superpowers/
 /.release-notes-*.txt
 docs/demo/muster-lab/index.html
+
+# skill finder eval sets: the owner's own prompts, never committed
+claude/skill-finder-private/
