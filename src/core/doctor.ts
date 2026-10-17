@@ -1,5 +1,5 @@
 /** Health checks. */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
@@ -8,10 +8,25 @@ import { configPath } from '../shared/config.js';
 import type { DoctorCheck, LegionConfig } from '../shared/types.js';
 import type { BoatClient } from './boat.js';
 import { CLAUDE_NOT_CONFIGURED, type BoatHealth } from './boat-health.js';
-import { buildChildEnv, connectorSettings } from './engine.js';
+import { buildChildEnv, connectorSettings, isPlanOnly, planOnlySettings } from './engine.js';
 import type { QueryFn } from './engine.js';
+import { claudeHomeDir } from './armory/discover.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
+
+const PLAN_ONLY_FIX = 'To use your Claude plan: run claude in a terminal, type /logout, then /login and choose your Claude account. Or turn on Settings -> Claude -> Allow API credit billing.';
+
+/** The name (never the value) of the first billing key the user's Claude Code settings.json sets, if any. Missing or corrupt files give undefined. */
+function billingKeyInSettings(): string | undefined {
+  try {
+    const s = JSON.parse(readFileSync(join(claudeHomeDir(), 'settings.json'), 'utf8')) as { env?: Record<string, unknown>; apiKeyHelper?: unknown } | null;
+    const set = (v: unknown) => typeof v === 'string' && v.trim() !== '';
+    const env = s?.env && typeof s.env === 'object' ? s.env : {};
+    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) if (set(env[k])) return k;
+    if (set(s?.apiKeyHelper)) return 'apiKeyHelper';
+  } catch { /* no settings file, or not JSON: nothing to flag */ }
+  return undefined;
+}
 
 async function safe(id: string, label: string, fn: () => Promise<Omit<DoctorCheck, 'id' | 'label'>> | Omit<DoctorCheck, 'id' | 'label'>): Promise<DoctorCheck> {
   try {
@@ -31,7 +46,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
-      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), ...connectorSettings(config, { probe: true }), abortController: ac,
+      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), settings: planOnlySettings(config, connectorSettings(config, { probe: true }).settings), abortController: ac,
       // Pinned: an omitted mode starts auto mode on third-party providers (SDK 0.3.286). A probe leaves no session file.
       permissionMode: 'default', persistSession: false,
     };
@@ -45,6 +60,22 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
     if (config.claude.auth === 'claude-login' && !info?.email && !info?.subscriptionType && (!info?.apiProvider || info.apiProvider === 'firstParty')) {
       return { ok: false, detail: 'No signed-in Claude account found', fix: SIGN_IN_FIX };
     }
+    let billNote = '';
+    if (config.claude.auth === 'claude-login') {
+      // A key source other than "none" means runs bill API credits, even when a Claude plan is also signed in.
+      const source = info?.apiKeySource;
+      const billed = !!source && source !== 'none';
+      if (isPlanOnly(config)) {
+        // Plan only: the keys in Claude Code settings are blanked for runs, so only a source the blanks cannot reach (a stored Console key) fails here.
+        if (billed) return { ok: false, detail: `Runs would bill API credits (key source: ${source}), so Legion will not start them`, fix: PLAN_ONLY_FIX };
+      } else {
+        // API billing allowed: say so, and keep the key names in the settings files as information.
+        // Settings the runs load but this probe does not (it runs with settingSources: []).
+        const name = config.claude.inheritClaudeCodeSettings ? billingKeyInSettings() : undefined;
+        const parts = [billed ? `Signed in; runs bill API credits (key source: ${source}), as you allowed in Settings` : '', name ? `Your Claude Code settings set ${name}; runs bill it, as you allowed in Settings` : ''].filter(Boolean);
+        billNote = parts.join('. ');
+      }
+    }
     // Which Claude Code is bundled (SDK 0.3.296 reports it in the initialize response). Best effort: never fails the check.
     let version = '';
     let vt: ReturnType<typeof setTimeout> | undefined;
@@ -53,7 +84,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
       if (typeof init?.claude_code_version === 'string' && init.claude_code_version) version = `Claude Code ${init.claude_code_version}`;
     } catch { /* an older CLI or a closed query: the version is simply not shown */ }
     clearTimeout(vt);
-    return { ok: true, detail: [who || `provider: ${info?.apiProvider ?? 'unknown'}`, version].filter(Boolean).join(', ') };
+    return { ok: true, detail: [[who || `provider: ${info?.apiProvider ?? 'unknown'}`, version].filter(Boolean).join(', '), billNote].filter(Boolean).join('. ') };
   } catch (e) {
     return { ok: false, detail: `Claude probe failed: ${e instanceof Error ? e.message : String(e)}`, fix: SIGN_IN_FIX };
   } finally {

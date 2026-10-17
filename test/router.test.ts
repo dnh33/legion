@@ -118,3 +118,10 @@ test('isUsageLimitText: matches every SDK prefix, ignores warnings and plain fai
   assert.equal(isUsageLimitText('TypeError: x is not a function'), false);
   assert.equal(isUsageLimitText('API Error: 429 rate limited'), true); // regex fallback
 });
+
+test('a plan-only stop never escalates, whatever its text says', () => {
+  for (const subtype of ['api_billing_blocked', 'plan_check_failed']) {
+    assert.equal(shouldEscalate({ model: 'sonnet', subtype, isError: true, errorText: 'x' }), false, subtype);
+    assert.equal(shouldEscalate({ model: 'sonnet', subtype, isError: true }), false, subtype);
+  }
+});

@@ -4,6 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-17
+
+This update installs by itself.
+
+### Changed
+
+- **Claude login now means your Claude plan only.** Legion switches off every API key Claude Code could pick up, and a run that would bill Anthropic API credits does not start. It tells you why and how to use your plan. If you pay with API credits on purpose, turn on Settings, Claude, Allow API credit billing. Help, Doctor shows which case you are in.
+
+### Fixed
+
+- **"Credit balance is too low" on a Claude login.** If Claude Code on your computer was signed in with a Claude Console account, or your Claude Code settings set an API key or an `apiKeyHelper`, runs billed Anthropic API credits instead of your Claude plan, and failed once the credits ran out. Legion now holds the request back until it has checked which login Claude Code will use, and stops before anything is sent when that login would bill API credits.
+- **Help, Doctor reported such a login as fine.** It now says when runs would bill API credits, names the key source (never the key), and says how to switch to your plan.
+- **A run that hits an empty credit balance explains why**, with the steps to fix it, above what Claude said.
+- **Runs of a lead agent failed with "JSON schema is invalid".** The model field of the ask and tell tools carried a pattern the Claude API rejects, so every run of an agent with those tools (such as the default lead agent) stopped before it began. The pattern is fixed, and a test checks every tool pattern for this shape.
+
 ## [0.3.2] - 2026-10-16
 
 0.3.1 was held back after an update problem, so for most people this update also brings everything listed under 0.3.1. It installs by itself. From 0.3.0 it is a larger download, about 285 MB: Legion closes for about a minute and reopens by itself. If you open it early, press Update again.

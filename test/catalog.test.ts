@@ -36,7 +36,7 @@ test('catalog: dedupes, strips slash, uses idle streaming prompt and no API key 
     assert.deepEqual(c.models.map((x) => x.value), ['opus', 'sonnet']);
     assert.equal(c.models[0]!.resolvedModel, 'claude-opus-5-5');
     assert.equal(typeof st.prompt[Symbol.asyncIterator], 'function');
-    assert.equal(st.opts.env.ANTHROPIC_API_KEY, undefined);
+    assert.equal(st.opts.env.ANTHROPIC_API_KEY, '', 'plan only: blanked, not inherited');
     assert.equal(st.opts.permissionMode, 'default');
     assert.equal(st.opts.persistSession, false);
     assert.equal(st.closed, 1);

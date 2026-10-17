@@ -79,7 +79,8 @@ export interface AgentToolsCtx {
 /** The aliases vm_claude accepts. boat.dev is not shown to take haiku or fable, so the VM path gets only sonnet and opus until a live call proves more. */
 export const VM_MODELS = ['sonnet', 'opus'] as const;
 /** A per-task model for ask and tell: an alias (OVERRIDE_MODELS) or a model id the account offers. The bridge checks it against the catalog. */
-const MODEL_TEXT = z.string().trim().min(3).max(80).regex(/^[A-Za-z0-9._:/[\]-]+$/);
+// "[" escaped: the API rejects a tool schema whose pattern has a bare "[" inside a class (test/tool-schema-patterns.test.ts).
+const MODEL_TEXT = z.string().trim().min(3).max(80).regex(/^[A-Za-z0-9._:/\[\]-]+$/);
 /** Rooms (bot_send, room_post): aliases only. The hub refuses a catalog id there, so the schema says so. */
 export const roomModelParam = z.enum(OVERRIDE_MODELS).optional()
   .describe('Optional model for the turn this message wakes: sonnet, opus, haiku, fable or auto. Omit to use the agent\'s own setting. Aliases only: a model id is refused here. It is refused if dearer than that bot\'s own setting. It applies to this one turn and does not change what the bot may do.');
