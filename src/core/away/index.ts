@@ -33,6 +33,8 @@ export class AwayService implements AwayHooks {
     store: AwayStore; ledger: SpendLedger; bus: EventBus; now?: () => number;
     /** The project a task belongs to (the task's own project, not whether it can run there). */
     projectOfTask?: (taskId: string) => string | undefined;
+    /** Whether "Stop at the budget" is on for a project (the gates module's answer). Absent or unreadable reads as on. */
+    stopsAtBudget?: (projectId: string) => boolean;
   }) {}
 
   private now(): number { return (this.d.now ?? Date.now)(); }
@@ -70,7 +72,9 @@ export class AwayService implements AwayHooks {
     const key = new Date(st.periodStart).toISOString();
     if (this.d.store.budgetNoted(projectId) === key) return;
     this.d.store.noteBudget(projectId, key);
-    try { this.d.bus.emit({ type: 'budget.reached', projectId, period: st.period }); } catch { /* advisory */ }
+    let stops = true;
+    try { stops = this.d.stopsAtBudget?.(projectId) !== false; } catch { /* unreadable: on */ }
+    try { this.d.bus.emit({ type: 'budget.reached', projectId, period: st.period, stops }); } catch { /* advisory */ }
   }
 
   /** "Run anyway this week": lifts the budget to the end of its period. */
@@ -101,12 +105,14 @@ export function createAwayCore(o: {
   /** Used to find a task's project for an ask a module raised without one. */
   tasks: { getTask(id: string): { projectId?: string } | undefined };
   projects?: ProjectStore;
+  /** See AwayService: whether "Stop at the budget" is on for a project, so the one notice says the truth. */
+  stopsAtBudget?: (projectId: string) => boolean;
 }): AwayCore {
   const dir = join(o.dataDir, 'away');
   const store = new AwayStore(dir);
   try { if (o.projects) store.prune(o.projects.list().map((p) => p.id)); } catch { /* the settings stay as they are */ }
   const ledger = new SpendLedger(dir, o.now);
-  const service = new AwayService({ store, ledger, bus: o.bus, ...(o.now ? { now: o.now } : {}), projectOfTask: (id) => o.tasks.getTask(id)?.projectId });
+  const service = new AwayService({ store, ledger, bus: o.bus, ...(o.now ? { now: o.now } : {}), projectOfTask: (id) => o.tasks.getTask(id)?.projectId, ...(o.stopsAtBudget ? { stopsAtBudget: o.stopsAtBudget } : {}) });
   return { store, ledger, service };
 }
 

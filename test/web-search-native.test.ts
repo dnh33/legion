@@ -56,7 +56,7 @@ test('Cancel changes nothing: the core is never asked to write', async () => {
 });
 
 test('a private SearXNG address: native dialog with the host, then PATCH with the native secret and the acknowledgement', async () => {
-  const { d, calls, dialogs } = deps({ check: { ok: true, needsNative: true } });
+  const { d, calls, dialogs } = deps({ check: { ok: true, needsNative: true, privateNetwork: true } });
   const r = await webSearchChange({ kind: 'address', baseUrl: 'http://192.168.1.5:8080', acknowledge: 'searxng' }, d);
   assert.equal(r.ok, true);
   assert.equal(dialogs.length, 1); assert.match(dialogs[0]!.detail, /192\.168\.1\.5:8080/); assert.match(dialogs[0]!.detail, /private network|your computer/);
@@ -65,7 +65,20 @@ test('a private SearXNG address: native dialog with the host, then PATCH with th
   assert.deepEqual(patch.body, { searxng: { baseUrl: 'http://192.168.1.5:8080' }, acknowledge: 'searxng' });
 });
 
-test('a public SearXNG address needs no dialog and goes without the native secret', async () => {
+test('B-L2: a new public SearXNG address gets its own native dialog (the web, not a private network), then the PATCH with the native secret', async () => {
+  const { d, calls, dialogs } = deps({ check: { ok: true, needsNative: true, privateNetwork: false } });
+  const r = await webSearchChange({ kind: 'address', baseUrl: 'https://searx.example.org' }, d);
+  assert.equal(r.ok, true); assert.equal(dialogs.length, 1);
+  assert.match(dialogs[0]!.detail, /searx.example.org/);
+  assert.match(dialogs[0]!.detail, /can see every search/);
+  assert.doesNotMatch(dialogs[0]!.detail + dialogs[0]!.message, /private network|your computer/, 'the private-network words are for private addresses only');
+  assert.equal(calls.find((c) => c.method === 'PATCH')!.native, true);
+  const cancelled = deps({ check: { ok: true, needsNative: true, privateNetwork: false }, confirm: false });
+  assert.equal((await webSearchChange({ kind: 'address', baseUrl: 'https://searx.example.org' }, cancelled.d)).cancelled, true);
+  assert.equal(cancelled.calls.some((c) => c.method === 'PATCH'), false);
+});
+
+test('an address the core says needs no confirm (the same one again) goes without a dialog or the native secret', async () => {
   const { d, calls, dialogs } = deps({ check: { ok: true } });
   const r = await webSearchChange({ kind: 'address', baseUrl: 'https://searx.example.org' }, d);
   assert.equal(r.ok, true); assert.equal(dialogs.length, 0);

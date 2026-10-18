@@ -55,6 +55,8 @@ export interface RigOptions {
   host?: boolean;
   /** Task 28: a web search provider service over an in-memory key store and a fake fetch. Keys by id ('web:exa'); nothing here touches the network. */
   webSearch?: { cfg?: Partial<WebSearchConfig>; keys?: Record<string, string>; fetchImpl?: typeof fetch };
+  /** The real away core (or any hooks) in place of the rig's stub: the spend ledger and the budget are then the real ones. */
+  awayFactory?: NonNullable<Parameters<typeof setup>[0]>['awayFactory'];
 }
 
 /** A fetch that answers every call with this JSON, and records what it was asked. */
@@ -70,7 +72,7 @@ export async function gatesRig(o: RigOptions = {}) {
   const wsKeys = new ProviderKeys(join(tempDir('legion-wskeys-'), 'providers', 'keys.json'));
   for (const [id, key] of Object.entries(o.webSearch?.keys ?? {})) wsKeys.set(id, key, ADAPTERS[id.replace(/^web:/, '') as keyof typeof ADAPTERS].origin(wsCfg)!);
   const ws = o.webSearch ? new WebSearchService({ config: () => wsCfg, keys: wsKeys, ...(o.webSearch.fetchImpl ? { fetchImpl: o.webSearch.fetchImpl } : {}) }) : undefined;
-  const r = setup({ gatesCore: true, ...(ws ? { webSearch: ws } : {}), activity: true, approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
+  const r = setup({ gatesCore: true, ...(ws ? { webSearch: ws } : {}), activity: true, ...(o.awayFactory ? { awayFactory: o.awayFactory } : {}), approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
   const core = r.core as GatesCore;
   if (o.app) core.store.patchApp({ preset: o.app });
   if (o.keep) core.store.patchApp({ envKeep: o.keep });

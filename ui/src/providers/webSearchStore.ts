@@ -1,6 +1,6 @@
 /**
  * UI store for Settings, Web search. Same small external-store pattern as providersStore. Talks to /api/settings/web-search (admin routes).
- * A provider key, a private-network SearXNG address and a higher spending cap go through the Electron main process (window.legion.webSearchChange): it shows a native
+ * A provider key, a SearXNG address and a higher spending cap go through the Electron main process (window.legion.webSearchChange): it shows a native
  * confirmation and holds the secret the core demands for those changes. The key leaves this file only through that call.
  * The one-time provider notice is learned from the core (POST .../check) before anything is sent, then the change is sent again with the acknowledgement.
  */
@@ -49,12 +49,12 @@ async function sendAndNote(body: Record<string, unknown>, needsNative: boolean, 
   return v;
 }
 
-/** Sends a change the core has already accepted a check for. A private SearXNG address goes through the app's native confirmation. */
+/** Sends a change the core has already accepted a check for. A SearXNG address goes through the app's native confirmation. */
 async function send(body: Record<string, unknown>, needsNative: boolean, id: string): Promise<WebSearchView | void> {
   const sx = body.searxng as { baseUrl?: string } | null | undefined;
   if (needsNative && sx && typeof sx.baseUrl === 'string') {
     const bridge = window.legion?.webSearchChange;
-    if (!bridge) throw new Error('A private-network address needs the Legion app window (it shows a confirmation). Open the app to do this.');
+    if (!bridge) throw new Error('A SearXNG address needs the Legion app window (it shows a confirmation). Open the app to do this.');
     const r = await bridge({ kind: 'address', baseUrl: sx.baseUrl, ...(body.acknowledge === 'searxng' ? { acknowledge: 'searxng' } : {}) });
     if (r.cancelled) { setNote(id, 'Cancelled. Nothing changed.'); return; }
     if (!r.ok) throw new Error(r.error ?? 'The change failed.');

@@ -159,8 +159,10 @@ export interface WebPatchResult {
   ok: boolean; error?: string; patch?: WebSearchPatch;
   /** The provider whose one-time notice the owner must accept first (the page shows it, then sends `acknowledge`). */
   needsNotice?: WebProviderId;
-  /** The change needs the app's native confirmation (a loopback or private-network SearXNG address). */
+  /** The change needs the app's native confirmation (a new or different SearXNG address, or a higher treg cap). */
   needsNative?: boolean;
+  /** Set when the body carried a SearXNG address: whether it is a loopback or private-network one (the dialog words the two apart). */
+  privateNetwork?: boolean;
   /** The provider the owner accepted the notice for, when the body named one. */
   acknowledge?: WebProviderId;
 }
@@ -176,6 +178,7 @@ export function validateWebSearchPatch(raw: unknown, current: WebSearchConfig = 
   for (const k of Object.keys(b)) if (!KNOWN_KEYS.has(k)) return bad(`Unknown setting "${clip(k, 40)}".`);
   const patch: WebSearchPatch = {};
   let needsNative = false;
+  let privateNetwork: boolean | undefined;
   for (const job of ['search', 'read'] as const) {
     const v = b[job];
     if (v === undefined) continue;
@@ -200,7 +203,10 @@ export function validateWebSearchPatch(raw: unknown, current: WebSearchConfig = 
       const a = checkSearxngAddress(o.baseUrl);
       if (!a.ok) return bad(a.reason);
       patch.searxng = { baseUrl: a.url, ...(a.private ? { allowPrivateNetwork: true } : {}) };
-      if (a.private) needsNative = true;
+      // Any new or different address needs the app's confirm, like a model provider's address: where every search goes is the owner's call.
+      // (A name that resolves to a private address cannot be seen here, so a public name is not enough reason to skip it.)
+      if (a.private || !current.searxng || current.searxng.baseUrl !== a.url) needsNative = true;
+      privateNetwork = a.private;
     }
   }
   let acknowledge: WebProviderId | undefined;
@@ -220,5 +226,5 @@ export function validateWebSearchPatch(raw: unknown, current: WebSearchConfig = 
   }
   if (!needsNotice && hostChanged && current.acknowledged.searxng) needsNotice = 'searxng';
 
-  return { ok: true, patch, ...(needsNotice ? { needsNotice } : {}), ...(needsNative ? { needsNative: true } : {}), ...(acknowledge ? { acknowledge } : {}) };
+  return { ok: true, patch, ...(needsNotice ? { needsNotice } : {}), ...(needsNative ? { needsNative: true } : {}), ...(privateNetwork !== undefined ? { privateNetwork } : {}), ...(acknowledge ? { acknowledge } : {}) };
 }

@@ -117,7 +117,8 @@ async function main() {
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
   // the away features (0.3.0): the owner's absence settings, the spend ledger, pause and budget. The brokers and the engine read them; with no settings they behave as before
-  const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects });
+  // gatesCore is made just below; the notice for a reached budget asks it, when the budget is reached, whether the stop is on
+  const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects, stopsAtBudget: (pid) => gatesCore.gate('budget-stop', pid) !== false });
   approvals.setPolicy(awayCore.service.policy());
   questions.setPolicy(awayCore.service.policy());
   // gate presets (spec 2026-10-14 goals and gates): signed files, a key of their own (gates-key.bin), no looser preset without the key

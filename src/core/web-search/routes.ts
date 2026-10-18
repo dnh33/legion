@@ -1,11 +1,11 @@
 /**
- * HTTP routes for Settings, Web search (task 28). All admin-only (none is on the token client list). A key and a loopback or private-network
- * SearXNG address also need the native secret, which only the app's main process holds, so a compromised window cannot do them alone.
+ * HTTP routes for Settings, Web search (task 28). All admin-only (none is on the token client list). A key, a new or different SearXNG
+ * address and a higher treg cap also need the native secret, which only the app's main process holds, so a compromised window cannot do them alone.
  * The setting lives in config.json (inside the data folder that agents may not change); keys live in <dataDir>/providers/keys.json.
  *
  *   GET   /api/settings/web-search          the view (below). Never a key, only a hint.
  *   PATCH /api/settings/web-search          { search?, read?, tregMaxCostUsd?, searxng?: { baseUrl } | null, acknowledge?: '<provider id>' }
- *   POST  /api/settings/web-search/check    the same body as PATCH; changes nothing; answers { ok, error?, needsNotice?, notice?, needsNative? }
+ *   POST  /api/settings/web-search/check    the same body as PATCH; changes nothing; answers { ok, error?, needsNotice?, notice?, needsNative?, privateNetwork? }
  *   POST  /api/settings/web-search/key      { provider, key: string | null }   a string needs native; null removes the key
  *   POST  /api/settings/web-search/test     { provider? }   one tiny search; answers { ok, detail, micro? }
  */
@@ -44,7 +44,7 @@ export function createWebSearchModule(opts: WebSearchModuleOpts): CoreModule {
   const requireNative = (req: { headers?: Record<string, string | string[] | undefined> } | undefined): void => {
     if (!opts.nativeSecret) throw new HttpError(403, `native_unavailable: this change needs the Legion app window (this core was not started by it)`);
     const given = req?.headers?.[NATIVE_HEADER];
-    if (typeof given !== 'string' || !safeEqual(given, opts.nativeSecret)) throw new HttpError(403, `${NATIVE_REQUIRED}: keys and private-network addresses come only from the app after its confirmation dialog`);
+    if (typeof given !== 'string' || !safeEqual(given, opts.nativeSecret)) throw new HttpError(403, `${NATIVE_REQUIRED}: keys, SearXNG addresses and a higher cap come only from the app after its confirmation dialog`);
   };
 
   /** Writes the webSearch part of config.json; the rest of the file is kept as it is. Keys never go here. */
@@ -111,7 +111,7 @@ export function createWebSearchModule(opts: WebSearchModuleOpts): CoreModule {
       add('POST', '/api/settings/web-search/check', ({ body }) => {
         const v = validateWebSearchPatch(body, cfg());
         if (!v.ok) return { ok: false, error: v.error };
-        return { ok: true, ...(v.needsNotice ? { needsNotice: v.needsNotice, notice: noticeFor(v.needsNotice) } : {}), ...(v.needsNative ? { needsNative: true } : {}) };
+        return { ok: true, ...(v.needsNotice ? { needsNotice: v.needsNotice, notice: noticeFor(v.needsNotice) } : {}), ...(v.needsNative ? { needsNative: true } : {}), ...(v.privateNetwork !== undefined ? { privateNetwork: v.privateNetwork } : {}) };
       });
 
       add('POST', '/api/settings/web-search/key', ({ req, body }) => {

@@ -13,6 +13,12 @@ import type { WebSearchConfig } from '../src/shared/web-search-config.js';
 import { replyText, startFake } from './providers-fakes.js';
 import { run as runProviderTask, setup as providerSetup } from './providers-harness.js';
 import { makeWebSearch } from './web-search-rig.js';
+import { createAwayCore } from '../src/core/away/index.js';
+import type { AwayCore } from '../src/core/away/index.js';
+import type { EventBus } from '../src/core/bus.js';
+import type { ProjectStore } from '../src/core/projects/store.js';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 type Opts = Parameters<typeof gatesRig>[0];
 const using = async (o: Opts, body: (r: GatesRig) => Promise<void>) => {
@@ -204,6 +210,29 @@ test('the activity log gets one fixed-field web-call line with the charge, and n
     assert.deepEqual(lines.map((l) => ({ provider: l.data?.provider, tool: l.data?.tool, micro: l.data?.micro })), [{ provider: 'treg', tool: 'web_search', micro: 400 }]);
     assert.ok(!JSON.stringify(r.activityRead({})).includes('secret plan')); assert.match(t.text, /Charged \$0\.0004 by treg\.$/);
     assert.equal(lines[0]!.taskId, r.task.id);
+  });
+});
+test('B-M2: paid calls that report a charge land in the away spend ledger (task, agent, project), so the project budget counts them; a call with no charge adds nothing', async () => {
+  let away!: AwayCore; let dir = '';
+  const factory = (c: { bus: EventBus; store: unknown; projects: ProjectStore; dataDir: string }) => { dir = c.dataDir; away = createAwayCore({ dataDir: c.dataDir, bus: c.bus, tasks: c.store as never, projects: c.projects }); return away.service; };
+  const paid = fixtureFetch({ output: { results: [] } }, { 'x-treg-cost-micro': '400' });
+  await using({ ...withWs({ search: 'treg' }, { 'web:treg': 'k_test_12345' }, paid), awayFactory: factory as never }, async (r) => {
+    const pid = r.project.id;
+    const spent = () => away.ledger.periodTotal('week', Date.now(), pid);
+    for (let i = 0; i < 3; i++) await r.callTool('mcp__legion__web_search', { query: `q${i}` });
+    assert.ok(Math.abs(spent() - 0.0012) < 1e-9, `3 calls at 400 micro-dollars are $0.0012, got ${spent()}`);
+    const file = readdirSync(join(dir, 'away')).find((n) => n.startsWith('spend-'))!;
+    const lines = readFileSync(join(dir, 'away', file), 'utf8').trim().split(/\r?\n/).map((l) => JSON.parse(l) as { taskId: string; agentId: string; projectId?: string; usd: number });
+    assert.deepEqual(lines.map((l) => [l.taskId, l.agentId, l.projectId, l.usd]), [0, 1, 2].map(() => [r.task.id, 'a1', pid, 0.0004]));
+    // the owner's optional budget counts them; with no budget nothing waits
+    assert.equal(away.service.budgetBlocked(pid), false, 'no budget set: nothing changes');
+    away.store.patchProject(pid, { budget: { limit: 0.001, period: 'week' } });
+    assert.equal(away.service.budgetBlocked(pid), true, 'the project budget includes the search spend');
+  });
+  const free = fixtureFetch({ output: { results: [] } });
+  await using({ ...withWs({ search: 'treg' }, { 'web:treg': 'k_test_12345' }, free), awayFactory: factory as never }, async (r) => {
+    await r.callTool('mcp__legion__web_search', { query: 'q' });
+    assert.equal(away.ledger.periodTotal('week', Date.now(), r.project.id), 0, 'a call that reports no charge records nothing');
   });
 });
 test('a read logs the host of its target and never the path or query', () => {

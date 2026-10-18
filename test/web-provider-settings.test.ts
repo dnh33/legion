@@ -30,6 +30,15 @@ test('SearXNG: a loopback or private address needs the native confirm flag; a us
   assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://u:p@searx.example.org' } }).ok, false);
   assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'ftp://x' } }).ok, false);
 });
+test('B-L2: any new or different SearXNG address needs the native confirm; the same one again and clearing do not', () => {
+  const sx = { ...defaultConfig().webSearch, searxng: { baseUrl: 'https://a.example.org' } };
+  assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://b.example.org' } }, sx).needsNative, true, 'a different public address');
+  assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://b.example.org' } }, sx).privateNetwork, false);
+  assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'http://192.168.1.5:8080' } }, sx).privateNetwork, true);
+  assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://a.example.org' } }, sx).needsNative, undefined, 'the same address saved again');
+  assert.equal(validateWebSearchPatch({ searxng: null }, sx).needsNative, undefined, 'forgetting the address');
+  assert.equal(validateWebSearchPatch({ search: 'builtin' }, sx).needsNative, undefined, 'a change that leaves the address alone');
+});
 test('the treg cap must be 0.001..1', () => { for (const v of [0, -1, 2, Number.NaN]) assert.equal(validateWebSearchPatch({ tregMaxCostUsd: v }).ok, false, String(v)); assert.equal(validateWebSearchPatch({ tregMaxCostUsd: 0.05 }).ok, true); });
 test('provider keys are origin-bound and never in config.json', () => {
   const dir = tempDir('legion-web-'); const keys = new ProviderKeys(join(dir, 'providers', 'keys.json'));
@@ -56,7 +65,7 @@ test('more validation: unknown settings, an unknown provider, a missing SearXNG 
   assert.equal(validateWebSearchPatch({ search: 'searxng', searxng: { baseUrl: 'https://searx.example.org' } }).ok, true);
   assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'http://searx.example.org' } }).ok, false);
   assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'http://localhost:8080' } }).needsNative, true);
-  assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://searx.example.org' } }).needsNative, undefined);
+  assert.equal(validateWebSearchPatch({ searxng: { baseUrl: 'https://searx.example.org' } }).needsNative, true, 'a new public address needs the confirm too (B-L2)');
   assert.equal(validateWebSearchPatch({ searxng: null }).ok, true);
 });
 
@@ -76,13 +85,17 @@ test('PATCH: an acknowledgement for another provider does not unlock this one; a
   await assert.rejects(w.call('PATCH', '/api/settings/web-search', { read: 'brave' }), /read/i);
   await assert.rejects(w.call('PATCH', '/api/settings/web-search', 'text'), /JSON object/);
 });
-test('PATCH: a private-network SearXNG address needs the native header; with it the flag is stored; a public address clears it', async () => {
+test('PATCH: a private-network SearXNG address needs the native header; with it the flag is stored; a different public address needs it too and clears the flag', async () => {
   const w = webSearchRoutes({ native: 'n_secret' });
   await assert.rejects(w.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'http://192.168.1.5:8080' } }), /native_confirmation_required/);
   const v = await w.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'http://192.168.1.5:8080' } }, { 'x-legion-native': 'n_secret' }) as { searxng: { baseUrl: string; allowPrivateNetwork?: boolean } };
   assert.equal(v.searxng.allowPrivateNetwork, true);
-  const pub = await w.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'https://searx.example.org' } }) as { searxng: { allowPrivateNetwork?: boolean } };
+  // a different public address needs the native header too (B-L2); with it the private flag is cleared
+  await assert.rejects(w.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'https://searx.example.org' } }), /native_confirmation_required/);
+  const pub = await w.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'https://searx.example.org' } }, { 'x-legion-native': 'n_secret' }) as { searxng: { allowPrivateNetwork?: boolean } };
   assert.equal(pub.searxng.allowPrivateNetwork, undefined);
+  // the same address again is no change
+  await w.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'https://searx.example.org' } });
   const noNative = webSearchRoutes();
   await assert.rejects(noNative.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'http://localhost:8080' } }, { 'x-legion-native': 'anything' }), /native_unavailable/);
 });

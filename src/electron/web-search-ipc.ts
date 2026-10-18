@@ -1,6 +1,6 @@
 /**
- * Native confirmation for the two Web search changes the core refuses without the app: saving a provider key, and a SearXNG address on your
- * computer or a private network. The window asks over IPC; this code words a native dialog from facts it reads from the core (and the fixed
+ * Native confirmation for the two Web search changes the core refuses without the app: saving a provider key, and a new or different SearXNG
+ * address (on your computer, on a private network or on the web). The window asks over IPC; this code words a native dialog from facts it reads from the core (and the fixed
  * API host of each provider), and only after "Confirm" calls the core with the native secret, which the window never has. The key is never put
  * in a dialog, a log line or a reply. Kept free of electron imports so it can be tested with fakes. Modelled on provider-ipc.ts.
  */
@@ -98,9 +98,16 @@ export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Pro
       return fail(res) ?? { ok: true, view: res!.json };
     }
     const host = dialogLine(hostOf(ch.baseUrl), 120);
-    title = 'Use a private SearXNG address?'; confirmLabel = 'Use this address';
-    message = 'Let Legion send searches to an address on your computer or a private network?';
-    detail = `Searches your agents send will go to: ${host}\n\nThis address is on your computer or your home or office network. Only continue if you set up this SearXNG server yourself.`;
+    confirmLabel = 'Use this address';
+    if (chk!.json?.privateNetwork === true) {
+      title = 'Use a private SearXNG address?';
+      message = 'Let Legion send searches to an address on your computer or a private network?';
+      detail = `Searches your agents send will go to: ${host}\n\nThis address is on your computer or your home or office network. Only continue if you set up this SearXNG server yourself.`;
+    } else {
+      title = 'Use this SearXNG address?';
+      message = 'Let Legion send every web search your agents make to this address?';
+      detail = `Searches your agents send will go to: ${host}\n\nThe people who run this server can see every search. Only continue if you trust them.`;
+    }
   }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;

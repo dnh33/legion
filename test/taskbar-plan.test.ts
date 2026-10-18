@@ -148,6 +148,14 @@ test('a failed run and a reached budget are announced in plain words', () => {
   assert.deepEqual(r.notifications.map((n) => [n.title, n.body]).sort(), [['Budget reached in Shop', 'New runs wait until Monday.'], ['Scout’s run failed', 'In Shop']]);
 });
 
+test('a reached budget with Stop at the budget off says runs keep going, not that they wait', () => {
+  const budget = (stops?: boolean) => [{ key: 'b:p1:w', projectId: 'p1', projectName: 'Shop', period: 'week' as const, ...(stops === undefined ? {} : { stops }) }];
+  const body = (stops?: boolean) => run(initialPlanState(), input({ budget: budget(stops) }), at(10)).notifications[0]!.body;
+  assert.equal(body(false), 'Runs keep going: Stop at the budget is off for this project.');
+  assert.equal(body(true), 'New runs wait until Monday.');
+  assert.equal(body(), 'New runs wait until Monday.', 'a signal from a core that does not say reads as on');
+});
+
 const QUIET = { enabled: true, from: '22:00', to: '07:00' };
 const quietPrefs: Prefs = { ...PREFS, quiet: QUIET };
 

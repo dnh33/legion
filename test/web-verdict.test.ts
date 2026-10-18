@@ -16,6 +16,19 @@ test('canonicalHost: punycode, case, trailing dot', () => {
 test('trusted https host, no query, short path: allow', () => assert.deepEqual(f('https://docs.stripe.com/api/charges'), { kind: 'allow', host: 'docs.stripe.com' }));
 test('new host asks and may be always-allowed', () => assert.deepEqual(f('https://example.com/a'), { kind: 'ask', host: 'example.com', why: 'new-host', canAlways: true }));
 test('query string asks even on a trusted host', () => assert.equal(why(f('https://docs.stripe.com/a?q=1')), 'query'));
+test('B-L4: a fragment longer than 16 characters is judged like a query; a built-in docs host keeps its long plain anchors', () => {
+  const built = (u: string) => webVerdict({ tool: 'WebFetch', input: { url: u } }, builtInCtx());
+  assert.equal(f('https://docs.stripe.com/a#install').kind, 'allow', 'a short anchor');
+  assert.equal(f('https://docs.stripe.com/a#' + 'x'.repeat(16)).kind, 'allow', 'exactly 16');
+  assert.equal(why(f('https://docs.stripe.com/a#' + 'x'.repeat(17))), 'query', 'on any other approved host 17 asks, like a query');
+  assert.equal(why(f('https://docs.stripe.com/a#data=c2VjcmV0LWtleS12YWx1ZQ')), 'query', 'a fragment that carries data');
+  assert.equal(built('https://nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback').kind, 'allow', 'a real long anchor on a built-in docs host');
+  assert.equal(why(built('https://react.dev/reference/react#data=c2VjcmV0LWtleS12YWx1ZQ')), 'query', 'built-in host, not a plain slug');
+  assert.equal(why(built('https://react.dev/reference/react#' + 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0')), 'query', 'built-in host, hex data');
+  assert.equal(why(built('https://react.dev/reference/react#dGhpc0lzQVNlY3JldFRva2VuMTIzNDU2Nzg5MA')), 'query', 'built-in host, base64 data');
+  assert.equal(why(built('https://react.dev/reference/react#a%20b%20c%20d%20e%20f%20g%20h')), 'query', 'built-in host, escaped text');
+});
+
 test('userinfo asks; trusted@evil and evil/trusted are judged by the real host', () => {
   assert.equal(why(f('https://trusted.com@evil.com/')), 'userinfo');
   assert.equal((f('https://evil.com/trusted.com') as { host: string }).host, 'evil.com');

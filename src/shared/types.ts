@@ -371,8 +371,8 @@ export type LegionEvent =
   | { type: 'away.updated' }
   /** The gates settings changed (a preset, a limit, or a reload from disk). */
   | { type: 'gates.updated' }
-  /** A project's budget was reached; sent once per period. */
-  | { type: 'budget.reached'; projectId: string; period: 'day' | 'week' | 'month' };
+  /** A project's budget was reached; sent once per period. `stops` is false when "Stop at the budget" is off for that project (runs keep going); absent reads as on. */
+  | { type: 'budget.reached'; projectId: string; period: 'day' | 'week' | 'month'; stops?: boolean };
 
 /** Why a task waits in the queue (spec 4.3). Order of precedence: budget, paused, after, slot. */
 export type QueueReason = 'slot' | 'paused' | 'budget' | 'after';

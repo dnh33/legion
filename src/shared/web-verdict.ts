@@ -1,5 +1,6 @@
 // The one rule for web reads (WebFetch, WebSearch, browser_open). Pure: no I/O.
-export const MAX_SEARCH = 300; export const MAX_PATH = 200; export const PATH_BUDGET = 10;
+export const MAX_SEARCH = 300; export const MAX_PATH = 200; export const PATH_BUDGET = 10; export const FRAGMENT_MAX = 16;
+const FRAGMENT_SLUG = /^[A-Za-z0-9._~:-]+$/;
 export function canonicalHost(raw: string): string | undefined {
   try { const h = new URL(raw).hostname.toLowerCase().replace(/\.+$/, ''); return h || undefined; } catch { return undefined; }
 }
@@ -118,7 +119,12 @@ function judge(call: WebCall, ctx: WebCtx): WebVerdict {
   if (u.protocol !== 'https:') return ask('http');
   if (u.port) return ask('port');
   if (isRelayHost(host) || !ctx.trusted(host)) return ask('new-host');
-  if (u.search) return ask('query');
+  // A fragment is never sent in the request, but web_read sends the whole address to its provider and a page's own script can read it:
+  // one longer than a short anchor (16 characters) is judged like a query string. A built-in docs host keeps its real anchors, which are
+  // long slugs (nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback): there only a fragment that is not a
+  // plain slug, or that reads as encoded data, asks.
+  const fragment = u.hash.slice(1);
+  if (u.search || (fragment.length > FRAGMENT_MAX && (!ctx.builtIn(host) || !FRAGMENT_SLUG.test(fragment) || encodedLooking(fragment)))) return ask('query');
   if (u.pathname.length > MAX_PATH || encodedLooking(u.pathname) || host.split('.').some((l) => l.length > 30 || encodedLooking(l))) return ask('odd-path');
   if (!ctx.builtIn(host) && ctx.pathsSeen(host) > PATH_BUDGET) return ask('budget');
   return { kind: 'allow', host };

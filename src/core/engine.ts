@@ -1670,6 +1670,11 @@ export class Engine {
         data: { provider: e.provider, tool: e.tool, ...(e.host ? { host: e.host } : {}), ...(e.micro !== undefined ? { micro: e.micro } : {}) },
       });
     } catch { /* advisory */ }
+    // A paid call that reports its charge (micro-dollars) goes to the same spend ledger as the model's cost, with the task, agent and project,
+    // so the owner's optional project budget and Show costs include it. No limit and no card of its own (owner ruling 2026-10-18). A call that
+    // reports no charge records nothing.
+    // noteSpend takes the agent and project from the task, the same as the model's own cost does, so the two always land on the same project.
+    if (typeof e.micro === 'number' && e.micro > 0) this.noteSpend(taskId, e.micro / 1_000_000);
   }
 
   /**
