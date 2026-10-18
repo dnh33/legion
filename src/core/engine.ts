@@ -1488,7 +1488,7 @@ export class Engine {
         act.heldBackNoted = true;
         this.activity?.append({ kind: 'note', text: `Held back from commands: ${shown}`, taskId: job.taskId, agentId: agent.id });
       }
-      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user. They can keep it in Settings, Gates.`;
+      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user. They can turn off "Keep keys and passwords out of commands" for the project in Settings, Gates.`;
     } catch { return ''; }
   }
   private childScrubFor(job: Job): { scrub: false | ScrubOpts } {

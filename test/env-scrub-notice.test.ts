@@ -36,6 +36,7 @@ test('I2: the preamble names the variables held back and where to keep one; no v
       for (const n of ['NODE_OPTIONS', 'NPM_TOKEN', 'PYTHONPATH']) assert.ok(line.includes(n), n);
       assert.doesNotMatch(line, /EDITOR/);
       assert.match(line, /Settings, Gates/);
+      assert.match(line, /Keep keys and passwords out of commands/, 'names the switch that exists today');
       assert.equal(p.includes(MARK), false, 'no value anywhere in the preamble');
       assert.equal(p.split('\n').filter((l) => l.includes('held back')).length, 1, 'one line');
     } finally { r.stop(); }

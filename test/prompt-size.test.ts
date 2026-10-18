@@ -36,7 +36,12 @@ const CEILING: Record<string, number> = {
 };
 
 test('prompt size: every seeded agent gets a system prompt, sizes are printed, and none grows past its ceiling', async () => {
-  const sizes = await measure();
+  // The "held back" line of the env scrub names this machine's variables, so its length is not a property of the code. Measured with a clean environment;
+  // the line itself is bounded (30 names) and its wording is pinned in env-scrub-notice.test.ts.
+  const saved = process.env;
+  process.env = { PATH: saved.PATH ?? '', SystemRoot: saved.SystemRoot ?? '' } as NodeJS.ProcessEnv;
+  let sizes: Awaited<ReturnType<typeof measure>>;
+  try { sizes = await measure(); } finally { process.env = saved; }
   assert.ok(Object.keys(sizes).length >= 12);
   for (const [id, s] of Object.entries(sizes)) console.log(`prompt-size ${id} chars=${s.chars} words=${s.words}${CEILING[id] ? ` ceiling=${CEILING[id]}` : ' (no ceiling)'}`);
   if (process.env.LEGION_PROMPT_SIZE_JSON) console.log('prompt-size-json ' + JSON.stringify(sizes));

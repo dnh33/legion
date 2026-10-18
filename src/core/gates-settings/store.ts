@@ -232,6 +232,9 @@ export class GatesStore {
     this.reload();
     // A new install writes its (blank) signed app file at once, so a missing app file later means it was deleted, not never made.
     if (this.signer && this.keyState === 'new' && !existsSync(join(this.folder, 'app.json'))) this.mark('app');
+    // The first keyed start signs what it found NOW, not 400 ms later: the key file already exists, so a core that quits before the timer would
+    // leave the next start (key state `old`) a folder with no signed file, which reads as lost. A failed write stays queued and is retried.
+    if (this.signer && this.keyState === 'new') this.writeDirty();
   }
 
   /** Whether this core holds a key to sign with. Without one only Ask can be stored. */

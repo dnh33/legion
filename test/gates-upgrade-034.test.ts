@@ -152,3 +152,17 @@ test('C1 limit, stated: key file AND every signed gates file gone reads as a fir
   assert.equal(b.state, 'new');
   assert.deepEqual(b.core.store.view([P1]).changedOutside, []);
 });
+
+test('C1 window: a first keyed start that quits at once (nothing patched, nothing flushed) still leaves a folder the next start reads as whole', () => {
+  for (const variant of ['none', 'unsigned-app', 'unsigned-app-and-ask-project'] as const) {
+    const root = folder034(variant);
+    startKeyed(root); // the first keyed start: no patch, no flush, the core goes away
+    writeFileSync(gatesKeyFilePath(root), 'wrapped'); // main made the key file before it started the core
+    const second = startKeyed(root);
+    assert.equal(second.state, 'old', variant);
+    assert.deepEqual(second.core.store.view([P1]).changedOutside, [], variant);
+    const mode = variant === 'unsigned-app-and-ask-project' ? 'ask' : 'full';
+    assert.equal(second.core.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), mode, variant);
+    assert.doesNotThrow(() => second.core.store.patchApp({ noticeSeen: true }), variant);
+  }
+});
