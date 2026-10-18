@@ -16,6 +16,7 @@ import { announce } from './announce';
 import { grantReads, revokeReads } from './readsGrant';
 import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, parseBudget, parseParkMinutes, pickSection } from './settingsLogic';
 import type { Period } from './settingsLogic';
+import { useGateOff } from './holdOff';
 import type { PageFacts } from './pageLogic';
 import { PIcon } from './PIcon';
 import { ProjectRepoLine } from '../../github/ProjectRepoLine';
@@ -282,6 +283,7 @@ export function Safety({ project }: { project: Project }) {
 function BudgetSection({ project }: { project: Project }) {
   const pid = project.id;
   const away = useAway((s) => projectAway(s, pid));
+  const stopOff = useGateOff('budget-stop', pid);
   const b = away.budget;
   const [amount, setAmount] = useState(b ? String(b.limit) : '50');
   const [period, setPeriod] = useState<Period>(b?.period ?? 'week');
@@ -299,7 +301,7 @@ function BudgetSection({ project }: { project: Project }) {
   return (
     <section data-sec="budget" aria-labelledby="set-h-budget">
       <h2 id="set-h-budget" tabIndex={-1}>Budget{changedSections(away).has('budget') && <span className="changed">Changed</span>}</h2>
-      <p className="lead">At the budget, new runs wait, running work finishes, and you get one notification.</p>
+      <p className="lead">{stopOff ? 'Stop at the budget is off for this project, so new runs keep starting past the budget. You still see what you spent and get one notification. Turn it back on in Settings, Gates, Fine tuning.' : 'At the budget, new runs wait, running work finishes, and you get one notification.'}</p>
       <Opt id="bud" title={`Set a ${noun} budget`} help={b ? undefined : 'No budget. Optional.'}>
         <Switch id="bud-sw" on={!!b} label={`Set a ${noun} budget`} onChange={save} />
       </Opt>

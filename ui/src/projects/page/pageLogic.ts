@@ -315,16 +315,17 @@ export function runsMenu(f: PageFacts, agentId: string): { header: string; group
 export interface BudgetVerdict { limited: boolean; reached: boolean; overridden: boolean; spent: number; limit?: number; period?: 'day' | 'week' | 'month'; periodEnd?: number }
 const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** `shortTitle` is the one-line form for a narrow page (the period is left out). */
-export function budgetBanner(b: BudgetVerdict | undefined): { title: string; text: string; shortTitle: string } | undefined {
+/** `stopOff`: the project's "Stop at the budget" gate is off, so nothing waits at the budget and the banner must not say it does. */
+export function budgetBanner(b: BudgetVerdict | undefined, stopOff = false): { title: string; text: string; shortTitle: string } | undefined {
   if (!b || !b.limited || !b.reached || !b.period || b.limit === undefined) return undefined;
   const noun = b.period === 'day' ? 'today' : b.period === 'week' ? 'this week' : 'this month';
   const until = b.periodEnd ? (b.period === 'day' ? 'tomorrow' : b.period === 'week' ? WEEKDAY[new Date(b.periodEnd).getDay()]! : `the 1st`) : 'the next period';
-  return { title: `Budget reached: ${money(b.spent)} ${noun}.`, text: `New runs wait until ${until}.`, shortTitle: `Budget reached: ${money(b.spent)}.` };
+  return { title: `Budget reached: ${money(b.spent)} ${noun}.`, text: stopOff ? 'Runs still start, because Stop at the budget is off for this project.' : `New runs wait until ${until}.`, shortTitle: `Budget reached: ${money(b.spent)}.` };
 }
-export function spendBlock(weekUsd: number, b: BudgetVerdict | undefined): { big: string; of?: string; pct: number; hi: boolean; foot: string } {
+export function spendBlock(weekUsd: number, b: BudgetVerdict | undefined, stopOff = false): { big: string; of?: string; pct: number; hi: boolean; foot: string } {
   if (b?.limited && b.limit) {
     const pct = Math.min(100, Math.round((b.spent / b.limit) * 100));
-    return { big: money(b.spent), of: `of ${money(b.limit)}`, pct, hi: pct > 80, foot: b.reached ? '' : `${pct}%. New runs wait at ${money(b.limit)}, you get one notification.` };
+    return { big: money(b.spent), of: `of ${money(b.limit)}`, pct, hi: pct > 80, foot: b.reached ? '' : stopOff ? `${pct}%. Runs do not wait at ${money(b.limit)}, because Stop at the budget is off.` : `${pct}%. New runs wait at ${money(b.limit)}, you get one notification.` };
   }
   return { big: money(weekUsd), pct: 0, hi: false, foot: 'No budget set. Optional.' };
 }

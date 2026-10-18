@@ -13,6 +13,7 @@ import { clearInboxRequest, getInboxRequest, inboxFocusPlan, subscribeFocus } fr
 import { settleFocus } from '../focusSettle';
 import { setView, toast, useStore } from '../../store';
 import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, saveChecks, saveMarshal, sayItem, setLeader, useBoard } from './boardStore';
+import { useGateOff } from '../page/holdOff';
 import { DoneWhen, MarshalPanel } from './MarshalPanel';
 import { checksPending, checksText, parseChecks } from './marshalLogic';
 import {
@@ -46,6 +47,7 @@ function Board({ project }: { project: Project }) {
   const [offer, setOffer] = useState<{ id: string; title: string } | null>(null);
   const focusId = useRef<string | null>(null);
   const archived = project.status === 'archived';
+  const stallOff = useGateOff('stall-ladder', project.id);
   const name = (id: string): string => agents.find((a) => a.id === id)?.name ?? id;
 
   useEffect(() => {
@@ -172,7 +174,7 @@ function Board({ project }: { project: Project }) {
 
       <div id="bd-panel" role="tabpanel" aria-labelledby={`bd-tab-${tab}`}>
         {tab === 'marshal' ? (
-          <MarshalPanel view={marshal} busy={busy} readOnly={archived} onSave={(cfg) => { void saveMarshal(project.id, cfg); }} />
+          <MarshalPanel view={marshal} busy={busy} readOnly={archived} stallLadderOff={stallOff} onSave={(cfg) => { void saveMarshal(project.id, cfg); }} />
         ) : !view ? <p className="muted-s">Loading the board&hellip;</p> : tab === 'board' ? (
           <>
             <p className="field-note" id="bd-keys">Move a card: drag it, or focus it and press Alt plus an arrow key (left and right change column, up and down reorder). Enter opens it.</p>

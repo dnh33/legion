@@ -6,7 +6,10 @@
 import { gateOffFor } from '../../gates/presetsLogic';
 import { useGatesView } from '../../gates/useGatesView';
 
-export function useHoldOff(projectId: string): boolean {
+/** Is one gate off for this project, as the Gates page would show it? Until the view has loaded the gate reads as on. */
+export function useGateOff(gateId: string, projectId: string): boolean {
   const { view } = useGatesView();
-  return gateOffFor(view, 'digest-hold', projectId);
+  return gateOffFor(view, gateId, projectId);
 }
+
+export const useHoldOff = (projectId: string): boolean => useGateOff('digest-hold', projectId);

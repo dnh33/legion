@@ -34,7 +34,7 @@ export const ok = (text = 'done') => ({ type: 'result', subtype: 'success', is_e
 
 export interface AwayState { paused: Set<string>; budget: Set<string>; spends: Array<Record<string, unknown>>; rollsAt: Map<string, number> }
 
-export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; modes?: ModeResolver; /** a real gates core (store + resolver) over the rig's project store, signing with a fixed test key; it replaces `modes` */ gatesCore?: boolean; /** a real activity log (and its bus lines) in the rig's data folder, handed to the engine */ activity?: boolean; /** the web search provider service (task 28) */ webSearch?: import('../src/core/web-search/index.js').WebSearchService; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
+export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; modes?: ModeResolver; /** a real gates core (store + resolver) over the rig's project store, signing with a fixed test key; it replaces `modes` */ gatesCore?: boolean; /** the real away core (or any hooks) in place of the stub, built over the rig's bus, store, project store and data folder */ awayFactory?: (c: { bus: EventBus; store: FakeStore; projects: ProjectStore; dataDir: string }) => AwayHooks; /** a real activity log (and its bus lines) in the rig's data folder, handed to the engine */ activity?: boolean; /** the web search provider service (task 28) */ webSearch?: import('../src/core/web-search/index.js').WebSearchService; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
   const root = cleanupTemp('legion-queue-');
   const store = new FakeStore();
   for (const id of ['a1', 'a2', 'a3']) store.agents.set(id, mkAgent(id, opts.approval ?? 'full'));
@@ -74,7 +74,7 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
   const engine = new Engine({
     store: store as never, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as never, approvals, questions, config, queryFn,
     boatConfigured: () => false, projects, taintedPaths: new TaintedPaths(join(root, 'tp.json')), maxConcurrent: opts.maxConcurrent,
-    ...(opts.withAway === false ? {} : { away }),
+    ...(opts.withAway === false ? {} : { away: opts.awayFactory ? opts.awayFactory({ bus, store, projects, dataDir: join(root, 'data') }) : away }),
     ...(activity ? { activity } : {}),
     ...(opts.webSearch ? { webSearch: opts.webSearch } : {}),
     ...(core ? { modes: core.resolver, gates: core } : opts.modes ? { modes: opts.modes } : {}),

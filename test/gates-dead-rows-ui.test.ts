@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { armAnnouncement } from '../ui/src/projects/page/askLogic.js';
+import { budgetBanner, spendBlock } from '../ui/src/projects/page/pageLogic.js';
 import { gateOffFor } from '../ui/src/gates/presetsLogic.js';
 import type { GatesView } from '../ui/src/gates/presetsLogic.js';
 import { tempDir } from './tmp-cleanup.js';
@@ -87,4 +88,32 @@ test('the spoken line after the first A on an irreversible ask promises a hold o
   assert.doesNotMatch(off, /hold/);
   assert.match(off, /Press A again within 2 seconds to allow/);
   assert.ok(!off.includes(String.fromCharCode(8212)));
+});
+
+const hit = { limited: true, reached: true, overridden: false, spent: 50, limit: 50, period: 'week' as const, periodEnd: Date.parse('2026-10-19T00:00:00') };
+
+test('budget copy: with Stop at the budget on it says runs wait; off, it does not say so', () => {
+  assert.match(budgetBanner(hit)!.text, /^New runs wait until /);
+  assert.equal(budgetBanner(hit, false)!.text, budgetBanner(hit)!.text);
+  const off = budgetBanner(hit, true)!;
+  assert.doesNotMatch(off.text, /wait/);
+  assert.match(off.text, /Runs still start, because Stop at the budget is off/);
+  assert.equal(off.title, budgetBanner(hit)!.title, 'the budget itself is still shown');
+  const under = { ...hit, reached: false, spent: 41.2 };
+  assert.match(spendBlock(0, under).foot, /New runs wait at \$50\.00/);
+  assert.doesNotMatch(spendBlock(0, under, true).foot, /New runs wait/);
+  assert.match(spendBlock(0, under, true).foot, /do not wait at \$50\.00, because Stop at the budget is off/);
+});
+
+test('the budget and Marshal screens read their gate and pass it on', () => {
+  const src = (f: string): string => readFileSync(`${process.cwd()}/ui/src/projects/${f}`, 'utf8');
+  const overview = src('page/Overview.tsx');
+  assert.match(overview, /useGateOff\('budget-stop'/);
+  assert.match(overview, /budgetBanner\(spend\?\.budget, stopOff\)/);
+  assert.match(overview, /spendBlock\([^)]*stopOff\)/);
+  assert.match(overview, /stopOff \? \(/, 'the budget popover drops "Run anyway" when nothing waits');
+  assert.match(src('page/SettingsTab.tsx'), /useGateOff\('budget-stop'/);
+  assert.match(src('board/BoardPanel.tsx'), /useGateOff\('stall-ladder'/);
+  assert.match(src('board/BoardPanel.tsx'), /stallLadderOff=\{stallOff\}/);
+  assert.match(src('board/MarshalPanel.tsx'), /Stop runs that stall is off for this project/);
 });
