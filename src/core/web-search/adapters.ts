@@ -35,6 +35,8 @@ function checkStatus(label: string, status: number, json: unknown, opts: { jsonD
   if (status >= 200 && status < 300) return;
   if (opts.jsonDisabled && status === 403) throw new WebProviderError('json_disabled', ERR_JSON_DISABLED);
   if (status === 401 || status === 403) throw new WebProviderError('auth', ERR_AUTH);
+  // a wrong key can also come back as 422 with a token code in the body (seen live: SUBSCRIPTION_TOKEN_INVALID); other 422s are bad requests
+  if (status === 422 && /TOKEN_INVALID/.test(JSON.stringify(json ?? null))) throw new WebProviderError('auth', ERR_AUTH);
   if (status === 402 && opts.cap && JSON.stringify(json ?? null).includes('route_max_cost')) throw new WebProviderError('cap', CAP_MESSAGE(0));
   if (status === 429) throw new WebProviderError('rate', ERR_RATE(label));
   throw new WebProviderError('status', ERR_STATUS(label, status));

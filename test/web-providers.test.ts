@@ -95,6 +95,12 @@ test('every adapter maps 401, 402 route_max_cost, 429 and bad bodies to a coded 
   }
   assert.throws(() => ADAPTERS.treg.parseSearch(402, {}, { detail: { error: 'route_max_cost' } }), (e: Error & { code?: string }) => e.code === 'cap');
 });
+test('a wrong key answered with 422 and a token code reads as "key not accepted"; any other 422 stays a status error', () => {
+  // the body shape seen live from a search provider for a fake key (the 0.3.5 hands-on walk, H8)
+  const bad = { type: 'ErrorResponse', error: { code: 'SUBSCRIPTION_TOKEN_INVALID', status: 422, detail: 'The provided subscription token is invalid.' } };
+  assert.throws(() => ADAPTERS.brave.parseSearch(422, {}, bad), (e: Error & { code?: string }) => e.code === 'auth');
+  assert.throws(() => ADAPTERS.brave.parseSearch(422, {}, { error: { code: 'VALIDATION', detail: 'q is required' } }), (e: Error & { code?: string }) => e.code === 'status');
+});
 test('service: a fixture fetch gives hits, formats the head line, cuts at 30000 chars, and reports the charge', async () => {
   const seen: Request[] = [];
   const fetchImpl = (async (u: string | URL | Request, init?: RequestInit) => { seen.push(new Request(u as string, init)); return new Response(JSON.stringify({ output: { pages: [{ markdown: 'x'.repeat(40000) }] } }), { status: 200, headers: { 'content-type': 'application/json', 'x-treg-cost-micro': '900' } }); }) as typeof fetch;
