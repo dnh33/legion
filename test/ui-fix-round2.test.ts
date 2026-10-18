@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { placeholderName } from '../ui/src/chat/draft.js';
+import { fitPlaceholder } from '../ui/src/chat/draft.js';
 import { dropErrorEcho } from '../ui/src/chat/errorEcho.js';
 import { TRUSTED_AFTER_LINE, TRUSTED_CHANGED_AFTER_LINE, TRUSTED_LEAD, cardTrust } from '../ui/src/gates/trustLogic.js';
 import type { TrustedRow } from '../ui/src/gates/trustLogic.js';
@@ -36,14 +36,24 @@ test('1: the composer bar stays on one row (send never drops to a third row); th
   assert.match(tsx, /<span className="hint-slot"><span className="hint-strut" aria-hidden="true" \/><span className="composer-hint">/);
   assert.doesNotMatch(tsx, /className="spacer"/, 'the slot is the spacer: a second grower would share the room with it');
 });
-test('1: the new-task placeholder cuts a long agent name at 24 characters so it stays on one line', () => {
-  const long = 'Long-Running Quarterly Release Readiness Reviewer Agent Two';
-  assert.equal(placeholderName(long), 'Long-Running Quarterly R\u2026');
-  assert.equal(placeholderName('Marshal'), 'Marshal');
-  assert.equal(placeholderName('x'.repeat(24)), 'x'.repeat(24), 'a name of exactly 24 is whole');
-  assert.equal(placeholderName(undefined), 'Legion');
-  assert.equal(placeholderName('Ab cdefghijklmnopqrstu v'), 'Ab cdefghijklmnopqrstu v');
-  assert.match(src('ui/src/components/Composer.tsx'), /`Ask \$\{placeholderName\(agent\?\.name\)\} to do something`/);
+test('1: the box hint is one line: the agent name is cut at 24 characters, then shorter, until the whole sentence fits the room', () => {
+  const long = 'Long-Running Quarterly Release Readiness Reviewer Agent Two.';
+  const all = (): boolean => true;
+  assert.equal(fitPlaceholder('Ask ', long, ' to do something', all), 'Ask Long-Running Quarterly R… to do something');
+  assert.equal(fitPlaceholder('Ask ', 'Marshal', ' to do something', all), 'Ask Marshal to do something');
+  assert.equal(fitPlaceholder('Ask ', 'x'.repeat(24), ' to do something', all), `Ask ${'x'.repeat(24)} to do something`, 'a name of exactly 24 is whole');
+  assert.equal(fitPlaceholder('Ask ', undefined, ' to do something', all), 'Ask Legion to do something');
+  // a narrow box (about 40 characters wide): the name gives way, the sentence never wraps
+  const narrow = (s: string): boolean => s.length <= 38;
+  const t = fitPlaceholder('Ask ', long, ' to do something', narrow);
+  assert.ok(narrow(t), t);
+  assert.equal(t, 'Ask Long-Running Quar… to do something');
+  assert.equal(fitPlaceholder('Reply to ', long, '', (s) => s.length <= 20), 'Reply to Long-Runni…', 'a reply hint has no tail');
+  // never shorter than 8 name characters, even when nothing fits
+  assert.equal(fitPlaceholder('Ask ', long, ' to do something', () => false), 'Ask Long-Run… to do something');
+  const tsx = src('ui/src/components/Composer.tsx');
+  assert.match(tsx, /placeholder=\{placeholder\}/);
+  assert.match(tsx, /new ResizeObserver\(make\)/, 'it is measured again when the box changes size');
 });
 
 // ---------------------------------------------------------------- 2: the project settings menu at 960

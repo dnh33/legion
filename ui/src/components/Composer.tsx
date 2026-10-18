@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { busyIn, busyLabel, canJoinRun } from '../chat/busy';
-import { placeholderName, restoreDraft } from '../chat/draft';
+import { fitPlaceholder, restoreDraft } from '../chat/draft';
 import { isImeKey } from '../chat/ime';
 import { queueOf, shouldQueue, threadKey } from '../chat/queue';
 import { useDraft } from '../chat/drafts';
@@ -51,6 +51,26 @@ export function Composer() {
   const qkey = threadKey(agentId, taskId);
   const thread = useThreadQueue(qkey);
   const agentName = clip(agent?.name ?? 'Legion', 26);
+  // the box's hint stays on one line: the agent's name is cut until the whole sentence fits the width the box really has (it is narrow at a large UI scale)
+  const [placeholder, setPlaceholder] = useState(() => fitPlaceholder(taskId ? 'Reply to ' : 'Ask ', agent?.name, taskId ? '' : ' to do something', () => true));
+  useEffect(() => {
+    const el = ta.current;
+    if (!el) return;
+    const make = (): void => {
+      const lead = taskId ? 'Reply to ' : 'Ask '; const tail = taskId ? '' : ' to do something';
+      const cs = getComputedStyle(el);
+      const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const g = document.createElement('canvas').getContext('2d');
+      if (g) g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const next = fitPlaceholder(lead, agent?.name, tail, (s) => !g || room <= 0 || g.measureText(s).width <= room - 4);
+      setPlaceholder((p) => (p === next ? p : next));
+    };
+    make();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(make);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [agent?.name, taskId]);
   // Enter adds the message to the running Claude run (read after its current step) rather than queueing it behind the run
   const joinable = !!taskId && canJoinRun(busy, task, thread?.items.length ?? 0, '');
 
@@ -174,7 +194,7 @@ export function Composer() {
         {picker && <ModelPicker model={model} agentName={agentName} onClose={closePicker} />}
         {costAsk && <div className="cost-note" role="alert"><Icon name="shield" size={13} /> <b>/{costAsk}</b> can cost money. Press Enter again to run it, or keep typing to cancel.</div>}
         {argHint && <div className="arg-hint"><code>/{argHint.name}</code><span className="sm-hint">{argHint.hint}</span><span>{argHint.description}</span></div>}
-        <textarea ref={ta} rows={1} value={text} placeholder={taskId ? `Reply to ${agentName}` : `Ask ${placeholderName(agent?.name)} to do something`}
+        <textarea ref={ta} rows={1} value={text} placeholder={placeholder}
           onChange={(e) => { setText(e.target.value); const n = Date.now(); if (n - lastTyping.current > 300) { lastTyping.current = n; window.dispatchEvent(new Event('legion:typing')); } }}
           onKeyDown={onKeyDown} aria-label="Message" aria-expanded={menuOpen} aria-haspopup="listbox" />
         <div className={`composer-bar${busy ? ' busy' : ''}${running && started > 0 ? ' has-team' : ''}`}>

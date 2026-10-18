@@ -5,8 +5,15 @@ export function restoreDraft(current: string, lost: string): string {
   return `${lost}\n${current}`;
 }
 
-/** The agent's name as the new-task box says it ("Ask <name> to do something"): cut at 24 characters so the sentence stays on one line in the 40 px box. */
-export function placeholderName(name: string | undefined, max = 24): string {
+/**
+ * The box's hint, "Ask <name> to do something" or "Reply to <name>", on ONE line: the name is cut (24 characters at most, then shorter) until the whole sentence fits
+ * the room the box has. `fits` measures a sentence; the box is narrow at a large UI scale, and a sentence wrapped into its 40 px height would be cut in half.
+ */
+export function fitPlaceholder(lead: string, name: string | undefined, tail: string, fits: (s: string) => boolean, max = 24, min = 8): string {
   const n = (name ?? 'Legion').trim() || 'Legion';
-  return n.length > max ? `${n.slice(0, max).trimEnd()}…` : n;
+  for (let len = Math.min(n.length, max); ; len--) {
+    const shown = n.length > len ? `${n.slice(0, len).trimEnd()}…` : n;
+    const s = `${lead}${shown}${tail}`;
+    if (len <= min || fits(s)) return s;
+  }
 }
