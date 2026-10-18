@@ -1312,12 +1312,12 @@ export class Engine {
     return { suggest: false, subagents: false, slimListing: false, rerank: false };
   }
 
-  /** The first note a module gives for this turn. Bounded in time and never throws: a slow or broken module means no note. */
   /** How long a turn waits for its note: longer when a rerank or an embedding is in the path. */
   private turnWaitMs(finder: FinderWiring): number {
     return finder.rerank ? RERANK_TURN_TIMEOUT_MS : finder.embeddings ? EMBED_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS;
   }
 
+  /** The first note a module gives for this turn. Bounded in time and never throws: a slow or broken module means no note. */
   private async turnNote(agent: AgentProfile, ctx: TurnContext, waitMs: number): Promise<TurnNote | undefined> {
     let timer: NodeJS.Timeout | undefined;
     // Once the limit has passed, the turn goes on without a note, and no later module is asked.

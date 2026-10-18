@@ -31,7 +31,7 @@ export function armoryState(flags) {
   const finder = {
     suggest: flags.has('fnd-suggest-auto') ? 'auto' : all || flags.has('fnd-suggest-on'), searchTool: !flags.has('nosearch'), subagents: true,
     ranker: all || flags.has('fnd-local') ? 'local' : flags.has('fnd-provider') ? 'provider' : 'keyword', rerank: all, rerankMonthlyUsd: all ? 2 : 1,
-    slimListing: 'auto', k: 3, threshold: 'balanced', chatLine: !flags.has('chatoff'), noticeSeen: flags.has('noticeseen') || all,
+    slimListing: false, k: 3, threshold: 'balanced', chatLine: !flags.has('chatoff'), noticeSeen: flags.has('noticeseen') || all,
     ...(flags.has('fnd-provider') ? { providerId: 'local-embed', providerModel: 'nomic-embed-text' } : {}),
   };
   const model = flags.has('mdl-dl') ? { state: 'downloading', progress: 0.4 } : flags.has('mdl-ready') || all ? { state: 'ready', bytes: 143_000_000 }

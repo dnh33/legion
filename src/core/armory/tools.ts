@@ -1,8 +1,8 @@
 /**
- * The in-process MCP server `legion_armory`, for agents that run on a model provider.
+ * The in-process MCP server `legion_armory`. Provider agents get the list, load and find tools; Claude agents get find only.
  *
  * A Claude agent gets Armory skills natively (the SDK `skills` option). A provider agent has no Skill tool and no file tools, so
- * it gets the same skills through these two read-only tools. Same rules as the native path: only skills that are 'on' for this
+ * it gets the same skills through the list and load tools, which are read-only. Same rules as the native path: only skills that are 'on' for this
  * agent are listed or served; anything else (off, manual, unknown, a built-in with no file) gets one identical answer. A skill
  * whose text is not the owner's own (imported, or from a Claude Code plugin) is wrapped as untrusted and taints the run.
  */

@@ -61,7 +61,7 @@ export interface FinderSettings {
   rerank: boolean;
   rerankMonthlyUsd: number;
   /**
-   * The short skill list. 'auto' (the default) is on only for an agent with more skills than the Settings warning threshold (40);
+   * The short skill list. The default is false; 'auto' keeps the full list until an agent has more than WARN_ABOVE skills (40);
    * true and false mean what they say. Never on without the search tool.
    */
   slimListing: boolean | 'auto';
