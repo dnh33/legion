@@ -7,6 +7,8 @@ import { createUsageStore, skillIdOfLoad } from '../src/core/armory/finder/usage
 import type { CoreModule } from '../src/core/modules.js';
 import { mkAgent, ok, init, setup, toolUse, waitDone } from './library-fakes.js';
 import { tempDir } from './tmp-cleanup.js';
+import { armoryRig, own } from './armory-rig.js';
+import type { Task } from '../src/shared/types.js';
 
 /** A clock that moves one millisecond per call, so the newest-first order is exact. */
 function tickingClock(startMs = Date.UTC(2026, 9, 17)): () => number {
@@ -153,5 +155,49 @@ describe('onToolUse input passthrough', () => {
     const skillSeen = seen.find((x) => x.tool === 'Skill');
     assert.ok(skillSeen, 'the module saw the Skill tool use');
     assert.deepEqual(skillSeen.input, { skill: 'pdf' });
+  });
+});
+
+
+describe('usage follows the switches', () => {
+  const DONE = { status: 'done' as const, isError: false, tainted: false };
+  const stub = (id: string) => ({ id }) as Task;
+  const record = (dir: string, agent: string, skill: string) => (JSON.parse(readFileSync(usagePath(dir), 'utf8')) as Record<string, Record<string, { loads: number; suggested: number; ignored: number }>>)[agent]?.[skill];
+
+  it('an agent whose finder is off records no usage at all; a normal agent does', async () => {
+    const rig = armoryRig();
+    const s = await own(rig, { name: 'pdf-tool', description: 'Make PDF files', body: 'b' });
+    rig.agents.get('alpha')!.skillFinder = 'off';
+    const alpha = rig.agents.get('alpha')!;
+    rig.mod.onToolUse!('alpha', 't1', 'Skill', { skill: s.id });
+    rig.mod.noteShown!('alpha', 't1', [s.id]);
+    rig.mod.onTaskEnd!(stub('t1'), alpha, DONE);
+    assert.throws(() => statSync(usagePath(rig.dataDir)), 'no usage.json for an agent that is off');
+    rig.mod.onToolUse!('beta', 't2', 'Skill', { skill: s.id });
+    assert.equal(record(rig.dataDir, 'beta', s.id)?.loads, 1, 'the same call for an agent with the search tool on is kept');
+  });
+
+  it('with the search tool and suggestions both off for the Armory, nothing is recorded', async () => {
+    const rig = armoryRig();
+    const s = await own(rig, { name: 'pdf-tool', description: 'Make PDF files', body: 'b' });
+    await rig.call('POST', '/api/armory/finder', { searchTool: false, suggest: false });
+    rig.mod.onToolUse!('beta', 't1', 'Skill', { skill: s.id });
+    assert.throws(() => statSync(usagePath(rig.dataDir)));
+  });
+
+  it('with three suggested and one loaded, the other two are not ignored; with none loaded, all three are', async () => {
+    const rig = armoryRig();
+    const ids = [] as string[];
+    for (const n of ['sk-one', 'sk-two', 'sk-three']) ids.push((await own(rig, { name: n, description: `Skill ${n}`, body: 'b' })).id);
+    const beta = rig.agents.get('beta')!;
+    rig.mod.noteShown!('beta', 't1', ids);
+    rig.mod.onToolUse!('beta', 't1', 'Skill', { skill: ids[0] });
+    rig.mod.onTaskEnd!(stub('t1'), beta, DONE);
+    assert.equal(record(rig.dataDir, 'beta', ids[0]!)?.loads, 1);
+    assert.equal(record(rig.dataDir, 'beta', ids[1]!)?.ignored ?? 0, 0, 'the second-ranked skill is not penalised');
+    assert.equal(record(rig.dataDir, 'beta', ids[2]!)?.ignored ?? 0, 0);
+    rig.mod.noteShown!('beta', 't2', ids);
+    rig.mod.onTaskEnd!(stub('t2'), beta, DONE);
+    for (const id of ids) assert.equal(record(rig.dataDir, 'beta', id)?.ignored, 1, `${id} passed over when nothing was loaded`);
   });
 });

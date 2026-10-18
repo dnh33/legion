@@ -108,15 +108,17 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
           control={(
             <select aria-labelledby={`${id('slim')}-l`} aria-describedby={`${id('slim')}-h`} value={slimValue} disabled={!f.searchTool}
               onChange={(e) => { const v = e.target.value; void setFinder({ slimListing: v === 'auto' ? 'auto' : v === 'true' }); }}>
-              <option value="auto">When an agent has more than {WARN_ABOVE} skills</option>
-              <option value="true">Always</option>
               <option value="false">Never</option>
+              <option value="true">Always</option>
+              <option value="auto">When an agent has more than {WARN_ABOVE} skills</option>
             </select>
           )} />
 
         <Ranker f={f} id={id('rank')} />
 
-        <Row id={id('rerank')} label="Rerank close calls with Haiku" help={RERANK_LATENCY_NOTE}
+        <p className="arm-fgrouph set-hint">Used when Suggest each turn is on.</p>
+        <div className={`arm-fgroup${f.suggest === false ? ' arm-fmuted' : ''}`}>
+        <Row id={id('rerank')} label="Rerank close calls with Haiku" help={`Used with Suggest each turn. ${RERANK_LATENCY_NOTE}`}
           control={<Switch label="Rerank close calls with Haiku" on={f.rerank} describedBy={`${id('rerank')}-h`} onChange={(v) => { void setFinder({ rerank: v }).then((ok) => { if (ok && v) void loadRerankSpend(); }); }} />}>
           <div className={`arm-rrx${f.rerank ? '' : ' arm-fmuted'}`}>
           <Spend />
@@ -141,10 +143,6 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
           </div>
           <p className="set-hint arm-fdisc">{RERANK_DISCLOSURE}</p>
         </Row>
-
-
-        <p className="arm-fgrouph set-hint">Used when Suggest each turn is on.</p>
-        <div className={`arm-fgroup${f.suggest === false ? ' arm-fmuted' : ''}`}>
         <Row id={id('sub')} label="Subagent suggestions" help="Also suggests skills to the helpers an agent starts."
           control={<Switch label="Subagent suggestions" on={f.subagents} describedBy={`${id('sub')}-h`} onChange={(v) => { void setFinder({ subagents: v }); }} />} />
 

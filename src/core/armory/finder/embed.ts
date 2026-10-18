@@ -50,6 +50,8 @@ export interface VectorCache {
   save(): void;
   /** Forgets every vector in memory and drops any unsaved change, so a later save() cannot bring a deleted file back. */
   clear(): void;
+  /** Counts the clears. A fill that began before a clear must not write after it. */
+  readonly generation: number;
   readonly size: number;
 }
 
@@ -81,6 +83,7 @@ export function createVectorCache(dataDir: string, max = MAX_CACHED_VECTORS): Ve
     }
   } catch { /* a missing or corrupt cache starts empty */ }
   let dirty = false;
+  let generation = 0;
   const key = (modelId: string, text: string): string => `${modelId}:${textHash(text)}`;
   return {
     get(modelId, text) {
@@ -110,7 +113,8 @@ export function createVectorCache(dataDir: string, max = MAX_CACHED_VECTORS): Ve
         try { rmSync(tmp, { force: true }); } catch { /* leave it */ }
       }
     },
-    clear() { map.clear(); dirty = false; },
+    clear() { map.clear(); dirty = false; generation++; },
+    get generation() { return generation; },
     get size() { return map.size; },
   };
 }
@@ -141,8 +145,11 @@ export async function passageVectors(
   const { have: out, missing } = cachedPassages(embedder.id, cache, docs);
   const batch = missing.slice(0, Math.max(0, limit));
   if (batch.length) {
+    const generation = cache.generation;
     const vecs = await embedder.embed(batch.map(passageText), signal, 'passage');
     if (vecs.length !== batch.length) throw new Error('The embedder returned the wrong number of vectors.');
+    // The cache was cleared while the batch was away (the model was removed): these vectors are for a model that is gone. Drop them.
+    if (cache.generation !== generation) return out;
     batch.forEach((m, i) => { cache.set(embedder.id, passageText(m), vecs[i]!); out.set(m.id, vecs[i]!); });
     cache.save();
   }

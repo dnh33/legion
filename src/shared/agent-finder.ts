@@ -24,3 +24,15 @@ export function pickFinderMode(form: FinderForm, mode: FinderMode): FinderForm {
 export function finderBody(form: FinderForm): { skillFinder: FinderMode; skillFinderK?: number | null } {
   return form.mode === 'off' ? { skillFinder: 'off' } : { skillFinder: form.mode, skillFinderK: form.k };
 }
+
+/**
+ * The fields of the save that the owner really changed. A key goes in only when its value differs from the form's first value, so saving
+ * an agent for another reason does not store `skillFinder: 'inherit'` on an agent that never had a choice.
+ */
+export function finderChanges(start: FinderForm, now: FinderForm): { skillFinder?: FinderMode; skillFinderK?: number | null } {
+  const body = finderBody(now);
+  const out: { skillFinder?: FinderMode; skillFinderK?: number | null } = {};
+  if (now.mode !== start.mode) out.skillFinder = body.skillFinder;
+  if (now.k !== start.k && body.skillFinderK !== undefined) out.skillFinderK = body.skillFinderK;
+  return out;
+}

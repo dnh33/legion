@@ -280,3 +280,27 @@ describe('rankFused', () => {
     assert.equal(rankFused(ix, 'typography', [1, 0], vecs, { ...base, k: 0 })!.results.length, 1);
   });
 });
+
+describe('a fill that was in flight when the cache was cleared', () => {
+  it('stores nothing and writes no file', async () => {
+    const dir = tempDir('finder-vec-');
+    const cache = createVectorCache(dir);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow: Embedder = {
+      id: 'slow-1',
+      async embed(texts) { await gate; return texts.map(() => Float32Array.from([1, 0])); },
+    };
+    const doc = { id: 'a', name: 'alpha', description: 'alpha skill', whenToUse: '' };
+    const fill = passageVectors(slow, cache, [doc], sig());
+    cache.clear(); // the model is removed while the batch is away
+    release();
+    await fill;
+    assert.equal(cache.size, 0, 'the vectors of the removed model were dropped');
+    assert.equal(existsSync(vectorsPath(dir)), false, 'and no file came back');
+    // A fill that starts after the clear is fine.
+    await passageVectors(slow, cache, [doc], sig());
+    assert.equal(cache.size, 1);
+    assert.equal(existsSync(vectorsPath(dir)), true);
+  });
+});

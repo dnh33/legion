@@ -113,11 +113,12 @@ describe('finder on the Claude path', () => {
     assert.equal(on, off);
   });
 
-  it('slim listing: by default (auto) a small catalog keeps the full list; true adds the keys; false drops them', async () => {
+  it('slim listing: off by default; true adds the keys; false drops them', async () => {
     const rig = await rigWith();
+    assert.equal((await rig.call('GET', '/api/armory/finder')).slimListing, false, 'the default is false, not auto');
     let o1: Opts; let o2: Opts; let o3: Opts;
     await drive(rig, PROMPT, async (o) => { o1 = o; });
-    assert.ok(!('skillListingBudgetFraction' in o1.settings), 'auto with a handful of skills: no slim keys');
+    assert.ok(!('skillListingBudgetFraction' in o1.settings), 'by default: no slim keys');
     await rig.call('POST', '/api/armory/finder', { slimListing: true });
     await drive(rig, PROMPT, async (o) => { o2 = o; });
     assert.equal(o2.settings.skillListingBudgetFraction, 0.002);
@@ -189,7 +190,7 @@ describe('finder on the Claude path', () => {
     assert.ok(!('skillListingBudgetFraction' in o1.settings) && !('skillListingMaxDescChars' in o1.settings));
   });
 
-  it('records skillTurns (capped at 50), the load, and ignored skills at run end', async () => {
+  it('records skillTurns (capped at 50), the load, and no ignore when a suggested skill was loaded', async () => {
     const rig = await rigWith();
     const { task } = await drive(rig, PROMPT, async (o) => {
       for (let i = 0; i < 55; i++) await fire(o, 'UserPromptSubmit', { prompt: 'x' }).catch(() => undefined);
@@ -200,7 +201,7 @@ describe('finder on the Claude path', () => {
     assert.deepEqual(last.loaded, ['legion-armory:invoice-pdf-export']);
     const boost = createUsageStore(rig.dataDir).boostFor('alpha');
     assert.ok(boost('legion-armory:invoice-pdf-export') > 1, 'load boosts');
-    assert.ok(boost('sp:invoice-audit') < 1, 'suggested and not loaded counts as ignored');
+    assert.equal(boost('sp:invoice-audit'), 1, 'a suggested skill is not ignored when the agent loaded another suggested one');
   });
 });
 
@@ -287,7 +288,6 @@ describe('finder fixes: doc cache, late hooks, load matching, shown notes, subag
     const { task } = await drive(rig, PROMPT, async (o) => {
       await fire(o, 'UserPromptSubmit', { prompt: 'x' });
       await skillLoad(o, 'other:invoice-audit');
-      assert.ok(true);
     });
     assert.ok(task.skillTurns![0]!.suggested.includes('sp:invoice-audit'));
     assert.deepEqual(task.skillTurns![0]!.loaded, []);

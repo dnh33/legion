@@ -1,7 +1,7 @@
 /** The agent editor's Skill finder control: what the form sends, and that the core stores it the way the form means it. */
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { finderBody, finderFormOf, pickFinderMode } from '../src/shared/agent-finder.js';
+import { finderBody, finderChanges, finderFormOf, pickFinderMode } from '../src/shared/agent-finder.js';
 import { AUTH } from './helpers-c.js';
 import { closeAll, mount } from './token-harness.js';
 
@@ -17,6 +17,17 @@ test('the body: inherit and on send k (null clears it); off leaves k alone', () 
   assert.deepEqual(finderBody({ mode: 'inherit', k: null }), { skillFinder: 'inherit', skillFinderK: null });
   assert.deepEqual(finderBody({ mode: 'on', k: 4 }), { skillFinder: 'on', skillFinderK: 4 });
   assert.deepEqual(finderBody({ mode: 'off', k: 4 }), { skillFinder: 'off' }, 'a stored k is not thrown away by switching off');
+});
+
+test('a save sends the finder keys only for what changed from the start value of the form', () => {
+  const start = finderFormOf({});
+  assert.deepEqual(finderChanges(start, start), {}, 'untouched: nothing is sent, so no skillFinder is stored');
+  assert.deepEqual(finderChanges(start, { mode: 'on', k: null }), { skillFinder: 'on' }, 'only the mode changed');
+  assert.deepEqual(finderChanges(start, { mode: 'inherit', k: 4 }), { skillFinderK: 4 }, 'only the count changed');
+  const set = finderFormOf({ skillFinder: 'on', skillFinderK: 4 });
+  assert.deepEqual(finderChanges(set, set), {});
+  assert.deepEqual(finderChanges(set, pickFinderMode(set, 'inherit')), { skillFinder: 'inherit', skillFinderK: null }, 'back to the Armory clears both');
+  assert.deepEqual(finderChanges(set, pickFinderMode(set, 'off')), { skillFinder: 'off' }, 'off sends no count');
 });
 
 test('choosing "Same as the Armory" clears k; the other choices keep it', () => {

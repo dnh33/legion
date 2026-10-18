@@ -270,6 +270,12 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     return new Set(onSkillIds(agent, all, deliveredFor.delivered));
   };
   const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
+  /** Usage is kept only while it can be used: for an agent whose search tool or suggestions are on. An agent set to 'off' leaves no trace. */
+  const recordsUsage = (agent: AgentProfile | undefined): boolean => {
+    if (!agent) return false;
+    const f = finderSettings(agent);
+    return f.searchTool || suggestOn(f, embedderFor(f) !== undefined);
+  };
   // The rerank's child process: the same environment and settings as the Claude Code listing (no connectors, the owner's executable).
   // Without a config there is no rerank: the child never gets the full process environment.
   const rerankLaunch = (): RerankLaunch | undefined => (deps.config
@@ -476,7 +482,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
 
     // Called by the engine only for a note it accepted in time.
     noteShown(agentId: string, taskId: string, ids: string[]) {
-      usageStore().noteSuggested(agentId, ids);
+      if (recordsUsage(deps.store.getAgent(agentId))) usageStore().noteSuggested(agentId, ids);
       const seen = suggestedBy.get(taskId) ?? new Set<string>();
       for (const id of ids) seen.add(id);
       suggestedBy.set(taskId, seen);
@@ -492,7 +498,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     onToolUse(agentId: string, taskId: string, toolName: string, input?: unknown) {
       const id = mod.skillLoadId!(toolName, input);
       if (!id) return;
-      usageStore().noteLoaded(agentId, id);
+      if (recordsUsage(deps.store.getAgent(agentId))) usageStore().noteLoaded(agentId, id);
       const set = loadedBy.get(taskId) ?? new Set<string>();
       set.add(id);
       loadedBy.set(taskId, set);
@@ -503,9 +509,11 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       const loaded = loadedBy.get(task.id);
       suggestedBy.delete(task.id);
       loadedBy.delete(task.id);
-      if (!sug) return;
-      const passed = [...sug].filter((id) => !loaded?.has(id));
-      if (passed.length) usageStore().noteIgnored(agent.id, passed);
+      if (!sug || !recordsUsage(agent)) return;
+      // A suggestion is passed over only when the task ended and the agent loaded none of what was suggested. With k > 1 the agent
+      // picks one; the others are not "ignored" just because they ranked below it.
+      if ([...sug].some((id) => loaded?.has(id))) return;
+      usageStore().noteIgnored(agent.id, [...sug]);
     },
 
     claudeSkills(agent: AgentProfile) {
