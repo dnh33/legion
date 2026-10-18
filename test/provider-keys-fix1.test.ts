@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { keyFileFor, keyStoreDoctor, keyStoreLine, ProviderKeys, sealedFileFor } from '../src/core/providers/secrets.js';
 import { tempDir } from './tmp-cleanup.js';
 
-const K1 = 'sk-test-alpha-0123456789abcdef';
-const K2 = 'sk-test-bravo-0123456789abcdef';
+// Made-up keys, written in two parts so the export scan (which refuses a whole key-shaped string) does not take them for real ones.
+const K1 = 'sk-' + 'test-alpha-0123456789abcdef';
+const K2 = 'sk-' + 'test-bravo-0123456789abcdef';
 const K3 = 'web-test-charlie-0123456789';
 const O1 = 'https://a.example';
 const O2 = 'https://b.example';

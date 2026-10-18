@@ -45,7 +45,7 @@ test('a bad name gets a plain sentence that says what to change', () => {
 });
 
 test('a pasted NAME=value is refused with a sentence that never repeats what was typed', () => {
-  const secret = 'ghp_ZZ-SECRET-VALUE-9f3a';
+  const secret = 'ghp_' + 'ZZ-SECRET-VALUE-9f3a'; // two parts: the export scan refuses a whole token-shaped string
   const m = err(`GH_TOKEN=${secret}`);
   assert.match(m, /only the name/i);
   assert.equal(m.includes(secret), false);

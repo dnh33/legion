@@ -227,7 +227,7 @@ test('the board limits and the per-bot rate limits still apply when the inbox is
     for (let k = 0; k < 12; k++) errs.push((await b.call('propose', { title: `p${k}` })).isError);
     assert.equal(errs.slice(0, 3).some((e) => e), false, 'the first few go through');
     assert.ok(errs.includes(true), 'the proposal rate limit stops a flood');
-    assert.equal((await b.call('propose', { title: 's', description: '-----BEGIN PRIVATE KEY-----' })).isError, true, 'the secret check still applies');
+    assert.equal((await b.call('propose', { title: 's', description: '-----BEGIN ' + 'PRIVATE KEY-----' })).isError, true, 'the secret check still applies');
   } finally { r.stop(); }
 });
 

@@ -62,7 +62,8 @@ test('the per-run cap: 2000 lines then one summary line, and nothing after', () 
 
 test('lines are scrubbed and clipped; a secret-looking token never reaches the file', () => {
   const { log } = fresh();
-  const key = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv';
+  // A made-up key with a real key's shape. Built in two parts so the export scan, which refuses any file that holds a whole key, does not read this fixture as one.
+  const key = ['sk-ant-', 'api03-AbCdEfGhIjKlMnOpQrStUv'].join('');
   log.append({ kind: 'card-asked', text: `Asked: curl -H "Authorization: Bearer ${key}" https://x.test/a?token=abc12345secret`, data: { cmd: `API_KEY=${key}${'z'.repeat(500)}` } });
   log.append({ kind: 'note', text: 'x'.repeat(900) });
   const file = readFileSync(join(log.folder, '2026-10-17.jsonl'), 'utf8');

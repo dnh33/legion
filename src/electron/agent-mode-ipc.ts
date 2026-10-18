@@ -113,7 +113,7 @@ export interface AgentModeBatchResult {
   failed?: Array<{ agentId: string; error: string }>;
 }
 const MAX_BATCH = 100;
-const NL = String.fromCharCode(10);
+const NL = '\n';
 
 /** What the window asked for: a list of agent mode changes and, for the first-run screen, the app default to save with them. */
 export interface AgentModeBatchRequest { changes: AgentModeChange[]; preset?: Preset }

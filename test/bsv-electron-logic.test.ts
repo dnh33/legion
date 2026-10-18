@@ -134,7 +134,10 @@ const main = readFileSync(new URL('../../src/electron/main.ts', import.meta.url)
 const preload = readFileSync(new URL('../../src/electron/preload.cjs', import.meta.url), 'utf8');
 
 test('main.ts: the native secret goes to the core over stdin only and never to the renderer, a log, argv or env', () => {
-  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/);
+  // the pipe carries the admin secret, the native secret, the gates line and the provider line (and the connectors key line when there is one), then ends
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ providerLine\)/);
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ providerLine \+ keyLine\(connectorKey\)\)/);
+  assert.equal((main.match(/\bstdin\??\.(?:end|write)\(/g) ?? []).length, 2, 'these two calls are the only writes to the core pipe');
   const bootstrap = main.slice(main.indexOf("ipcMain.on('legion:bootstrap'"), main.indexOf("ipcMain.handle('legion:bsv-policy'"));
   assert.doesNotMatch(bootstrap, /nativeSecret|native/i, 'bootstrap must not carry the native secret');
   const spawnBlock = main.slice(main.indexOf('const child = spawn('), main.indexOf('coreProc = child;'));
