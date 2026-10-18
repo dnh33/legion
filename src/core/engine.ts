@@ -10,6 +10,9 @@ import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { API_BILLING_BLOCKED, PLAN_CHECK_FAILED, PLAN_CHECK_FAILED_TEXT, apiBillingBlockedText, explainClaudeError } from '../shared/claude-errors.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { heldBackNames, scrubSecretEnv, type ScrubOpts } from './env-scrub.js';
+import { TRUSTED_FOLDERS_LABEL } from '../shared/gates-registry.js';
+import { assessRun, plain as trustPlain, readInstructions } from './folder-trust.js';
+import type { FolderScan } from './folder-trust.js';
 import { classifySafe } from '../shared/consequence.js';
 import { AWAY_COPY } from '../shared/away-copy.js';
 import type { BuildSnapshot } from './gates-settings/build-edited.js';
@@ -402,7 +405,7 @@ interface Job {
   after?: string[];
 }
 /** What the engine reads of the gates core: the gate values, and (optional, so a bare stub still works) the per-project build-file flag. */
-type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited' | 'envKeep' | 'store' | 'webLastUsed' | 'canAllowHosts' | 'allowHost'>>;
+type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited' | 'envKeep' | 'trustedFolders' | 'store' | 'webLastUsed' | 'canAllowHosts' | 'allowHost'>>;
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
   /** What the run did on the web: paths read per site (the budget), a secret file read, sites allowed for this goal. */
@@ -446,6 +449,8 @@ interface Active {
   finishedOk?: boolean;
   /** The names of the variables held back from this run's commands were written to the activity log (once per run). */
   heldBackNoted?: boolean;
+  /** The held-back folder settings were written to the activity log (once per run). */
+  folderTrustNoted?: boolean;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -1472,6 +1477,38 @@ export class Engine {
     return { keep: this.gates?.envKeep?.() ?? [] };
   }
   /**
+   * Folder trust (security finding H1). A repository's own Claude Code settings and skills can run commands (hooks, env, helpers, a skill's hooks and
+   * allowed tools) and a Claude Code SDK run never asks whether to trust the folder (code.claude.com/docs/en/permissions, "What runs before you trust a
+   * folder"). So at every start the run's folder and each added directory are scanned. Nothing executable there, or every such folder trusted at exactly
+   * the content found now: all sources, as before. Otherwise the user source only, the repository's CLAUDE.md and rules go into the prompt as plain text,
+   * and the thread and the activity log say which commands, helpers and variable NAMES were held back (never a value). Inherit off: no sources, no notice.
+   */
+  private folderTrustFor(job: Job, agent: AgentProfile, act: Active, cwd: string, addDirs: string[]): { sources: NonNullable<Options['settingSources']>; text: string } {
+    const inherit = this.config.claude.inheritClaudeCodeSettings === true;
+    const r = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit });
+    if (!r.held.length) return { sources: r.sources, text: '' };
+    try { this.noteFolderHeld(job, agent, act, r.held); } catch { /* the notice is advisory; the run is held back either way */ }
+    let text = '';
+    try { text = readInstructions(cwd).text; } catch { /* no instructions text this run */ }
+    return { sources: r.sources, text };
+  }
+
+  private noteFolderHeld(job: Job, agent: AgentProfile, act: Active, held: FolderScan[]): void {
+    const folders = held.map((h) => ({ folder: h.folder, lines: h.lines, more: h.more }));
+    const key = JSON.stringify(folders);
+    const already = this.store.listMessages(job.taskId).some((m) => m.folderTrust && JSON.stringify(m.folderTrust.folders) === key);
+    if (!already) {
+      const body = folders.map((f) => `${f.folder}\n${f.lines.map((l) => `- ${l}`).join('\n')}${f.more ? `\n- and ${f.more} more` : ''}`).join('\n\n');
+      this.addMessage(job.taskId, 'system', `This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead. What was held back:\n${body}\nTo let them run, trust the folder (Settings, Gates, ${TRUSTED_FOLDERS_LABEL}).`, undefined, undefined, { folderTrust: { folders } });
+    }
+    if (!act.folderTrustNoted) {
+      act.folderTrustNoted = true;
+      const n = held.reduce((a, h) => a + h.lines.length, 0);
+      this.activity?.append({ kind: 'note', text: `Folder not trusted, its Claude Code settings were held back (${n} item${n === 1 ? '' : 's'}): ${held.map((h) => trustPlain(h.folder, 120)).join(', ')}`, taskId: job.taskId, agentId: agent.id });
+    }
+  }
+
+  /**
    * The one line that tells a run which environment variables Legion held back from its commands: NAMES only, never a value, and where the
    * owner can keep one. Empty when nothing was held back or the scrub is off. The names also go to the activity log, once per run.
    */
@@ -2214,6 +2251,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const skillSet = this.moduleSkills(agent);
     const allowSkillShell = this.skillShellAllowed();
     const maxBudgetUsd = this.perRunBudget(job);
+    const trust = this.folderTrustFor(job, agent, act, cwd, projectFolder ? [projectFolder] : []);
     const options: Options = {
       model,
       cwd,
@@ -2226,11 +2264,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
+          // the folder's own instructions, read as text, when its settings were held back (folder trust)
+          + (trust.text ? '\n\n' + trust.text : '')
           // the lead's role comes last, after the persona and the project, so no edit or wording above can drop it
           + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       },
       ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
-      settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
+      settingSources: trust.sources,
       // Always an explicit list: omitted means "everything Claude Code can find" (338 skills on the owner's machine). [] = none.
       skills: skillSet.skills,
       ...(skillSet.plugins.length ? { plugins: skillSet.plugins.map((path) => ({ type: 'local' as const, path })) } : {}),

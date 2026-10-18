@@ -23,8 +23,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, gateValue, isPreset } from '../../shared/gates-registry.js';
-import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
+import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
+import type { GateSettings, GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
+import { plain, realFolder, sameFolder, scanFolder } from '../folder-trust.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../../shared/gates-signed.js';
 import { canonicalize } from './sign.js';
@@ -116,6 +117,25 @@ function parseEnvKeep(v: unknown): string[] {
   return out;
 }
 
+function parseTrusted(v: unknown): TrustedFolderRecord[] {
+  if (!Array.isArray(v) || v.length > TRUSTED_FOLDERS_MAX) throw new Error('trustedFolders');
+  const out: TrustedFolderRecord[] = [];
+  for (const x of v) {
+    if (!isObj(x) || Object.keys(x).length !== 2 || typeof x.folder !== 'string' || !x.folder || x.folder.length > TRUSTED_FOLDER_PATH_MAX || typeof x.digest !== 'string' || !/^[0-9a-f]{64}$/.test(x.digest)) throw new Error('trustedFolders');
+    if (!out.some((o) => sameFolder(o.folder, x.folder as string))) out.push({ folder: x.folder, digest: x.digest });
+  }
+  return out;
+}
+
+/** The sentences for a folder the owner is about to trust. With `detail`, the folder is scanned now and its exact commands, helpers and variable names follow (never a value). */
+function trustLines(e: TrustedFolderRecord, detail: boolean): string[] {
+  const head = `Let ${plain(e.folder, 200)} run its own commands whenever an agent works there. Its settings and skills are trusted only as they are now: any change asks you again.`;
+  if (!detail) return [head];
+  const scan = scanFolder(e.folder);
+  if (scan.digest !== e.digest) return [head, 'What the folder holds has changed since this was written, so this record would not match it.'];
+  return [head, ...scan.lines, ...(scan.more > 0 ? [`and ${scan.more} more`] : [])];
+}
+
 /**
  * Is `next` looser than `before`? `appCtx` is the app settings a project is judged under. Compared: the preset rank, the limit,
  * what every permission gate would be, and any approved site or kept variable that is new.
@@ -128,7 +148,7 @@ export const PRESET_NAME: Record<Preset, string> = { ask: 'Ask', 'accept-edits':
 const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
   'accept-edits': 'File edits run without asking. Everything else still asks.',
   smart: "Legion decides when to ask. It asks only before an action that reaches the web, sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
-  bypass: `No permission cards. Agents run commands, change files and write to GitHub without asking. Only a command that changes ${PROTECTED_FILES_TEXT} still asks. Everything is logged.`,
+  bypass: `No permission cards. Agents run commands, change files and write to GitHub without asking. Only a command that changes ${PROTECTED_FILES_TEXT} still asks. ${BYPASS_KEYS_LINE} Everything is logged.`,
 };
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
 const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
@@ -142,7 +162,7 @@ export interface ChangeLines { loosen: string[]; tighten: string[]; /** True whe
  * preview, so a change can never loosen anything the dialog did not say. Compared: the preset, the limit, the cap an agent works under,
  * what every permission gate would be (an override dropped from the list counts), and approved sites and kept variables.
  */
-function describeChange(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings): ChangeLines {
+function describeChange(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, detail = false): ChangeLines {
   const out: ChangeLines = { loosen: [], tighten: [], sandbox: false };
   let presetLoosened = false;
   if (rank(next.preset) > rank(before.preset) || unordered(before.preset, next.preset)) {
@@ -176,6 +196,10 @@ function describeChange(before: GateSettings, next: GateSettings, isApp: boolean
   for (const h of added(before.allowedHosts, next.allowedHosts)) out.loosen.push(`Agents may read ${h} without asking.`);
   for (const h of added(next.allowedHosts, before.allowedHosts)) out.tighten.push(`Agents ask before reading ${h} again.`);
   for (const v of added(next.envKeep, before.envKeep)) out.tighten.push(`The variable ${v} is hidden from commands again.`);
+  // a trusted folder is new when its folder and its fingerprint pair is not on the old list (new content for a known folder counts)
+  const hasRec = (list: TrustedFolderRecord[] | undefined, e: TrustedFolderRecord): boolean => (list ?? []).some((x) => sameFolder(x.folder, e.folder) && x.digest === e.digest);
+  for (const e of next.trustedFolders ?? []) if (!hasRec(before.trustedFolders, e)) { out.loosen.push(...trustLines(e, detail)); out.sandbox = true; }
+  for (const e of before.trustedFolders ?? []) if (!(next.trustedFolders ?? []).some((x) => sameFolder(x.folder, e.folder))) out.tighten.push(`Agents working in ${plain(e.folder, 200)} no longer run its own commands without your say.`);
   return out;
 }
 
@@ -186,7 +210,7 @@ const digestOf = (name: string, before: GateSettings, next: GateSettings, appCtx
   createHash('sha256').update(`${name}\n${canonicalize(before)}\n${canonicalize(next)}\n${appCtx ? canonicalize(appCtx) : '-'}`).digest('hex');
 
 function previewOf(name: string, before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, always: boolean): GatePreview {
-  const d = describeChange(before, next, isApp, appCtx);
+  const d = describeChange(before, next, isApp, appCtx, true);
   const loosening = d.loosen.length ? [...d.loosen, DENY_LINE, ...(d.sandbox ? [NO_SANDBOX_LINE] : [])] : [];
   return { lines: [...loosening, ...d.tighten], loosening, loosens: always || d.loosen.length > 0, digest: digestOf(name, before, next, isApp ? undefined : appCtx) };
 }
@@ -393,8 +417,8 @@ export class GatesStore {
   /** Validates a patch and returns the settings it would give. Throws a 400 for anything wrong; never looks at the key. */
   private build(cur: GateSettings, body: Record<string, unknown>, isApp: boolean): GateSettings {
     if ('shellFloorOff' in body) throw new GatesError(400, "Legion's shell safety floor has no switch.");
-    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'firstRunChoice' && k !== 'noticeSeen')) {
-      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, firstRunChoice and noticeSeen can be changed here.');
+    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen')) {
+      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, firstRunChoice and noticeSeen can be changed here.');
     }
     const out: GateSettings = { ...cur, version: 1 };
     if ('limit' in body) {
@@ -432,6 +456,30 @@ export class GatesStore {
       }
       if (l.length) out.envKeep = l; else delete out.envKeep;
     }
+    for (const k of ['untrustFolder', 'trustFolder'] as const) {
+      if (!(k in body)) continue;
+      if (!isApp) throw new GatesError(400, 'Trusted folders are set for the whole app, not per project.');
+      const p = body[k];
+      if (typeof p !== 'string' || !p.trim() || p.length > TRUSTED_FOLDER_PATH_MAX) throw new GatesError(400, 'Name the folder as text.');
+      if (k === 'untrustFolder') {
+        const real = realFolder(p);
+        const keep = (out.trustedFolders ?? []).filter((e) => !sameFolder(e.folder, p) && !sameFolder(e.folder, real));
+        if (keep.length) out.trustedFolders = keep; else delete out.trustedFolders;
+        continue;
+      }
+      let isDir = false; try { isDir = statSync(p).isDirectory(); } catch { /* not there */ }
+      if (!isDir) throw new GatesError(400, 'Legion could not find that folder.');
+      // the core works the fingerprint out itself, here, from the folder as it is now: a name from the window is only ever a path
+      const scan = scanFolder(p);
+      if (!scan.executable) throw new GatesError(400, 'Nothing in that folder needs your trust: it carries no settings or skills that can run a command.');
+      if (scan.more > 0) throw new GatesError(400, 'That folder carries too many commands to list in the confirmation, so Legion will not trust it. Remove some, or work in it with the setting off.');
+      const rec: TrustedFolderRecord = { folder: scan.folder, digest: scan.digest };
+      const list = out.trustedFolders ?? [];
+      if (list.some((e) => sameFolder(e.folder, rec.folder) && e.digest === rec.digest)) continue;
+      const rest = list.filter((e) => !sameFolder(e.folder, rec.folder));
+      if (rest.length >= TRUSTED_FOLDERS_MAX) throw new GatesError(400, `At most ${TRUSTED_FOLDERS_MAX} trusted folders. Remove one first.`);
+      out.trustedFolders = [...rest, rec];
+    }
     for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {
       if (!(flag in body)) continue;
       if (!isApp) throw new GatesError(400, 'That note is kept for the whole app, not per project.');
@@ -468,6 +516,10 @@ export class GatesStore {
       if (raw.envKeep !== undefined) {
         if (!isApp) throw new Error('envKeep');
         const l = parseEnvKeep(raw.envKeep); if (l.length) out.envKeep = l;
+      }
+      if (raw.trustedFolders !== undefined) {
+        if (!isApp) throw new Error('trustedFolders');
+        const l = parseTrusted(raw.trustedFolders); if (l.length) out.trustedFolders = l;
       }
       for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {
         if (raw[flag] === undefined) continue;

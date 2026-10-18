@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { tempDir } from './tmp-cleanup.js';
-import { GATES, PRESET_LINES, PROTECTED_FILES_TEXT } from '../src/shared/gates-registry.js';
+import { BYPASS_KEYS_LINE, GATES, PRESET_LINES, PROTECTED_FILES_TEXT } from '../src/shared/gates-registry.js';
 import { GatesStore } from '../src/core/gates-settings/store.js';
 import { makeSigner } from '../src/core/gates-settings/sign.js';
 
@@ -18,7 +18,7 @@ test('N4: the Bypass line, the Bypass confirm and the rail row name the same lis
   assert.ok(PRESET_LINES.bypass.includes(PROTECTED_FILES_TEXT), PRESET_LINES.bypass);
   const rail = GATES.find((g) => g.id === 'rail-protected-paths')!;
   assert.ok(rail.protects.includes(PROTECTED_FILES_TEXT), rail.protects);
-  assert.equal(rail.protects, `File tools cannot change these, or the Armory, in any mode: ${PROTECTED_FILES_TEXT}. In Bypass or Full, a command that changes any of them still asks you first.`);
+  assert.equal(rail.protects, `File tools cannot change these, or the Armory, in any mode: ${PROTECTED_FILES_TEXT}. In Bypass or Full, a command that changes any of them still asks you first. ${BYPASS_KEYS_LINE}`);
   assert.doesNotMatch(rail.protects, /projects or the Armory/);
   const store = new GatesStore(join(tempDir('legion-n4-'), 'gates'), { allowed: ['ask', 'accept-edits', 'smart', 'bypass'], signer: makeSigner(Buffer.alloc(32, 5))! });
   const lines = store.preview('app', { preset: 'bypass' }).lines.join('\n');

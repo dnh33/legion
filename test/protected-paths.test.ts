@@ -51,3 +51,25 @@ test('shell: changing the hooks path or fsmonitor hits at any level', () => {
   assert.equal(protectedWriteHit('Bash', { command: 'git -c core.fsmonitor=./x status' }, 1), '.git');
   assert.equal(protectedWriteHit('Bash', { command: 'echo core.hooksPath' }, 1), undefined);
 });
+
+// ---- L1 (security review): Windows ignores trailing dots and spaces and an NTFS stream suffix, so `.vscode.\tasks.json` is `.vscode\tasks.json`.
+// The set of editor and Git settings that can run code on the next editor or Git action (.vscode tasks.json, settings.json, launch.json; .husky; .git; .claude) is carded in
+// every spelling, in a shell command and for a file tool, in Smart as in Ask.
+test('L1: trailing-dot, trailing-space and stream spellings of a protected folder or file are protected too', () => {
+  for (const p of ['D:/p/.vscode./tasks.json', 'D:/p/.vscode../settings.json', 'D:/p/.vscode /launch.json', 'D:/p/.VSCODE./tasks.json', 'D:/p/.husky./pre-commit', 'D:/p/.git./hooks/pre-commit', 'D:/p/.claude./settings.json', 'D:/p/.npmrc::$DATA', 'D:/p/.vscode::$INDEX_ALLOCATION/tasks.json', 'D:\\p\\.vscode.\\tasks.json']) {
+    assert.ok(protectedHit(p), p);
+  }
+  assert.equal(protectedHit('D:/p/.vscode./tasks.json'), '.vscode');
+  assert.equal(protectedHit('D:/p/.husky./pre-commit'), '.husky');
+  assert.equal(protectedHit('D:/p/.npmrc::$DATA'), '.npmrc');
+});
+
+test('L1: the same spellings in a shell command are caught at level 2', () => {
+  for (const c of ['Set-Content .vscode.\\tasks.json x', 'cp a .husky./pre-commit', 'Set-Content .git.\\hooks\\pre-commit x', 'Set-Content .claude.\\settings.json x', 'Set-Content .npmrc::$DATA x', 'Set-Content .vscode..\\settings.json x']) {
+    assert.ok(protectedWriteHit('PowerShell', { command: c }, 2), c);
+  }
+});
+
+test('L1: ordinary names that only look similar are not protected', () => {
+  for (const p of ['D:/p/src/main.ts', 'D:/p/a.b./c', 'D:/p/..', 'D:/p/../x', 'D:/p/vscode/tasks.json', 'D:/p/.vscodeish/x', 'D:/p/notes...']) assert.equal(protectedHit(p), undefined, p);
+});

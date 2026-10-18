@@ -4,6 +4,7 @@ import { loadDocsHosts } from '../../../src/shared/docs-hosts';
 import { Icon } from '../components/icons';
 import { EVERYTHING, GatesNote } from './GatesPresets';
 import { KeepVariables } from './KeepVariables';
+import { TrustedFolders } from './TrustedFolders';
 import { KEEP_PROJECT_LINE } from './keepLogic';
 import { STALE_DAYS, overridesWith, permissionRows, siteGroups, staleHostsWhenLoaded, lastUsedByHost, type GateRow, type GatesView } from './presetsLogic';
 import { loadActivity, loadWebHosts, type GatesChangeRequest, type GatesNote as Note } from './useGatesView';
@@ -117,9 +118,10 @@ export function PermissionGates({ view, scope, busy, note, run }: { view: GatesV
   const projectId = scope === EVERYTHING ? undefined : scope;
   const rows = permissionRows(view, projectId);
   // The result of a change shows where the owner made it: under the keep list for a keep-list change, at the foot of the block for the rest.
-  const [where, setWhere] = useState<'keep' | 'foot'>('foot');
+  const [where, setWhere] = useState<'keep' | 'trust' | 'foot'>('foot');
   const runFoot: Run = (c, done) => { setWhere('foot'); return run(c, done); };
   const runKeep: Run = (c, done) => { setWhere('keep'); return run(c, done); };
+  const runTrust: Run = (c, done) => { setWhere('trust'); return run(c, done); };
   return (
     <details className="set-card gates-fine">
       <summary><Icon name="chevron" size={14} /><h3>Fine tuning</h3><span className="muted-s">{rows.length} permission gates. Each follows the preset until you change it.</span></summary>
@@ -137,6 +139,7 @@ export function PermissionGates({ view, scope, busy, note, run }: { view: GatesV
           </li>
         ))}
       </ul>
+      {projectId === undefined && <TrustedFolders view={view} busy={busy} pending={busy && where === 'trust'} note={where === 'trust' ? note : null} run={runTrust} />}
       <GatesNote note={where === 'foot' ? note : null} pending={busy && where === 'foot'} />
     </details>
   );

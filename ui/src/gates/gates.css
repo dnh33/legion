@@ -138,3 +138,8 @@ button.gate-chip:hover { color: var(--text); }
 .gates-keep .gates-hosts { margin-top: 0; }
 .gates-keep .gates-hosts code { min-width: 0; }
 .gates-keep-shared { margin: 2px 0 8px 10px; max-width: 70ch; }
+.gates-trust p { margin: 0; }
+.gates-trust .gates-hosts { margin-top: 0; }
+.gates-trust-list li { align-items: flex-start; }
+.gates-trust-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gates-trust-main code { min-width: 0; overflow-wrap: anywhere; }

@@ -7,6 +7,7 @@ import { useProviders } from '../providers/providersStore';
 import { selectTask, useStore } from '../store';
 import { CONTINUE_PROMPT } from '../../../src/shared/continue';
 import { replyFailure } from '../chat/bridgeView';
+import { FolderTrustCard } from './FolderTrustCard';
 
 export function ModelTag({ task }: { task?: Task }) {
   const catalog = useStore((s) => s.catalog);
@@ -28,11 +29,12 @@ export function splitPrefix(text: string): { model: string | null; text: string 
   return b ? { model: b[1], text: b[2] } : { model: null, text };
 }
 
-function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
+function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId' | 'folderTrust'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
   if (m.role === 'user' && (m.fromAgentId || parseReply(m.text))) return <AgentMessage from={m.fromAgentId ?? parseReply(m.text)!.name} text={m.text} />;
   // the Continue button's own instruction to Claude: shown as the action it was, not as a paragraph the user never typed
   if (m.role === 'user' && m.text === CONTINUE_PROMPT) return <div className="msg system">Continued where it stopped</div>;
   if (m.role === 'user') return <UserBubble text={m.text} />;
+  if (m.role === 'system' && m.folderTrust) return <FolderTrustCard text={m.text} folders={m.folderTrust.folders} />;
   if (m.role === 'system') return <div className="msg system">{m.text}</div>;
   return (
     <div className="msg assistant">

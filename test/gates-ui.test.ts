@@ -95,7 +95,9 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
         import { GatesSection, GateBuilder, GateRuleCard, GateTestOut, GateRails, GateSuggestions } from ${ui('ui/src/gates/GatesSection.tsx')};
         import { AgentEditor } from ${ui('ui/src/components/AgentEditor.tsx')};
         import { PermissionGates } from ${ui('ui/src/gates/PermissionGates.tsx')};
+        import { FolderTrustCard } from ${ui('ui/src/components/FolderTrustCard.tsx')};
         const render = (el) => renderToStaticMarkup(el);
+        export const trustCard = (text, folders) => render(createElement(FolderTrustCard, { text, folders }));
         export const fine = (view, scope, busy) => render(createElement(PermissionGates, { view, scope, busy: !!busy, note: null, run: async () => true }));
         export const section = (rules) => render(createElement(GatesSection, { s: { gates: { rules, presetsVersion: 0 } } }));
         export const sectionWith = (gates) => render(createElement(GatesSection, { s: { gates } }));
@@ -114,6 +116,9 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
         b.onLoad({ filter: /^providers-store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const providerModelGroups = () => []; export const providerModelLabel = (m) => m;
           export const loadProviders = async () => {}; export const useProviders = (sel) => sel(globalThis.__prov ?? { view: null });` }));
+        b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api-stub', namespace: 'stub' }));
+        b.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
+          export class ApiError extends Error {} export const request = async () => []; export const subscribe = () => () => {};` }));
         b.onResolve({ filter: /armory\/AgentSkills$/ }, () => ({ path: 'agent-skills', namespace: 'stub' }));
         b.onLoad({ filter: /^agent-skills$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const AgentSkills = () => null; export const settingOf = (v) => v ?? 'inherit'; export const valueOf = () => ({ mode: 'inherit' });` }));
@@ -347,5 +352,49 @@ test('render: for a single project the editor is not shown, and a line says the 
     const html = r.fine(gv(['NPM_TOKEN'], { projects: { website: { version: 1 } } }), 'website');
     assert.ok(!/aria-label="Variable name"/.test(html));
     assert.match(html, /The variables kept for commands are the same in every project\. Choose Everything above to change them\./);
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------- folder trust (security finding H1)
+
+const REPO_FOLDER = 'D:/bots/qa-trust-repo';
+const HELD = [{ folder: REPO_FOLDER, lines: ['Hook PreToolUse (command) in .claude/settings.json runs: node mark-it.js', 'Environment variables set by .claude/settings.json: MY_TOKEN (values are not shown)'], more: 0 }];
+
+test('render: the thread card names the folder, what was held back, and offers Trust this folder', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.trustCard("This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only.\nmore", HELD);
+    assert.match(html, /This folder&#x27;s settings were held back/);
+    assert.ok(html.includes(REPO_FOLDER));
+    assert.match(html, /Hook PreToolUse \(command\) in \.claude\/settings\.json runs: node mark-it\.js/);
+    assert.match(html, /MY_TOKEN \(values are not shown\)/);
+    assert.match(html, />Trust this folder<\/button>/);
+    assert.ok(!html.includes('—'));
+    assert.ok(!/border-left|border-right/.test(html));
+  } finally { cleanup(); }
+});
+
+test('render: a long list is cut to a few lines and a count, and says the confirmation lists all', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const lines = Array.from({ length: 10 }, (_, i) => `Hook E${i} (command) in .claude/settings.json runs: c${i}`);
+    const html = r.trustCard('x', [{ folder: REPO_FOLDER, lines, more: 0 }]);
+    assert.ok(html.includes('runs: c5') && !html.includes('runs: c6'));
+    assert.match(html, /and 4 more\. The confirmation lists all of them\./);
+  } finally { cleanup(); }
+});
+
+test('render: Folders you trust, at the app default, lists each folder with Remove; with none it says what that means', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const none = r.fine(gv(), 'app');
+    assert.match(none, /Folders you trust/);
+    assert.match(none, /No folder is trusted\. Agents still read a project&#x27;s CLAUDE\.md and rules as text/);
+    const some = r.fine(gv(undefined, { app: { version: 1, trustedFolders: [{ folder: REPO_FOLDER, digest: 'a'.repeat(64) }] } }), 'app');
+    assert.ok(some.includes(REPO_FOLDER));
+    assert.match(some, /aria-label="Remove D:\/bots\/qa-trust-repo"/);
+    assert.ok(!/No folder is trusted/.test(some));
+    const proj = r.fine(gv(undefined, { projects: { website: { version: 1 } } }), 'website');
+    assert.ok(!/Folders you trust/.test(proj), 'trust is for the whole app, not a project');
   } finally { cleanup(); }
 });

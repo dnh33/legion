@@ -181,7 +181,7 @@ function ClaudeSection({ s }: { s: SettingsView }) {
           <input id="claude-budget" className="narrow" inputMode="decimal" value={budget} placeholder="no limit" onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
         <label className="set-check"><input type="checkbox" checked={inherit} onChange={(e) => setInherit(e.target.checked)} />
-          <span><b>Inherit my Claude Code settings</b><em>Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal. The MCP choice below is separate and applies whichever way this is set.</em></span></label>
+          <span><b>Inherit my Claude Code settings</b><em>Agents read your own Claude Code settings and CLAUDE.md. A project's settings, hooks and skills are read only when they carry no commands, or when you trusted that folder (Settings, Gates, Folders you trust). Its CLAUDE.md is always read. The MCP choice below is separate and applies whichever way this is set.</em></span></label>
         <label className="set-check"><input type="checkbox" checked={inheritMcp} onChange={(e) => setInheritMcp(e.target.checked)} />
           <span><b>Also load MCP servers and claude.ai connectors from my Claude Code setup</b><em>Off by default. When off, Legion asks Claude Code to use only Legion's own tools and the servers you add under MCP servers, and not to load claude.ai connectors. Turning it on brings back the servers and connectors you use in Claude Code, which connect again on every run. This only changes what Legion's own code asks Claude Code to load; it does not limit what an agent's ordinary tools, such as a shell, can reach.</em></span></label>
       </div>

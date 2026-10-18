@@ -21,6 +21,8 @@ export interface GateDef {
 const all = (v: GateValue, bypass: GateValue = v): Record<Preset, GateValue> => ({ ask: v, 'accept-edits': v, smart: v, bypass });
 
 /** What a command still asks about in Bypass, and what the file tools never change in any mode: one list, in plain words, for every place that says it. */
+/** Said where Bypass is described (the page line, the confirm, the rail row): the folders that hold the keys are not on the list a command still asks about. */
+export const BYPASS_KEYS_LINE = 'In Bypass a command can also delete the folders that hold your provider keys and connector tokens.';
 export const PROTECTED_FILES_TEXT = "your gate settings, Legion's settings file, your agents' settings or your projects";
 
 const GATE_LIST = [
@@ -55,7 +57,7 @@ const GATE_LIST = [
   { id: 'rail-signed-updates', family: 'rail', scope: 'global', label: 'Only signed updates install', protects: 'An update installs only when Legion release key signed it.', ifOff: '', defaults: 'always' },
   { id: 'rail-secret-scrub', family: 'rail', scope: 'global', label: 'Secrets are masked', protects: 'Keys and tokens are hidden in results and messages.', ifOff: '', defaults: 'always' },
   { id: 'rail-root-confine', family: 'rail', scope: 'global', label: 'File tools stay in your folders', protects: 'File tools only touch the folders you allowed.', ifOff: '', defaults: 'always' },
-  { id: 'rail-protected-paths', family: 'rail', scope: 'global', label: 'Agents cannot edit Legion own settings', protects: `File tools cannot change these, or the Armory, in any mode: ${PROTECTED_FILES_TEXT}. In Bypass or Full, a command that changes any of them still asks you first.`, ifOff: '', defaults: 'always' },
+  { id: 'rail-protected-paths', family: 'rail', scope: 'global', label: 'Agents cannot edit Legion own settings', protects: `File tools cannot change these, or the Armory, in any mode: ${PROTECTED_FILES_TEXT}. In Bypass or Full, a command that changes any of them still asks you first. ${BYPASS_KEYS_LINE}`, ifOff: '', defaults: 'always' },
   { id: 'rail-house-trust', family: 'rail', scope: 'global', label: 'Only house files you adopted load', protects: 'A changed house file is not loaded until you adopt it.', ifOff: '', defaults: 'always' },
   { id: 'rail-browser-url', family: 'rail', scope: 'global', label: 'The browser stays on the open web', protects: 'The browser cannot reach private or reserved addresses.', ifOff: '', defaults: 'always' },
   { id: 'rail-shell-floor', family: 'rail', scope: 'global', label: 'Commands that wipe a drive are refused', protects: 'Commands that wipe a drive, a system folder or your home folder never run.', ifOff: '', defaults: 'always' },
@@ -64,6 +66,13 @@ const GATE_LIST = [
 export const GATES: readonly GateDef[] = GATE_LIST;
 
 export type GateId = (typeof GATE_LIST)[number]['id'];
+
+/** A folder the owner trusted (security finding H1): its real path, and the fingerprint of the commands its settings and skills carried at that moment. Any change to them is untrusted again. */
+export interface TrustedFolderRecord { folder: string; digest: string }
+export const TRUSTED_FOLDERS_MAX = 50;
+export const TRUSTED_FOLDER_PATH_MAX = 1024;
+/** The name of the list on the Gates page. */
+export const TRUSTED_FOLDERS_LABEL = 'Folders you trust';
 
 export interface GateSettings {
   preset?: Preset;
@@ -74,6 +83,8 @@ export interface GateSettings {
   allowedHosts?: string[];
   /** Environment variable names (or NAME* prefixes) that are not scrubbed from agent commands (app file only, at most 50). Adding one is a loosening. */
   envKeep?: string[];
+  /** App file only (at most TRUSTED_FOLDERS_MAX): folders whose own Claude Code settings and skills may run commands, each bound to the sha256 of the content found when the owner trusted it. Adding one is a loosening. */
+  trustedFolders?: TrustedFolderRecord[];
   /** App file only: the owner answered the first-run screen "How should your agents ask?". Not a gate; written only by the core when the owner answers, signed with the rest. */
   firstRunChoice?: true;
   /** App file only: the owner dismissed the one-time notice that projects can now set how agents ask. Not a gate; signed with the rest. */
@@ -117,7 +128,7 @@ export const PRESET_LINES: Record<Preset, string> = {
   ask: 'Every action asks, as now.',
   'accept-edits': 'File edits run. Everything else asks.',
   smart: "Asks before anything that reaches the web, sends data out, deletes, spends, can't be undone, or that Legion can't classify.",
-  bypass: `No permission cards, except for a command that changes ${PROTECTED_FILES_TEXT}. Your deny rules and Legion's safety rails still apply. Everything is logged.`,
+  bypass: `No permission cards, except for a command that changes ${PROTECTED_FILES_TEXT}. Your deny rules and Legion's safety rails still apply. Everything is logged. ${BYPASS_KEYS_LINE}`,
 };
 
 /** Said in every confirm that loosens a preset, and on the Gates page: Legion does not confine the commands it runs. */

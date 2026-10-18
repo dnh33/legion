@@ -125,7 +125,7 @@ async function main() {
   const activity = createActivityLog({ dataDir: dataDir() });
   const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
-  engine.bridge.catalog = () => getCatalog({ config });
+  engine.bridge.catalog = () => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() });
   let stopReaper: () => void = () => {};
   const restartReaper = (keyChanged = false) => {
     stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {};
@@ -174,7 +174,7 @@ async function main() {
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys }),
-    catalog: (force) => getCatalog({ config }, { force }),
+    catalog: (force) => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() }, { force }),
     settings, adminSecret, projects, agentMode: gates.agentMode, away: awayCore.service, ...(board ? { board } : {}),
   });
 

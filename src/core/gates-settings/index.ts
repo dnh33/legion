@@ -17,9 +17,10 @@ import type { ProjectStore } from '../projects/store.js';
 import { HttpError } from '../server.js';
 import type { Ctx } from '../server.js';
 import { DENY_LINE, GATES, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../shared/gates-registry.js';
-import type { GateValue, Preset } from '../../shared/gates-registry.js';
+import type { GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
 import { DOCS_HOSTS } from '../../shared/docs-hosts.js';
 import { createWebLastUsed } from '../web-hosts.js';
+import { plain, scanFolder } from '../folder-trust.js';
 import type { WebLastUsed } from '../web-hosts.js';
 import { createBuildEdited } from './build-edited.js';
 import type { BuildEdited } from './build-edited.js';
@@ -56,6 +57,8 @@ export interface GatesCore {
   buildEdited: BuildEdited;
   /** The owner's keep list for the environment scrub (names, or NAME* prefixes), read from the signed app file. */
   envKeep(): string[];
+  /** The folders the owner trusted (real path and fingerprint), from the signed app file. A run is held back unless its folder is here at exactly today's fingerprint. */
+  trustedFolders(): TrustedFolderRecord[];
   /** When each approved site was approved and last read (advisory, unsigned): only used to suggest removals. Task 17's web pipeline calls `touch`. */
   webLastUsed: WebLastUsed;
   /** Whether the site list can be written now (it is signed, so this needs the gates key). */
@@ -116,7 +119,7 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
     store.patchApp({ allowedHosts: [...cur, host] });
     try { webLastUsed.approved(host); } catch { /* advisory */ }
   };
-  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], buildEdited: createBuildEdited(store.folder), webLastUsed, canAllowHosts: () => store.canSign(), allowHost };
+  return { store, resolver, gate, switchedOff, envKeep: () => [...(store.app().envKeep ?? [])], trustedFolders: () => (store.app().trustedFolders ?? []).map((e) => ({ ...e })), buildEdited: createBuildEdited(store.folder), webLastUsed, canAllowHosts: () => store.canSign(), allowHost };
 }
 
 export interface GatesModule extends CoreModule { store: GatesStore; /** The check the agent routes run before they store a change of mode. */ agentMode: AgentModeGuard }
@@ -161,6 +164,8 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   const headlineOf = (name: string, b: Record<string, unknown>): string => {
     const scope = scopeOf(name);
     if ('preset' in b) return `Preset set to ${typeof b.preset === 'string' && b.preset in PRESET_NAME ? PRESET_NAME[b.preset as keyof typeof PRESET_NAME] : 'Per agent'} for ${scope}`;
+    if ('trustFolder' in b) return `Folder trusted: ${plain(b.trustFolder, 200)}`;
+    if ('untrustFolder' in b) return `Folder no longer trusted: ${plain(b.untrustFolder, 200)}`;
     if ('limit' in b) return `Agent limit turned ${b.limit === false ? 'off' : 'on'} for ${scope}`;
     return `Gate settings changed for ${scope}`;
   };
@@ -188,6 +193,11 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
         const dates = opts.core.webLastUsed.get();
         return { allowed: (store.app().allowedHosts ?? []).map((host) => ({ host, ...dates[host] })), builtIn: [...DOCS_HOSTS] };
       });
+      // The trusted folders with whether each still fits what it holds today (a changed folder asks again) and a short summary of what it carries. Read-only.
+      add('GET', '/api/gates/trusted-folders', () => (store.app().trustedFolders ?? []).map((e) => {
+        const scan = scanFolder(e.folder);
+        return { folder: e.folder, current: scan.digest === e.digest, summary: scan.lines.map((l) => plain(l, 300)), more: scan.more };
+      }));
       add('PATCH', '/api/gates/app', (c) => {
         const b = body(c);
         const loosens = store.isLoosening('app', b);

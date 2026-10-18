@@ -314,6 +314,8 @@ export interface ChatMessage {
   at: string;                 // ISO
   /** For role 'user' messages sent by another agent through the bridge. */
   fromAgentId?: string;
+  /** For a system notice that a folder's own Claude Code settings or skills were held back because the owner has not trusted the folder (folder trust). Names only: never an environment value. */
+  folderTrust?: { folders: Array<{ folder: string; lines: string[]; more: number }> };
 }
 
 export type MascotMood = 'idle' | 'thinking' | 'hacking' | 'success' | 'error' | 'sleeping';

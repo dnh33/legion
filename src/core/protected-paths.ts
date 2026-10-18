@@ -26,9 +26,15 @@ const HOOK_CFG = /\bcore\.(hookspath|fsmonitor)\b/i;
 const DIR_SET: ReadonlySet<string> = new Set(PROTECTED_DIRS.filter((d) => !d.includes('/')));
 const FILE_SET: ReadonlySet<string> = new Set(PROTECTED_FILES);
 
+/**
+ * Windows ignores trailing dots and spaces in a name and an NTFS stream suffix (`.vscode.`, `.vscode `, `.npmrc::$DATA` are `.vscode` and `.npmrc`), so a path
+ * is compared in that folded form. A segment that is only dots (`.`, `..`) stays as it is. Folding on other systems only ever cards a look-alike, never lets one through.
+ */
+const foldSegment = (s: string): string => { const t = s.replace(/:.*$/, '').replace(/[. ]+$/, ''); return t === '' ? s : t; };
+
 /** The protected name a path hits (whole segments, either slash, any case), or undefined. */
 export function protectedHit(p: string): string | undefined {
-  const segs = p.replace(/\\/g, '/').toLowerCase().split('/').filter((s) => s !== '');
+  const segs = p.replace(/\\/g, '/').toLowerCase().split('/').filter((s) => s !== '').map(foldSegment);
   const last = segs.length - 1;
   for (let i = 0; i <= last; i++) {
     const s = segs[i]!;

@@ -6,12 +6,12 @@
  * was shown. The core refuses the change if what it would apply now differs from that digest. The window never has the secret.
  * A tightening needs no dialog and no native secret. Kept free of electron imports so it can be tested with fakes.
  */
-import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_NAME_MAX, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
+import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_NAME_MAX, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS, TRUSTED_FOLDER_PATH_MAX } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; firstRunChoice?: true; noticeSeen?: true }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; firstRunChoice?: true; noticeSeen?: true }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -58,6 +58,10 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
     } else if (k === 'envKeep' && isApp) {
       if (!Array.isArray(x) || x.length > ENV_KEEP_MAX || x.some((n) => typeof n !== 'string' || n.length > ENV_KEEP_NAME_MAX)) return undefined;
       out.envKeep = x as string[];
+    } else if ((k === 'trustFolder' || k === 'untrustFolder') && isApp) {
+      // only a path: the core scans the folder itself and works the fingerprint out; the window never names one
+      if (typeof x !== 'string' || !x.trim() || x.length > TRUSTED_FOLDER_PATH_MAX) return undefined;
+      out[k] = x;
     } else if ((k === 'firstRunChoice' || k === 'noticeSeen') && isApp) {
       if (x !== true) return undefined;
       out[k] = true;
@@ -90,11 +94,13 @@ export function resetGatesCancelForTests(): void { lastCancel = undefined; }
 
 const MAX_LINES = 12;
 const SHOWN_LINES = 10;
+/** Trusting a folder lists every command the folder carries (the core refuses a folder with more than it can list): cutting that list would let a command through unseen. */
+const TRUST_MAX_LINES = 60;
 /** More than 12 change lines: the first 10 and a count. The closing safety lines are not counted and never cut. */
-function shortList(lines: string[]): string[] {
+function shortList(lines: string[], max = MAX_LINES): string[] {
   let tail = lines.length;
   while (tail > 0 && (lines[tail - 1] === DENY_LINE || lines[tail - 1] === NO_SANDBOX_LINE)) tail--;
-  if (tail <= MAX_LINES) return lines;
+  if (tail <= max) return lines;
   return [...lines.slice(0, SHOWN_LINES), `and ${tail - SHOWN_LINES} more (see the Gates page)`, ...lines.slice(tail)];
 }
 
@@ -108,6 +114,7 @@ function titleFor(ch: GatesChange, lines: string[]): string {
   if (keys.length !== 1) return GENERAL_TITLE;
   if (keys[0] === 'allowedHosts') return 'Allow these sites?';
   if (keys[0] === 'envKeep') return 'Keep these variables?';
+  if (keys[0] === 'trustFolder') return 'Let this folder run its own commands?';
   const own = lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE);
   if (keys[0] === 'overrides' && own.length > 0 && own.every((l) => LIMIT_LABELS.some((lb) => l.startsWith(`${lb}:`)))) return 'Raise these limits?';
   return GENERAL_TITLE;
@@ -172,10 +179,12 @@ async function run(ch: GatesChange, deps: GatesIpcDeps): Promise<GatesChangeResu
   const clock = deps.now ?? Date.now;
   const key = `${name}\n${pv.digest}`;
   if (lastCancel && lastCancel.key === key && clock() - lastCancel.at < CANCEL_PAUSE_MS) return { ok: false, error: 'You cancelled this change a moment ago. Wait a few seconds before you try it again.' };
-  const detail = pv.loosening.length ? shortList(pv.loosening).join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  const trusting = ch.kind === 'app' && ch.patch.trustFolder !== undefined;
+  const detail = pv.loosening.length ? shortList(pv.loosening, trusting ? TRUST_MAX_LINES : MAX_LINES).join('\n\n') : 'The file sets nothing looser than Legion holds now.';
   const title = titleFor(ch, pv.loosening);
   const ok = await deps.confirm(ch.kind === 'accept'
     ? { title, message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings' }
+    : trusting ? { title, message: 'This folder carries settings or skills that can run commands on your computer, with your rights. Trust it?', detail, confirmLabel: 'Trust this folder' }
     : { title, message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change' });
   if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true }; }
 

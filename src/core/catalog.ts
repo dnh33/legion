@@ -4,6 +4,8 @@ import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Catalog, CatalogCommand, CatalogModel, LegionConfig } from '../shared/types.js';
 import { buildChildEnv, connectorSettings } from './engine.js';
+import { assessRun } from './folder-trust.js';
+import type { TrustedFolderRecord } from '../shared/gates-registry.js';
 import type { QueryFn } from './engine.js';
 
 export const CATALOG_TTL_MS = 10 * 60 * 1000;
@@ -12,6 +14,10 @@ const PROBE_TIMEOUT_MS = 20_000;
 export interface CatalogDeps {
   config: LegionConfig;
   queryFn?: QueryFn;
+  /** The folders the owner trusted: a listing follows the same rule as a run (folder trust), so a repository's settings are not read for it unless trusted. */
+  trustedFolders?: () => TrustedFolderRecord[];
+  /** The folder the probe starts in. Default: the OS temp folder. */
+  cwd?: string;
   /** Test hooks. */
   timeoutMs?: number;
   now?: () => number;
@@ -43,12 +49,15 @@ async function probe(deps: CatalogDeps, now: () => number): Promise<Catalog> {
   // Streaming-input prompt that yields nothing until closed: no model call is made.
   async function* input(): AsyncGenerator<SDKUserMessage, void> { await gate; }
   const ac = new AbortController();
+  const cwd = deps.cwd ?? tmpdir();
   let q: ReturnType<QueryFn> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
-      cwd: tmpdir(), env: buildChildEnv(deps.config, { probe: true }), abortController: ac,
-      settingSources: deps.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
+      cwd, env: buildChildEnv(deps.config, { probe: true }), abortController: ac,
+      // folder trust: the same rule as a run. Hooks are already off for a listing (disableAllHooks below), but an `env` block or a helper command in the folder's
+      // settings would still apply, so an untrusted folder with anything executable gets the user source only.
+      settingSources: assessRun({ cwd, trusted: deps.trustedFolders?.() ?? [], inherit: deps.config.claude.inheritClaudeCodeSettings === true }).sources,
       // Only the command and model lists are wanted: do not connect (and tear down) every inherited MCP server for it.
       // disableAllHooks: a listing must not run the owner's SessionStart hooks.
       strictMcpConfig: true, settings: { ...connectorSettings(deps.config, { probe: true }).settings, disableAllHooks: true },
