@@ -102,7 +102,7 @@ test('I1: the same shell readers on other paths are not secret reads (summary ch
       ['Bash', { command: `cat ${fwd}/workspaces/x/keys.json` }],
       ['Bash', { command: `ls ${fwd}/providers` }],
       ['Bash', { command: 'cat keys.json' }],
-      ['PowerShell', { command: `Get-Content ${DATA}\logs\core.log` }],
+      ['PowerShell', { command: `Get-Content ${DATA}\\logs\\core.log` }],
     ] as Array<[string, Record<string, unknown>]>) {
       const o = await ask(r, tool, input);
       assert.doesNotMatch(o.summary, /may hold passwords or keys/, `${tool} ${JSON.stringify(input)}`);
@@ -154,10 +154,108 @@ test('I1: with secret-file-reads off there is no read card, but web calls still 
 
 test('the pure matcher: no data folder known means the same answers as before; the home spellings expand', () => {
   assert.equal(secretReadHit('Read', { file_path: `${fwd}/providers/keys.json` }), undefined);
-  assert.equal(secretReadHit('Read', { file_path: `${fwd}/providers/keys.json` }, (p) => p.endsWith('keys.json')), `${fwd}/providers/keys.json`);
+  const where = { cwd: DATA, inside: (p: string) => p.endsWith('keys.json'), reaches: () => false, globReaches: () => false };
+  assert.equal(secretReadHit('Read', { file_path: `${fwd}/providers/keys.json` }, where), `${fwd}/providers/keys.json`);
   const h = homedir();
   for (const w of ['~/x', '$HOME/x', '${HOME}/x', '%USERPROFILE%/x', '%HOME%\\x', '$env:USERPROFILE/x', '$env:HOME\\x']) assert.equal(expandHomeWord(w).startsWith(h), true, w);
   assert.equal(expandHomeWord('a/b'), 'a/b');
   assert.equal(expandHomeWord('~other/x'), '~other/x');
   assert.equal(dirname(expandHomeWord('~/x')), h);
+});
+
+// ---- fix round 2: a search over the folder that holds the keys, and a shell that moves into it first ----
+const HOME_SPELLING = '~/.legion-secrettest';
+const SEARCHES: Array<[string, Record<string, unknown>]> = [
+  ['Grep', { pattern: 'sk-', path: DATA }],
+  ['Grep', { pattern: 'sk-', path: fwd }],
+  ['Grep', { pattern: 'sk-', path: DATA, glob: 'keys.json' }],
+  ['Grep', { pattern: 'sk-', path: fwd, glob: '*.json' }],
+  ['Grep', { pattern: 'sk-', path: fwd, glob: '**/*.enc' }],
+  ['Grep', { pattern: 'sk-', path: fwd, glob: 'providers/**' }],
+  ['Grep', { pattern: 'sk-', path: fwd, glob: '{keys,key}.*', output_mode: 'content' }],
+  ['Grep', { pattern: 'sk-', path: homedir() }],
+  ['Glob', { path: DATA, pattern: '**/keys.json' }],
+  ['Glob', { pattern: `${fwd}/**/*.enc` }],
+  ['Glob', { pattern: `${fwd}/*/keys.json` }],
+  ['Glob', { path: fwd, pattern: '*/*.json' }],
+  ['Bash', { command: `grep -r sk- ${fwd}` }],
+  ['Bash', { command: `grep -rn sk- ${fwd}/` }],
+  ['Bash', { command: `grep -R --include=keys.json sk- ${HOME_SPELLING}` }],
+  ['Bash', { command: `grep --recursive sk- ${HOME_SPELLING}` }],
+  ['Bash', { command: `rg sk- ${fwd}` }],
+  ['Bash', { command: `rg -n sk- ${HOME_SPELLING}` }],
+  ['Bash', { command: 'grep -r sk- ~' }],
+  ['Bash', { command: `cd ${fwd}/providers && cat keys.json` }],
+  ['Bash', { command: `cd ${HOME_SPELLING}/providers; head -c 50 keys.enc` }],
+  ['Bash', { command: `cd ${fwd} && cat providers/keys.json` }],
+  ['Bash', { command: `cd ${fwd} && cat ./gates/app.json` }],
+  ['Bash', { command: `cat ${fwd}/*/keys.json` }],
+  ['PowerShell', { command: `findstr /s /i sk- ${DATA}\\*` }],
+  ['PowerShell', { command: `Get-ChildItem -Recurse ${DATA} | Select-String sk-` }],
+  ['PowerShell', { command: `gci -Recurse -Path ${DATA} -Filter *.json | Get-Content` }],
+  ['PowerShell', { command: `cd ${DATA}\\providers; Get-Content keys.json` }],
+  ['PowerShell', { command: `Set-Location ${DATA}\\connectors; type key.bin` }],
+  ['mcp__host__shell', { command: `grep -r sk- ${fwd}` }],
+];
+const SEARCHES_FREE: Array<[string, Record<string, unknown>]> = [
+  ['Grep', { pattern: 'sk-', path: DATA, glob: '*.log' }],
+  ['Grep', { pattern: 'sk-', path: fwd, glob: '*.md' }],
+  ['Grep', { pattern: 'sk-', path: `${fwd}/workspaces` }],
+  ['Grep', { pattern: 'sk-', path: `${fwd}/logs` }],
+  ['Grep', { pattern: 'sk-', path: `${fwd}/config.json` }],
+  ['Glob', { path: DATA, pattern: '*.md' }],
+  ['Glob', { pattern: `${fwd}/workspaces/**/*.ts` }],
+  ['LS', { path: DATA }],
+  ['Bash', { command: `grep -r sk- ${fwd}/workspaces` }],
+  ['Bash', { command: `rg sk- ${fwd}/logs` }],
+  ['Bash', { command: `grep sk- ${fwd}/config.json` }],
+  ['Bash', { command: 'grep -r sk- src' }],
+  ['Bash', { command: 'rg TODO' }],
+  ['Bash', { command: `cd ${fwd}/workspaces && cat keys.json` }],
+  ['Bash', { command: `cd ${fwd}/logs; grep -r x .` }],
+  ['Bash', { command: `grep sk- ${fwd}/state.json` }],
+  ['PowerShell', { command: `Get-ChildItem -Recurse ${DATA}` }],
+  ['PowerShell', { command: `findstr /s sk- ${DATA}\\workspaces\\*` }],
+];
+
+test('fix round 2: a search over the data folder, or a shell that moves into a key folder first, cards in Ask, Accept edits and Smart with no Remember', async () => {
+  for (const [mode, make] of RIGS) {
+    await withRig(make, async (r) => {
+      for (const [tool, input] of SEARCHES) {
+        const o = await ask(r, tool, input);
+        assert.equal(o.card, true, `${mode}: ${tool} ${JSON.stringify(input)}`);
+        assert.equal(o.noRemember, true, `${mode}: no Remember: ${tool} ${JSON.stringify(input)}`);
+        assert.match(o.summary, /^Legion wants to read .+\. It may hold passwords or keys\.$/, `${mode}: the secret-read card: ${tool} ${JSON.stringify(input)}`);
+      }
+    });
+  }
+});
+
+test('fix round 2: searches that cannot reach a key file stay free (no secret-read card)', async () => {
+  for (const [mode, make] of RIGS) {
+    await withRig(make, async (r) => {
+      for (const [tool, input] of SEARCHES_FREE) {
+        const o = await ask(r, tool, input);
+        assert.doesNotMatch(o.summary, /may hold passwords or keys/, `${mode}: ${tool} ${JSON.stringify(input)}`);
+      }
+    });
+  }
+});
+
+test('fix round 2: Bypass does not card those searches', async () => {
+  await withRig(() => gatesRig({ own: 'full' }), async (r) => {
+    for (const [tool, input] of SEARCHES) assert.equal((await ask(r, tool, input)).card, false, `${tool} ${JSON.stringify(input)}`);
+  });
+});
+
+test('fix round 2: a search over the data folder sets the same flag: a later call to an approved site asks', async () => {
+  for (const probe of [['Grep', { pattern: 'sk-', path: DATA }], ['Grep', { pattern: 'sk-', path: DATA, glob: 'keys.json' }], ['Bash', { command: `grep -r sk- ${fwd}` }], ['Bash', { command: `cd ${fwd}/providers && cat keys.json` }], ['Bash', { command: `find ${fwd} -name keys.json -exec cat {} +` }]] as Array<[string, Record<string, unknown>]>) {
+    await withRig(() => gatesRig({ preset: 'smart', follow: true }), async (r) => {
+      r.core.store.patchApp({ allowedHosts: ['trusted.example'] });
+      assert.equal((await r.run('WebFetch', { url: 'https://trusted.example/a' })).card, false);
+      r.noteUse(probe[0], probe[1]);
+      const p = r.call('WebFetch', { url: 'https://trusted.example/b' }); await r.tick();
+      assert.equal(r.pending().length, 1, `${probe[0]} ${JSON.stringify(probe[1])}`); r.answer(false); await p;
+    });
+  }
 });

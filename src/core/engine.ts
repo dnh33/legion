@@ -23,7 +23,7 @@ import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
-import { secretReadHit } from './secret-paths.js';
+import { globMatchesAny, secretFileNames, secretReadHit, type SecretLocation } from './secret-paths.js';
 import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
@@ -1677,20 +1677,28 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * Legion's own key files count as secret files by where they are: the providers and connectors folders (API keys, tokens, their data keys),
    * the gates folder and the gates key, taken from the same protected set the file tools use for writes. A path is resolved against the call's
    * folder (a leading `~` or `$HOME` means the home folder). The rest of the data folder (config, state, projects, workspaces) is not secret.
-   * Gap: a command that moves into the folder first (`cd`) and then reads a bare name, or builds the path when it runs, is not seen.
+   * A search that starts at the data folder, a folder above it or a folder between it and a key folder also counts (it reaches the key files),
+   * as long as its glob can match a key file name. A `cd` earlier in the same command changes the folder its words mean (see secret-paths.ts).
+   * Gap: a `cd` in an earlier call of the run, or a path built when the command runs, is not seen.
    */
-  private dataSecretLocation(agent: AgentProfile, toolName: string, input: Record<string, unknown>): ((path: string) => boolean) | undefined {
+  private dataSecretLocation(agent: AgentProfile, toolName: string, input: Record<string, unknown>): SecretLocation | undefined {
     const roots = this.protectedDirs().filter((t) => SECRET_DATA_NAMES.has(basename(t).toLowerCase()));
     if (!roots.length) return undefined;
+    const base = this.gateCwd(agent, toolName, input);
     let canon: string[] | undefined; // worked out on the first path that is asked about: most tool calls never ask
-    return (p) => { try { canon ??= canonicalSet(roots); return hitsCanonical(canonicalLocal(nativePath(p), { cwd: this.gateCwd(agent, toolName, input) }), canon); } catch { return false; } };
+    let names: string[] | undefined; // the file names under the key folders, read on the first glob that is asked about
+    const at = (p: string, cwd?: string): string => canonicalLocal(nativePath(p), { cwd: cwd ?? base });
+    const inside = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon); } catch { return false; } };
+    const reaches = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon, true); } catch { return false; } };
+    const globReaches = (glob: string): boolean => { names ??= secretFileNames(roots); return globMatchesAny(glob, names); };
+    return { cwd: base, inside, reaches, globReaches };
   }
 
   /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */
   private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
     if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
     const hit = secretReadHit(toolName, input, this.dataSecretLocation(agent, toolName, input));
-    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${hit.split(/[\\/]/).pop()}. It may hold passwords or keys.`) : undefined;
+    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${hit.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || hit}. It may hold passwords or keys.`) : undefined;
   }
 
   /** The card every guard raises: no Remember (no tool-wide rule can pass a guard), and the answer is final for this call. */
