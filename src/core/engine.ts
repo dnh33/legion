@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
+import type { HookInput, McpServerConfig, Options, Query, Settings, SyncHookJSONOutput, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentProfile, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
@@ -1506,6 +1506,28 @@ export class Engine {
     return { sources: r.sources, text, mcpHeld: r.held.some((h) => h.mcp) };
   }
 
+  /**
+   * A settings or skill file changed while the run works (security finding A-H2). Claude Code loads such a change in the same session
+   * (code.claude.com/docs/en/hooks, ConfigChange: "Runs when a configuration file changes during a session"), so a `git checkout` or a clone
+   * into the working folder could bring in a hook nobody trusted. For the project and local settings and the skills, the folders are scanned
+   * again exactly as at run start; anything executable that is not trusted at exactly the content found now blocks the change, with the
+   * folder-trust notice in the thread. A run that was held back at start does not load these sources anyway; blocking there is harmless.
+   * The user and managed settings go on.
+   */
+  private configChangeAnswer(job: Job, agent: AgentProfile, act: Active, cwd: string, addDirs: string[], input: HookInput): SyncHookJSONOutput {
+    if (input.hook_event_name !== 'ConfigChange') return { continue: true };
+    if (input.source !== 'project_settings' && input.source !== 'local_settings' && input.source !== 'skills') return { continue: true };
+    const block = 'This folder\'s Claude Code settings or skills changed during the run, and the folder is not trusted with the new content, so Legion did not load the change.';
+    let held: FolderScan[];
+    try {
+      // the trusted list is read now: the owner may have trusted the folder while the run works
+      held = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit: this.config.claude.inheritClaudeCodeSettings === true, mcp: this.config.claude.inheritMcp === true }).held;
+    } catch { return { decision: 'block', reason: block }; }
+    if (!held.length) return { continue: true };
+    try { this.noteFolderHeld(job, agent, act, held); } catch { /* the notice is advisory; the change is blocked either way */ }
+    return { decision: 'block', reason: block };
+  }
+
   private noteFolderHeld(job: Job, agent: AgentProfile, act: Active, held: FolderScan[]): void {
     const folders = held.map((h) => ({ folder: h.folder, lines: h.lines, more: h.more }));
     const key = JSON.stringify(folders);
@@ -2469,6 +2491,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
     }
+    // Folder trust again when the run's settings change under it (A-H2), in every mode: folder trust is not a permission card.
+    options.hooks!.ConfigChange = [{ hooks: [async (input) => this.configChangeAnswer(job, agent, act, cwd, projectFolder ? [projectFolder] : [], input)] }];
     // The task list reaches Claude's own list through the documented SessionStart hook only: shown again after Claude
     // compacts, and handed over when a provider run changed it or the session is new. An agent without the tools gets neither.
     if (nativeTaskListOn(agent)) {

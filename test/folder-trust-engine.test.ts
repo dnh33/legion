@@ -223,3 +223,62 @@ test('catalog: a folder with an env block or a helper gets the user source only;
   assert.deepEqual(await listingSources(newRepo()), ['user', 'project', 'local']);
   assert.deepEqual(await listingSources(repo, [], false), []);
 });
+
+/** The run's ConfigChange hook, called the way Claude Code calls it when a settings or skill file changes during the session (A-H2). */
+const configChange = (options: Record<string, unknown>, source: string) =>
+  ((options.hooks as { ConfigChange: Array<{ hooks: Array<(i: unknown, id: undefined, o: unknown) => Promise<{ decision?: string; reason?: string; continue?: boolean }>> }> }).ConfigChange[0]!.hooks[0]!)(
+    { hook_event_name: 'ConfigChange', session_id: 's1', transcript_path: '', cwd: '', source }, undefined, { signal: new AbortController().signal });
+
+test('A-H2: a hook written into the folder during the run is blocked by the ConfigChange hook, with the folder-trust notice in the thread', async () => {
+  const repo = newRepo();
+  const x = await rig(repo);
+  try {
+    const { options, taskId } = await x.run();
+    assert.deepEqual(options.settingSources, ['user', 'project', 'local'], 'nothing executable at start');
+    assert.equal(x.messages(taskId).some((m) => m.folderTrust), false);
+    // a git checkout or a clone brings .claude/settings.json in mid-run
+    put(join(repo, '.claude', 'settings.json'), JSON.stringify(HOOKS));
+    const out = await configChange(options, 'project_settings');
+    assert.equal(out.decision, 'block');
+    assert.match(out.reason ?? '', /not trusted/);
+    const note = x.messages(taskId).find((m) => m.folderTrust);
+    assert.ok(note, 'the same notice a held-back run gets');
+    assert.equal(note!.folderTrust!.folders[0]!.folder, scanFolder(repo).folder);
+    assert.equal(JSON.stringify(x.messages(taskId)).includes(SECRET), false, 'never an environment value');
+    // the local file and the skills are scanned the same way; the user and managed settings go on
+    assert.equal((await configChange(options, 'local_settings')).decision, 'block');
+    assert.equal((await configChange(options, 'skills')).decision, 'block');
+    assert.equal((await configChange(options, 'user_settings')).decision, undefined);
+    assert.equal((await configChange(options, 'policy_settings')).decision, undefined);
+    // the owner trusts the folder at the new content (on the notice): the next change goes on
+    x.trust(repo);
+    const trusted = await configChange(options, 'project_settings');
+    assert.equal(trusted.decision, undefined);
+    assert.equal(trusted.continue, true);
+  } finally { x.stop(); }
+});
+
+test('A-H2: a CLAUDE.md-only change goes on; the hook is there in Full too (folder trust is not a permission card)', async () => {
+  const repo = newRepo();
+  const x = await rig(repo);
+  try {
+    x.r.store.agents.get('a1')!.approval = 'full';
+    const { options } = await x.run();
+    assert.equal(options.permissionMode, 'bypassPermissions');
+    put(join(repo, 'CLAUDE.md'), 'New instructions only.\n');
+    assert.equal((await configChange(options, 'project_settings')).decision, undefined);
+    put(join(repo, '.claude', 'settings.json'), JSON.stringify(HOOKS));
+    assert.equal((await configChange(options, 'project_settings')).decision, 'block', 'Full blocks an untrusted hook too');
+  } finally { x.stop(); }
+});
+
+test('A-H2: Inherit off: the project sources are not loaded at all, so a change goes on with no notice', async () => {
+  const repo = newRepo();
+  const x = await rig(repo, { inherit: false });
+  try {
+    const { options, taskId } = await x.run();
+    put(join(repo, '.claude', 'settings.json'), JSON.stringify(HOOKS));
+    assert.equal((await configChange(options, 'project_settings')).decision, undefined);
+    assert.equal(x.messages(taskId).some((m) => m.folderTrust), false);
+  } finally { x.stop(); }
+});
