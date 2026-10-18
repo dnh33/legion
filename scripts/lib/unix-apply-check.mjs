@@ -15,6 +15,15 @@ export function unixCloneWouldApply(version) {
 }
 
 /**
+ * The git arguments that read package-lock.json at the previous release's tag, or null when the tag is not a release tag (it must
+ * start with "v" and a digit). --end-of-options keeps a value that starts with a dash from being read as a git option.
+ */
+export function prevTagShowArgs(repo, tag) {
+  if (typeof tag !== 'string' || !/^v\d/.test(tag)) return null;
+  return ['-C', repo, 'show', '--end-of-options', `${tag}:package-lock.json`];
+}
+
+/**
  * The dependency hash the updater compares (dependencyHash in src/core/updater/package.ts: the lock with its own version fields blanked
  * out). NOT the manifest's depsHash, which is the raw file hash and changes on every release. Needs `npm run build` (reads dist).
  */

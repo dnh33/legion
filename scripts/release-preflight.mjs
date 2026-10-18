@@ -27,7 +27,7 @@ import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO, requireR
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 import { carryForFolder } from './lib/stone-carry.mjs';
-import { unixApplyVerdict, unixDepsHashOfLock } from './lib/unix-apply-check.mjs';
+import { prevTagShowArgs, unixApplyVerdict, unixDepsHashOfLock } from './lib/unix-apply-check.mjs';
 import { frozenParserProblems, sourcesFromGit } from './lib/frozen-parser.mjs';
 
 const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v', 'prev-lock': 'v', 'prev-tag': 'v' });
@@ -177,8 +177,12 @@ else {
     if (a['prev-lock']) {
       try { prevLock = readFileSync(a['prev-lock'], 'utf8'); } catch (e) { fail(`could not read --prev-lock: ${e.message}`); }
     } else if (a['prev-tag']) {
-      const g = spawnSync('git', ['-C', REPO, 'show', `${a['prev-tag']}:package-lock.json`], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-      if (g.status === 0) prevLock = g.stdout; else fail(`could not read package-lock.json at ${a['prev-tag']} (git show): ${String(g.stderr).trim()}`);
+      const showArgs = prevTagShowArgs(REPO, a['prev-tag']);
+      if (!showArgs) fail('--prev-tag must be a release tag such as v0.3.4 (it has to start with "v" and a digit)');
+      else {
+        const g = spawnSync('git', showArgs, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+        if (g.status === 0) prevLock = g.stdout; else fail(`could not read package-lock.json at ${a['prev-tag']} (git show): ${String(g.stderr).trim()}`);
+      }
     }
     const thisLock = existsSync(appZip) ? readZipEntry(readFileSync(appZip), `legion-${version}/package-lock.json`) : null;
     let depsHash = null; let prevDepsHash = null;

@@ -9,7 +9,7 @@ import { ProviderKeyring } from '../src/core/providers/keyring.js';
 import { keyFileFor, keyStoreDoctor, keyStoreLine, ProviderKeys, sealedFileFor } from '../src/core/providers/secrets.js';
 import { updateCommitted } from '../src/core/updater/committed.js';
 import { runDoctor } from '../src/core/doctor.js';
-import { defaultConfig } from '../src/shared/config.js';
+import { defaultConfig, VERSION } from '../src/shared/config.js';
 import { clearRegisteredSecrets, redact } from '../src/core/log/redact.js';
 import { sealBlob } from '../src/core/connectors/store.js';
 import { tempDir } from './tmp-cleanup.js';
@@ -372,14 +372,29 @@ test('committed: no update folder is a non-updater start; the journal and the li
   const up = join(dir, '.update');
   const journal = (state: string) => { writeFileSync(join(up, 'journal.json'), JSON.stringify({ state, from: '0.3.4', to: '0.3.5', entries: ['dist'], stagedDir: 'x', at: 1, heartbeat: 1 })); };
   mkdirSync(up, { recursive: true });
-  for (const [state, want] of [['swapping', false], ['awaiting-health', false], ['committed', true], ['rolled-back', true]] as const) { journal(state); assert.equal(updateCommitted(dir), want, state); }
+  for (const [state, want] of [['swapping', false], ['awaiting-health', false], ['committed', true], ['rolled-back', true]] as const) { journal(state); assert.equal(updateCommitted(dir, '0.3.5'), want, state); }
   journal('committed');
   writeFileSync(join(up, 'update-in-progress.json'), '{}');
-  assert.equal(updateCommitted(dir), false, 'a live update marker');
+  assert.equal(updateCommitted(dir, '0.3.5'), false, 'a live update marker');
   writeFileSync(join(up, 'journal.json'), '{ not json');
   assert.equal(updateCommitted(dir), false, 'the marker still holds');
   rmSync(join(up, 'update-in-progress.json'));
   assert.equal(updateCommitted(dir), false, 'an unreadable journal is never counted as committed');
+});
+
+test('C-L1: a committed journal counts only when its target is the version that is running', () => {
+  const dir = tempDir('legion-commit-ver-');
+  const up = join(dir, '.update');
+  mkdirSync(up, { recursive: true });
+  const journal = (to: string) => { writeFileSync(join(up, 'journal.json'), JSON.stringify({ state: 'committed', from: '0.3.3', to, entries: [], stagedDir: 'x', at: 1, heartbeat: 1 })); };
+  journal('0.3.5');
+  assert.equal(updateCommitted(dir, '0.3.5'), true, 'this update committed');
+  journal('0.3.4'); // an earlier update, then a manual reinstall of 0.3.5 into the same folder
+  assert.equal(updateCommitted(dir, '0.3.5'), false, 'a stale committed journal from the update before');
+  journal('0.0.1');
+  assert.equal(updateCommitted(dir, '0.3.5'), false, 'a committed journal for a version this tree is not');
+  journal(VERSION);
+  assert.equal(updateCommitted(dir), true, 'with no version given, the running VERSION is the one that counts');
 });
 
 

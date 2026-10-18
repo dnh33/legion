@@ -71,6 +71,15 @@ test('preflight wires the check in and takes the previous manifest', () => {
   assert.doesNotMatch(src, /prev-manifest|prev-deps-sha256/, 'the raw lock hash in a manifest cannot be compared; the check takes a lock');
 });
 
+test('C-L7: --prev-tag is read after --end-of-options, and only a release tag is accepted', async () => {
+  const { prevTagShowArgs } = await import(pathToFileURL(join(REPO, 'scripts', 'lib', 'unix-apply-check.mjs')).href) as { prevTagShowArgs(repo: string, tag: unknown): string[] | null };
+  assert.deepEqual(prevTagShowArgs('/r', 'v0.3.4'), ['-C', '/r', 'show', '--end-of-options', 'v0.3.4:package-lock.json']);
+  for (const bad of ['--output=PWNED', '-p', 'main', 'V0.3.4', 'v', 'vx', '', undefined, 5]) assert.equal(prevTagShowArgs('/r', bad), null, String(bad));
+  const src = readFileSync(join(REPO, 'scripts', 'release-preflight.mjs'), 'utf8');
+  assert.match(src, /prevTagShowArgs\(REPO, a\['prev-tag'\]\)/, 'preflight builds the git call from the checked helper');
+  assert.doesNotMatch(src, /\['-C', REPO, 'show'/, 'no other git show call');
+});
+
 test('the installMode check imports from where installMode is exported and a failure to run it is a failure', async () => {
   const src = readFileSync(join(REPO, 'scripts', 'release-preflight.mjs'), 'utf8');
   const m = /const \{ installMode \} = await import\(new URL\(`\.\.\/dist\/src\/core\/updater\/([a-z-]+)\.js/.exec(src);

@@ -368,3 +368,18 @@ test('a running Legion in the folder stops the installer before it touches node_
   assert.match(out.stderr, /Legion is running from .* Close it/);
   assert.equal(existsSync(join(dir, 'node_modules', 'keep')), true, 'node_modules was not deleted');
 });
+
+test('an existing clone with a planted fsmonitor and post-checkout hook: the re-run runs neither', { skip: skipSh }, () => {
+  const r = rig('install-hooks-');
+  assert.equal(r.install().status, 0);
+  const dir = join(r.w, 'inst');
+  const hook = join(r.w, 'hook-ran'); const mon = join(r.w, 'fsmonitor-ran');
+  writeFileSync(join(dir, '.git', 'hooks', 'post-checkout'), `#!/bin/sh\n: > '${px(hook)}'\n`); chmodSync(join(dir, '.git', 'hooks', 'post-checkout'), 0o755);
+  const monScript = join(r.w, 'fsmonitor.sh');
+  writeFileSync(monScript, `#!/bin/sh\n: > '${px(mon)}'\nprintf '\\0'\n`); chmodSync(monScript, 0o755);
+  git(r.w, '-C', dir, 'config', 'core.fsmonitor', px(monScript));
+  const out = r.install();
+  assert.equal(out.status, 0, String(out.stdout) + String(out.stderr));
+  assert.equal(existsSync(hook), false, 'the post-checkout hook did not run');
+  assert.equal(existsSync(mon), false, 'the fsmonitor command did not run');
+});

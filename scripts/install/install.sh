@@ -117,19 +117,20 @@ main() {
     fail "$dir is not empty and is not a Legion install. Pass --dir with another folder."
   fi
   if [ -d "$dir/.git" ]; then
+    # Every git command in an existing clone runs with fsmonitor and hooks off: the clone's own .git/config and hooks must not run code here.
     # Only a clean clone of Legion itself is reused. Anything else (a dev clone with edits, another repository) is left alone.
     expected_origin=$base$repo_path.git
-    origin=$(git -C "$dir" remote get-url origin 2>/dev/null) || origin=
+    origin=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$dir" remote get-url origin 2>/dev/null) || origin=
     [ "$origin" = "$expected_origin" ] || fail "$dir is a git folder, but its origin is '${origin:-none}', not $expected_origin. It was not touched. Pass --dir with another folder."
     # A folder this installer set up earlier (it has the marker) may differ from the tag only where Legion's updater writes.
     # Any other change, and any change in a folder without the marker, stops the script.
     managed=0
     if [ -f "$dir/.legion-install.json" ] && grep -q '"manager":"install.sh"' "$dir/.legion-install.json" 2>/dev/null; then managed=1; fi
-    git -C "$dir" status --porcelain >/dev/null 2>&1 || fail "Could not read the git status of $dir. It was not touched."
-    [ -z "$(git -C "$dir" status --porcelain -z | outside_dirt "$managed")" ] || fail "$dir has local changes. It was not touched. Commit or discard them, or pass --dir with another folder."
+    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$dir" status --porcelain >/dev/null 2>&1 || fail "Could not read the git status of $dir. It was not touched."
+    [ -z "$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$dir" status --porcelain -z | outside_dirt "$managed")" ] || fail "$dir has local changes. It was not touched. Commit or discard them, or pass --dir with another folder."
     say "Updating $dir to $tag ..."
-    git -C "$dir" fetch --quiet --depth 1 origin tag "$tag" || fail "Could not fetch $tag. Does that release exist?"
-    git -C "$dir" checkout --quiet --force "tags/$tag" || fail "Could not switch to $tag."
+    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$dir" fetch --quiet --depth 1 origin tag "$tag" || fail "Could not fetch $tag. Does that release exist?"
+    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$dir" checkout --quiet --force "tags/$tag" || fail "Could not switch to $tag."
   else
     say "Fetching Legion $tag into $dir ..."
     # GIT_DEFAULT_REF_FORMAT=files: with the reftable format (a git setting, and the default from Git 3.0) .git/HEAD is not the commit sha,
@@ -253,7 +254,7 @@ clear_stale_update() {
 write_marker() {
   _mf=$1/.legion-install.json
   _warn="Legion is installed, but it could not mark this folder for self-update; updates will show a notice instead."
-  _head=$(git -C "$1" rev-parse HEAD 2>/dev/null) || _head=
+  _head=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$1" rev-parse HEAD 2>/dev/null) || _head=
   _file=$(cat "$1/.git/HEAD" 2>/dev/null) || _file=
   if ! printf '%s' "$_head" | grep -Eq '^[0-9a-f]{40}$' || [ "$_file" != "$_head" ]; then
     rm -f -- "$_mf"

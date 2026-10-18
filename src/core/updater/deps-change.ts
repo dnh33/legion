@@ -31,7 +31,7 @@ export type ReleaseRoute = 'code' | 'full' | 'notify';
 export function unixDepsText(installRoot?: string, home: string = homedir()): string {
   const std = posix.join(home, '.local', 'share', 'legion');
   const isDefault = installRoot === undefined || installRoot === std || sameFolder(installRoot, std);
-  const dir = isDefault ? '' : ` -s -- --dir '${installRoot.replace(/'/g, `'\''`)}'`;
+  const dir = isDefault ? '' : ` -s -- --dir '${installRoot.replace(/'/g, `'\\''`)}'`;
   return `This update changes Legion's dependencies. On Mac and Linux, close Legion, then run the installer again: curl -fsSL https://getlegion.xyz | sh${dir} (your data in ~/.legion stays).`;
 }
 const sameFolder = (a: string, b: string): boolean => { try { return realpathSync(a) === realpathSync(b); } catch { return false; } };

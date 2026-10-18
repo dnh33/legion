@@ -4,7 +4,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
@@ -72,11 +73,24 @@ test('the dependency notice says to close Legion first and carries --dir only wh
   assert.match(UNIX_DEPS_TEXT, /close Legion, then run the installer again: curl -fsSL https:\/\/getlegion\.xyz \| sh/);
   const other = unixDepsText('/opt/my legion', home);
   assert.match(other, /close Legion, then run the installer again: curl -fsSL https:\/\/getlegion\.xyz \| sh -s -- --dir '\/opt\/my legion'/);
-  assert.match(unixDepsText("/opt/it's", home), /--dir '\/opt\/it'\''s'/, 'a quote in the path is closed, escaped and reopened');
-  assert.doesNotMatch(other, /—/);
+  assert.match(unixDepsText("/opt/it's", home), /--dir '\/opt\/it'\\''s'/, 'a quote in the path is closed, escaped and reopened');
+  assert.doesNotMatch(other, /â€”/);
 });
 
-const base = { depsSha256: 'a'.repeat(64) };
+const hasSh = ((): boolean => { try { return spawnSync('sh', ['-c', 'exit 0']).status === 0; } catch { return false; } })();
+test('the --dir value survives a real POSIX sh: an apostrophe round-trips and a crafted name runs nothing', { skip: hasSh ? false : 'no sh on PATH' }, () => {
+  for (const dir of ["/home/u/Dan's stuff/legion", "/home/u/x'; touch PWNED; '"]) {
+    const words = /\| sh -s -- (--dir '.*') \(your data/.exec(unixDepsText(dir, '/home/other'))?.[1];
+    assert.ok(words, `the text carries a --dir for ${dir}`);
+    const cwd = cleanupTemp('legion-quote-');
+    const r = spawnSync('sh', ['-c', `set -- ${words}; printf %s "$2"`], { cwd, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, dir, 'the shell reads back exactly the folder');
+    assert.deepEqual(readdirSync(cwd), [], 'nothing was run: no PWNED file');
+  }
+});
+
+const base ={ depsSha256: 'a'.repeat(64) };
 const fullAsset = { name: 'legion-0.3.5-win-x64.zip', size: 1, sha256: 'b'.repeat(64) };
 test('planRelease off win32: a dependency release is notify with the installer copy, signed full package or not; code stays code', () => {
   for (const p of ['linux', 'darwin'] as const) {
