@@ -46,6 +46,8 @@ export interface RigOptions {
   overrides?: Record<string, boolean>;
   /** The run is a helper woken by an outside app or another bot: the ceiling it carries. */
   ceiling?: RunMode;
+  /** The run itself starts with that ceiling's origin, so its hooks and canUseTool (not only `call`) carry it. */
+  originAtStart?: boolean;
   approvalTimeoutMs?: number;
   /** Names on the owner's keep list for the environment scrub (signed app file). */
   keep?: string[];
@@ -80,9 +82,9 @@ export async function gatesRig(o: RigOptions = {}) {
   const a1 = r.store.agents.get('a1')!;
   if (o.follow) a1.approvalSource = 'project';
   if (o.host) a1.host = { enabled: true } as never;
-  const task = r.start('a1', 'go');
-  await pause(120);
   const origin: TaskOrigin | undefined = o.ceiling ? ({ roomId: 'r1', fromAgentId: 'x1', hop: 0, approvalCeiling: o.ceiling }) : undefined;
+  const task = r.start('a1', 'go', o.originAtStart && origin ? { origin } : {});
+  await pause(120);
   const job = { taskId: task.id, agentId: 'a1', prompt: 'go', choice: 'auto', projectAtStart: r.project.id, trigger: 'ui', ...(origin ? { origin } : {}) } as never;
   const engine = r.engine as unknown as Record<string, (...a: unknown[]) => unknown>;
 
@@ -130,6 +132,35 @@ export async function gatesRig(o: RigOptions = {}) {
     const act = (r.engine as unknown as { active: Map<string, unknown> }).active.get(task.id);
     (engine['noteToolUse']!.call(r.engine, job, act, toolName, `u${++n}`, input) as void);
   };
+  /** The approval cards raised so far (every `approval.requested` event, answered or not). */
+  const approvalEvents = (): number => r.events.filter((e) => e.type === 'approval.requested').length;
+  /** Waits for `p`, answering every card that opens meanwhile with `allow`. Returns the result and the summaries of the cards it answered. */
+  const settle = async <T>(p: Promise<T>, allow: boolean): Promise<{ out: T; summaries: string[] }> => {
+    let done = false; const summaries: string[] = [];
+    const all = p.then((v) => { done = true; return v; }, (e) => { done = true; throw e; });
+    while (!done) { await tick(20); for (const c of pending()) { summaries.push(c.summary); r.approvals.resolve(c.id, allow); } }
+    return { out: await all, summaries };
+  };
+  /**
+   * Every PreToolUse hook of the run that fits `toolName`, started together with ONE tool use id, the way Claude Code runs them (all matching hooks in
+   * parallel, deny over ask over allow). Each card is answered `allow` (default no). `cards` is the number of approval events the call raised.
+   */
+  const hookAll = async (toolName: string, input: Record<string, unknown>, ho: { allow?: boolean; id?: string } = {}) => {
+    const pre = ((r.calls[0]!.options as { hooks?: { PreToolUse?: HookEntry[] } }).hooks?.PreToolUse ?? []).filter((h) => !h.matcher || new RegExp(`^(?:${h.matcher})$`).test(toolName));
+    const id = ho.id ?? `u${++n}`;
+    const before = approvalEvents();
+    const { out, summaries } = await settle(Promise.all(pre.flatMap((h) => h.hooks).map((fn) => fn({ hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: id }))), ho.allow ?? false);
+    const ds = out.map((x) => x?.hookSpecificOutput?.permissionDecision).filter((d): d is string => !!d);
+    const decision = ds.includes('deny') ? 'deny' : ds.includes('ask') ? 'ask' : ds.includes('allow') ? 'allow' : undefined;
+    return { cards: approvalEvents() - before, decision, id, summaries };
+  };
+  /** The run's canUseTool for one call (with the tool use id the SDK passes), each card answered `allow`; `cards` as for hookAll. */
+  const canUse = async (toolName: string, input: Record<string, unknown>, id: string, allow = false) => {
+    const fn = (r.calls[0]!.options as { canUseTool: (t: string, i: Record<string, unknown>, o: unknown) => Promise<{ behavior: string; message?: string }> }).canUseTool;
+    const before = approvalEvents();
+    const { out, summaries } = await settle(fn(toolName, input, { signal: new AbortController().signal, toolUseID: id }), allow);
+    return { cards: approvalEvents() - before, behavior: out.behavior, summaries };
+  };
   /** A second run of the same agent, starting in the same project (or the project named): its own task and `Active`, the same engine and gates core. Each call to it is judged on its own job. */
   const freshRun = async (fo: { projectId?: string } = {}) => {
     const t = r.start('a1', 'again');
@@ -157,7 +188,7 @@ export async function gatesRig(o: RigOptions = {}) {
     const res = await t.handler(args, {});
     return { text: res.content.map((c) => c.text).join('\n'), isError: res.isError === true };
   };
-  return { ...r, webSearch: ws, options, legionTools, toolNames, callTool, activityRead, core, task, job, agent: a1, call, run, hook, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
+  return { ...r, webSearch: ws, options, legionTools, toolNames, callTool, activityRead, core, task, job, agent: a1, call, run, hook, hookAll, canUse, approvalEvents, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
 }
 export type GatesRig = Awaited<ReturnType<typeof gatesRig>>;
 

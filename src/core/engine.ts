@@ -230,6 +230,8 @@ export function taintsRun(toolName: string): boolean {
 const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
 /** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
 const GUARD_MEMO_MS = 5000;
+/** How long a hook's answer for one call waits for canUseTool (which, when it is asked at all, is asked right after the hooks). */
+const HOOK_DECIDED_MS = 60_000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
 const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
 /** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
@@ -1714,6 +1716,44 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /**
+   * The ask-mode hook's cards after the gate deny and the floor: the guards first, then Legion's own cards (`own`, toolDecider with ownOnly).
+   * The owner's own Claude Code allow rules may skip the plain card (owner ruling 2026-10-18); Legion's own cards may not. So a call none of
+   * them is due for goes on as before (continue): the plain card of the preset stays in canUseTool, and nothing new cards (an `ls` or an
+   * in-folder read the SDK approves itself stays free). Every answer is kept for canUseTool by the call's id, so the call gets one card.
+   */
+  private async hookCards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode, toolUseId: string | undefined, own: (t: string, i: Record<string, unknown>) => Promise<Decision | undefined>): Promise<{ continue: true } | ReturnType<typeof preToolDeny> | ReturnType<typeof preToolAllow>> {
+    const card = this.askGuards(job, agent, toolName, input, mode);
+    if (card) {
+      const d = await card;
+      if (!d.allow) { this.noteHookDecided(job, toolUseId, d); return preToolDeny(d.message ?? 'The user denied this web request.'); }
+      // allowing here skips canUseTool, which is where the web-egress card is raised: raise it now
+      const egress = this.webEgressCard(job, agent, toolName, input);
+      if (egress) { const e = await egress; if (!e.allow) { this.noteHookDecided(job, toolUseId, e); return preToolDeny(e.message ?? 'The user denied this web request.'); } }
+      this.noteHookDecided(job, toolUseId, { allow: true });
+      return preToolAllow('The owner approved this site on its card.');
+    }
+    const d = await own(toolName, input);
+    if (!d) return { continue: true };
+    this.noteHookDecided(job, toolUseId, d);
+    return d.allow ? preToolAllow('The owner approved this call on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+  }
+
+  /** Calls a PreToolUse hook decided on a card, by (task, tool use id), until canUseTool reads them or a minute passes. */
+  private readonly hookDecided = new Map<string, { d: Decision; at: number }>();
+  private noteHookDecided(job: Job, toolUseId: string | undefined, d: Decision): void {
+    if (!toolUseId) return;
+    if (this.hookDecided.size > 200) for (const [k, e] of this.hookDecided) if (Date.now() - e.at >= HOOK_DECIDED_MS) this.hookDecided.delete(k);
+    this.hookDecided.set(`${job.taskId}\u0000${toolUseId}`, { d, at: Date.now() });
+  }
+  private takeHookDecided(job: Job, toolUseId: string | undefined): Decision | undefined {
+    if (!toolUseId) return undefined;
+    const key = `${job.taskId}\u0000${toolUseId}`;
+    const e = this.hookDecided.get(key);
+    this.hookDecided.delete(key);
+    return e && Date.now() - e.at < HOOK_DECIDED_MS ? e.d : undefined;
+  }
+
+  /**
    * Guard (2): a change to Git internals and hooks, editor and agent settings, shell startup files or package manager settings asks, in every mode
    * but Full. The switch is the `protected-path-cards` gate. A file target is resolved against the agent's folder; inside the project folder (or the
    * agent's own) it is tested relative to that folder, so a project that lives under a folder with a protected name is not carded on every write.
@@ -2177,6 +2217,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
   private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; /** false: the floor's card is raised by a hook for this path; only its refusals apply here. */ floorCard?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
+    const decide = this.callDecider(job, agent, opts);
+    return (toolName, input) => decide(toolName, input) as Promise<Decision>;
+  }
+
+  /**
+   * The body of toolDecider. With `ownOnly` it decides only a call one of Legion's own cards is due for (the outside-run ceiling, a gate ask rule,
+   * the web-egress card after connector data, Smart's changed-build-file card) and answers undefined for every other call, without a card or a
+   * log line: the ask-mode PreToolUse hook uses it, so those cards fire even where an allow rule means canUseTool is never asked.
+   */
+  private callDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; floorCard?: boolean; /** false: the hook already ran the guards for this call. */ guards?: boolean; ownOnly?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<Decision | undefined> {
     const effective = (): RunMode => this.modeNow(job, agent);
     return async (toolName, input) => {
       const mode = effective();
@@ -2195,14 +2245,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
       // the guards (the web check first) raise their own card ahead of every allow, the owner's tool-cards switch and the baseline
-      const guard = this.askGuards(job, agent, toolName, input, mode);
+      const guard = opts.guards === false ? undefined : this.askGuards(job, agent, toolName, input, mode);
       if (guard) return guard;
+      // a call that goes through with no card: with ownOnly it is left to the normal permission flow (canUseTool notes it there)
+      const pass = (): Decision | undefined => { if (opts.ownOnly) return undefined; this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; };
       // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
       // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
-      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
-      if (gate.verdict === 'allow') return { allow: true };
+      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return pass();
+      if (gate.verdict === 'allow') return opts.ownOnly ? undefined : { allow: true };
       // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
-      if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
+      if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return opts.ownOnly ? undefined : { allow: true };
       // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
       const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
       // Smart: a project seen for the first time gets its build-file baseline now, before any command of this run can change a file
@@ -2212,9 +2264,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const askOpts = { capped, ...(consequence ? { consequence } : {}) };
       const baseAsk = needsApproval(mode, toolName, askOpts);
       const asks = build?.flagged ? needsApproval(mode, toolName, { ...askOpts, buildEdited: true }) : baseAsk;
-      if (gate.verdict !== 'ask' && !asks) { this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; }
+      if (gate.verdict !== 'ask' && !asks) return pass();
       // the flag is what made this card (Smart would have run it): say why, and let only the owner's allow clear the flag. No Remember: a standing rule would skip the flag for good.
       const flagCard = gate.verdict !== 'ask' && asks && !baseAsk;
+      // only the plain card of the preset is left: an allow rule may skip that one, so the hook leaves it to canUseTool
+      if (opts.ownOnly && gate.verdict !== 'ask' && !capped && !flagCard) return undefined;
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(
@@ -2376,40 +2430,42 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }] });
     } else {
       options.permissionMode = 'default';
+      // Legion's own cards on the hook path (A-H1): the ceiling, a gate ask rule, the web-egress card and Smart's build card. The guards run just before.
+      // the owner's own Claude Code allow rules may skip the plain card (owner ruling 2026-10-18); Legion's own cards may not
+      const own = this.callDecider(job, agent, { floorCard: false, guards: false, ownOnly: true });
       // The shell floor as a hook too: Claude Code's own allow rules (inherited settings, `Bash(rm:*)`) decide a call before
       // canUseTool is asked, which would step around the floor. A Block gate still wins first; an approved floor card is
-      // final for that call (no second, ordinary card).
+      // final for that call (no second, ordinary card). Hooks run in parallel, so this hook decides the whole of a shell call
+      // (floor, then guards, then Legion's own cards) and the '.*' hook below leaves shell calls alone: one card per call.
       options.hooks?.PreToolUse?.push({ matcher: 'Bash|PowerShell|Monitor|mcp__host__shell', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const tin = (input.tool_input ?? {}) as Record<string, unknown>;
-        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
+        const mode = effective();
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         const floor = this.shellFloor(job, agent, input.tool_name, tin);
-        if (!floor) return { continue: true };
+        if (!floor) return this.hookCards(job, agent, input.tool_name, tin, mode, input.tool_use_id, own);
         const d = await floor;
+        this.noteHookDecided(job, input.tool_use_id, d);
         return d.allow ? preToolAllow('The owner approved this command on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
       }] });
-      // The guards as a hook too, for the same reason: Claude Code's own allow rules decide a call before canUseTool is asked. A gate deny
-      // wins first; an approved guard card is final for that call (the card is shared with canUseTool for 5 seconds, so it is one card).
+      // The guards and Legion's own cards as a hook too, for the same reason: Claude Code's own allow rules decide a call before canUseTool is
+      // asked. A gate deny wins first; an approved card is final for that call (canUseTool reads the hook's answer, so it is one card).
       options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const tin = (input.tool_input ?? {}) as Record<string, unknown>;
         const mode = effective();
         const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
-        const card = this.askGuards(job, agent, input.tool_name, tin, mode);
-        if (!card) return { continue: true };
-        const d = await card;
-        if (!d.allow) return preToolDeny(d.message ?? 'The user denied this web request.');
-        // allowing here skips canUseTool, which is where the web-egress card is raised: raise it now
-        const egress = this.webEgressCard(job, agent, input.tool_name, tin);
-        if (egress) { const e = await egress; if (!e.allow) return preToolDeny(e.message ?? 'The user denied this web request.'); }
-        return preToolAllow('The owner approved this site on its card.');
+        // the shell hook above decides a shell call from start to end
+        if (SHELL_TOOLS.has(input.tool_name)) return { continue: true };
+        return this.hookCards(job, agent, input.tool_name, tin, mode, input.tool_use_id, own);
       }] });
       // the hook above owns the floor's card for Claude's shell tools, so it is not asked a second time here
       const decide = this.toolDecider(job, agent, { floorCard: false });
-      options.canUseTool = async (toolName, input) => {
-        const d = await decide(toolName, input);
+      options.canUseTool = async (toolName, input, o) => {
+        // a call a hook already decided on a card keeps that answer: Claude Code can still ask here after a hook allow (an ask rule, or an action no mode approves by itself)
+        const d = this.takeHookDecided(job, o?.toolUseID) ?? await decide(toolName, input);
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
     }
