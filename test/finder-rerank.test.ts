@@ -1,6 +1,6 @@
 /** The skill finder's Haiku rerank: when it runs, the warm session, how its answer is read, and what it costs. */
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { RERANK_SYSTEM_PROMPT, RerankSession, buildRerankPrompt, isCloseMatch, parseRerankAnswer, readSpend, rerankScores, spendFilePath } from '../src/core/armory/finder/rerank.js';
@@ -19,14 +19,14 @@ async function until(cond: () => boolean, ms = 2000): Promise<void> {
   }
 }
 
-interface Reply { text?: string; cost?: number; afterMs?: number; hidden?: number; never?: boolean; error?: boolean; throws?: boolean }
+interface Reply { noTotal?: boolean; text?: string; cost?: number; afterMs?: number; hidden?: number; never?: boolean; error?: boolean; throws?: boolean }
 interface Made { options: any; messages: string[]; closed: boolean }
 
 /**
  * A fake streaming query: it reads each user message as it arrives and answers it as `script` says. `cost` is what that turn cost and `hidden` an extra background call
  * billed in the same turn; a result's total_cost_usd is the session's CUMULATIVE cost, like the real session. Records every session it makes.
  */
-function fakeSessions(script: (n: number, text: string, made: Made) => Reply = () => ({ text: '[]' })) {
+function fakeSessions(script: (n: number, text: string, made: Made) => Reply = () => ({ text: '[]' }), perTurn = false) {
   const made: Made[] = [];
   const queryFn: RerankQuery = (a) => {
     const rec: Made = { options: a.options, messages: [], closed: false };
@@ -42,9 +42,9 @@ function fakeSessions(script: (n: number, text: string, made: Made) => Reply = (
         if (r.never) await new Promise<void>(() => undefined);
         if (r.afterMs) await sleep(r.afterMs);
         if (r.throws) throw new Error('boom');
-        total += (r.cost ?? 0) + (r.hidden ?? 0);
+        total = perTurn ? (r.cost ?? 0) + (r.hidden ?? 0) : total + (r.cost ?? 0) + (r.hidden ?? 0);
         yield { type: 'assistant', message: { content: [{ type: 'text', text: r.text ?? '' }] } };
-        yield { type: 'result', subtype: r.error ? 'error_during_execution' : 'success', is_error: !!r.error, result: r.text ?? '', total_cost_usd: total };
+        yield { type: 'result', subtype: r.error ? 'error_during_execution' : 'success', is_error: !!r.error, result: r.text ?? '', ...(r.noTotal ? {} : { total_cost_usd: total }) };
       }
     })();
     return Object.assign(gen, { close: () => { rec.closed = true; } });
@@ -453,6 +453,135 @@ describe('rerank: spend', () => {
     const spent = readSpend(dir);
     assert.equal(spent['2026-01'], 1, 'January is untouched');
     assert.ok(near(spent['2026-02'], 0.001), 'February has its own total');
+    s.close();
+  });
+});
+
+describe('rerank: the spend cap fails closed', () => {
+  const SPENT = 'skill-finder';
+  it('a folder where the ledger should be: the rerank never starts', async () => {
+    const dir = tempDir('legion-rerank-');
+    mkdirSync(spendFilePath(dir), { recursive: true });
+    const f = fakeSessions();
+    const { s, logs } = sessionOf(dir, f);
+    for (let i = 0; i < 5; i++) assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made.length, 0, 'no session, so no call');
+    assert.equal(logs.length, 1, 'one log line');
+  });
+
+  it('a ledger that cannot be written: no call is made, and none later even when the write works again', async () => {
+    const dir = tempDir('legion-rerank-');
+    mkdirSync(join(dir, SPENT), { recursive: true });
+    const tmp = `${spendFilePath(dir)}.${process.pid}.tmp`;
+    mkdirSync(tmp); // a folder where the temporary file goes: the write fails
+    const f = fakeSessions();
+    const { s, logs } = sessionOf(dir, f);
+    assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made.length, 0);
+    rmSync(tmp, { recursive: true });
+    for (let i = 0; i < 3; i++) assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made.length, 0, 'off for the rest of the process');
+    assert.equal(logs.length, 1);
+  });
+
+  it('a write that fails after the session is warm stops the requests', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions(() => ({ text: '["a"]', cost: 0.0005 }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    mkdirSync(`${spendFilePath(dir)}.${process.pid}.tmp`);
+    assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made[0]!.messages.length, 1, 'only the warm-up was sent');
+    rmSync(`${spendFilePath(dir)}.${process.pid}.tmp`, { recursive: true });
+    assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made[0]!.messages.length, 1);
+    s.close();
+  });
+
+  it('a corrupt ledger is renamed to a .bad file, the month counts as at the cap, and no call is made', async () => {
+    const dir = tempDir('legion-rerank-');
+    mkdirSync(join(dir, SPENT), { recursive: true });
+    writeFileSync(spendFilePath(dir), '{"2026-01": 0.9, nope');
+    const f = fakeSessions();
+    const { s } = sessionOf(dir, f);
+    for (let i = 0; i < 3; i++) assert.equal(await s.pick(ask({ monthlyUsd: 100 })), undefined);
+    assert.equal(f.made.length, 0);
+    assert.equal(existsSync(spendFilePath(dir)), false, 'the damaged file moved aside');
+    assert.ok(readdirSync(join(dir, SPENT)).some((n) => n.startsWith('spend.json.bad-')), 'and is kept as spend.json.bad-<time>');
+  });
+
+  it('an entry that is not a number counts as damage, not as zero', async () => {
+    const dir = tempDir('legion-rerank-');
+    mkdirSync(join(dir, SPENT), { recursive: true });
+    writeFileSync(spendFilePath(dir), JSON.stringify({ [thisMonth()]: 'a lot' }));
+    const f = fakeSessions();
+    const { s } = sessionOf(dir, f);
+    assert.equal(await s.pick(ask({ monthlyUsd: 100 })), undefined);
+    assert.equal(f.made.length, 0);
+  });
+
+  it('a missing ledger is a fresh start: it is created', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions(() => ({ text: '[]', cost: 0.001 }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    assert.ok(near(readSpend(dir)[thisMonth()], 0.001));
+    s.close();
+  });
+
+  it('a ledger deleted in mid-month does not reset the month: the process remembers what it booked', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions(() => ({ text: '["a"]', cost: 0.001 }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    rmSync(spendFilePath(dir));
+    await s.pick(ask());
+    assert.ok((readSpend(dir)[thisMonth()] ?? 0) >= 0.002 - 1e-9, 'the file starts from the remembered total, not from 0');
+    s.close();
+  });
+
+  // Whatever the SDK means by total_cost_usd, the month must not pass the cap by more than one request.
+  for (const [name, perTurn] of [['cumulative totals', false], ['per-turn totals', true]] as const) {
+    it(`${name}: 30 messages against a small cap never take the month past it`, async () => {
+      const dir = tempDir('legion-rerank-');
+      const cap = 0.05;
+      const cost = 0.004;
+      const f = fakeSessions(() => ({ text: '["a"]', cost }), perTurn);
+      const { s } = sessionOf(dir, f);
+      let calls = 0;
+      for (let i = 0; i < 30; i++) {
+        const before = f.made.reduce((n, m) => n + m.messages.length, 0);
+        await s.pick(ask({ monthlyUsd: cap }));
+        await sleep(5);
+        calls += f.made.reduce((n, m) => n + m.messages.length, 0) - before;
+      }
+      s.close();
+      const real = calls * cost;
+      const booked = readSpend(dir)[thisMonth()] ?? 0;
+      assert.ok(real <= cap + 1e-9, `real spend ${real} stays under the cap ${cap}`);
+      assert.ok(booked >= real - 1e-9, `the ledger (${booked}) is not below the real spend (${real})`);
+      assert.ok(calls > 0 && calls < 30 * 2, 'it did run, and then it stopped');
+    });
+  }
+
+  it('per-turn totals: a total that is not above the last one is booked as that request own cost, and the session is recycled', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions(() => ({ text: '["a"]', cost: 0.004 }), true);
+    const { s, logs } = sessionOf(dir, f);
+    await warmUp(s);
+    assert.deepEqual(await s.pick(ask()), ['a']);
+    assert.ok(near(readSpend(dir)[thisMonth()], 0.008), 'warm-up 0.004 plus the request 0.004, not 0.004 plus a refund');
+    assert.equal(s.state(), 'none', 'recycled');
+    assert.ok(logs.some((l) => /backwards/.test(l)));
+  });
+
+  it('a result with no cost does not refund the reservation', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions((n) => ({ text: '["a"]', cost: n === 0 ? 0.001 : 0, noTotal: n > 0 }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    assert.deepEqual(await s.pick(ask()), ['a']);
+    assert.ok(near(readSpend(dir)[thisMonth()], 0.001 + 0.002), 'the 0.002 stays booked');
     s.close();
   });
 });

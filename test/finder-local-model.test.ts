@@ -2,7 +2,7 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FINDER_MODEL_PIN } from '../src/shared/finder.js';
@@ -151,6 +151,24 @@ describe('local model helper process', () => {
     assert.deepEqual(why, ['tamper does not match its sha256.']);
     await assert.rejects(m.embed(['y'], sig()), /switched off/);
     assert.equal(why.length, 1);
+  });
+
+  it('after a load failure that is not an integrity failure, no new helper is forked until the back-off is over', async () => {
+    const dir = tempDir('finder-loadfail-');
+    mkdirSync(dir, { recursive: true });
+    let t = 1_000_000;
+    const logs: string[] = [];
+    const m = createLocalModel({ modelDir: dir, id: 'fake', workerPath: FAKE, files: [{ name: 'loadfail', bytes: 1, sha256: 'a'.repeat(64) }], backoffMs: 300_000, now: () => t, log: (l) => logs.push(l) });
+    made.push(m);
+    const spawns = (): number => (existsSync(join(dir, 'spawns.log')) ? readFileSync(join(dir, 'spawns.log'), 'utf8').split('\n').filter(Boolean).length : 0);
+    await assert.rejects(m.embed(['x'], sig()), /out of memory/);
+    assert.equal(spawns(), 1);
+    for (let i = 0; i < 5; i++) await assert.rejects(m.embed(['y'], sig()), /not tried again yet/);
+    assert.equal(spawns(), 1, 'five calls inside the back-off forked nothing');
+    assert.equal(logs.length, 1, 'one log line');
+    t += 300_001;
+    await assert.rejects(m.embed(['z'], sig()), /out of memory/);
+    assert.equal(spawns(), 2, 'after the back-off one new helper is tried');
   });
 
   it('a worker script that does not exist fails the request, not the caller', async () => {

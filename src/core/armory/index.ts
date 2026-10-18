@@ -293,7 +293,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     if (f.ranker === 'local') return model.embedder();
     if (!f.providerId || !f.providerModel || !opts.providerTarget) return undefined;
     const target = opts.providerTarget(f.providerId);
-    return target ? createProviderEmbedder({ target, providerId: f.providerId, model: f.providerModel }) : undefined;
+    return target ? createProviderEmbedder({ target, providerId: f.providerId, model: f.providerModel, log }) : undefined;
   };
   /**
    * The message's vector and the cached vectors of these docs, or undefined when the embedder cannot answer in time (the caller then

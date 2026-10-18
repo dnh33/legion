@@ -1,3 +1,5 @@
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 /** A stand-in for embed-worker.js in tests: answers with fixed vectors and obeys a few magic texts. No model, no runtime. */
 const send = (m: Record<string, unknown>): void => { process.send?.(m); };
 const vec = (text: string): number[] => {
@@ -7,7 +9,11 @@ const vec = (text: string): number[] => {
   return v.map((x) => x / norm);
 };
 // Tests: a pin that names a file called "tamper" makes this worker report a failed integrity check, like the real one.
-if ((process.argv[3] ?? '').includes('tamper')) {
+if ((process.argv[3] ?? '').includes('loadfail')) {
+  // A load that fails without an integrity problem. Each start leaves one line in the model folder so a test can count the forks.
+  appendFileSync(join(process.argv[2]!, 'spawns.log'), 'x\n');
+  process.send?.({ fatal: 'out of memory' }, () => process.exit(1));
+} else if ((process.argv[3] ?? '').includes('tamper')) {
   process.send?.({ fatal: 'tamper does not match its sha256.', integrity: true }, () => process.exit(1));
 } else {
 process.on('message', (m: unknown) => {

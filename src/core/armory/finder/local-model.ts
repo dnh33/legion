@@ -9,7 +9,7 @@
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { MODEL_IDLE_MS } from './defaults.js';
+import { MODEL_IDLE_MS, MODEL_LOAD_BACKOFF_MS } from './defaults.js';
 import type { EmbedKind, Embedder } from './embed.js';
 
 export interface LocalModelOpts {
@@ -30,6 +30,12 @@ export interface LocalModelOpts {
   files?: { name: string; bytes: number; sha256: string }[];
   /** Called once when the helper found a file that does not match its pin. */
   onIntegrity?: (why: string) => void;
+  /** After the helper fails to load (not an integrity failure), no new helper starts for this long, in ms. Default MODEL_LOAD_BACKOFF_MS. */
+  backoffMs?: number;
+  /** The clock for the back-off. Tests pass a fake. */
+  now?: () => number;
+  /** One line when the back-off starts. */
+  log?: (m: string) => void;
 }
 
 export interface LocalEmbedder extends Embedder {
@@ -66,6 +72,8 @@ export function createLocalModel(o: LocalModelOpts): LocalEmbedder {
   let child: ChildProcess | undefined;
   let idle: NodeJS.Timeout | undefined;
   let disposed = false;
+  let backoffUntil = 0;
+  const now = o.now ?? Date.now;
   let nextId = 1;
   let stderr = '';
   const pending = new Map<number, Pending>();
@@ -103,7 +111,11 @@ export function createLocalModel(o: LocalModelOpts): LocalEmbedder {
         if (child === c) {
           child = undefined;
           failAll(`The local model could not start: ${r.fatal}`);
-          if (r.integrity === true) { disposed = true; o.onIntegrity?.(r.fatal); }
+          if (r.integrity === true) { disposed = true; o.onIntegrity?.(r.fatal); } else {
+            // A load that failed once will fail again: do not fork a helper (and load about 1 GB) on every call.
+            backoffUntil = now() + (o.backoffMs ?? MODEL_LOAD_BACKOFF_MS);
+            try { o.log?.('finder: the local model could not load; it will not be tried again for a while'); } catch { /* a log failure is not a load failure */ }
+          }
         }
         return;
       }
@@ -139,6 +151,7 @@ export function createLocalModel(o: LocalModelOpts): LocalEmbedder {
       if (disposed) return Promise.reject(new Error('The local model is switched off.'));
       if (signal.aborted) return Promise.reject(new Error('Cancelled.'));
       if (texts.length === 0) return Promise.resolve([]);
+      if (!(child && child.exitCode === null && !child.killed) && now() < backoffUntil) return Promise.reject(new Error('The local model failed to load a moment ago; it is not tried again yet.'));
       return new Promise<Float32Array[]>((resolve, reject) => {
         let c: ChildProcess;
         try { c = child && child.exitCode === null && !child.killed ? child : (child = start()); } catch (e) { reject(e instanceof Error ? e : new Error(String(e))); return; }

@@ -102,6 +102,7 @@ export function createFinderModel(deps: { dataDir: string; approvals?: Pick<Appr
       local ??= createLocalModel({
         modelDir: modelDirFor(deps.dataDir, pin), id: pin.id,
         files: pin.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256 })),
+        log,
         onIntegrity: (why) => { tampered = true; memo = undefined; log(`armory: the skill finder model was refused: ${why}`); },
         ...(o.worker ?? {}),
       });

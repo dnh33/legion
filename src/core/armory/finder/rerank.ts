@@ -92,7 +92,7 @@ export function spendFilePath(dataDir: string): string {
   return join(dataDir, 'skill-finder', 'spend.json');
 }
 
-/** Spend by month, as stored. A missing or damaged file is no spend. */
+/** Spend by month, as stored. A missing or damaged file shows as no spend; the rerank itself does not trust that (see loadLedger). */
 export function readSpend(dataDir: string): Record<string, number> {
   let raw: unknown;
   try { raw = JSON.parse(readFileSync(spendFilePath(dataDir), 'utf8')); } catch { return {}; }
@@ -104,30 +104,37 @@ export function readSpend(dataDir: string): Record<string, number> {
   return out;
 }
 
+type Ledger = { ok: true; spent: Record<string, number> } | { ok: false };
+
+/**
+ * The spend file as the cap must read it. A missing file is a fresh start (ok, empty). Anything else that is not a clean ledger is NOT
+ * "no spend": a file that cannot be read, or that is damaged, gives { ok: false }, and the rerank stops. A damaged file is renamed to
+ * spend.json.bad-<time> so it can be looked at and is not read again.
+ */
+function loadLedger(dataDir: string, at: Date): Ledger {
+  const path = spendFilePath(dataDir);
+  let text: string;
+  try { text = readFileSync(path, 'utf8'); } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? { ok: true, spent: {} } : { ok: false };
+  }
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { raw = undefined; }
+  const spent: Record<string, number> = {};
+  let clean = !!raw && typeof raw === 'object' && !Array.isArray(raw);
+  if (clean) {
+    for (const [month, usd] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof usd === 'number' && Number.isFinite(usd) && usd >= 0) spent[month] = usd; else clean = false;
+    }
+  }
+  if (clean) return { ok: true, spent };
+  try { renameSync(path, `${path}.bad-${at.getTime()}`); } catch { /* it stays; the rerank is stopped either way */ }
+  return { ok: false };
+}
+
 /** The local month as YYYY-MM. */
 export function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
-
-/**
- * Adds `usd` (may be negative, to replace a reservation by the real cost) to a month, never below zero. Atomic: a crash mid-write
- * leaves the old file. A failed write is ignored, so a disk error means the change is not counted toward the cap.
- */
-function addSpend(dataDir: string, month: string, usd: number): void {
-  const spent = readSpend(dataDir);
-  spent[month] = Math.max(0, (spent[month] ?? 0) + usd);
-  const path = spendFilePath(dataDir);
-  const tmp = `${path}.${process.pid}.tmp`;
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(tmp, JSON.stringify(spent, null, 2), 'utf8');
-    renameSync(tmp, path);
-  } catch {
-    try { rmSync(tmp, { force: true }); } catch { /* leave it */ }
-  }
-}
-
-
 
 export interface RerankSessionOpts {
   dataDir: string;
@@ -173,7 +180,7 @@ interface Live {
   ac: AbortController;
   closed: boolean;
   ready: boolean;
-  /** The cumulative cost the last result carried (0 for a new session). */
+  /** The highest cumulative cost a result carried (0 for a new session). */
   lastTotal: number;
   pending?: Pending;
   served: number;
@@ -198,6 +205,10 @@ export class RerankSession {
   private backoffUntil = 0;
   private lastReason: string | undefined;
   private disposed = false;
+  /** Set when the spend file cannot be read or written. The rerank then stays off until the process restarts. */
+  private ledgerBroken = false;
+  /** The highest total this process has booked for a month. The file can never take the month below it. */
+  private floor: { month: string; usd: number } | undefined;
 
   constructor(private readonly o: RerankSessionOpts) {}
 
@@ -245,14 +256,47 @@ export class RerankSession {
     this.close();
   }
 
-  /** Reserves the estimate in the month's spend. Undefined when the month would pass the cap. */
+  /**
+   * Adds `usd` (may be negative, to replace a reservation by the real cost) to a month, never below zero or below what this process
+   * already booked. Atomic: a crash mid-write leaves the old file. Fails closed: if the file cannot be read or written, this returns
+   * false and the rerank stays off for the rest of the process (one log line), because a cap that cannot be kept must not be spent.
+   */
+  private book(month: string, usd: number): boolean {
+    const led = loadLedger(this.o.dataDir, this.now());
+    const path = spendFilePath(this.o.dataDir);
+    const tmp = `${path}.${process.pid}.tmp`;
+    if (led.ok) {
+      const base = Math.max(led.spent[month] ?? 0, this.floor?.month === month ? this.floor.usd : 0);
+      const next = Math.max(0, base + usd);
+      try {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(tmp, JSON.stringify({ ...led.spent, [month]: next }, null, 2), 'utf8');
+        renameSync(tmp, path);
+        this.floor = { month, usd: next };
+        return true;
+      } catch {
+        try { rmSync(tmp, { force: true }); } catch { /* leave it */ }
+      }
+    }
+    this.ledgerBroken = true;
+    this.note('the spend file cannot be used; reranking is off until Legion restarts');
+    return false;
+  }
+
+  /** Reserves the estimate in the month's spend. Undefined when the month would pass the cap, or the spend file cannot be trusted. */
   private reserve(monthlyUsd: number): string | undefined {
+    if (this.ledgerBroken) return undefined;
     const month = monthKey(this.now());
-    const spent = readSpend(this.o.dataDir)[month] ?? 0;
+    const led = loadLedger(this.o.dataDir, this.now());
+    if (!led.ok) {
+      this.ledgerBroken = true;
+      this.note('the spend file cannot be used; reranking is off until Legion restarts');
+      return undefined;
+    }
+    const spent = Math.max(led.spent[month] ?? 0, this.floor?.month === month ? this.floor.usd : 0);
     const est = this.o.reserveUsd ?? RERANK_RESERVE_USD;
     if (spent + est > monthlyUsd) { this.note('monthly cap'); return undefined; }
-    addSpend(this.o.dataDir, month, est);
-    return month;
+    return this.book(month, est) ? month : undefined;
   }
 
   private start(monthlyUsd: number): void {
@@ -286,7 +330,7 @@ export class RerankSession {
     try {
       live.q = (this.o.queryFn ?? (realQuery as unknown as RerankQuery))({ prompt: input(), options });
     } catch {
-      addSpend(this.o.dataDir, month, -(this.o.reserveUsd ?? RERANK_RESERVE_USD));
+      this.book(month, -(this.o.reserveUsd ?? RERANK_RESERVE_USD));
       this.note('error');
       this.failed();
       return;
@@ -339,18 +383,21 @@ export class RerankSession {
   private onResult(live: Live, m: Record<string, unknown>): void {
     const est = this.o.reserveUsd ?? RERANK_RESERVE_USD;
     const total = typeof m.total_cost_usd === 'number' && Number.isFinite(m.total_cost_usd) ? m.total_cost_usd : undefined;
-    // On a streaming session total_cost_usd is CUMULATIVE for the session (the controller's probe: modelUsage cache-read tokens grew by
-    // exactly each result's usage, and costUSD rose 0.000034, 0.00044, 0.00050, 0.00056). A request books the difference since the
-    // previous result. The difference can include a hidden background model call; that is real spend, so it is booked too.
-    const delta = total === undefined ? undefined : Math.max(0, total - live.lastTotal);
-    if (total !== undefined) live.lastTotal = Math.max(live.lastTotal, total);
+    // On a streaming session total_cost_usd has been CUMULATIVE for the session (measured on the installed SDK: each result's total rose
+    // by that result's own usage). A request books the difference since the previous result, hidden background calls included: that is real
+    // spend. If the SDK ever reports each result's own cost instead, a total that is not above the last one cannot be a running total: it is
+    // booked as this request's own cost, and the session is recycled so the next one starts from zero.
+    const wentBack = total !== undefined && live.lastTotal > 0 && total <= live.lastTotal;
+    const delta = total === undefined ? undefined : wentBack ? total : Math.max(0, total - live.lastTotal);
+    if (total !== undefined && !wentBack) live.lastTotal = total;
     const p = live.pending;
     if (!p) return;
     live.pending = undefined;
     if (p.deadline) clearTimeout(p.deadline);
     if (p.ceiling) clearTimeout(p.ceiling);
     // A live request swaps its reservation for the real cost. An abandoned one keeps the reservation (worst case), plus any excess.
-    if (delta !== undefined) addSpend(this.o.dataDir, p.month, p.abandoned ? Math.max(0, delta - est) : delta - est);
+    // With no cost to book (no total, or no growth) the reservation stays: it is never refunded without a booked cost.
+    if (delta !== undefined && delta > 0) this.book(p.month, p.abandoned ? Math.max(0, delta - est) : delta - est);
     const bad = m.is_error === true || (typeof m.subtype === 'string' && m.subtype !== 'success');
     if (bad) {
       p.settle(undefined);
@@ -360,6 +407,7 @@ export class RerankSession {
       return;
     }
     p.settle(p.abandoned ? undefined : typeof m.result === 'string' ? m.result : live.said);
+    if (wentBack) { this.note('cost totals went backwards; the session is recycled'); this.closeLive(live); return; }
     if (p.abandoned) { this.armIdle(live); return; }
     if (p.kind === 'warm') { live.ready = true; this.failures = 0; this.lastReason = undefined; }
     else live.served++;

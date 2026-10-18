@@ -70,6 +70,10 @@ export const EMBED_QUERY_BUDGET_MS = 300;
 export const EMBED_TURN_TIMEOUT_MS = 500;
 /** The local model's helper process stops after this long without a request. */
 export const MODEL_IDLE_MS = 5 * 60_000;
+/** After the local model's helper fails to load (not a failed integrity check), no new helper starts for this long. */
+export const MODEL_LOAD_BACKOFF_MS = 5 * 60_000;
+/** After a provider embedding call fails or answers wrongly, no call goes to that provider and model for this long. */
+export const PROVIDER_EMBED_BACKOFF_MS = 10 * 60_000;
 
 /**
  * The Haiku rerank. The margin is from the Task 11 sample (the largest margin set that did not hurt precision or the false-note rate on either
