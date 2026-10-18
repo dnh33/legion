@@ -19,6 +19,7 @@ import { basename, dirname, join } from 'node:path';
 import { tightenConfigMode, writeConfigFile } from '../../shared/config.js';
 import { openBlob, sealBlob } from '../connectors/store.js';
 import { renameWithRetry } from '../../shared/rename-retry.js';
+import { registerSecret } from '../log/redact.js';
 import { KEYS_BLOCKED_MESSAGE, type KeyStoreState } from '../../shared/providers-view.js';
 
 export const MIN_KEY_LENGTH = 8;
@@ -82,6 +83,8 @@ export class ProviderKeys {
     this.sealedFile = join(dirname(file), `${basename(file, '.json')}.enc`);
     this.keepState = join(dirname(file), 'keys-keep.json');
     this.load();
+    // the log redactor knows every key the core holds from now on, in every common text encoding (keys of a shape no log rule knows included)
+    for (const s of this.map.values()) registerSecret(s.key);
   }
 
   status(): KeyStoreStatus {
@@ -262,6 +265,7 @@ export class ProviderKeys {
     if (typeof key !== 'string') throw new Error('The key must be text.');
     const k = key.trim();
     if (k.length < MIN_KEY_LENGTH || k.length > MAX_KEY_LENGTH || /\s/.test(k)) throw new Error(`A key is ${MIN_KEY_LENGTH} to ${MAX_KEY_LENGTH} characters without spaces.`);
+    registerSecret(k); // before the save: a log line written by the save itself must not carry it
     this.map.set(id, { key: k, origin });
     this.save();
   }
@@ -297,7 +301,7 @@ const PLAIN_WHY: Record<PlainReason, string> = {
   'sealing-failed': 'Legion could not lock the keys file on this start and will try again at the next one',
 };
 const UNLOCK_LINE = 'Your saved keys could not be unlocked on this system. Paste them again.';
-const THREAT = 'Encrypted keys stay unreadable to agents and to anyone who copies your Legion data folder or a backup. A program running as you on your computer can still ask the system key store for them.';
+const THREAT = 'Encrypted keys stay unreadable to anyone who copies your Legion data folder or a backup, and to an agent\'s file tools. A command running as you on your computer can still ask the system key store for them.';
 
 /** The one line Settings shows under Providers and Web search. */
 export function keyStoreLine(s: KeyStoreStatus): string {

@@ -291,7 +291,7 @@ test('K4 the Settings line is short, plain, honest per mode, and has no em dash'
   ];
   assert.match(lines[0]!, /encrypted/i);
   assert.match(lines[0]!, /anyone who copies/i);
-  assert.match(lines[0]!, /program running as you/i);
+  assert.match(lines[0]!, /command running as you/i);
   assert.match(lines[1]!, /not encrypted|unencrypted/i);
   assert.match(lines[3]!, /could not be unlocked on this system\. Paste them again\./);
   assert.match(lines[4]!, /could not be unlocked on this system\. Paste them again\./);
