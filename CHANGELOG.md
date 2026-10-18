@@ -4,6 +4,19 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can search your skills.** A new search tool lets an agent look up the skill that fits what it is doing, instead of relying on the list alone. It is on by default, and every Claude run now carries this one extra tool. Turn it off in Settings, Armory, Skill finder, or per agent in the agent editor.
+- **Suggestions each turn, if you want them.** Legion can rank your switched-on skills against each message and add a short note naming the ones that may fit. It starts off: in tests, a suggestion picked the right skill less than half the time. You choose Off, On, or Only with the local model, and you can set how many skills a note names and how sure a match must be. Subagents can get suggestions too. A quiet "Suggested" line under a reply shows what was suggested and what was loaded; click it to see why. A skill from a plugin or an import is named by its id only.
+- **An optional local model that matches meaning, not only words.** Nothing downloads unless you ask. Get model shows an approval card first. The model is about 145 MB on disk and uses about 1 GB of memory while in use. It stops after 5 idle minutes, and Remove deletes it. Every file is checked against a pinned fingerprint each time it loads. You can use your own embedding provider instead; then your messages are sent to that provider to rank skills.
+- **Rerank close calls with Haiku** (off by default). It asks Claude Haiku to order skills that score close together, adds up to about 2.5 seconds before a reply, and stops at a monthly cap you set. It works with suggestions, uses your Claude account, and never sends a provider agent's messages. If Legion cannot use its spend record, reranking pauses and the Armory says so.
+- **A short skill list** (off by default). It sends each skill's name with a short description and lets agents search for the rest. Choose Never, Always, or When an agent has more than 40 skills.
+- **Try a message.** A test box in the Armory shows which skills a message would find, with the scores and the matched words.
+
+### Changed
+
+- **The prompt cache holds across turns.** Your library briefing and your project board summary now travel with your first message of each run instead of in the system prompt, so a change in either no longer makes Claude re-read the whole conversation.
+
 ### Fixed
 
 - The Armory keeps the skills you switched on when Claude Code cannot give its skill list. It uses the list from its last good read and says when that was. If a switched-on skill is not in the current list, the Armory says how many, so you can see which ones agents will not get.
