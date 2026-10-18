@@ -4,6 +4,49 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-18
+
+This update installs by itself on Windows. On a Mac or Linux, run the installer once more (see below); after that Legion updates itself there too.
+
+### Added
+
+- **Choose how much your agents ask.** Settings, Gates has four presets. Ask: every action asks, as before; read-only commands, and commands your own Claude Code allow rules allow, run without a card. Accept edits: file edits run, everything else asks. Smart: Legion asks before an action that reaches the web, deletes, cannot be undone, or that it cannot classify; tests and builds run without asking. Bypass: no permission cards; your deny rules and Legion's safety rails still apply, and everything is logged. Fine tuning lists the 14 checks behind the presets, and each one can be set on its own. Anything that makes agents ask less asks you to confirm in a separate window first.
+- **First start: how should agents ask by default?** A new install asks once which preset is the app default. Your agents keep their own settings unless you tick "Also make my agents follow this". Decide later changes nothing.
+- **Your agents keep their own setting, or follow the project.** In the agent editor, Approvals is Ask, Accept edits, Full or Follow project. A project can set its own preset, and "Limit agents to this" keeps agents with their own setting from running looser there. The project page names who the limit holds back. A run's chip shows the mode it ran in and why.
+- **Folders you trust.** When a project folder's Claude Code settings, hooks or skills carry commands, Legion no longer runs them until you trust that folder. The folder's CLAUDE.md is still read. A notice in the thread offers the trust ("Let this folder run its own commands?"), and Settings, Gates, Fine tuning, Folders you trust lists the folders you trusted. If a trusted folder's commands change, or a settings file with commands appears while a run works, Legion holds them back again until you look.
+- **Smart web access.** Agents ask before they read a new website. Sites on your list open without asking, and "Always allow" on a card adds a site to it.
+- **Web search providers.** Settings, Providers, Web search can use a search provider with your own key instead of the built-in search. Saving a key, and raising the per-call spending cap, ask you to confirm in a separate window. Paid searches count toward a project's budget when you set one.
+- **Mac and Linux now update themselves.** Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. If you installed on a Mac or Linux before 0.3.5, close Legion and run the installer once more: `curl -fsSL https://getlegion.xyz | sh` (with `--dir`, add it again). Do not use `git pull`; it does not move your install. Your data in `~/.legion` stays.
+
+### Changed
+
+- **Your provider keys are encrypted.** Keys for OpenRouter, DeepSeek, web search and other providers are now kept in an encrypted file, locked with your system key store. A plain copy stays next to it until this update is final, so you can go back to 0.3.4. If your system key store does not unlock, Legion says so and offers to start over with new keys.
+- **Agents ask before they read password and key files** (such as `.env`, SSH and cloud login folders, and Legion's own key files), and after such a read, web calls ask too.
+- **Agents cannot change protected files without asking.** Files that control your editor, your agents, your shell start-up and package managers, Git hooks, and Legion's own settings ask first, in every mode. Outside Bypass, changing Legion's own program folder and the places that start programs when you log in asks too.
+- **Commands an agent runs no longer get environment variables that look like keys, tokens or passwords, or that make a program load other code** (PYTHONPATH, NODE_OPTIONS, LD_LIBRARY_PATH and the like). Legion tells the agent and the activity log which names it held back, never their values. To pass one of them, add its name under "Variables commands may keep" in Settings, Gates, Fine tuning; that asks you to confirm first and applies in every project and outside projects. A project can turn the whole check off with "Keep keys and passwords out of commands".
+- **The activity log hides passwords and tokens** in the web commands it records (curl, wget and PowerShell web calls).
+
+### Fixed
+
+- **A wrong web search key now says the key was not accepted**, instead of a bare error number.
+- The project settings side menu now highlights the section you are looking at.
+
+### Going back to an older version
+
+- If you go back to 0.3.4 after using 0.3.5, your Gates settings are reset to Ask. When you return to 0.3.5, Legion shows that the gate settings changed outside Legion: choose Keep mine, then set your presets again.
+- Once Legion has retired the plain copy of your provider keys, an older version cannot read them, and you paste them again there.
+
+### Known limits
+
+- In Smart, the tests and builds an agent runs can reach the web and read your files without asking.
+- Smart asks before scripts and commands it cannot read, so it still asks often during script-heavy work.
+- In Smart, an agent can put a little data in the address of a docs site or a site you approved.
+- Paid web search bills per call. Legion sets no total, unless you set a budget for the project.
+- Read-only commands run without Legion's plain card in Ask, and while "Inherit my Claude Code settings" is on, so do commands your own Claude Code allow rules allow. Legion's own safety cards still ask.
+- A project's CLAUDE.md can import a file inside the project, such as a .env file, and the agent reads it without asking.
+- Mac and Linux self-update is tested in CI only so far, not by hand on a real Mac.
+- Legion has no sandbox for commands. A command you allow runs with your own rights.
+
 ## [0.3.4] - 2026-10-17
 
 This update installs by itself.

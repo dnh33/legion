@@ -61,6 +61,8 @@ Details: [BSV mode](docs/BSV-MODE.md) and [wallet design](docs/BSV-WALLET-DESIGN
 - **The Library.** Seed-phrase detection knows only the English BIP-39 word list. Taint follows file tools only. Details: [Library](docs/LIBRARY.md).
 - **Skills are not a sandbox.** The skill list and the skill gate decide what agents are told and allowed to load. They do not limit what an agent's other tools can do. A skill you turn on can still steer the agent.
 - **Servers you add.** An MCP server you add runs with your user's rights.
+- **Folders you trust.** Trusting a folder lets its Claude Code hooks, settings and skills run commands with your rights. Legion holds the folder back again when those commands change, but it does not follow a CLAUDE.md import of a file inside the folder, and it does not see a hard link that points outside the folder.
+- **Smart and Bypass.** Smart judges each command by what it can read of it. The tests and builds an agent runs, and the code they load, can reach the web and read your files without a card, and a little data can leave in the address of a site Smart allows. Bypass asks only for protected files. Use Ask for work with web pages or repositories you do not trust.
 - **Providers.** An agent on a provider sends its prompts to the server you chose.
 
 ## Read more
