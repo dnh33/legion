@@ -56,7 +56,7 @@ test('N8c: the key was lost (new key, same folder): app.json does not verify, ev
   const t = new GatesStore(dir, { allowed: PRESETS, signer: makeSigner(Buffer.alloc(32, 9))!, keyState: 'lost' });
   assert.equal(t.project(P).preset, 'ask');
   assert.ok(t.view([P]).changedOutside.includes('app'));
-  rmSync(join(dir, 'app.json')); rmSync(join(dir, `${P}.json`));
+  rmSync(join(dir, 'app.json')); // a signed project file is still there, so the folder was signed once: still lost (no signed file at all would read as a first keyed start)
   assert.equal(createGatesCore({ dataDir: root, keyring: { get: () => Buffer.alloc(32, 9), state: () => 'lost' } }).resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P }), 'ask');
 });
 
@@ -145,7 +145,11 @@ test('key state: the launch line carries new, old or lost; electron decides it b
   const root = cleanupTemp('legion-gr2-');
   assert.equal(gatesKeyState(root), 'new', 'an empty data folder');
   writeFileSync(join(root, 'projects.json'), '[]');
-  assert.equal(gatesKeyState(root), 'lost', 'a data folder in use with no key file');
+  assert.equal(gatesKeyState(root), 'new', 'a data folder in use (a 0.3.4 one) with no key file and no signed gates file is a first keyed start');
+  mkdirSync(join(root, 'gates')); writeFileSync(join(root, 'gates', 'app.json'), '{"version":1}');
+  assert.equal(gatesKeyState(root), 'new', 'an unsigned 0.3.4 gates file does not make it lost');
+  writeFileSync(join(root, 'gates', 'app.json'), '{"version":1,"gen":1,"sig":"x"}');
+  assert.equal(gatesKeyState(root), 'lost', 'a signed gates file and no key file');
   writeFileSync(gatesKeyFilePath(root), 'x');
   assert.equal(gatesKeyState(root), 'old');
   const main = readFileSync(join(process.cwd(), 'src/electron/main.ts'), 'utf8');

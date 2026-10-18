@@ -13,8 +13,9 @@
  * keystore key) nothing looser can be stored at all, so only Ask is possible.
  *
  * Folder-level attacks (fix round 2): the signed app file lists every project file with its counter, and is the thing that proves the
- * folder is whole. Electron says whether the key is `new` (an empty data folder), `old` (the key file was there) or `lost` (a used data
- * folder with no key file). With an old or lost key, an app file that is missing or does not verify means the list is gone: every project
+ * folder is whole. Electron says whether the key is `new` (a first keyed start), `old` (the key file was there) or `lost` (no key file but
+ * gates/ holds a signed file). The store checks the `lost` word against the folder: with no signed file in gates/ it is a first keyed start
+ * (a 0.3.4 folder), and its unsigned Ask files keep their meaning. With an old or lost key, an app file that is missing or does not verify means the list is gone: every project
  * reads Ask, every name is listed, and only Keep mine on `app` (which writes Ask everywhere) or an owner's per-project choice ends it.
  * An app file whose counter is below a project file's was replayed and is treated the same way. A project file counts as genuine only if
  * the verified list names it. Nothing here deletes a cap file or a list entry for a project missing from projects.json.
@@ -25,6 +26,7 @@ import { join } from 'node:path';
 import { DENY_LINE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
+import { hasSignedGatesFile } from '../../shared/gates-signed.js';
 import { canonicalize } from './sign.js';
 import type { Signer } from './sign.js';
 
@@ -223,10 +225,13 @@ export class GatesStore {
     this.folder = dir;
     this.allowed = opts.allowed ?? ASK_ONLY;
     this.signer = opts.signer;
-    this.keyState = opts.keyState ?? 'new';
+    // `lost` means "gates/ holds a signed file and the key file is gone". Electron's word is only a hint: a data folder from 0.3.4 or 0.3.0
+    // has no gates-key.bin and no signed gates file, and that is a first keyed start (its unsigned Ask files keep their old meaning).
+    const hint = opts.keyState ?? 'new';
+    this.keyState = hint === 'lost' && !hasSignedGatesFile(this.folder) ? 'new' : hint;
     this.reload();
     // A new install writes its (blank) signed app file at once, so a missing app file later means it was deleted, not never made.
-    if (this.signer && opts.keyState === 'new' && !existsSync(join(this.folder, 'app.json'))) this.mark('app');
+    if (this.signer && this.keyState === 'new' && !existsSync(join(this.folder, 'app.json'))) this.mark('app');
   }
 
   /** Whether this core holds a key to sign with. Without one only Ask can be stored. */

@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renameWithRetry } from '../shared/rename-retry.js';
+import { hasSignedGatesFile } from '../shared/gates-signed.js';
 
 export interface SafeStorageLike {
   isAsyncEncryptionAvailable(): Promise<boolean>;
@@ -95,11 +96,15 @@ export async function ensureGatesKey(dataDir: string, ss: SafeStorageLike, platf
     return hex;
   } catch { return undefined; }
 }
-/** Decided BEFORE the key file is made: `old` if it is there, `lost` if it is not but the data folder is in use, `new` for an empty data folder. */
+/**
+ * Decided BEFORE the key file is made: `old` if it is there; `lost` if it is not but gates/ holds a signed file (it was signed once, so the key
+ * is gone); otherwise `new`, a first keyed start. A data folder from 0.3.4 or 0.3.0 has no key file and no signed gates file: it is `new`, and its
+ * unsigned Ask files keep their meaning. This is a hint; the core store makes the same decision from the folder (shared helper).
+ */
 export type GatesKeyState = 'new' | 'old' | 'lost' | 'unreadable';
 export function gatesKeyState(dataDir: string): GatesKeyState {
   if (existsSync(gatesKeyFilePath(dataDir))) return 'old';
-  return ['projects.json', 'state.json', 'gates'].some((n) => existsSync(join(dataDir, n))) ? 'lost' : 'new';
+  return hasSignedGatesFile(join(dataDir, 'gates')) ? 'lost' : 'new';
 }
 export const gatesKeyLine = (hex: string | undefined, state: GatesKeyState = 'old'): string => hex ? `GATESKEY ${hex} ${state}
 ` : `GATESKEY - unreadable
