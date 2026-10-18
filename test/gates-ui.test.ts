@@ -94,7 +94,9 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
       contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
         import { GatesSection, GateBuilder, GateRuleCard, GateTestOut, GateRails, GateSuggestions } from ${ui('ui/src/gates/GatesSection.tsx')};
         import { AgentEditor } from ${ui('ui/src/components/AgentEditor.tsx')};
+        import { PermissionGates } from ${ui('ui/src/gates/PermissionGates.tsx')};
         const render = (el) => renderToStaticMarkup(el);
+        export const fine = (view, scope, busy) => render(createElement(PermissionGates, { view, scope, busy: !!busy, note: null, run: async () => true }));
         export const section = (rules) => render(createElement(GatesSection, { s: { gates: { rules, presetsVersion: 0 } } }));
         export const sectionWith = (gates) => render(createElement(GatesSection, { s: { gates } }));
         export const builder = (draft) => render(createElement(GateBuilder, { draft, setDraft: () => {}, agents: globalThis.__st.agents, projects: globalThis.__st.projects, projectOf: globalThis.__projectOf, mode: draft.mode ?? 'ask', onCancel: () => {}, onSave: () => {}, saveLabel: 'Add gate' }));
@@ -296,4 +298,54 @@ test('render: a file changed outside Legion shows the banner with Accept and Kee
     assert.ok(html.includes('Legion cannot sign settings on your computer, so only Ask is available.'));
     assert.equal((html.match(/type="radio"[^>]*disabled=""/g) ?? []).length, 3, 'the three looser radios are disabled');
   } finally { delete (globalThis as { __gv?: unknown }).__gv; cleanup(); }
+});
+
+// ---------------------------------------------------------------- the keep list editor ("Variables commands may keep")
+
+const gv = (envKeep?: string[], over: Record<string, unknown> = {}) => ({ app: { version: 1, ...(envKeep ? { envKeep } : {}) }, projects: {}, unreadable: [], changedOutside: [], canSign: true, ...over });
+
+test('render: at the app default the env-scrub row has the keep list editor: label, field, Add off while empty, the empty line, the note', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(), 'app');
+    assert.match(html, /Variables commands may keep/);
+    assert.match(html, /<input[^>]*aria-label="Variable name"/);
+    assert.match(html, /<button[^>]*disabled=""[^>]*>Add<\/button>/, 'nothing typed, Add is off');
+    assert.match(html, /None are kept/);
+    assert.match(html, /every project and outside projects/);
+    assert.match(html, /values are never shown/i);
+    assert.ok(html.indexOf('Variables commands may keep') > html.indexOf('Keep keys and passwords out of commands'), 'it hangs under the env-scrub gate');
+    assert.ok(!html.includes('\u2014'));
+  } finally { cleanup(); }
+});
+
+test('render: the kept names are listed with a Remove button each, and the empty line goes', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(['NPM_TOKEN', 'MYAPP_*']), 'app');
+    assert.match(html, /<code>NPM_TOKEN<\/code>/);
+    assert.match(html, /<code>MYAPP_\*<\/code>/);
+    assert.match(html, /aria-label="Remove NPM_TOKEN"/);
+    assert.match(html, /aria-label="Remove MYAPP_\*"/);
+    assert.match(html, /is a prefix: every name that starts with MYAPP_/);
+    assert.ok(!/None are kept/.test(html));
+  } finally { cleanup(); }
+});
+
+test('render: Add and Remove are off while a change is waiting for your yes', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(['NPM_TOKEN']), 'app', true);
+    assert.match(html, /aria-label="Remove NPM_TOKEN"[^>]*disabled=""|disabled=""[^>]*aria-label="Remove NPM_TOKEN"/);
+    assert.match(html, /<input[^>]*aria-label="Variable name"[^>]*disabled=""|<input[^>]*disabled=""[^>]*aria-label="Variable name"/);
+  } finally { cleanup(); }
+});
+
+test('render: for a single project the editor is not shown, and a line says the list is shared and where to change it', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(['NPM_TOKEN'], { projects: { website: { version: 1 } } }), 'website');
+    assert.ok(!/aria-label="Variable name"/.test(html));
+    assert.match(html, /The variables kept for commands are the same in every project\. Choose Everything above to change them\./);
+  } finally { cleanup(); }
 });

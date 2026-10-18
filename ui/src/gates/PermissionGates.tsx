@@ -3,6 +3,8 @@ import { LIMIT_GATE_IDS, type GateValue } from '../../../src/shared/gates-regist
 import { loadDocsHosts } from '../../../src/shared/docs-hosts';
 import { Icon } from '../components/icons';
 import { EVERYTHING, GatesNote } from './GatesPresets';
+import { KeepVariables } from './KeepVariables';
+import { KEEP_PROJECT_LINE } from './keepLogic';
 import { STALE_DAYS, overridesWith, permissionRows, siteGroups, staleHostsWhenLoaded, lastUsedByHost, type GateRow, type GatesView } from './presetsLogic';
 import { loadActivity, loadWebHosts, type GatesChangeRequest, type GatesNote as Note } from './useGatesView';
 
@@ -114,6 +116,10 @@ function WebSites({ view, busy, run }: { view: GatesView; busy: boolean; run: Ru
 export function PermissionGates({ view, scope, busy, note, run }: { view: GatesView; scope: string; busy: boolean; note: Note | null; run: Run }) {
   const projectId = scope === EVERYTHING ? undefined : scope;
   const rows = permissionRows(view, projectId);
+  // The result of a change shows where the owner made it: under the keep list for a keep-list change, at the foot of the block for the rest.
+  const [where, setWhere] = useState<'keep' | 'foot'>('foot');
+  const runFoot: Run = (c, done) => { setWhere('foot'); return run(c, done); };
+  const runKeep: Run = (c, done) => { setWhere('keep'); return run(c, done); };
   return (
     <details className="set-card gates-fine">
       <summary><Icon name="chevron" size={14} /><h3>Fine tuning</h3><span className="muted-s">{rows.length} permission gates. Each follows the preset until you change it.</span></summary>
@@ -123,12 +129,15 @@ export function PermissionGates({ view, scope, busy, note, run }: { view: GatesV
       <ul className="gates-gates">
         {rows.map((r) => (
           <li key={r.id} className="gates-gate-wrap">
-            <GateRowView row={r} projectId={projectId} view={view} busy={busy} run={run} />
-            {r.id === 'web-reads' && <WebSites view={view} busy={busy} run={run} />}
+            <GateRowView row={r} projectId={projectId} view={view} busy={busy} run={runFoot} />
+            {r.id === 'web-reads' && <WebSites view={view} busy={busy} run={runFoot} />}
+            {r.id === 'env-scrub' && (projectId === undefined
+              ? <KeepVariables view={view} busy={busy} pending={busy && where === 'keep'} note={where === 'keep' ? note : null} run={runKeep} />
+              : <p className="muted-s gates-keep-shared">{KEEP_PROJECT_LINE}</p>)}
           </li>
         ))}
       </ul>
-      <GatesNote note={note} pending={busy} />
+      <GatesNote note={where === 'foot' ? note : null} pending={busy && where === 'foot'} />
     </details>
   );
 }

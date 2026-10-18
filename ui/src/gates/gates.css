@@ -126,3 +126,13 @@ button.gate-chip:hover { color: var(--text); }
 
 /* the "Comes with Legion" note in the agent editor: a small pill, then plain words */
 .seed-note .chip-pill { display: inline-block; margin-right: 4px; }
+
+.gates-keep-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gates-keep-add input { flex: 0 1 280px; min-width: 0; height: 28px; padding: 0 8px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--text); font: inherit; font-family: var(--font-mono); font-size: 12.5px; }
+.gates-keep-add input::placeholder { color: var(--faint); }
+.gates-keep-add input[aria-invalid='true'] { border-color: var(--danger); }
+.gates-keep-add input:disabled { opacity: .6; }
+.gates-keep-error { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--danger); }
+.gates-keep-error > .icon { flex: none; margin-top: 3px; }
+.gates-keep .gates-hosts { margin-top: 0; }
+.gates-keep-shared { margin: 2px 0 8px 10px; max-width: 70ch; }
