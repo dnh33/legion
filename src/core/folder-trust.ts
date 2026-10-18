@@ -30,6 +30,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { scrubLine } from './activity/index.js';
 import { redact } from './log/redact.js';
+import { isSecretPath } from './secret-paths.js';
 
 export interface TrustedFolder { folder: string; digest: string }
 export type SettingSourceName = 'user' | 'project' | 'local';
@@ -57,8 +58,16 @@ export const INERT_SETTINGS: readonly string[] = [
   '$schema', 'theme', 'language', 'spinnerTipsEnabled', 'prefersReducedMotion', 'cleanupPeriodDays', 'includeCoAuthoredBy', 'attribution',
   'editorMode', 'verbose', 'syntaxHighlightingDisabled', 'terminalProgressBarEnabled', 'showTurnDuration', 'alwaysThinkingEnabled',
 ];
-/** Under `permissions`, only the rules that ask or deny can only tighten (docs: permissions.ask "always prompt", permissions.deny "blocked"). allow, defaultMode and additionalDirectories widen. */
+/**
+ * Under `permissions`, the rules that ask or deny can only tighten (docs: permissions.ask "always prompt", permissions.deny "blocked"). In the shared
+ * `.claude/settings.json` `defaultMode` is inert too: Legion always passes the run's permission mode itself ('default' or 'bypassPermissions', engine
+ * buildOptions; the listing and probe sessions pass 'default'), and the CLI filters an escalating repo-committed defaultMode before it applies it
+ * (sdk.d.ts, resolveSettings and filterEscalatingDefaultMode). `allow` and `additionalDirectories` stay executable: a repository author's allow
+ * rule could skip the plain card in a folder Claude Code trusts, and copying Claude Code's trust rules would drift. Every key of
+ * `settings.local.json` that is not display-only stays executable: an untracked local file applies with no trust step at all.
+ */
 const INERT_PERMISSION_KEYS = new Set(['deny', 'ask']);
+const INERT_SHARED_PERMISSION_KEYS = new Set([...INERT_PERMISSION_KEYS, 'defaultMode']);
 /** Settings whose value is a command string (or an object with one). Any other key that ends the same way is treated the same. */
 const COMMAND_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper', 'statusLine', 'subagentStatusLine', 'fileSuggestion', 'policyHelper', 'processWrapper']);
 const COMMAND_KEY_RE = /(Helper|Refresh|Export|Command)$/;
@@ -170,7 +179,7 @@ function hookLines(where: string, hooks: unknown): string[] {
 }
 
 /** One settings file: the lines to show and the canonical executable content to hash. Never throws. */
-function settingsSource(path: string, label: string): Source | undefined {
+function settingsSource(path: string, label: string, inertPermissions: ReadonlySet<string> = INERT_PERMISSION_KEYS): Source | undefined {
   if (!existsSync(path)) return undefined;
   const unreadable = (why: string): Source => ({ path, kind: 'settings', content: `unreadable:${why}`, lines: [`Legion could not read ${label} (${why}), so it treats it as able to run commands`] });
   let raw: unknown;
@@ -189,7 +198,7 @@ function settingsSource(path: string, label: string): Source | undefined {
       if (!isObj(val)) { exec[key] = val; lines.push(`Permissions in ${label} (a shape Legion does not recognise)`); continue; }
       const widen: Record<string, unknown> = {};
       for (const [pk, pv] of Object.entries(val)) {
-        if (INERT_PERMISSION_KEYS.has(pk)) continue;
+        if (inertPermissions.has(pk)) continue;
         widen[pk] = pv;
         if (pk === 'allow') lines.push(`Permission rules in ${label} allow tools without asking: ${Array.isArray(pv) ? pv.slice(0, 6).map((r) => shown(r, 80)).join(', ') + (pv.length > 6 ? ` and ${pv.length - 6} more` : '') : '(not a list)'}`);
         else if (pk === 'additionalDirectories') lines.push(`Permissions in ${label} add folders: ${Array.isArray(pv) ? pv.slice(0, 6).map((r) => plain(r, 80)).join(', ') : '(not a list)'}`);
@@ -278,15 +287,35 @@ function skillSource(path: string, label: string): Source | undefined {
  * Every .md file under `dir`. Whatever Legion cannot look at (a folder it cannot list, an entry it cannot stat, a folder nested deeper than it checks) is
  * added to `problems` with the path: the caller counts each one as executable, because a file it could not see could hold a hook.
  */
-function listMd(dir: string, depth: number, out: string[], problems: string[]): void {
+function listMd(dir: string, depth: number, out: string[], problems: string[], within?: Within): void {
   let names: string[];
   try { names = readdirSync(dir); } catch { problems.push(`${dir} (not readable)`); return; }
   for (const n of names.sort()) {
     if (out.length > MAX_FILES) return;
     const p = join(dir, n);
     let st; try { st = statSync(p); } catch { problems.push(`${p} (not readable)`); continue; }
-    if (st.isDirectory()) { if (depth < MAX_DEPTH) listMd(p, depth + 1, out, problems); else problems.push(`${p} (nested deeper than Legion checks)`); } else if (/\.md$/i.test(n)) out.push(p);
+    // reading as text (within): a folder or .md file whose real path leaves the folder, or is a password or key file, is skipped and never descended into
+    if (st.isDirectory()) { if (within && !within.keeps(p)) continue; if (depth < MAX_DEPTH) listMd(p, depth + 1, out, problems, within); else problems.push(`${p} (nested deeper than Legion checks)`); } else if (/\.md$/i.test(n) && (!within || within.keeps(p))) out.push(p);
   }
+}
+
+/** For text read into a prompt: whether a path's real path stays inside `root` (itself a real path) and is not a secret file. Skipped paths are kept. */
+interface Within { keeps(p: string): boolean; skipped: Array<{ path: string; secret: boolean }> }
+function insideOf(root: string): Within {
+  const base = norm(fwd(realFolder(root)));
+  const skipped: Within['skipped'] = [];
+  return {
+    skipped,
+    keeps(p) {
+      let real: string;
+      try { real = realpathSync.native(p); } catch { skipped.push({ path: p, secret: false }); return false; }
+      const r = norm(fwd(real));
+      const secret = isSecretPath(real) || isSecretPath(p);
+      if ((r === base || r.startsWith(base + '/')) && !secret) return true;
+      skipped.push({ path: p, secret });
+      return false;
+    },
+  };
 }
 
 function shortPath(p: string, base: string): string {
@@ -303,7 +332,7 @@ export function scanFolder(folderIn: string, opts: ScanOptions = {}): FolderScan
     const userCfg = isUserConfig(folder, configDir);
     if (!userCfg) {
       for (const name of ['settings.json', 'settings.local.json']) {
-        const s = settingsSource(join(folder, '.claude', name), `.claude/${name}`);
+        const s = settingsSource(join(folder, '.claude', name), `.claude/${name}`, name === 'settings.json' ? INERT_SHARED_PERMISSION_KEYS : INERT_PERMISSION_KEYS);
         if (s) sources.push(s);
       }
     }
@@ -367,7 +396,10 @@ const MAX_INSTR_TOTAL = 60_000;
  * The repository's CLAUDE.md files and `.claude/rules/*.md`, read as plain text for a run whose settings were held back. The files the SDK would read
  * (feature docs, "CLAUDE.md load locations", opened 2026-10-18): `<cwd>/CLAUDE.md` or `<cwd>/.claude/CLAUDE.md`, `.claude/rules/*.md` and CLAUDE.md in
  * every parent folder, and CLAUDE.local.md in the folder and every parent. `@imports` inside them are not followed. Farthest folder first, so the
- * nearest instructions come last. The user's own configuration folder is skipped (it still loads as the user source).
+ * nearest instructions come last. The user's own configuration folder is skipped (it still loads as the user source). A file or rules folder whose
+ * real path leaves the folder it was found in (a symlink or junction), or that is a password or key file, is never read: one line names it (the
+ * name only, not where it points). Claude Code itself treats a rules link that points outside as an import that needs approval
+ * (code.claude.com/docs/en/memory, "Organize rules with .claude/rules/"). Gap: a hard link is not seen as a link.
  */
 export function readInstructions(folderIn: string, opts: ScanOptions = {}): Instructions {
   const folder = realFolder(folderIn);
@@ -376,10 +408,15 @@ export function readInstructions(folderIn: string, opts: ScanOptions = {}): Inst
   for (let cur = folder; ; cur = dirname(cur)) { dirs.push(cur); if (dirname(cur) === cur) break; }
   const sections: string[] = []; const files: string[] = [];
   let total = 0; let cut = false;
+  const skipped: string[] = [];
   for (const dir of dirs.reverse()) {
     const cfgHere = isUserConfig(dir, configDir);
-    const candidates = [join(dir, 'CLAUDE.md'), join(dir, 'CLAUDE.local.md'), ...(cfgHere ? [] : [join(dir, '.claude', 'CLAUDE.md')])];
-    if (!cfgHere) { const rules: string[] = []; listMd(join(dir, '.claude', 'rules'), 0, rules, []); candidates.push(...rules); }
+    // a linked file or rules folder (symlink, junction) is read only when its real path stays inside this folder and is not a secret file (A-H3)
+    const inside = insideOf(dir);
+    const candidates = [join(dir, 'CLAUDE.md'), join(dir, 'CLAUDE.local.md'), ...(cfgHere ? [] : [join(dir, '.claude', 'CLAUDE.md')])].filter((f) => existsSync(f) && inside.keeps(f));
+    const rulesDir = join(dir, '.claude', 'rules');
+    if (!cfgHere && existsSync(rulesDir) && inside.keeps(rulesDir)) { const rules: string[] = []; listMd(rulesDir, 0, rules, [], inside); candidates.push(...rules); }
+    skipped.push(...inside.skipped.map((s) => `Skipped a linked file that points ${s.secret ? 'at a password or key file' : 'outside this folder'}: ${plain(shortPath(s.path, dir), 120)}`));
     for (const f of candidates) {
       if (!existsSync(f)) continue;
       let body: string;
@@ -392,5 +429,7 @@ export function readInstructions(folderIn: string, opts: ScanOptions = {}): Inst
       sections.push(`Project instructions from ${fwd(dir)} (read as text; its settings were not loaded). File: ${plain(shortPath(f, dir), 120)}${over ? ' (cut: the file is longer)' : ''}\n${body.replace(/\r\n?/g, '\n').trim()}`);
     }
   }
+  // the name only, never where the link points
+  sections.push(...skipped);
   return { text: sections.join('\n\n'), files, cut };
 }
