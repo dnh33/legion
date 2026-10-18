@@ -36,7 +36,15 @@ const rogue = (port, healthBody) => new Promise((res) => {
   });
   s.listen(port, '127.0.0.1', () => { servers.push(s); res(s); });
 });
-const bootstrap = () => { const e = {}; globalThis.__ipc['legion:bootstrap'](e); return e.returnValue; };
+// The preload sends legion:bootstrap from inside the window, so the window exists and the event is the one real Electron builds
+// (IpcMainEvent: `sender` is the window's WebContents, `senderFrame` the frame that sent it, `returnValue` the answer). `over` sends it as
+// another frame or window would.
+const bootstrap = (over = {}) => {
+  if (!__t.win) __t.createWindow(false);
+  const e = { sender: __t.win.webContents, senderFrame: { url: __t.uiUrl }, ...over };
+  globalThis.__ipc['legion:bootstrap'](e);
+  return e.returnValue;
+};
 // a zombie (killed, not yet reaped by an init that is slow to wait) is dead
 const alive = (pid) => {
   try { process.kill(pid, 0); } catch { return false; }
@@ -127,6 +135,8 @@ try {
     const S = __t.adminSecret; const pid = __t.coreProc.pid;
     const b = bootstrap();
     out.bootstrapIsSecret = b.admin === S;
+    // the check in main: another frame, no frame or another window gets nothing
+    out.bootForeign = [bootstrap({ senderFrame: { url: 'https://evil.example/' } }), bootstrap({ senderFrame: undefined }), bootstrap({ senderFrame: null }), bootstrap({ sender: {} })];
     const has = (x) => x.includes(S);
     out.inCmdline = has(procText(pid, 'cmdline'));
     out.inEnviron = has(procText(pid, 'environ'));
