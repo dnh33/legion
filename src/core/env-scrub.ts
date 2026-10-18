@@ -31,15 +31,19 @@ const secretLooking = (name: string, value: string | undefined): boolean =>
   SECRET_ENV.test(name) || name.toUpperCase().split('_').some((w) => SECRET_WORDS.has(w)) || (typeof value === 'string' && (URL_WITH_PASSWORD.test(value) || VALUE_PASSWORD.test(value)));
 const injectionClass = (name: string): boolean => { const n = name.toUpperCase(); return INJECTION.has(n) || n.startsWith('DYLD_'); };
 
+/** Is this variable held back from the commands an agent runs? The one rule behind both the scrub and the list of names Legion tells the run about. */
+function heldBack(k: string, v: string | undefined, o: ScrubOpts): boolean {
+  if (NEVER_STRIP.has(k.toUpperCase()) || GIT_CONFIG_ENV.test(k) || kept(k, o.keep ?? [])) return false;
+  return injectionClass(k) || (secretLooking(k, v) && !(o.providerAuth && PROVIDER.test(k)));
+}
+
 export function scrubSecretEnv(env: Record<string, string | undefined>, o: ScrubOpts = {}): Record<string, string | undefined> {
-  const keep = o.keep ?? [];
   const out: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (!NEVER_STRIP.has(k.toUpperCase()) && !GIT_CONFIG_ENV.test(k) && !kept(k, keep)) {
-      if (injectionClass(k)) continue;
-      if (secretLooking(k, v) && !(o.providerAuth && PROVIDER.test(k))) continue;
-    }
-    out[k] = v;
-  }
+  for (const [k, v] of Object.entries(env)) if (!heldBack(k, v, o)) out[k] = v;
   return out;
+}
+
+/** The NAMES `scrubSecretEnv` would hold back, sorted. Names only: a value never leaves this function. */
+export function heldBackNames(env: Record<string, string | undefined>, o: ScrubOpts = {}): string[] {
+  return Object.entries(env).filter(([k, v]) => heldBack(k, v, o)).map(([k]) => k).sort((x, y) => x.localeCompare(y));
 }

@@ -47,6 +47,8 @@ export interface RigOptions {
   /** The run is a helper woken by an outside app or another bot: the ceiling it carries. */
   ceiling?: RunMode;
   approvalTimeoutMs?: number;
+  /** Names on the owner's keep list for the environment scrub (signed app file). */
+  keep?: string[];
   /** Task 28: a web search provider service over an in-memory key store and a fake fetch. Keys by id ('web:exa'); nothing here touches the network. */
   webSearch?: { cfg?: Partial<WebSearchConfig>; keys?: Record<string, string>; fetchImpl?: typeof fetch };
 }
@@ -67,6 +69,7 @@ export async function gatesRig(o: RigOptions = {}) {
   const r = setup({ gatesCore: true, ...(ws ? { webSearch: ws } : {}), activity: true, approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
   const core = r.core as GatesCore;
   if (o.app) core.store.patchApp({ preset: o.app });
+  if (o.keep) core.store.patchApp({ envKeep: o.keep });
   const body: Record<string, unknown> = {};
   if (o.preset) body.preset = o.preset;
   if (o.limit !== undefined) body.limit = o.limit;
