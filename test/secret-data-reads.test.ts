@@ -165,7 +165,11 @@ test('the pure matcher: no data folder known means the same answers as before; t
 
 // ---- fix round 2: a search over the folder that holds the keys, and a shell that moves into it first ----
 const HOME_SPELLING = '~/.legion-secrettest';
-const SEARCHES: Array<[string, Record<string, unknown>]> = [
+// On Linux and macOS DATA and fwd are one string, so two entries become the same call. The engine shares one card for an identical call
+// (same task, tool and input) for 5 seconds (askGuards: the hook and canUseTool raise one card), so the repeat would get no card of its own.
+// Each distinct call is kept once.
+const distinct = (list: Array<[string, Record<string, unknown>]>): Array<[string, Record<string, unknown>]> => list.filter(([t, i], k) => list.findIndex(([t2, i2]) => t2 === t && JSON.stringify(i2) === JSON.stringify(i)) === k);
+const SEARCHES: Array<[string, Record<string, unknown>]> = distinct([
   ['Grep', { pattern: 'sk-', path: DATA }],
   ['Grep', { pattern: 'sk-', path: fwd }],
   ['Grep', { pattern: 'sk-', path: DATA, glob: 'keys.json' }],
@@ -202,7 +206,7 @@ const SEARCHES: Array<[string, Record<string, unknown>]> = [
   ['PowerShell', { command: `cd ${DATA}\\providers; Get-Content keys.json` }],
   ['PowerShell', { command: `Set-Location ${DATA}\\connectors; type key.bin` }],
   ['mcp__host__shell', { command: `grep -r sk- ${fwd}` }],
-];
+]);
 const SEARCHES_FREE: Array<[string, Record<string, unknown>]> = [
   ['Grep', { pattern: 'sk-', path: DATA, glob: '*.log' }],
   ['Grep', { pattern: 'sk-', path: DATA, glob: '*.{log,md}' }],
