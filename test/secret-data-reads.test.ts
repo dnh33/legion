@@ -290,3 +290,38 @@ test('fix round 3: a search folder that only contains the key folders is worded 
     }
   });
 });
+
+// ---- security fix 1 (A-M2): a home prefix in its own quotes is the same read; a shell drops the quotes before it opens the file
+test('A-M2: a quoted home prefix is a secret read, like the unquoted spelling (pure matcher)', () => {
+  const key = `${homedir()}/.legion/providers/keys.json`.replace(/\\/g, '/');
+  const where = { cwd: DATA, dataFolder: DATA, inside: (p: string, cwd?: string) => resolve(cwd ?? DATA, p).replace(/\\/g, '/') === key, reaches: () => false, globReaches: () => false };
+  const forms: Array<[string, string]> = [
+    ['Bash', 'cat ~/.legion/providers/keys.json'], ['Bash', 'cat $HOME/.legion/providers/keys.json'], ['Bash', 'cat ${HOME}/.legion/providers/keys.json'],
+    ['PowerShell', 'type %USERPROFILE%\\.legion\\providers\\keys.json'], ['PowerShell', 'Get-Content $env:USERPROFILE\\.legion\\providers\\keys.json'],
+    ['Bash', 'cat "$HOME"/.legion/providers/keys.json'], ['Bash', 'cat "${HOME}"/.legion/providers/keys.json'], ['Bash', "cat '$HOME'/.legion/providers/keys.json"],
+    ['Bash', 'cat "$HOME/.legion/providers/keys.json"'], ['Bash', 'cat $HOME"/.legion/providers/keys.json"'], ['Bash', 'cat "$HOME"/".legion"/providers/keys.json'], ['Bash', 'cat --show-all "$HOME"/.legion/providers/keys.json'],
+    ['PowerShell', 'type "%USERPROFILE%"\\.legion\\providers\\keys.json'], ['PowerShell', 'Get-Content "$env:USERPROFILE"\\.legion\\providers\\keys.json'], ['PowerShell', "gc '$env:USERPROFILE'\\.legion\\providers\\keys.json"],
+    ['Bash', 'head -c 9 "~"/.legion/providers/keys.json'], ['Bash', 'cd "$HOME"/.legion && cat providers/keys.json'], ['Bash', 'rg sk- "$HOME"/.legion/providers/keys.json'],
+  ];
+  for (const [tool, command] of forms) assert.ok(secretReadHit(tool, { command }, where), `${tool}: ${command}`);
+  for (const [tool, command] of [['Bash', 'cat "$HOME"/notes.txt'], ['Bash', 'cat "$HOME"/.legion/logs/run.log'], ['PowerShell', 'type "%USERPROFILE%"\\notes.txt']] as const) assert.equal(secretReadHit(tool, { command }, where), undefined, `${tool}: ${command}`);
+});
+
+test('A-M2: through the engine, a quoted home prefix on Legion\'s key files cards with no Remember in Ask, Accept edits and Smart', async () => {
+  const quoted: Array<[string, Record<string, unknown>]> = [
+    ['Bash', { command: 'cat "$HOME"/.legion-secrettest/providers/keys.json' }],
+    ['Bash', { command: 'cat "${HOME}"/.legion-secrettest/providers/keys.json' }],
+    ['PowerShell', { command: 'type "%USERPROFILE%"\\.legion-secrettest\\providers\\keys.json' }],
+    ['PowerShell', { command: 'Get-Content "$env:USERPROFILE"\\.legion-secrettest\\providers\\keys.json' }],
+  ];
+  for (const [mode, make] of RIGS) {
+    await withRig(make, async (r) => {
+      for (const [tool, input] of quoted) {
+        const o = await ask(r, tool, input);
+        assert.equal(o.card, true, `${mode}: ${tool} ${JSON.stringify(input)}`);
+        assert.equal(o.noRemember, true, `${mode}: no Remember: ${tool}`);
+        assert.match(o.summary, /^Legion wants to read .+\. It may hold passwords or keys\.$/, `${mode}: ${tool}`);
+      }
+    });
+  }
+});

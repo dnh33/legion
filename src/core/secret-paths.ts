@@ -38,7 +38,8 @@ export function expandHomeWord(word: string): string {
 
 /** Programs whose later words are files they read, copy or send. A program not in this list is a known gap. */
 const READERS: ReadonlySet<string> = new Set(['cat', 'type', 'more', 'less', 'head', 'tail', 'get-content', 'gc', 'select-string', 'sls', 'findstr', 'grep', 'rg', 'awk', 'sed', 'cp', 'copy', 'copy-item', 'xcopy', 'robocopy', 'base64', 'certutil', 'openssl', 'scp', 'curl', 'wget', 'strings', 'xxd', 'od', 'hexdump', 'sort', 'bat']);
-const unquote = (s: string): string => s.replace(/^["'`]+|["'`]+$/g, '');
+/** A shell drops quote marks inside a word too (`"$HOME"/.legion`), so every one goes before the home expansion and the path test. */
+const unquote = (s: string): string => s.replace(/["'`]/g, '');
 
 /** File names Legion's key folders hold, kept even when a folder is empty or missing (so a search before the first key is saved still counts). */
 const KNOWN_KEY_FILES = ['keys.json', 'keys.enc', 'keys-keep.json', 'key.bin', 'gates-key.bin', 'app.json'];
