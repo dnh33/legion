@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { DENY_LINE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../../shared/gates-signed.js';
@@ -37,10 +37,7 @@ export class GatesError extends Error {
 const MAX_BYTES = 64 * 1024;
 const DEBOUNCE_MS = 400;
 const MAX_HOSTS = 200;
-const MAX_ENV_KEEP = 50;
 const HOST_RE = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
-// A name, or a prefix of at least 3 characters ending in * (a shorter prefix would keep nearly everything).
-const ENV_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]{2,}\*)$/;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permission').map((g) => g.id));
 const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
@@ -112,10 +109,10 @@ function parseEnvKeep(v: unknown): string[] {
   if (!Array.isArray(v)) throw new GatesError(400, 'envKeep must be a list of variable names.');
   const out: string[] = [];
   for (const x of v) {
-    if (typeof x !== 'string' || !ENV_RE.test(x)) throw new GatesError(400, `"${String(x).slice(0, 60)}" is not a variable name. Use letters, digits and _, with a * only at the end.`);
+    if (typeof x !== 'string' || !ENV_KEEP_RE.test(x)) throw new GatesError(400, `"${String(x).slice(0, 60)}" is not a variable name. Use letters, digits and _, with a * only at the end.`);
     if (!out.some((o) => o.toUpperCase() === x.toUpperCase())) out.push(x);
   }
-  if (out.length > MAX_ENV_KEEP) throw new GatesError(400, `At most ${MAX_ENV_KEEP} kept variables.`);
+  if (out.length > ENV_KEEP_MAX) throw new GatesError(400, `At most ${ENV_KEEP_MAX} kept variables.`);
   return out;
 }
 

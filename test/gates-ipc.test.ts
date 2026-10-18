@@ -362,3 +362,52 @@ test('M3: the window reaches the handler only through main, which checks the sen
   assert.match(pre, /gatesChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:gates-change', change\);/);
   assert.doesNotMatch(pre, /nativeSecret|X-Legion-Native/i);
 });
+
+// ---------------------------------------------------------------- the keep list editor ("Variables commands may keep")
+
+test('keep list: Add raises one dialog titled "Keep these variables?" that names the variable, then saves with native and the shown digest', withHarness([true], {}, async (r) => {
+  const res = await gatesChange({ kind: 'app', patch: { envKeep: ['NPM_TOKEN'] } }, r.deps);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(r.dialogs.length, 1);
+  assert.equal(r.dialogs[0]!.title, 'Keep these variables?');
+  assert.match(r.dialogs[0]!.detail, /Commands keep the variable NPM_TOKEN, which can hold a secret/);
+  const w = writes(r);
+  assert.equal(w.length, 1);
+  assert.deepEqual([w[0]!.method, w[0]!.route, w[0]!.native, w[0]!.body], ['PATCH', '/api/gates/app', true, { envKeep: ['NPM_TOKEN'] }]);
+  assert.deepEqual(r.core.store.app().envKeep, ['NPM_TOKEN']);
+}));
+
+test('keep list: Cancel on the dialog saves nothing', withHarness([false], {}, async (r) => {
+  const res = await gatesChange({ kind: 'app', patch: { envKeep: ['NPM_TOKEN'] } }, r.deps);
+  assert.deepEqual([res.ok, res.cancelled], [false, true]);
+  assert.equal(writes(r).length, 0);
+  assert.equal(r.core.store.app().envKeep, undefined);
+}));
+
+test('keep list: Remove needs no dialog and no native header; removing the last name sends [] and clears the key', withHarness([], {}, async (r) => {
+  r.core.store.patchApp({ envKeep: ['NPM_TOKEN', 'GH_TOKEN'] });
+  const one = await gatesChange({ kind: 'app', patch: { envKeep: ['GH_TOKEN'] } }, r.deps);
+  assert.equal(one.ok, true, one.error);
+  assert.equal(r.dialogs.length, 0, 'removing a name is a tightening');
+  assert.equal(writes(r)[0]!.native, false);
+  assert.deepEqual(r.core.store.app().envKeep, ['GH_TOKEN']);
+  const last = await gatesChange({ kind: 'app', patch: { envKeep: [] } }, r.deps);
+  assert.equal(last.ok, true, last.error);
+  assert.equal(r.dialogs.length, 0);
+  assert.equal(writes(r)[1]!.native, false);
+  assert.equal(r.core.store.app().envKeep, undefined);
+}));
+
+test('keep list: adding one name to a list that already has names asks about the new one only', withHarness([true], {}, async (r) => {
+  r.core.store.patchApp({ envKeep: ['NPM_TOKEN'] });
+  const res = await gatesChange({ kind: 'app', patch: { envKeep: ['NPM_TOKEN', 'GH_TOKEN'] } }, r.deps);
+  assert.equal(res.ok, true, res.error);
+  assert.equal(r.dialogs.length, 1);
+  assert.match(r.dialogs[0]!.detail, /GH_TOKEN/);
+  assert.doesNotMatch(r.dialogs[0]!.detail, /NPM_TOKEN/, 'a name already kept is not asked about again');
+  assert.deepEqual(r.core.store.app().envKeep, ['NPM_TOKEN', 'GH_TOKEN']);
+}));
+
+test('keep list: a project cannot carry a keep list (the list is the app file only)', async () => {
+  assert.equal(parseGatesChange({ kind: 'project', id: 'proj_0123456789ab', patch: { envKeep: ['NPM_TOKEN'] } }), undefined);
+});

@@ -29,7 +29,7 @@ import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
 import { loadDocsHosts } from '../shared/docs-hosts.js';
 import { webCardSummary, WEB_CARD, WEB_MANY_BODY } from '../shared/web-copy.js';
-import { GATES } from '../shared/gates-registry.js';
+import { ENV_KEEP_LABEL, ENV_NEVER_PASSED, GATES } from '../shared/gates-registry.js';
 import type { GateValue } from '../shared/gates-registry.js';
 import type { ActivityLog } from './activity/index.js';
 import type { WebSearchService } from './web-search/index.js';
@@ -349,7 +349,7 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; sc
 }
 
 /** Environment variables that hold Legion's own credentials. */
-const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY']);
+const LEGION_CREDENTIAL_ENV: ReadonlySet<string> = new Set(ENV_NEVER_PASSED);
 
 /**
  * The environment the agent shell (host tools) starts from. Legion's own credentials are not the agent's: the Anthropic
@@ -1496,7 +1496,7 @@ export class Engine {
         this.activity?.append({ kind: 'note', text: `Held back from commands: ${shown}`, taskId: job.taskId, agentId: agent.id });
       }
       const inProject = startProjectOf(job) !== undefined;
-      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why. ${inProject ? 'The user can pass them by turning off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.' : 'Outside a project they stay held back.'}`;
+      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, "${ENV_KEEP_LABEL}".${inProject ? ' To pass every held-back variable at once, they can turn off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.' : ''}`;
     } catch { return ''; }
   }
   private childScrubFor(job: Job): { scrub: false | ScrubOpts } {

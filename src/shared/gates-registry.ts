@@ -83,6 +83,17 @@ export interface GateSettings {
 
 export const isPreset = (v: unknown): v is Preset => typeof v === 'string' && (PRESETS as readonly string[]).includes(v);
 
+/** The keep list editor's name on the Gates page. The line Legion gives a run about held-back variables quotes it, so the two cannot drift apart. */
+export const ENV_KEEP_LABEL = 'Variables commands may keep';
+/** The most names the keep list holds, and the longest a name can be. The core and the editor check the same numbers. */
+export const ENV_KEEP_MAX = 50;
+export const ENV_KEEP_NAME_MAX = 100;
+/** A kept name: a variable name, or a prefix of at least 3 characters ending in * (a shorter prefix would keep nearly everything). */
+export const ENV_KEEP_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]{2,}\*)$/;
+/** Variables Legion never passes to an agent's commands, whatever the keep list says: its own credentials, and its own LEGION_ settings. */
+export const ENV_NEVER_PASSED = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY'] as const;
+export const ENV_NEVER_PASSED_PREFIX = 'LEGION_';
+
 const BY_ID: ReadonlyMap<string, GateDef> = new Map(GATES.map((g) => [g.id, g as GateDef]));
 
 /** The value of one gate for a project. Unknown ids are on; rails are always on; an override beats the project preset, which beats the app preset. */

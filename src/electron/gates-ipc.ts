@@ -6,7 +6,7 @@
  * was shown. The core refuses the change if what it would apply now differs from that digest. The window never has the secret.
  * A tightening needs no dialog and no native secret. Kept free of electron imports so it can be tested with fakes.
  */
-import { DENY_LINE, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
+import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_NAME_MAX, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply } from './provider-ipc.js';
@@ -56,7 +56,7 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
       if (!Array.isArray(x) || x.length > 200 || x.some((h) => typeof h !== 'string' || h.length > 253)) return undefined;
       out.allowedHosts = x as string[];
     } else if (k === 'envKeep' && isApp) {
-      if (!Array.isArray(x) || x.length > 50 || x.some((n) => typeof n !== 'string' || n.length > 100)) return undefined;
+      if (!Array.isArray(x) || x.length > ENV_KEEP_MAX || x.some((n) => typeof n !== 'string' || n.length > ENV_KEEP_NAME_MAX)) return undefined;
       out.envKeep = x as string[];
     } else if ((k === 'firstRunChoice' || k === 'noticeSeen') && isApp) {
       if (x !== true) return undefined;
