@@ -20,6 +20,12 @@ export function presetChoices(): PresetChoice[] {
 export const MODE_LABEL: Record<RunMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', smart: 'Smart', 'smart-edits': 'Smart, and file edits run', full: 'Bypass' };
 /** What an agent's own stored mode is called in the agent editor. */
 export const AGENT_MODE_LABEL: Record<ApprovalMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', full: 'Full' };
+/** What each own mode means, in one place: the agent editor, the Gates page and the project page all read it. */
+export const AGENT_MODE_HELP: Record<ApprovalMode, string> = {
+  ask: 'Asks before Bash, edits and MCP tools.',
+  'auto-edits': 'Allows file edits, asks for Bash and MCP tools.',
+  full: 'Never asks. A project can limit it only while "Limit agents to this" is on.',
+};
 
 /** The name the settings files use for a scope: `app`, or the project id. */
 const scopeName = (projectId?: string): string => projectId ?? 'app';

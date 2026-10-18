@@ -13,9 +13,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
 import {
-  GATE_PRESETS, MODE_TEXT, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
+  GATE_PRESETS, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
 } from '../ui/src/gates/gatesLogic.js';
-import { railRows } from '../ui/src/gates/presetsLogic.js';
+import { AGENT_MODE_LABEL, railRows } from '../ui/src/gates/presetsLogic.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const AGENTS = [
@@ -58,7 +58,7 @@ test('ruleHostless: a host rule for an agent without the shell says so; a host-e
 test('consequenceLine tells the truth per class, including the Full + Ask rule', () => {
   assert.match(consequenceLine('deny', 'full'), /every mode/);
   assert.match(consequenceLine('ask', 'full'), /Ask rules are off here/);
-  assert.match(consequenceLine('ask', 'auto-edits'), /Allow edits, ask for Bash\/MCP/);
+  assert.match(consequenceLine('ask', 'auto-edits'), /(Accept edits)/);
   assert.match(consequenceLine('allow', 'ask'), /never loosens a run another bot started/);
 });
 
@@ -69,7 +69,7 @@ test('gateTestResult IS decideGate: a deny rule answers DENY with the rule, no r
   assert.deepEqual(d.matched.map((r) => r.label), ['No rm -rf']);
   assert.equal(gateTestResult([], { toolName: 'Bash', input: { command: 'ls' }, agentId: 'zealot', mode: 'ask' }).verdict, 'baseline');
   assert.equal(VERDICT_TEXT.baseline.includes('mode decides'), true);
-  assert.equal(MODE_TEXT.full, 'Full access, never ask');
+  assert.equal(AGENT_MODE_LABEL.full, 'Full');
 });
 
 test('presets are offered, never auto-applied, and a preset rule is stamped as such', () => {

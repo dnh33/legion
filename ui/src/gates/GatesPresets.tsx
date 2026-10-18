@@ -79,6 +79,7 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
   const project = isApp ? undefined : projects.find((p) => p.id === scope);
   const sum = scopeSummary(view, isApp ? undefined : scope);
   const choices = presetChoices();
+  const words = project ? limitWords(agents, project, view) : {};
   const change = (patch: Record<string, unknown>, done: string) => run(isApp ? { kind: 'app', patch } : { kind: 'project', id: scope, patch }, done);
   const current: Preset | 'per-agent' = isApp ? (view.app.preset ?? 'ask') : sum.preset;
   const setPreset = (p: Preset | null) => void change({ preset: p }, p === null ? `Agents in ${project?.name ?? 'this project'} use their own settings again.` : `Preset set to ${choices.find((c) => c.id === p)?.label}.`);
@@ -121,8 +122,8 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
           {sum.preset === 'per-agent' || !project
             ? <p className="field-note" role="status">Each agent in this project uses its own setting.</p>
             : sum.limit
-              ? <p className="field-note" role="status">{limitWords(agents, project, view).on}</p>
-              : limitWords(agents, project, view).off && <p className="gates-warn" role="status"><Icon name="warn" size={13} /> <span>{limitWords(agents, project, view).off}</span></p>}
+              ? <p className="field-note" role="status">{words.on}</p>
+              : words.off && <p className="gates-warn" role="status"><Icon name="warn" size={13} /> <span>{words.off}</span></p>}
         </>
       )}
       <GatesNote note={note} pending={busy} />

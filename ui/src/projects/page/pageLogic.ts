@@ -9,6 +9,8 @@ import { countAsks, deriveAsks, sortAsks } from '../../../../src/shared/attentio
 import type { Ask } from '../../../../src/shared/attention.js';
 import { BUDGET_LIMIT_PREFIX, isBudgetPause, isLimitPause, isParkPause } from '../../../../src/shared/continue.js';
 import type { Project } from '../../../../src/shared/projects.js';
+import { CHOICE_HELP } from '../../gates/agentFollowLogic.js';
+import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from '../../gates/presetsLogic.js';
 import type { AgentProfile, ApprovalRequest, PendingQuestion, QueueSnapshot, Task, TaskProgress } from '../../../../src/shared/types.js';
 
 export const DAY_MS = 86_400_000;
@@ -219,8 +221,10 @@ export interface Unit {
 }
 export interface IdleMember { agentId: string; name: string; text: string; weekUsd: number }
 
-const MODE_TEXT: Record<string, string> = { ask: 'Asks first', 'auto-edits': 'Auto-edits', full: 'Full access' };
-export const MODE_HELP = 'Asks first: asks before any edit or command. Auto-edits: edits files freely, asks before commands. Full access: never asks.';
+/** The legend under the agent chips: the agent editor's words for each setting. */
+export const MODE_HELP = (['ask', 'auto-edits', 'full'] as const).map((m) => `${AGENT_MODE_LABEL[m]}: ${AGENT_MODE_HELP[m]}`).join(' ') + ` Follow project: ${CHOICE_HELP.project}`;
+/** What an agent's chip says: its own setting, or Follow project. */
+const modeText = (a: { approval: 'ask' | 'auto-edits' | 'full'; approvalSource?: 'own' | 'project' }): string => (a.approvalSource === 'project' ? 'Follow project' : AGENT_MODE_LABEL[a.approval]);
 
 const askTitle = (f: PageFacts, a: Ask): string => {
   const t = a.taskId ? f.tasks.find((x) => x.id === a.taskId) : undefined;
@@ -278,7 +282,7 @@ export function unitModel(f: PageFacts, o: { weekByAgent?: Readonly<Record<strin
     const firstAway = away[0];
     const rank = mine.length ? 0 : PRI[runs[0]?.st ?? 'review'] ?? 6;
     units.push({
-      agentId: id, name, role: agent?.description ?? '', mode: agent ? MODE_TEXT[agent.approval] ?? '' : '', cloud: !!agent?.vm?.enabled, model: String(agent?.model ?? ''),
+      agentId: id, name, role: agent?.description ?? '', mode: agent ? modeText(agent) : '', cloud: !!agent?.vm?.enabled, model: String(agent?.model ?? ''),
       lead: lines[0]!, rest: lines.slice(1),
       ...(firstAway ? { also: `Also working in ${shortProjectName(f.projects.find((p) => p.id === firstAway.projectId)?.name ?? 'another project')}: ${firstAway.title}${away.length > 1 ? ` (+${away.length - 1})` : ''}` } : {}),
       tail, runs: liveRuns(id, f.tasks), weekUsd, rank, at: lastWork,

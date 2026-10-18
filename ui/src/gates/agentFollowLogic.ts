@@ -3,7 +3,7 @@ import { effectiveMode, presetMode } from '../../../src/core/permission-mode.js'
 import type { AgentProfile, ApprovalMode, RunMode, Task } from '../../../src/shared/types.js';
 import type { Project } from '../../../src/shared/projects.js';
 import type { Preset } from '../../../src/shared/gates-registry.js';
-import { AGENT_MODE_LABEL, MODE_LABEL, PRESET_LABEL, runsAsChip, webChip, type GatesView } from './presetsLogic.js';
+import { AGENT_MODE_HELP, AGENT_MODE_LABEL, MODE_LABEL, PRESET_LABEL, runsAsChip, webChip, type GatesView } from './presetsLogic.js';
 
 /** What the agent editor's Approvals field offers. `project` is "Follow project"; the rest are the agent's own mode. */
 export type ApprovalChoice = 'project' | ApprovalMode;
@@ -15,9 +15,9 @@ export const APPROVAL_CHOICES: ReadonlyArray<{ id: ApprovalChoice; label: string
 ];
 export const CHOICE_HELP: Record<ApprovalChoice, string> = {
   project: 'Uses the way agents ask in the project it works in, or the app default outside a project.',
-  ask: 'Asks before Bash, edits and MCP tools.',
-  'auto-edits': 'Allows file edits, asks for Bash and MCP tools.',
-  full: 'Never asks. A project can still limit it.',
+  ask: AGENT_MODE_HELP.ask,
+  'auto-edits': AGENT_MODE_HELP['auto-edits'],
+  full: AGENT_MODE_HELP.full,
 };
 
 /** What the field shows for a saved agent. A new agent (nothing saved yet) starts on Follow project. */
@@ -127,7 +127,7 @@ function explainRun(a: { name?: string; agentMode: ApprovalMode; source: 'own' |
 
 /** What a run from before the chip existed shows next to the agent: its own setting, in the same words as everywhere else. */
 export function legacyModeChip(agent: Pick<AgentProfile, 'approval' | 'approvalSource'>): string {
-  return agent.approvalSource === 'project' ? 'Follows the project or app default' : AGENT_MODE_LABEL[agent.approval];
+  return agent.approvalSource === 'project' ? 'Follow project' : AGENT_MODE_LABEL[agent.approval];
 }
 
 /** What the agent editor says under the Approvals field about a seeded agent nobody has changed. Nothing for any other agent. */

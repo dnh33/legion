@@ -7,9 +7,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { Store } from '../src/core/store.js';
-import { MODE_LABEL, runsAsChip } from '../ui/src/gates/presetsLogic.js';
+import { AGENT_MODE_HELP, AGENT_MODE_LABEL, MODE_LABEL, runsAsChip } from '../ui/src/gates/presetsLogic.js';
 import type { GatesView } from '../ui/src/gates/presetsLogic.js';
-import { PROJECT_NOTICE, legacyModeChip, limitWords, runChips, seedWords } from '../ui/src/gates/agentFollowLogic.js';
+import { GATES_EMPTY, consequenceLine } from '../ui/src/gates/gatesLogic.js';
+import { WRITE_NOTE } from '../ui/src/github/agentAccess.js';
+import { MODE_HELP } from '../ui/src/projects/page/pageLogic.js';
+import { CHOICE_HELP, PROJECT_NOTICE, legacyModeChip, limitWords, runChips, seedWords } from '../ui/src/gates/agentFollowLogic.js';
 import type { AgentProfile } from '../src/shared/types.js';
 import type { Project } from '../src/shared/projects.js';
 
@@ -79,10 +82,8 @@ test('smart-edits has plain words', () => {
 
 test('the run chip hover explains the agent\'s own mode, the project preset and the result', () => {
   const v = withPreset('ask', true);
-  const names = [{ id: 'builder', name: 'Builder' }];
   const c = runChips({ runsAs: { mode: 'ask', projectId: P } }, { approval: 'full', approvalSource: 'own', name: 'Builder' }, [project(['builder'])], v);
   assert.equal(c.runsAs?.title, 'Builder\'s own setting is Full. Project Shop is set to Ask and limits agents to it. Result: this run asks before every command and file change.');
-  void names;
   const follower = runChips({ runsAs: { mode: 'smart' } }, { approval: 'ask', approvalSource: 'project', name: 'Scout' }, [], view({ app: { version: 1, preset: 'smart' } }));
   assert.equal(follower.runsAs?.title, 'Scout follows the app default, which is Smart. Its own setting (Ask) is kept for when it stops following. Result: this run asks only before risky actions.');
   const off = runChips({ runsAs: { mode: 'full', projectId: P } }, { approval: 'full', approvalSource: 'own', name: 'Builder' }, [project(['builder'])], withPreset('ask', false));
@@ -96,7 +97,7 @@ test('a run from before the chip existed shows the agent\'s setting in the same 
   assert.equal(legacyModeChip({ approval: 'full' }), 'Full');
   assert.equal(legacyModeChip({ approval: 'auto-edits' }), 'Accept edits');
   assert.equal(legacyModeChip({ approval: 'ask' }), 'Ask');
-  assert.equal(legacyModeChip({ approval: 'full', approvalSource: 'project' }), 'Follows the project or app default');
+  assert.equal(legacyModeChip({ approval: 'full', approvalSource: 'project' }), 'Follow project', "the editor's own word");
 });
 
 // ---------------------------------------------------------------- Comes with Legion, the notice
@@ -111,4 +112,14 @@ test('the one-time notice says nothing changed and points to Settings, Gates', (
   assert.match(PROJECT_NOTICE.text, /nothing changed/i);
   assert.match(PROJECT_NOTICE.text, /Settings, Gates/);
   assert.doesNotMatch(PROJECT_NOTICE.text + PROJECT_NOTICE.dismiss, /\u2014|this computer/i);
+});
+
+test("one vocabulary for an agent's own setting: Ask, Accept edits, Full, Follow project, with one help map", () => {
+  assert.deepEqual(AGENT_MODE_LABEL, { ask: 'Ask', 'auto-edits': 'Accept edits', full: 'Full' });
+  for (const m of ['ask', 'auto-edits', 'full'] as const) assert.equal(CHOICE_HELP[m], AGENT_MODE_HELP[m], 'the editor reads the shared map');
+  assert.match(AGENT_MODE_HELP.full, /only while "Limit agents to this" is on/, 'the project limit holds only while its switch is on');
+  const all = [MODE_HELP, GATES_EMPTY, WRITE_NOTE, consequenceLine('deny', 'full'), consequenceLine('ask', 'full'), consequenceLine('ask', 'auto-edits'), consequenceLine('allow', 'ask')].join(' | ');
+  assert.doesNotMatch(all, /Full access|Asks first|Auto-edits/);
+  assert.match(MODE_HELP, /Ask: Asks before Bash, edits and MCP tools\. Accept edits: .* Full: Never asks\./);
+  assert.match(consequenceLine('ask', 'auto-edits'), /\(Accept edits\)/);
 });

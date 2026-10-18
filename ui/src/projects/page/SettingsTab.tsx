@@ -14,7 +14,7 @@ import { loadMarshal, saveMarshal, useBoard } from '../board/boardStore';
 import { patchAway, projectAway, setPaused, useAway } from '../awayStore';
 import { announce } from './announce';
 import { grantReads, revokeReads } from './readsGrant';
-import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, parseBudget, parseParkMinutes } from './settingsLogic';
+import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, parseBudget, parseParkMinutes, pickSection } from './settingsLogic';
 import type { Period } from './settingsLogic';
 import type { PageFacts } from './pageLogic';
 import { PIcon } from './PIcon';
@@ -43,13 +43,13 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
   // scroll-spy: the section nearest the top of the page's scroll area is the current one
   useEffect(() => {
     const scroller = document.getElementById('pg-panel');
-    const secs = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-sec]') ?? []);
-    if (!scroller || !secs.length) return;
+    if (!scroller) return;
+    // The sections are read on every scroll, not once: a section such as "How agents ask" draws nothing until its settings arrive, so a snapshot
+    // taken at mount would never contain it and the menu would stay on the section above.
     const on = (): void => {
-      const top = scroller.getBoundingClientRect().top + 24;
-      let cur = secs[0]!.dataset.sec!;
-      for (const s of secs) if (s.getBoundingClientRect().top <= top) cur = s.dataset.sec!;
-      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) cur = secs[secs.length - 1]!.dataset.sec!;
+      const secs = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-sec]') ?? []);
+      if (!secs.length) return;
+      const cur = pickSection(secs.map((s) => ({ id: s.dataset.sec!, top: s.getBoundingClientRect().top })), scroller.getBoundingClientRect().top + 24, scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4);
       setActive(cur);
     };
     scroller.addEventListener('scroll', on, { passive: true });

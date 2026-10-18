@@ -5,14 +5,10 @@
  */
 import { decideGate } from '../../../src/core/gates.js';
 import { rememberWhen } from '../../../src/core/gate-remember.js';
+import { AGENT_MODE_LABEL } from './presetsLogic.js';
 import type { ApprovalMode, GateContext, GateRule, GateVerdict, GatesConfig, GateWhen } from '../../../src/shared/types.js';
 
-/** Each agent's mode, in the same plain words the agent editor uses (mode first, gates on top). */
-export const MODE_TEXT: Record<ApprovalMode, string> = {
-  ask: 'Ask before Bash, edits, MCP',
-  'auto-edits': 'Allow edits, ask for Bash/MCP',
-  full: 'Full access, never ask',
-};
+/** Each agent's mode is named and explained by the agent editor's own words (mode first, gates on top): AGENT_MODE_LABEL and AGENT_MODE_HELP. */
 
 /** The "What" chips: the tool groups a rule may name (see GATE_TOOL_GROUPS in src/core/gates.ts). */
 export const TOOL_CHIPS: ReadonlyArray<{ id: string; label: string }> = [
@@ -101,11 +97,11 @@ export function ruleHostless(when: GateWhen, agents: readonly Pick<{ id: string;
 
 /** The consequence line under "Then": computed from the rule and the agent's real mode, never a made-up number. */
 export function consequenceLine(then: GateVerdict, mode: ApprovalMode): string {
-  if (then === 'deny') return 'Applies in every mode, Full included. It is the one class that survives Full access.';
+  if (then === 'deny') return 'Applies in every mode, Full included. It is the one class that survives Full.';
   if (then === 'ask') return mode === 'full'
-    ? 'This agent has Full access, so Ask rules are off here. Block rules still apply.'
-    : 'Makes matching calls ask you, on top of this agent\u2019s mode (' + MODE_TEXT[mode] + ').';
-  return 'Lets matching calls run without asking. On Full access it changes nothing (nothing asks there anyway); it never loosens a run another bot started.';
+    ? 'This agent is on Full, so Ask rules are off here. Block rules still apply.'
+    : 'Makes matching calls ask you, on top of this agent\u2019s mode (' + AGENT_MODE_LABEL[mode] + ').';
+  return 'Lets matching calls run without asking. On Full it changes nothing (nothing asks there anyway); it never loosens a run another bot started.';
 }
 
 /** The shipped preset: a "never, whatever the mode" floor, offered (never auto-applied). */
@@ -163,4 +159,4 @@ export const VERDICT_TEXT: Record<GateTestResult['verdict'], string> = {
 };
 
 /** The empty state's teaching line: mode first, gates on top. */
-export const GATES_EMPTY = 'Your agents’ approval mode decides the default. Gates adjust it for one agent, one command or one project. Block rules apply even to Full access; Ask rules do not.';
+export const GATES_EMPTY = 'Your agents’ approval mode decides the default. Gates adjust it for one agent, one command or one project. Block rules apply even to Full; Ask rules do not.';

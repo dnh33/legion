@@ -2,7 +2,7 @@
 import { agentGithubLevel, normRepo } from '../../../src/shared/github-area.js';
 import type { GithubLevel } from '../../../src/shared/github-area.js';
 
-export const WRITE_NOTE = 'Every write asks you first, even with Full access.';
+export const WRITE_NOTE = 'Every write asks you first, even when the agent is on Full.';
 export type AccessFields = { connectors?: string[]; githubWrite?: string[] };
 
 /** What a saved agent carries for a chosen level. Read clears githubWrite; None clears both. */

@@ -18,7 +18,7 @@ test('the editor choice: none clears everything, read sets connectors and clears
 
 test('write checklist offers ticked repos only, and the note is the spec text', () => {
   assert.deepEqual(tickedRepoNames(area([{ fullName: 'a/one', ticked: true }, { fullName: 'a/two', ticked: false }])), ['a/one']);
-  assert.equal(WRITE_NOTE, 'Every write asks you first, even with Full access.');
+  assert.equal(WRITE_NOTE, 'Every write asks you first, even when the agent is on Full.');
 });
 
 test('tag text', () => {

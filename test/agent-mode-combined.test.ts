@@ -139,3 +139,23 @@ test('a name over 60 characters does not leave its name inside the sentence', wi
   assert.ok(line.indexOf(' will ') < 80, 'the name is in front once, shortened: ' + line.slice(0, 120));
   assert.doesNotMatch(r.dialogs[0]!.detail, /N{70}/);
 }));
+
+// ---------------------------------------------------------------- the window's entry point
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const REPO = fileURLToPath(new URL('../../', import.meta.url));
+
+test('main registers the batch channel with the same sender and frame checks as its siblings, and the preload exposes only that channel', () => {
+  const main = readFileSync(join(REPO, 'src', 'electron', 'main.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const block = (name: string): string => { const i = main.indexOf(`ipcMain.handle('${name}'`); return i < 0 ? '' : main.slice(i, main.indexOf(String.fromCharCode(10) + '  });', i)); };
+  const mine = block('legion:agent-mode-batch');
+  const sibling = block('legion:agent-mode-change');
+  assert.ok(mine && sibling);
+  for (const must of ['senderFrame', 'win.webContents', 'trustedSender(frameUrl, uiUrl)', 'ownCoreCall', 'makeConfirm(dialog']) assert.ok(mine.includes(must), `the batch handler has ${must}`);
+  assert.match(mine, /agentModeBatch\(raw,/);
+  assert.match(mine, /Refused: not the Legion window/);
+  const preload = readFileSync(join(REPO, 'src', 'electron', 'preload.cjs'), 'utf8');
+  assert.match(preload, /agentModeBatch\(batch\) \{\s*return ipcRenderer\.invoke\('legion:agent-mode-batch', batch\);/);
+});

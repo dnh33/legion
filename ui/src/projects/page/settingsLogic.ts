@@ -89,3 +89,13 @@ export function staleReadsGrants(rules: readonly GateRule[], project: { id: stri
   const want = folderGlob(project.folder);
   return rules.filter((r) => { const p = isGrantShape(r, project.id); return p !== undefined && p !== want; });
 }
+
+/**
+ * The section the side menu marks: the last one whose top has reached `line`, the first one before any has, and the last one at the very bottom.
+ * `secs` are the sections on the page right now, in page order.
+ */
+export function pickSection(secs: ReadonlyArray<{ id: string; top: number }>, line: number, atBottom: boolean): string {
+  let cur = secs[0]!.id;
+  for (const s of secs) if (s.top <= line) cur = s.id;
+  return atBottom ? secs[secs.length - 1]!.id : cur;
+}
