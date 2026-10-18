@@ -333,7 +333,7 @@ export function Thread() {
         </div>
       </div>
       {taskId && metaDetached(meta) && <div className="banner detached" role="status"><span>Showing an earlier part of this conversation.</span> <button className="btn sm" onClick={() => { jumpToLatest(taskId); setHitId(null); stick.current = true; }}>Jump to latest</button></div>}
-      {away && !metaDetached(meta) && <button className="jump" onClick={() => toBottom(true)}><Icon name="down" size={13} /> Jump to latest</button>}
+      {taskId && away && !metaDetached(meta) && <button className="jump" onClick={() => toBottom(true)}><Icon name="down" size={13} /> Jump to latest</button>}
     </section>
   );
 }
