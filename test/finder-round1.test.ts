@@ -20,7 +20,7 @@ const PROBE = 'Use a skill only if one clearly fits; otherwise answer briefly.';
 describe('round1: modes, arms and hint strings', () => {
   const by = () => Object.fromEntries(sweep.ARMS_ROUND1.map((a: any) => [a.name, a]));
   it('is a mode of its own, next to its smoke run, and keeps the other modes', () => {
-    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2']);
+    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2', 'round3', 'smoke-round3']);
     assert.equal(sweep.parseSweepMode('round1\n'), 'round1');
     assert.equal(sweep.parseSweepMode('smoke-round1 # first'), 'smoke-round1');
     assert.equal(sweep.parseSweepMode('followup-11g'), 'followup-11g');

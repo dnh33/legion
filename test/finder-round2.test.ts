@@ -19,7 +19,7 @@ const FOOT = 'For each one, decide whether it clearly fits. If one does, load it
 describe('round2: modes, arms and strings', () => {
   const by = () => Object.fromEntries(sweep.ARMS_ROUND2.map((a: any) => [a.name, a]));
   it('adds round2 and smoke-round2 and keeps every older mode', () => {
-    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2']);
+    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2', 'round3', 'smoke-round3']);
     assert.equal(sweep.parseSweepMode('smoke-round2\n'), 'smoke-round2');
     assert.equal(sweep.parseSweepMode('round2 # go'), 'round2');
     assert.equal(sweep.parseSweepMode('round1'), 'round1');

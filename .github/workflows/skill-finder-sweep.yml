@@ -33,7 +33,8 @@ jobs:
         # The model token is scoped to this step only, so npm ci and the build never see it.
         # A .sweep-mode file on the branch picks the job: smoke (5 skills, three arms, under $0.10), smoke-round1 (3 arms, under $0.10), full-11e,
         # accuracy-11f, followup-11g or round1 (accuracy round 1: sizes 25 and 100, five arms, $15 cap),
-        # smoke-round2 (arms SL and M, one positive and one negative, under $0.10) or round2 (accuracy round 2: the frozen round 1 sets in eval/round1-frozen.json, arms C, M, SL, MSL, H2, $15 cap).
+        # smoke-round2 (arms SL and M, one positive and one negative, under $0.10) or round2 (accuracy round 2: the frozen round 1 sets in eval/round1-frozen.json, arms C, M, SL, MSL, H2, $15 cap),
+        # smoke-round3 (arms C and MSL, 2 fresh positives and 1 negative, under $0.10) or round3 (accuracy round 3: MSL against C at 100 skills on fresh positives and fresh hard negatives, $15 cap).
         # With no file the default is accuracy-11f. A word that is not a mode fails the job before any model call.
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -42,7 +43,7 @@ jobs:
             echo "The repository secret CLAUDE_CODE_OAUTH_TOKEN is empty or missing. Add it under Settings, Secrets and variables, Actions, then push again."
             exit 1
           fi
-          node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode --json sweep-result.json --frozen round1-frozen.json
+          node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode --json sweep-result.json --frozen round1-frozen.json --round3-out round3-frozen.json
       - name: Upload the numbers
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -57,4 +58,12 @@ jobs:
         with:
           name: round1-frozen
           path: round1-frozen.json
+          if-no-files-found: ignore
+      - name: Upload the round 3 prompt sets
+        # Round 3 only: the fresh prompts and gold ids (no skill text). The prompts are synthetic.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: round3-frozen
+          path: round3-frozen.json
           if-no-files-found: ignore

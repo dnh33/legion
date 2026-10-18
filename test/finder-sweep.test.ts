@@ -592,7 +592,7 @@ describe('sweep 11f: the whole accuracy job on fakes', () => {
 describe('sweep 11g: arms, rule and sizes', () => {
   const by = () => Object.fromEntries(sweep.ARMS_11G.map((a: any) => [a.name, a]));
   it('is a mode of its own and keeps the other modes', () => {
-    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2']);
+    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2', 'round3', 'smoke-round3']);
     assert.equal(sweep.parseSweepMode('followup-11g\n'), 'followup-11g');
     assert.equal(sweep.parseSweepMode('accuracy-11f'), 'accuracy-11f');
     assert.equal(sweep.parseSweepMode(''), 'accuracy-11f');
