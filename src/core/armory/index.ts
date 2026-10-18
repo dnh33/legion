@@ -707,7 +707,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       add('GET', '/api/armory/finder/rerank-spend', () => {
         const month = monthKey(new Date());
         const paused = rerank.paused() || !ledgerUsable(deps.dataDir);
-        return { month, spentUsd: readSpend(deps.dataDir)[month] ?? 0, capUsd: finderFor(readArmoryFile(deps.dataDir)).rerankMonthlyUsd, ...(paused ? { paused: true, pausedReason: 'Legion could not read its spend record.' } : {}) };
+        return { month, spentUsd: readSpend(deps.dataDir)[month] ?? 0, capUsd: finderFor(readArmoryFile(deps.dataDir)).rerankMonthlyUsd, ...(paused ? { paused: true, pausedReason: 'Legion could not use its spend record.' } : {}) };
       });
 
       // {seen:false} brings the notice back (Undo of "Turn all on" from the notice). No body, or seen:true, marks it seen.
