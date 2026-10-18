@@ -69,6 +69,8 @@ test('a repo with hooks: the run gets the user source only, its CLAUDE.md as tex
     assert.equal(note.folderTrust!.folders[0]!.folder, scanFolder(repo).folder);
     assert.match(note.text, /node mark-it\.js/);
     assert.match(note.text, /MY_TOKEN/);
+    assert.match(note.text, /choose Trust this folder on this notice/, 'trust happens on the notice');
+    assert.match(note.text, /Settings, Gates, Fine tuning, "Folders you trust" lists the folders you trusted and removes them/, 'the list only lists and removes');
     const lines = x.r.activity!.read({ kinds: ['note'] }).filter((l) => /not trusted/i.test(l.text));
     assert.equal(lines.length, 1, 'one activity line per run');
     assert.equal(x.everything(taskId, options).includes(SECRET), false, 'no environment value in the prompt, the notice or the log');

@@ -221,14 +221,18 @@ function skillSource(path: string, label: string): Source | undefined {
   return { path, kind: 'skill', content: f.block, lines: [`Skill file ${label} carries hooks or allowed tools: ${risky.join(' | ')}${extra > 4 ? ' | …' : ''}`] };
 }
 
-function listMd(dir: string, depth: number, out: string[]): void {
+/**
+ * Every .md file under `dir`. Whatever Legion cannot look at (a folder it cannot list, an entry it cannot stat, a folder nested deeper than it checks) is
+ * added to `problems` with the path: the caller counts each one as executable, because a file it could not see could hold a hook.
+ */
+function listMd(dir: string, depth: number, out: string[], problems: string[]): void {
   let names: string[];
-  try { names = readdirSync(dir); } catch { return; }
+  try { names = readdirSync(dir); } catch { problems.push(`${dir} (not readable)`); return; }
   for (const n of names.sort()) {
     if (out.length > MAX_FILES) return;
     const p = join(dir, n);
-    let st; try { st = statSync(p); } catch { continue; }
-    if (st.isDirectory()) { if (depth < MAX_DEPTH) listMd(p, depth + 1, out); } else if (/\.md$/i.test(n)) out.push(p);
+    let st; try { st = statSync(p); } catch { problems.push(`${p} (not readable)`); continue; }
+    if (st.isDirectory()) { if (depth < MAX_DEPTH) listMd(p, depth + 1, out, problems); else problems.push(`${p} (nested deeper than Legion checks)`); } else if (/\.md$/i.test(n)) out.push(p);
   }
 }
 
@@ -256,8 +260,9 @@ export function scanFolder(folderIn: string, opts: ScanOptions = {}): FolderScan
       for (const sub of ['skills', 'commands', 'agents']) {
         const root = join(dir, '.claude', sub);
         if (!existsSync(root)) continue;
-        const files: string[] = [];
-        listMd(root, 0, files);
+        const files: string[] = []; const problems: string[] = [];
+        listMd(root, 0, files, problems);
+        for (const why of problems.slice(0, 5)) sources.push({ path: why, kind: 'skill', content: `unlisted:${why}`, lines: [`Legion could not check ${shortPath(why, folder)}, so it treats it as able to run commands`] });
         for (const f of files) {
           if (++seen > MAX_FILES) { sources.push({ path: root, kind: 'skill', content: 'too-many', lines: [`${shortPath(root, folder)} holds more than ${MAX_FILES} files, so Legion treats it as able to run commands`] }); break; }
           const s = skillSource(f, shortPath(f, folder));
@@ -319,7 +324,7 @@ export function readInstructions(folderIn: string, opts: ScanOptions = {}): Inst
   for (const dir of dirs.reverse()) {
     const cfgHere = isUserConfig(dir, configDir);
     const candidates = [join(dir, 'CLAUDE.md'), join(dir, 'CLAUDE.local.md'), ...(cfgHere ? [] : [join(dir, '.claude', 'CLAUDE.md')])];
-    if (!cfgHere) { const rules: string[] = []; listMd(join(dir, '.claude', 'rules'), 0, rules); candidates.push(...rules); }
+    if (!cfgHere) { const rules: string[] = []; listMd(join(dir, '.claude', 'rules'), 0, rules, []); candidates.push(...rules); }
     for (const f of candidates) {
       if (!existsSync(f)) continue;
       let body: string;

@@ -251,3 +251,11 @@ test('instructions are read as text: CLAUDE.md, .claude/CLAUDE.md, parents, rule
   assert.ok(big.text.length < 70_000);
   assert.equal(big.cut, true);
 });
+
+test('a skills folder nested deeper than Legion checks counts as executable (fail closed), and so does an entry it cannot list', () => {
+  const w = world();
+  put(join(w.repo, '.claude', 'skills', 'a', 'b', 'c', 'd', 'e', 'f', 'SKILL.md'), '---\ndescription: calm\n---\n');
+  const s = scanFolder(w.repo, w.o);
+  assert.equal(s.executable, true);
+  assert.match(s.lines.join('\n'), /could not check .*nested deeper than Legion checks/);
+});

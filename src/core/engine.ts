@@ -1499,7 +1499,7 @@ export class Engine {
     const already = this.store.listMessages(job.taskId).some((m) => m.folderTrust && JSON.stringify(m.folderTrust.folders) === key);
     if (!already) {
       const body = folders.map((f) => `${f.folder}\n${f.lines.map((l) => `- ${l}`).join('\n')}${f.more ? `\n- and ${f.more} more` : ''}`).join('\n\n');
-      this.addMessage(job.taskId, 'system', `This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead. What was held back:\n${body}\nTo let them run, trust the folder (Settings, Gates, ${TRUSTED_FOLDERS_LABEL}).`, undefined, undefined, { folderTrust: { folders } });
+      this.addMessage(job.taskId, 'system', `This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead. What was held back:\n${body}\nTo let them run, choose Trust this folder on this notice. Settings, Gates, Fine tuning, "${TRUSTED_FOLDERS_LABEL}" lists the folders you trusted and removes them.`, undefined, undefined, { folderTrust: { folders } });
     }
     if (!act.folderTrustNoted) {
       act.folderTrustNoted = true;
