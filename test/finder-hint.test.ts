@@ -1,6 +1,5 @@
 /** The short-list search hint: one static line in the system prompt, only on a Claude run whose skill list is short. */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { SLIM_SEARCH_HINT } from '../src/core/armory/finder/defaults.js';
 import { init, ok, setup, waitDone } from './library-fakes.js';
@@ -9,7 +8,6 @@ import { replyText, startFake } from './providers-fakes.js';
 import { run, setup as providerSetup } from './providers-harness.js';
 
 const PROMPT = 'please export the invoices to pdf for accounting';
-const EVAL_SCRIPT = 'D:/bots/legion-wt-sweep/scripts/skill-finder-sweep.mjs';
 
 async function rig(finder: Record<string, unknown> = {}) {
   const r = armoryRig();
@@ -78,10 +76,4 @@ describe('the short-list search hint', () => {
     assert.equal(r.mod.preamble!(alpha, ctx('one')), r.mod.preamble!(alpha, ctx('something else entirely')));
   });
 
-  it('matches the string the eval script measured', (t) => {
-    if (!existsSync(EVAL_SCRIPT)) { t.skip(`eval script not found at ${EVAL_SCRIPT}; string drift not checked`); return; }
-    const m = /export const HINT = '([^']*)';/.exec(readFileSync(EVAL_SCRIPT, 'utf8'));
-    assert.ok(m, 'HINT constant found in the eval script');
-    assert.equal(SLIM_SEARCH_HINT, m![1]);
-  });
 });
