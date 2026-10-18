@@ -113,11 +113,10 @@ const JUDGE_RESERVE_SHARE = 0.1;
 /** The round 1 rule, written before any result. The arm is compared with C on accepted gold; false loads count Skill calls on negatives. */
 export const ROUND1_RULE = { minGoldDiff: 0.05, mcnemarAlpha: 0.05, maxItemsLowerAtSmall: 1, maxExtraFalseLoads: 2, bigSize: 100, smallSize: 25 };
 /**
- * Every round 1 arm keeps the probe line of 11e to 11g in front of its hint, so the arms differ in the hint only. The line says "only if
- * one clearly fits", which pulls against the strong hint's "even partly"; that may understate H2. Legion itself sends no such line.
+ * Round 1 arms carry only their hint, as Legion sends it: no probe line. 11e to 11g put "only if one clearly fits" in front of every hint,
+ * which Legion never sends and which pulls against the strong hint, so round 1 numbers are not comparable with those runs.
  */
-const R1_PREFIX = PROBE_SYSTEM;
-const r1Arm = (name, hint, extra = {}) => ({ name, settings: {}, append: `${R1_PREFIX} ${hint}`, search: true, thirdParty: true, ...extra });
+const r1Arm = (name, hint, extra = {}) => ({ name, settings: {}, append: hint, search: true, thirdParty: true, ...extra });
 /**
  * C is the control: the full listing, armory_find, the shipped hint. Search hits show every skill as third-party (id only), the case with
  * many plugin skills. CL is C with the long hint measured in 11g. H2 has the strong hint. D is C where a hit also shows its description.
@@ -1201,7 +1200,7 @@ export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stop
   }
   out.push('', '## Listing', `- skills named in the init message of a run: ${listing.meanListed ?? 'n/a'} on average`);
   out.push(listing.describedObservable ? `- listed skills that carry a description: ${listing.meanDescribed} on average` : '- listed skills that carry a description: not observable. How it was checked: the SDK init message reports `skills` as a list of names (string[] in the SDK types) and the SDK does not report the system prompt or the skill listing Claude Code builds, so the count cannot be read from a run.');
-  out.push('', '## Limits', "- The positives are written by a model from each skill's description, then graded; the judge saw only the closest skills by word overlap, not all of them.", "- The skills are all personal skills in a temp HOME; the model also sees Claude Code's own built-in skills in every arm.", '- Search hits use Legion\'s keyword ranker over the size\'s skills only. Hits show the id and "(third-party)" in every arm; arm D adds a sanitised description of up to 120 characters.', '- Input tokens are the sum over all turns of fresh, cache-read and cache-write tokens.', "- The negatives are synthetic. The owner's own no-skill prompts are not part of this run (the repository is public): a gap.", `- Every arm keeps the line "${R1_PREFIX}" in front of its hint, as 11e to 11g did; it may understate H2.`);
+  out.push('', '## Limits', "- The positives are written by a model from each skill's description, then graded; the judge saw only the closest skills by word overlap, not all of them.", "- The skills are all personal skills in a temp HOME; the model also sees Claude Code's own built-in skills in every arm.", '- Search hits use Legion\'s keyword ranker over the size\'s skills only. Hits show the id and "(third-party)" in every arm; arm D adds a sanitised description of up to 120 characters.', '- Input tokens are the sum over all turns of fresh, cache-read and cache-write tokens.', "- The negatives are synthetic. The owner's own no-skill prompts are not part of this run (the repository is public): a gap.", '- Arms carry only their hint, as Legion sends it (no probe line), so these numbers are not comparable with 11e to 11g.');
   return out.join('\n');
 }
 

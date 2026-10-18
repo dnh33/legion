@@ -43,11 +43,12 @@ describe('round1: modes, arms and hint strings', () => {
     assert.equal(sweep.ROUND1_BASELINE, 'C');
     const a = by();
     for (const x of sweep.ARMS_ROUND1) assert.deepEqual(x.settings, {}, `${x.name} keeps the full listing`);
-    assert.equal(a.C.append, `${PROBE} ${SEARCH_HINT}`);
-    assert.equal(a.CL.append, `${PROBE} ${SLIM_SEARCH_HINT}`);
-    assert.equal(a.H2.append, `${PROBE} ${H2}`);
+    assert.equal(a.C.append, SEARCH_HINT, "no probe line: Legion sends only the hint");
+    assert.equal(a.CL.append, SLIM_SEARCH_HINT);
+    assert.equal(a.H2.append, H2);
     assert.equal(a.D.append, a.C.append, 'D differs from C only in what a hit shows');
-    assert.equal(a.LH2.append, `${PROBE} ${LH2}`);
+    assert.equal(a.LH2.append, LH2);
+    for (const arm of Object.values(a) as any[]) assert.ok(!String(arm.append).includes(PROBE), `${arm.name} carries no probe line`);
     for (const n of ['C', 'CL', 'H2', 'D']) assert.equal(a[n].search && a[n].thirdParty, true, `${n} searches and shows hits as third-party`);
     assert.equal(a.LH2.search, false, 'LH2 has no armory_find');
     assert.ok(!a.LH2.thirdParty);
