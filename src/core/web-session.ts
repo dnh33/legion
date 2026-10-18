@@ -31,6 +31,8 @@ export class WebSession {
 
   /** A file was read in this run. If it is a secret file (an env file, a key), every web call asks from now on. */
   noteRead(path: string): void { if (isSecretPath(path)) this.secretFileRead = true; }
+  /** The engine found a secret read by where the file is (Legion's own key files), not by its name. */
+  noteSecretRead(): void { this.secretFileRead = true; }
   get secretRead(): boolean { return this.secretFileRead; }
 
   /** The owner answered "Allow for this goal" on a card: that site opens without asking for the rest of the run. */

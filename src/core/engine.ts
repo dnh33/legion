@@ -41,7 +41,7 @@ import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, criticalDeleteRead, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
-import { isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
+import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
 /** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
@@ -227,6 +227,8 @@ export function taintsRun(toolName: string): boolean {
 const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
 /** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
 const GUARD_MEMO_MS = 5000;
+/** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
+const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
 /** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
 const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'config.json', 'state.json', 'projects.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
@@ -1423,8 +1425,10 @@ export class Engine {
     if (toolName === 'Skill') { if (this.skillLoadTaints(input)) act.tainted = true; }
     else if (taintsRun(toolName)) act.tainted = true;
     // a read of a password or key file makes every web call in this run ask; set when the call is seen, whatever the owner answers
-    const secret = secretReadHit(toolName, input && typeof input === 'object' ? input as Record<string, unknown> : {});
-    if (secret) act.web.noteRead(secret);
+    const agent = this.store.getAgent(job.agentId);
+    const tin = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    const secret = secretReadHit(toolName, tin, agent ? this.dataSecretLocation(agent, toolName, tin) : undefined);
+    if (secret) act.web.noteSecretRead();
     this.trackWorkspaceTaint(job, act, toolName, input);
     this.trackBuildEdit(job, act, toolName, input);
     for (const m of this.modules) {
@@ -1647,10 +1651,23 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to change ${hit}. A change there can run code the next time you use Git, or change what an agent may do.`) : undefined;
   }
 
+  /**
+   * Legion's own key files count as secret files by where they are: the providers and connectors folders (API keys, tokens, their data keys),
+   * the gates folder and the gates key, taken from the same protected set the file tools use for writes. A path is resolved against the call's
+   * folder (a leading `~` or `$HOME` means the home folder). The rest of the data folder (config, state, projects, workspaces) is not secret.
+   * Gap: a command that moves into the folder first (`cd`) and then reads a bare name, or builds the path when it runs, is not seen.
+   */
+  private dataSecretLocation(agent: AgentProfile, toolName: string, input: Record<string, unknown>): ((path: string) => boolean) | undefined {
+    const roots = this.protectedDirs().filter((t) => SECRET_DATA_NAMES.has(basename(t).toLowerCase()));
+    if (!roots.length) return undefined;
+    let canon: string[] | undefined; // worked out on the first path that is asked about: most tool calls never ask
+    return (p) => { try { canon ??= canonicalSet(roots); return hitsCanonical(canonicalLocal(nativePath(p), { cwd: this.gateCwd(agent, toolName, input) }), canon); } catch { return false; } };
+  }
+
   /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */
   private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
     if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
-    const hit = secretReadHit(toolName, input);
+    const hit = secretReadHit(toolName, input, this.dataSecretLocation(agent, toolName, input));
     return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${hit.split(/[\\/]/).pop()}. It may hold passwords or keys.`) : undefined;
   }
 
