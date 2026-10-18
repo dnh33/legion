@@ -125,4 +125,4 @@ button.gate-chip:hover { color: var(--text); }
 .gates-banner-body > span > .btn-ghost { margin-left: -8px; }
 
 /* the "Comes with Legion" note in the agent editor: a small pill, then plain words */
-.seed-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.seed-note .chip-pill { display: inline-block; margin-right: 4px; }

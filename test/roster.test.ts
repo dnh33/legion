@@ -177,14 +177,15 @@ test('seedDefaults adds the roster, frozen three are unchanged from the original
   const SOULS: Record<string, string> = { zealot: ZEALOT_SOUL, builder: BUILDER_SOUL, scout: SCOUT_SOUL };
   for (const f of FROZEN_SNAPSHOT) {
     const a = s.getAgent(f.id)!;
-    const { createdAt: _c, updatedAt: _u, cwd, systemPrompt, ...rest } = a;
+    const { createdAt: _c, updatedAt: _u, cwd, systemPrompt, seedApproval, ...rest } = a;
     const { systemPrompt: _old, ...frozen } = f;
+    assert.equal(seedApproval, true, 'a seeded agent comes with Legion until its approval is changed');
     assert.equal(cwd, join(dir, 'w', f.id));
     assert.deepEqual(rest, frozen);
     assert.equal(systemPrompt, SOULS[f.id]);
   }
   for (const r of ROSTER) {
-    const { createdAt: _c, updatedAt: _u, cwd, ...rest } = s.getAgent(r.id)!;
+    const { createdAt: _c, updatedAt: _u, cwd, seedApproval: _s, ...rest } = s.getAgent(r.id)!;
     assert.equal(cwd, join(dir, 'w', r.id));
     assert.deepEqual(rest, r);
   }
