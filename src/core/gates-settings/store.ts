@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../../shared/gates-signed.js';
@@ -422,6 +422,14 @@ export class GatesStore {
     if ('envKeep' in body) {
       if (!isApp) throw new GatesError(400, 'Kept variables are set for the whole app, not per project.');
       const l = parseEnvKeep(body.envKeep);
+      // the same refusal as the editor, for a name this change adds: Legion's own keys and LEGION_ settings are never passed, so keeping one would
+      // do nothing. Names already in the file stay readable and removable.
+      const had = new Set((out.envKeep ?? []).map((n) => n.toUpperCase()));
+      for (const x of l) {
+        const up = x.toUpperCase();
+        if (had.has(up)) continue;
+        if ((ENV_NEVER_PASSED as readonly string[]).includes(up) || up.replace(/\*$/, '').startsWith(ENV_NEVER_PASSED_PREFIX)) throw new GatesError(400, `Legion never passes its own keys or ${ENV_NEVER_PASSED_PREFIX} settings to commands, so keeping "${x.slice(0, 60)}" would do nothing.`);
+      }
       if (l.length) out.envKeep = l; else delete out.envKeep;
     }
     for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {

@@ -1496,7 +1496,7 @@ export class Engine {
         this.activity?.append({ kind: 'note', text: `Held back from commands: ${shown}`, taskId: job.taskId, agentId: agent.id });
       }
       const inProject = startProjectOf(job) !== undefined;
-      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, "${ENV_KEEP_LABEL}".${inProject ? ' To pass every held-back variable at once, they can turn off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.' : ''}`;
+      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, Fine tuning, "${ENV_KEEP_LABEL}".${inProject ? ' To pass every held-back variable at once, they can turn off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.' : ''}`;
     } catch { return ''; }
   }
   private childScrubFor(job: Job): { scrub: false | ScrubOpts } {

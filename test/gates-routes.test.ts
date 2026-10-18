@@ -147,6 +147,21 @@ test('a loosening needs the native header: admin alone gets 403 and nothing chan
   } finally { await r.close(); }
 });
 
+test('the keep list refuses a new LEGION_ name or one of Legion\'s own keys, like the editor; names already kept stay removable', async () => {
+  const r = await boot({ keyed: true, nativeSecret: NATIVE });
+  try {
+    for (const name of ['LEGION_HOME', 'legion_*', 'ANTHROPIC_API_KEY', 'BOAT_API_KEY']) {
+      const res = await r.native('PATCH', '/api/gates/app', { envKeep: [name] });
+      assert.equal(res.status, 400, name);
+      assert.match(await res.text(), /never passes its own keys/);
+    }
+    assert.equal((await r.native('PATCH', '/api/gates/app', { envKeep: ['NPM_TOKEN', 'GH_*'] })).status, 200);
+    assert.deepEqual(r.core.store.app().envKeep, ['NPM_TOKEN', 'GH_*']);
+    assert.equal((await r.call('PATCH', '/api/gates/app', { envKeep: ['GH_*'] })).status, 200, 'removing needs no native header');
+    assert.deepEqual(r.core.store.app().envKeep, ['GH_*']);
+  } finally { await r.close(); }
+});
+
 test('N1: Smart and Accept edits are not ordered: a switch either way, for the app, a project preset and a project cap, needs the native header', async () => {
   const r = await boot({ keyed: true, nativeSecret: NATIVE });
   try {

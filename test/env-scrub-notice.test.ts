@@ -37,7 +37,7 @@ test('I2: the preamble names the variables held back and where to keep one; no v
       assert.doesNotMatch(line, /EDITOR/);
       assert.match(line, /Settings, Gates/);
       assert.match(line, /tell the user which one and why/);
-      assert.ok(line.includes(`keep that one variable in Settings, Gates, "${ENV_KEEP_LABEL}"`), 'names the per-variable editor by its label');
+      assert.ok(line.includes(`keep that one variable in Settings, Gates, Fine tuning, "${ENV_KEEP_LABEL}"`), 'names the per-variable editor by its label');
       assert.match(line, /Keep keys and passwords out of commands/, 'in a project the all-at-once switch is still named');
       assert.match(line, /for this project in Settings, Gates\. That passes all of them, not only one\./);
       assert.equal(p.includes(MARK), false, 'no value anywhere in the preamble');
@@ -92,7 +92,7 @@ test('N1: outside a project the line points to the per-variable editor and names
     try {
       const eng = r.engine as unknown as { heldBackNote(job: unknown, agent: unknown, act: unknown, consumers: { child: boolean; host: boolean }): string; active: Map<string, unknown> };
       const outside = eng.heldBackNote({ ...(r.job as object), projectAtStart: undefined }, r.agent, eng.active.get(r.task.id), { child: true, host: false });
-      assert.equal(outside, `Legion held back these environment variables from your commands: NPM_TOKEN. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, "${ENV_KEEP_LABEL}".`);
+      assert.equal(outside, `Legion held back these environment variables from your commands: NPM_TOKEN. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, Fine tuning, "${ENV_KEEP_LABEL}".`);
       assert.doesNotMatch(outside, /Keep keys and passwords out of commands/, 'no project, no switch to name');
       assert.doesNotMatch(outside, /stay held back/, 'the old dead end is gone');
       assert.equal(outside.includes(MARK), false);
@@ -106,7 +106,7 @@ test('N1b: in a project the line gives both ways: keep one variable, or turn the
     try {
       const eng = r.engine as unknown as { heldBackNote(job: unknown, agent: unknown, act: unknown, consumers: { child: boolean; host: boolean }): string; active: Map<string, unknown> };
       const inside = eng.heldBackNote({ ...(r.job as object), projectAtStart: r.project.id }, r.agent, eng.active.get(r.task.id), { child: true, host: false });
-      assert.equal(inside, `Legion held back these environment variables from your commands: NPM_TOKEN, PYTHONPATH. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, "${ENV_KEEP_LABEL}". To pass every held-back variable at once, they can turn off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.`);
+      assert.equal(inside, `Legion held back these environment variables from your commands: NPM_TOKEN, PYTHONPATH. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, Fine tuning, "${ENV_KEEP_LABEL}". To pass every held-back variable at once, they can turn off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.`);
       assert.equal(inside.includes(MARK), false, 'no value, ever');
     } finally { r.stop(); }
   });
