@@ -96,9 +96,8 @@ test('the name scanner sees planted names, and not its own feature name', () => 
 // ---- 1c. the owner's UI rules ----
 
 const UI_FILES = (): string[] => files('ui/src', /\.(css|tsx)$/);
-const RING_ALLOW: Allow[] = [
-  { file: 'ui/src/styles/app.css', line: '.vrow.hit', why: 'marks a search hit in a long thread, shown without any focus; it is not a focus ring. Kept as it was in 0.3.4 (owner to decide)' },
-];
+// none: a search hit in a thread is marked with the accent tint, not a ring
+const RING_ALLOW: Allow[] = [];
 test('no outline ring in ui/src except the opt-in focus-ring setting and high contrast', () => {
   const hits = UI_FILES().flatMap((f) => outlineRings(f, read(f)));
   check(hits, RING_ALLOW, 'An outline with a value other than none or 0 outside the opt-in focus-ring rules:',
@@ -117,8 +116,8 @@ test('the outline scanner tells a ring from none and from the opt-in rule (plant
 });
 
 const STRIPE_ALLOW: Allow[] = [
-  { file: 'ui/src/rooms/rooms.css', line: '.rm-reply {', why: 'a neutral grey quote line beside the message a reply answers (var(--line-strong)), not an accent stripe. Kept as it was in 0.3.4 (owner to decide)' },
-  { file: 'ui/src/styles/app.css', line: '.msg.from-agent', why: 'a neutral grey thread line beside an agent message (var(--line-strong)), not an accent stripe. Kept as it was in 0.3.4 (owner to decide)' },
+  { file: 'ui/src/rooms/rooms.css', line: '.rm-reply {', why: 'a neutral grey quote line beside the message a reply answers (var(--line-strong)), not an accent stripe. Kept: the owner rule is about coloured accents' },
+  { file: 'ui/src/styles/app.css', line: '.msg.from-agent', why: 'a neutral grey thread line beside an agent message (var(--line-strong)), not an accent stripe. Kept: the owner rule is about coloured accents' },
 ];
 test('no coloured or thick left-edge stripe in ui/src', () => {
   const hits = UI_FILES().flatMap((f) => borderLeftStripes(f, read(f)));

@@ -771,7 +771,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 
 /* long conversations: windowed rows, the older-messages row, search inside a thread */
 .vrow { display: flow-root; }
-.vrow.hit > * { outline: 2px solid var(--accent, #7aa2ff); outline-offset: 4px; border-radius: var(--r-sm); }
+.vrow.hit > * { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); border-radius: var(--r-sm); }
 .older-row { display: flex; justify-content: center; color: var(--muted); font-size: 12px; padding: 4px 0; }
 .banner.detached { display: flex; align-items: center; gap: 10px; justify-content: center; }
 .thread-search { display: flex; align-items: center; gap: 6px; padding: 6px 16px; border-bottom: 1px solid var(--line); }
