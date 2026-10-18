@@ -100,7 +100,7 @@ export function consequenceLine(then: GateVerdict, mode: ApprovalMode): string {
   if (then === 'deny') return 'Applies in every mode, Full included. It is the one class that survives Full.';
   if (then === 'ask') return mode === 'full'
     ? 'This agent is on Full, so Ask rules are off here. Block rules still apply.'
-    : 'Makes matching calls ask you, on top of this agent\u2019s mode (' + AGENT_MODE_LABEL[mode] + ').';
+    : 'Makes matching calls ask you, on top of this agent\'s mode (' + AGENT_MODE_LABEL[mode] + ').';
   return 'Lets matching calls run without asking. On Full it changes nothing (nothing asks there anyway); it never loosens a run another bot started.';
 }
 
@@ -155,7 +155,7 @@ export const VERDICT_TEXT: Record<GateTestResult['verdict'], string> = {
   allow: 'ALLOW (no card)',
   ask: 'ASK (a card appears)',
   deny: 'DENY (the call is blocked)',
-  baseline: 'BASELINE (no rule matched; your agent\u2019s mode decides)',
+  baseline: 'BASELINE (no rule matched; your agent\'s mode decides)',
 };
 
 /** The empty state's teaching line: mode first, gates on top. */

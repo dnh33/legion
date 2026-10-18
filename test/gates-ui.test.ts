@@ -163,7 +163,7 @@ test('render: an empty Gates section teaches the layering and offers the tester,
     assert.match(html, /Try it/);
     assert.match(html, /Nothing runs/);
     assert.match(html, /Rails — locked|Rails/);
-    for (const rail of railRows()) assert.ok(html.includes(rail.label), `rail shown: ${rail.label}`);
+    for (const rail of railRows()) assert.ok(html.includes(rail.label.replace(/'/g, '&#x27;')), `rail shown: ${rail.label}`); // the page escapes the straight apostrophe
     assert.equal(saved.length, 0, 'rendering decides nothing and saves nothing');
   } finally { cleanup(); }
 });

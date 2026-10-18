@@ -4,7 +4,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fitPlaceholder } from '../ui/src/chat/draft.js';
 import { dropErrorEcho } from '../ui/src/chat/errorEcho.js';
@@ -173,10 +173,11 @@ test('8: the first-run follow label balances its lines so no word sits alone', (
 
 // ---------------------------------------------------------------- 9: one apostrophe style on the Gates page
 
-test('9: the Gates text uses the straight apostrophe everywhere (the rail rows, the empty line and the rails note were curly)', () => {
-  for (const f of ['src/shared/gates-registry.ts', 'ui/src/gates/RailsList.tsx', 'ui/src/gates/gatesLogic.ts']) {
-    const lines = src(f).split('\n').filter((l) => /[A-Za-z]\u2019[a-z]|[a-z]\u2019 /.test(l) && !l.trim().startsWith('//') && !l.trim().startsWith('*'));
-    assert.deepEqual(lines, [], `${f}: curly apostrophes in text`);
+test('9: the Gates text uses the straight apostrophe everywhere: no curly one, written out or as an escape, in the registry or the Gates page files', () => {
+  const files = ['src/shared/gates-registry.ts', ...readdirSync(join(repoRoot, 'ui/src/gates')).filter((f) => /\.(ts|tsx)$/.test(f)).map((f) => `ui/src/gates/${f}`)];
+  for (const f of files) {
+    const bad = src(f).split('\n').filter((l) => !/^\s*(\/\/|\/?\*)/.test(l) && (l.includes('\u2019') || l.includes(String.raw`\u2019`)));
+    assert.deepEqual(bad, [], `${f}: a curly apostrophe in text`);
   }
 });
 

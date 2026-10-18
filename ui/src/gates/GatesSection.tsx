@@ -217,7 +217,7 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
           disabled={tool.kind === 'none'} onChange={(e) => { setText(e.target.value); setResult(null); }} />
         <button type="button" className="btn" onClick={run} disabled={tool.kind !== 'none' && !text.trim()}>Test</button>
       </div>
-      <span className="set-hint">This agent{'\u2019'}s mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
+      <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
       {result && <GateTestOut result={result} />}
     </div>
   );
@@ -364,7 +364,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       )}
       <QaGates />
       <RailsList />
-      <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent{'\u2019'}s approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full; Ask rules never fire there.</div>
+      <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent's approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full; Ask rules never fire there.</div>
       <div className="set-card gate-list-card">
         <h3>Gates</h3>
         {rules.length === 0 && !adding && !editing && <div className="set-empty"><b>No gates yet.</b><span>{GATES_EMPTY}</span></div>}
