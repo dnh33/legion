@@ -58,9 +58,32 @@ test('reading the data folder and plain work raise no folder card', async () => 
   for (const o of out) assert.equal(o.card, false, o.command);
 });
 
-test('Bypass: no extra card (the one mode the owner chose to leave open)', async () => {
-  const out = await viaHook('full', [['Bash', `mv ${fwd}/gates/app.json x`], ['Bash', `rm ${fwd}/gates/app.json`]]);
-  for (const o of out) { assert.equal(o.card, false, o.command); assert.equal(o.decision, undefined); }
+test('Bypass (M3): a shell write or delete on the gate settings, the gates key, config, state or the project list still gets a card, with no Remember', async () => {
+  const out = await viaHook('full', [
+    ['Bash', `mv ${fwd}/gates/app.json x`],
+    ['Bash', `rm ${fwd}/gates/app.json`],
+    ['Bash', `rm ${fwd}/gates-key.bin`],
+    ['PowerShell', `Remove-Item ${DATA}\\config.json`],
+    ['Bash', `echo {} > ${fwd}/state.json`],
+    ['mcp__host__shell', `mv ${fwd}/projects.json x`],
+    ['Monitor', `cp C:/work/projB/old.json ${fwd}/gates/app.json`],
+  ]);
+  for (const o of out) { assert.equal(o.card, true, o.command); assert.equal(o.noRemember, true, `no Remember: ${o.command}`); assert.equal(o.decision, 'deny'); }
+});
+
+test('Bypass (M3): everything else keeps the Full behavior of today: reads, the rest of the data folder, other work, and paths built at run time', async () => {
+  const out = await viaHook('full', [
+    ['Bash', `cat ${fwd}/gates/app.json`],
+    ['Bash', `ls ${fwd}`],
+    ['PowerShell', `Get-Content ${DATA}\\config.json`],
+    ['Bash', `mkdir -p ${fwd}/workspaces/builder/notes && echo hi > ${fwd}/workspaces/builder/notes/a.md`],
+    ['Bash', `rm ${fwd}/workspaces/builder/old.txt`],
+    ['Bash', `cp x ${fwd}/logs/x.log`],
+    ['Bash', 'mv a.txt b.txt'],
+    ['Bash', 'rm -rf build'],
+    ['Bash', 'mv $D/gates/app.json x'],
+  ]);
+  for (const o of out) { assert.equal(o.card, false, o.command); assert.equal(o.decision, undefined, o.command); }
 });
 
 test('N29: Claude Code keeps its folder between shell calls: an unproven cd marks the rest of the run', async () => {
@@ -86,4 +109,25 @@ test('shell folder carried: after a provable cd the next call is read from there
   assert.equal(out[1]!.noRemember, true);
   const free = await viaHook('ask', [['Bash', `cd ${sub}`], ['Bash', 'rm build/x']]);
   for (const o of free) assert.equal(o.card, false, o.command);
+});
+
+test('Bypass (M3): the provider path (toolDecider) raises the same card for Legion\'s own host shell', async () => {
+  const modes: ModeResolver = { mode: () => 'full' };
+  const r = setup({ approval: 'full', modes });
+  r.engine.setModules([guardModule]);
+  const task = r.start('a1', 'go');
+  try {
+    await pause(120);
+    const job = { taskId: task.id, agentId: 'a1', prompt: 'go', choice: 'auto', trigger: 'ui' } as never;
+    const decider = (r.engine as unknown as { toolDecider(j: unknown, a: unknown): (t: string, i: Record<string, unknown>) => Promise<{ allow: boolean }> }).toolDecider(job, r.store.agents.get('a1'));
+    const ask = async (command: string) => {
+      const p = decider('mcp__host__shell', { command });
+      await pause(30);
+      const pend = r.approvals.pending();
+      if (pend.length) r.approvals.resolve(pend[0]!.id, false);
+      return { card: pend.length > 0, allow: (await p).allow };
+    };
+    assert.deepEqual(await ask(`rm ${fwd}/projects.json`), { card: true, allow: false });
+    assert.deepEqual(await ask(`rm ${fwd}/workspaces/x/old.txt`), { card: false, allow: true });
+  } finally { r.engine.cancel(task.id); }
 });

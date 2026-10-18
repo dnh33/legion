@@ -227,6 +227,8 @@ export function taintsRun(toolName: string): boolean {
 const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
 /** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
 const GUARD_MEMO_MS = 5000;
+/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
+const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'config.json', 'state.json', 'projects.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
 const WEB_BATCH_MS = 10;
 type Decision = { allow: boolean; message?: string };
@@ -1847,8 +1849,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // the project folder or a folder above it: a card in every mode but Full, a refusal in Full (read from the folder the shell is in)
       const critical = this.criticalDeleteTarget(job, agent, toolName, input, command, kind);
       if (critical) return this.criticalDeleteDecision(job, agent, toolName, input, command, critical);
-      // Legion's own data folder: a command that changes it (or may, by a path built at run time) needs the owner's card in every mode but Full
-      // (Task 17 folds this into the askGuards pipeline)
+      // Legion's own data folder: a command that changes it (or may, by a path built at run time) needs the owner's card in every mode
+      // (in Full only when it names the gate settings, gates key, config, state or project list; Task 17 folds this into the askGuards pipeline)
       const folderCard = this.dataFolderCard(job, agent, toolName, input, command, kind);
       if (folderCard) return folderCard;
       why = unjudgeableCommand(command, kind);
@@ -1926,14 +1928,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * the same set the file tools use). Default deny: a shell command that names one of them, a path inside one or a folder above one
    * (read from the run's working folder, following `cd` and `git -C`, hidden commands included), or whose path is built when it runs,
    * gets a card in Ask, Auto-edits and Smart with no Remember (no remembered rule may skip it), unless every part of it only reads.
-   * Reading stays free, and so do agents' workspaces. Full (Bypass) is the one mode that can
-   * change anything. Undefined when nothing is due.
+   * Reading stays free, and so do agents' workspaces. Full (Bypass) can change the rest of the data folder, but a write or delete that names
+   * the gate settings, the gates key, config, state or the project list still gets the card. Undefined when nothing is due.
    */
   private dataFolderCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): Promise<{ allow: boolean; message?: string }> | undefined {
-    const folders = this.protectedDirs();
-    if (!folders.length) return undefined;
+    const all = this.protectedDirs();
+    if (!all.length) return undefined;
     const mode = this.modeNow(job, agent);
-    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') return undefined;
+    // Full keeps one narrow card: a write or delete that NAMES the gate settings, the gates key, config, state or the project list (normal work
+    // never writes them). A path built when the command runs is not carded in Full, and the rest of the data folder keeps Full's freedom.
+    const full = (job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full';
+    const folders = full ? all.filter((t) => FULL_CARD_NAMES.has(basename(t).toLowerCase())) : all;
+    if (!folders.length) return undefined;
     let hit: 'none' | 'names' | 'hidden';
     // Legion's own host shell takes a folder per call; Claude's Bash and PowerShell keep theirs from call to call
     const keeps = !toolName.startsWith('mcp__host__');
@@ -1944,7 +1950,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (keeps && r.moved && act) act.shellMoved = true;
       if (keeps && act) act.shellCwds = r.cwds.length ? r.cwds : undefined;
     } catch { hit = 'hidden'; if (keeps && act) act.shellMoved = true; }
-    if (hit === 'none') return undefined;
+    if (hit === 'none' || (full && hit !== 'names')) return undefined;
     const o = job.origin;
     let timedOut = false; let waited: number | undefined;
     const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
@@ -1953,7 +1959,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       onTimeout: (ms) => { timedOut = true; waited = ms; },
       ...this.askExtras(job, agent, toolName, input),
       noRemember: true,
-      summary: `This command ${what}.\n${shown}\nThat folder holds your gate settings, keys and projects. An agent may not change it without you, so you are asked in every approval mode but Full. Allow it only if you asked for this.`,
+      summary: `This command ${what}.\n${shown}\nThat folder holds your gate settings, keys and projects. An agent may not change it without you, so you are asked in every approval mode. Allow it only if you asked for this.`,
     }).then((allowed) => {
       if (allowed) return { allow: true };
       const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
