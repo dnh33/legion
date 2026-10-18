@@ -4,7 +4,9 @@
  * Settings that loosen anything need the app's native confirm (the per-launch native secret) and a key to sign with; without
  * the key only Ask can be stored, so a core without a keystore behaves exactly as 0.3.0 does.
  */
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { hasSignedGatesFile } from '../../shared/gates-signed.js';
 import { dataFolderTargets } from '../exec/canonical-path.js';
 import type { ApprovalMode, LegionEvent } from '../../shared/types.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
@@ -73,7 +75,13 @@ export interface GatesCore {
  */
 export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: { get(): Buffer | undefined; state?(): GatesKeyState } }): GatesCore {
   const signer = makeSigner(o.keyring?.get());
-  const store = new GatesStore(join(o.dataDir, 'gates'), { allowed: PRESETS, ...(signer ? { signer } : {}), ...(o.keyring?.state ? { keyState: o.keyring.state() } : {}) });
+  // `unreadable` means a key file that is there and does not open. Electron also sends it when there is no usable key store at all (Linux with
+  // no keyring): then no key file was ever made. With no key file and no signed gates file that is a 0.3.4 folder on a system that cannot sign,
+  // and it behaves as 0.3.4 did (no key: only Ask can be stored).
+  const gatesDir = join(o.dataDir, 'gates');
+  let state = o.keyring?.state?.();
+  if (state === 'unreadable' && !existsSync(join(o.dataDir, 'gates-key.bin')) && !hasSignedGatesFile(gatesDir)) state = 'new';
+  const store = new GatesStore(gatesDir, { allowed: PRESETS, ...(signer ? { signer } : {}), ...(state ? { keyState: state } : {}) });
   // A source that is neither 'own' nor 'project' (a damaged agent record) fails closed to Ask, before any preset is read.
   const sourceOf = (source: unknown): 'own' | 'project' | undefined => (source === undefined || source === 'own' ? 'own' : source === 'project' ? 'project' : undefined);
   const resolver: ModeResolver = {

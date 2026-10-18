@@ -107,3 +107,48 @@ test('C1 keeps its guard: a signed project file alone (app.json deleted) with no
   assert.equal(b.state, 'lost');
   assert.ok(b.core.store.view([P1]).changedOutside.includes('app'));
 });
+
+// A system with no usable key store (Linux with no keyring, say): Electron sends `GATESKEY - unreadable` although no key file was ever made.
+const startNoKeystore = (root: string) => {
+  const ring = new GatesKeyring();
+  assert.ok(ring.installLine(gatesKeyLine(undefined, 'unreadable').trim()));
+  return createGatesCore({ dataDir: root, keyring: { get: () => ring.get(), state: () => ring.state() } });
+};
+
+test('C1 (no key store): a 0.3.4 folder with no key file and no signed gates file behaves as 0.3.4 did: modes unchanged, nothing listed, no false "could not be opened"', () => {
+  for (const variant of ['none', 'unsigned-app'] as const) {
+    const core = startNoKeystore(folder034(variant));
+    assert.deepEqual(core.store.view([P1]).changedOutside, [], variant);
+    assert.equal(core.store.view([P1]).keyUnreadable, false, variant);
+    assert.equal(core.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), 'full', variant);
+    assert.equal(core.resolver.mode({ agentMode: 'auto-edits', source: 'own', startProjectId: P1 }), 'auto-edits', variant);
+    assert.doesNotThrow(() => core.store.patchApp({ noticeSeen: true }), variant);
+    assert.throws(() => core.store.patchApp({ preset: 'smart' }), /keystore/, `${variant}: only Ask can be stored without a key`);
+  }
+});
+
+test('C1 (no key store) keeps its guards: a key file that is there and does not open, or a signed gates file, stays fail-closed', () => {
+  const withKeyFile = folder034('none');
+  writeFileSync(gatesKeyFilePath(withKeyFile), 'wrapped, cannot be opened');
+  const a = startNoKeystore(withKeyFile);
+  assert.equal(a.store.view([P1]).keyUnreadable, true);
+  assert.ok(a.store.view([P1]).changedOutside.includes('app'));
+  assert.equal(a.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), 'ask');
+  const signed = folder034('none');
+  mkdirSync(join(signed, 'gates'));
+  writeFileSync(join(signed, 'gates', 'app.json'), JSON.stringify({ version: 1, gen: 1, sig: 'x' }));
+  const b = startNoKeystore(signed);
+  assert.equal(b.store.view([P1]).keyUnreadable, true);
+  assert.equal(b.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), 'ask');
+});
+
+test('C1 limit, stated: key file AND every signed gates file gone reads as a first keyed start (the data-folder card in Full closes this door, M3)', async () => {
+  const root = folder034('none');
+  const a = startKeyed(root).core;
+  a.store.patchProject(P1, { preset: 'ask' });
+  await a.store.flush();
+  rmSync(join(root, 'gates'), { recursive: true });
+  const b = startKeyed(root, 'b2'.repeat(32));
+  assert.equal(b.state, 'new');
+  assert.deepEqual(b.core.store.view([P1]).changedOutside, []);
+});
