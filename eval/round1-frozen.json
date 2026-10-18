@@ -1,0 +1,860 @@
+{
+  "version": 1,
+  "seed": 20261018,
+  "sizes": [
+    25,
+    100
+  ],
+  "catalog": {
+    "25": [
+      "wayfinder",
+      "lark-drive",
+      "pptx",
+      "paper-context-resolver",
+      "ai-video-generation",
+      "notion-api",
+      "writing-fragments",
+      "subagent-driven-development",
+      "web-artifacts-builder",
+      "audit",
+      "safe-refactor",
+      "azure-upgrade",
+      "code-review",
+      "firebase-crashlytics",
+      "doc-coauthoring",
+      "gpt-image-2",
+      "remotion-studio",
+      "theme-factory",
+      "cold-email",
+      "higgsfield-brandkit",
+      "pdf",
+      "image-to-video",
+      "agent-browser",
+      "content-strategy",
+      "convex-create-component"
+    ],
+    "100": [
+      "wayfinder",
+      "lark-drive",
+      "pptx",
+      "paper-context-resolver",
+      "ai-video-generation",
+      "notion-api",
+      "writing-fragments",
+      "subagent-driven-development",
+      "web-artifacts-builder",
+      "audit",
+      "safe-refactor",
+      "azure-upgrade",
+      "code-review",
+      "firebase-crashlytics",
+      "doc-coauthoring",
+      "gpt-image-2",
+      "remotion-studio",
+      "theme-factory",
+      "cold-email",
+      "higgsfield-brandkit",
+      "pdf",
+      "image-to-video",
+      "agent-browser",
+      "content-strategy",
+      "convex-create-component",
+      "writing-skills",
+      "cro",
+      "orchestration",
+      "uizze-ui",
+      "lark-okr",
+      "writing-guidelines",
+      "typesafe-ai",
+      "find-animation-opportunities",
+      "lark-sheets",
+      "analyze-project",
+      "wait-what",
+      "launch",
+      "google-agents-cli-publish",
+      "explore-code",
+      "face-swap",
+      "fingerprint-failure-triage",
+      "wrangler",
+      "vercel-optimize",
+      "lark-task",
+      "twitter-automation",
+      "lark-minutes",
+      "pr-to-video",
+      "firecrawl-crawl",
+      "caveman-evidence-review",
+      "google-agents-cli-observability",
+      "mcp-builder",
+      "remotion-to-hyperframes",
+      "seo-audit",
+      "cavecrew",
+      "remotion-maps",
+      "emails",
+      "microsoft-foundry",
+      "executing-plans",
+      "azure-deploy",
+      "ads",
+      "cloudflare-one-migrations",
+      "image-inpainting",
+      "media-use",
+      "post-purchase-upsell-flow",
+      "competitors",
+      "emil-design-eng",
+      "azure-reliability",
+      "customer-research",
+      "safe-debug",
+      "skill-creator",
+      "migrate-to-shoehorn",
+      "stripe-best-practices",
+      "impeccable",
+      "elevenlabs-music-generation",
+      "site-architecture",
+      "caveman-learn",
+      "codebase-design",
+      "airunway-aks-setup",
+      "happyhorse-1-0",
+      "analytics",
+      "receiving-code-review",
+      "community-marketing",
+      "hyperframes-animation",
+      "hyperframes-core",
+      "extract-design-system",
+      "lark-wiki",
+      "prisma-cli",
+      "lark-contact",
+      "hyperframes-cli",
+      "prisma-database-setup",
+      "pricing",
+      "video-outpainting",
+      "azure-prepare",
+      "hyperframes-registry",
+      "seedance-v2",
+      "caveman-commit",
+      "azure-compliance",
+      "diagnosing-bugs",
+      "caveman-discover",
+      "video-extend"
+    ]
+  },
+  "positives": {
+    "25": [
+      {
+        "prompt": "my outbound reply rate is around 1%, look at my copy and tell me what's killing it",
+        "gold": "cold-email"
+      },
+      {
+        "prompt": "our function app is still on the consumption plan, what would it take to move it to flex consumption and what might break?",
+        "gold": "azure-upgrade"
+      },
+      {
+        "prompt": "make me a 6 second clip of a fox running through snow, cinematic, whatever model is best for that",
+        "gold": "ai-video-generation"
+      },
+      {
+        "prompt": "draft a decision record for why we picked postgres over dynamo, I'll brain-dump the reasoning first and you structure it",
+        "gold": "doc-coauthoring"
+      },
+      {
+        "prompt": "make a mini app with a router, a settings page, and a sortable data table all in one React project I can preview",
+        "gold": "web-artifacts-builder"
+      },
+      {
+        "prompt": "这个链接是什么类型的？里面的 token 是真的吗？标题是啥？我要把本地一个 docx 的 word 文件导入过去",
+        "gold": "lark-drive"
+      },
+      {
+        "prompt": "I've got a headshot and a voiceover mp3, can you make the person actually speak the audio",
+        "gold": "image-to-video"
+      },
+      {
+        "prompt": "I need a brand kit for my coffee roastery, colors, a logo mark, and a short brandbook as a PDF",
+        "gold": "higgsfield-brandkit"
+      },
+      {
+        "prompt": "dump out every stray idea and quote from these meeting scraps so I have a pile to look through later, no outline please",
+        "gold": "writing-fragments"
+      },
+      {
+        "prompt": "our slides look plain, can you apply one of the built-in themes so they look more polished",
+        "gold": "theme-factory"
+      },
+      {
+        "prompt": "I need a 10-slide investor pitch for our seed round, dark theme, can you make it fast",
+        "gold": "pptx"
+      },
+      {
+        "prompt": "go to our vendor portal, log in with the creds in the env file, and grab last month's invoice",
+        "gold": "agent-browser"
+      },
+      {
+        "prompt": "make social post templates and a poster for our new running shoe line using the brand colors we already have",
+        "gold": "higgsfield-brandkit"
+      },
+      {
+        "prompt": "pull all the comments on the onboarding page of our team wiki and dump them into a list for me",
+        "gold": "notion-api"
+      },
+      {
+        "prompt": "split this feature work across helpers right here in this session so the tasks don't block each other",
+        "gold": "subagent-driven-development"
+      },
+      {
+        "prompt": "we're a small devtools startup, what should we write about this quarter to get search traffic",
+        "gold": "content-strategy"
+      },
+      {
+        "prompt": "I need to write a design doc for moving our auth to passkeys, can you help me get the outline together and fill it in with me?",
+        "gold": "doc-coauthoring"
+      },
+      {
+        "prompt": "make this product photo move a little, like steam rising off the coffee cup",
+        "gold": "image-to-video"
+      },
+      {
+        "prompt": "look over everything I've changed since main and tell me if it matches the ticket and our style guide",
+        "gold": "code-review"
+      },
+      {
+        "prompt": "take a screenshot of the staging pricing page at phone width and tell me if anything overlaps",
+        "gold": "agent-browser"
+      },
+      {
+        "prompt": "帮我把共享文件夹里那堆乱七八糟的文件按项目分到子目录里，重复的顺便删掉",
+        "gold": "lark-drive"
+      },
+      {
+        "prompt": "merge these three pdfs into one file, keep them in the order I named them",
+        "gold": "pdf"
+      },
+      {
+        "prompt": "make a hero banner for our summer sale with the text 'Up to 40% Off' in bold type over a beach sunset",
+        "gold": "gpt-image-2"
+      },
+      {
+        "prompt": "I've got random thoughts scattered across my notes about the product, just gather everything raw, don't organize it yet",
+        "gold": "writing-fragments"
+      },
+      {
+        "prompt": "pull the pricing table off page 4 of this invoice pdf and dump it into a csv",
+        "gold": "pdf"
+      },
+      {
+        "prompt": "run the remotion dev server for this repo, I need to check how the lower-third animation looks",
+        "gold": "remotion-studio"
+      },
+      {
+        "prompt": "go through the auth code and tell me what's sketchy, check for security holes and bad practices",
+        "gold": "audit"
+      },
+      {
+        "prompt": "this java service is pinned to old azure client libs, can you move the code over to the current sdk packages",
+        "gold": "azure-upgrade"
+      },
+      {
+        "prompt": "add crash logging to our flutter app, I need the dependency, init code, and a quick test that it's reporting",
+        "gold": "firebase-crashlytics"
+      },
+      {
+        "prompt": "I publish one post a week, can you map out the next 3 months of topics so I'm not scrambling",
+        "gold": "content-strategy"
+      },
+      {
+        "prompt": "write a three-email follow-up sequence to CTOs at logistics companies, nobody answered the first email",
+        "gold": "cold-email"
+      },
+      {
+        "prompt": "add a new entry to our planning table: title 'Q4 launch', status in progress, due next friday",
+        "gold": "notion-api"
+      },
+      {
+        "prompt": "review our payment handling for compliance problems and list them in order of severity",
+        "gold": "audit"
+      },
+      {
+        "prompt": "I'm reproducing a model from a research writeup and the checkpoint names in the repo don't match the appendix table, which one corresponds to the reported number",
+        "gold": "paper-context-resolver"
+      },
+      {
+        "prompt": "pull the validation logic out of this 400-line handler into its own module, don't change what it returns, and make sure the existing tests still pass after",
+        "gold": "safe-refactor"
+      },
+      {
+        "prompt": "I want a rate limiter I can drop into several of our apps, it should keep its own table so it doesn't touch ours",
+        "gold": "convex-create-component"
+      },
+      {
+        "prompt": "pull all the text and speaker notes out of this deck my colleague sent me, I just need it as plain text",
+        "gold": "pptx"
+      },
+      {
+        "prompt": "We're rewriting the billing module across about 6 services. Set up tracking for every decision we need to make before coding, then go through them one by one until we know exactly how to get it done.",
+        "gold": "wayfinder"
+      },
+      {
+        "prompt": "can you start up my remotion project locally so I can look at the intro scene and scrub through the timeline?",
+        "gold": "remotion-studio"
+      },
+      {
+        "prompt": "this migration is way too big for one sitting, can you break it into a tracked set of open questions in the order they need answering, then start working through them until the path forward is obvious",
+        "gold": "wayfinder"
+      },
+      {
+        "prompt": "build me a React dashboard with tabs and a sidebar, state has to persist between views, make the ui look polished",
+        "gold": "web-artifacts-builder"
+      },
+      {
+        "prompt": "the repo readme doesn't say which train/val split they used for the benchmark, what does the publication say and how do I match it",
+        "gold": "paper-context-resolver"
+      },
+      {
+        "prompt": "before I open the PR, check my branch against the requirements in the issue and flag anything that drifts from our conventions",
+        "gold": "code-review"
+      },
+      {
+        "prompt": "our android app isn't showing any crashes in the firebase console, how do I wire up crash reporting properly?",
+        "gold": "firebase-crashlytics"
+      },
+      {
+        "prompt": "make this landing page look like a fintech brand, dark navy with gold accents and a clean sans-serif",
+        "gold": "theme-factory"
+      },
+      {
+        "prompt": "these two parsers are almost identical, merge them into one function and make sure nothing downstream changes",
+        "gold": "safe-refactor"
+      },
+      {
+        "prompt": "we have a todo list with 8 independent tasks, run them here in this session and check each one as it finishes",
+        "gold": "subagent-driven-development"
+      }
+    ],
+    "100": [
+      {
+        "prompt": "you lost me there, try the explanation one more time but shorter",
+        "gold": "wait-what"
+      },
+      {
+        "prompt": "use these two reference photos plus this song to make a short video where the singer's lips sync to the track",
+        "gold": "seedance-v2"
+      },
+      {
+        "prompt": "need a 5-email onboarding sequence for our new saas trial users, day 0 through day 14",
+        "gold": "emails"
+      },
+      {
+        "prompt": "my outbound reply rate is around 1%, look at my copy and tell me what's killing it",
+        "gold": "cold-email"
+      },
+      {
+        "prompt": "帮我在飞书任务里建一个待办，标题是“交付设计稿v2”，明天下午五点前完成，指派给小王，顺便拆成三个子任务",
+        "gold": "lark-task"
+      },
+      {
+        "prompt": "Vercel dashboard shows slow TTFB on our SvelteKit site for some routes. can you pull the metrics, check the project config, and tell me which fixes are worth doing first? don't guess, I want the numbers backing each one.",
+        "gold": "vercel-optimize"
+      },
+      {
+        "prompt": "帮我看下Q3团队的目标进度现在到哪了",
+        "gold": "lark-okr"
+      },
+      {
+        "prompt": "My headless run got flagged on like 14 checks. Which of these are just because it's headless and which ones are actually coming from my launch flags, the stealth plugin, or the proxy?",
+        "gold": "fingerprint-failure-triage"
+      },
+      {
+        "prompt": "set up three 4-second clips back to back in my video project and keep the background audio playing under all of them",
+        "gold": "hyperframes-core"
+      },
+      {
+        "prompt": "our function app is still on the consumption plan, what would it take to move it to flex consumption and what might break?",
+        "gold": "azure-upgrade"
+      },
+      {
+        "prompt": "spin up a foundry agent that answers questions over our product docs, deploy it to azure when it's ready",
+        "gold": "microsoft-foundry"
+      },
+      {
+        "prompt": "make me a 6 second clip of a fox running through snow, cinematic, whatever model is best for that",
+        "gold": "ai-video-generation"
+      },
+      {
+        "prompt": "need a quick mcp server that wraps our internal ticketing API so claude can list and update tickets, python is fine",
+        "gold": "mcp-builder"
+      },
+      {
+        "prompt": "draft a decision record for why we picked postgres over dynamo, I'll brain-dump the reasoning first and you structure it",
+        "gold": "doc-coauthoring"
+      },
+      {
+        "prompt": "Need a landing page that explains why we beat Asana for small agencies. People are searching for Asana competitors and I want them to land on us.",
+        "gold": "competitors"
+      },
+      {
+        "prompt": "I've got 14 interview transcripts from users who churned last quarter. Find the recurring themes and pull quotes that back each one up.",
+        "gold": "customer-research"
+      },
+      {
+        "prompt": "our free plan has flat conversions, should we switch to a 14 day trial or just keep it free forever? what would you do?",
+        "gold": "pricing"
+      },
+      {
+        "prompt": "make a mini app with a router, a settings page, and a sortable data table all in one React project I can preview",
+        "gold": "web-artifacts-builder"
+      },
+      {
+        "prompt": "we need our Discord to go from about 200 active people to a few thousand before launch in 6 weeks. what's the plan?",
+        "gold": "community-marketing"
+      },
+      {
+        "prompt": "这个链接是什么类型的？里面的 token 是真的吗？标题是啥？我要把本地一个 docx 的 word 文件导入过去",
+        "gold": "lark-drive"
+      },
+      {
+        "prompt": "Before we go live, can you check our App Service setup for resilience gaps like health probes, region failover, and storage redundancy?",
+        "gold": "azure-reliability"
+      },
+      {
+        "prompt": "need a 10 second intro for our product video: logo fades in, then the tagline slides up with some nice easing. use GSAP",
+        "gold": "hyperframes-animation"
+      },
+      {
+        "prompt": "I've got a headshot and a voiceover mp3, can you make the person actually speak the audio",
+        "gold": "image-to-video"
+      },
+      {
+        "prompt": "飞书那个“Q4运营”任务清单里，把已经过期还没完成的任务都列给我看一下，我要开会前对一下进度",
+        "gold": "lark-task"
+      },
+      {
+        "prompt": "my 6 second clip ends too abruptly, can you keep it going a few more seconds with the dog walking off screen?",
+        "gold": "video-extend"
+      },
+      {
+        "prompt": "I need a brand kit for my coffee roastery, colors, a logo mark, and a short brandbook as a PDF",
+        "gold": "higgsfield-brandkit"
+      },
+      {
+        "prompt": "infra is already in ./infra, run azd up for the staging env and tell me if it fails",
+        "gold": "azure-deploy"
+      },
+      {
+        "prompt": "checkout endpoint started timing out after the last deploy, what's going on?",
+        "gold": "diagnosing-bugs"
+      },
+      {
+        "prompt": "dump out every stray idea and quote from these meeting scraps so I have a pile to look through later, no outline please",
+        "gold": "writing-fragments"
+      },
+      {
+        "prompt": "our slides look plain, can you apply one of the built-in themes so they look more polished",
+        "gold": "theme-factory"
+      },
+      {
+        "prompt": "I need a 10-slide investor pitch for our seed round, dark theme, can you make it fast",
+        "gold": "pptx"
+      },
+      {
+        "prompt": "make a short pop jingle with a verse and a catchy chorus I can drop into an ad",
+        "gold": "elevenlabs-music-generation"
+      },
+      {
+        "prompt": "go to our vendor portal, log in with the creds in the env file, and grab last month's invoice",
+        "gold": "agent-browser"
+      },
+      {
+        "prompt": "got a PR comment saying 'this is O(n^2), use a map' but the input is capped at 20 items. do I really need to change it?",
+        "gold": "receiving-code-review"
+      },
+      {
+        "prompt": "I want an LLM to decide if an inbound email is a refund request, and feed that yes/no plus a confidence number into my routing function",
+        "gold": "typesafe-ai"
+      },
+      {
+        "prompt": "make social post templates and a poster for our new running shoe line using the brand colors we already have",
+        "gold": "higgsfield-brandkit"
+      },
+      {
+        "prompt": "my CLAUDE.md is huge, trim it down and move the pasted docs somewhere I can pull them back from later",
+        "gold": "caveman-learn"
+      },
+      {
+        "prompt": "cloudflare worker won't start under local dev, error about a d1 binding not found. config file has the binding in it, I think. What's wrong?",
+        "gold": "wrangler"
+      },
+      {
+        "prompt": "our repo already has an azure.yaml from a teammate, add the infra folder and a dockerfile for the web service",
+        "gold": "azure-prepare"
+      },
+      {
+        "prompt": "make a 10 second video of a cat walking through a rainy Tokyo street, 16:9, 1080p",
+        "gold": "happyhorse-1-0"
+      },
+      {
+        "prompt": "our Next.js app on Vercel had a huge bill jump this month, function invocations way up. what's driving it and what can I actually cut without breaking stuff?",
+        "gold": "vercel-optimize"
+      },
+      {
+        "prompt": "what did the Caveman traces show about errors and latency last week? just summarize what's there, I'm not touching routing yet",
+        "gold": "caveman-evidence-review"
+      },
+      {
+        "prompt": "turn my portrait clip into landscape and fill the background with more of the room, keep the person centered",
+        "gold": "video-outpainting"
+      },
+      {
+        "prompt": "extend this drone shot, the camera should keep sweeping right over the lake for a bit longer",
+        "gold": "video-extend"
+      },
+      {
+        "prompt": "my hosted agent in foundry is throwing errors on deploy, can you figure out what's wrong",
+        "gold": "microsoft-foundry"
+      },
+      {
+        "prompt": "marketing wants us to track signups and purchases, how do I wire up tracking on the site",
+        "gold": "analytics"
+      },
+      {
+        "prompt": "make a 10 second cinematic clip of a fox running through fresh snow with ambient wind audio",
+        "gold": "seedance-v2"
+      },
+      {
+        "prompt": "pull all the comments on the onboarding page of our team wiki and dump them into a list for me",
+        "gold": "notion-api"
+      },
+      {
+        "prompt": "split this feature work across helpers right here in this session so the tasks don't block each other",
+        "gold": "subagent-driven-development"
+      },
+      {
+        "prompt": "running prisma migrate dev with a name for the new users table but it's throwing a shadow database error. what gives?",
+        "gold": "prisma-cli"
+      },
+      {
+        "prompt": "we're a small devtools startup, what should we write about this quarter to get search traffic",
+        "gold": "content-strategy"
+      },
+      {
+        "prompt": "I need to write a design doc for moving our auth to passkeys, can you help me get the outline together and fill it in with me?",
+        "gold": "doc-coauthoring"
+      },
+      {
+        "prompt": "make this product photo move a little, like steam rising off the coffee cup",
+        "gold": "image-to-video"
+      },
+      {
+        "prompt": "I need to write a new instruction file for our team's release notes process, how should I structure it so the agent actually follows it",
+        "gold": "writing-skills"
+      },
+      {
+        "prompt": "把我名下转化率相关那个指标的进度更新成65%，备注写一下本周做了A/B测试",
+        "gold": "lark-okr"
+      },
+      {
+        "prompt": "look over everything I've changed since main and tell me if it matches the ticket and our style guide",
+        "gold": "code-review"
+      },
+      {
+        "prompt": "People are paying and bouncing from the thank-you page. Can I show a one-click add-on offer there that charges their saved card without a new checkout?",
+        "gold": "post-purchase-upsell-flow"
+      },
+      {
+        "prompt": "this module's interface is leaking too many internals, how would you make it simpler to call and easier to test",
+        "gold": "codebase-design"
+      },
+      {
+        "prompt": "which elements on our landing page should get entrance transitions? give me the timing numbers too",
+        "gold": "find-animation-opportunities"
+      },
+      {
+        "prompt": "take a screenshot of the staging pricing page at phone width and tell me if anything overlaps",
+        "gold": "agent-browser"
+      },
+      {
+        "prompt": "帮我把共享文件夹里那堆乱七八糟的文件按项目分到子目录里，重复的顺便删掉",
+        "gold": "lark-drive"
+      },
+      {
+        "prompt": "the .azure/deployment-plan.md is already written, just run the deploy and tell me the endpoint when it's up",
+        "gold": "azure-deploy"
+      },
+      {
+        "prompt": "storyboard calls for film grain and a glitch transition, grab whatever blocks already exist for that instead of building from scratch",
+        "gold": "hyperframes-registry"
+      },
+      {
+        "prompt": "where in this app would subtle motion actually help? the settings page feels totally static",
+        "gold": "find-animation-opportunities"
+      },
+      {
+        "prompt": "merge these three pdfs into one file, keep them in the order I named them",
+        "gold": "pdf"
+      },
+      {
+        "prompt": "I have a node api and want it running on azure container apps using azd, can you set up the azure.yaml plus bicep for it?",
+        "gold": "azure-prepare"
+      },
+      {
+        "prompt": "这个 open_id ou_8f2c9d1e 是哪个部门的？邮箱是什么？",
+        "gold": "lark-contact"
+      },
+      {
+        "prompt": "that made zero sense, say it again in plainer words",
+        "gold": "wait-what"
+      },
+      {
+        "prompt": "make a hero banner for our summer sale with the text 'Up to 40% Off' in bold type over a beach sunset",
+        "gold": "gpt-image-2"
+      },
+      {
+        "prompt": "can you turn this PR into a short explainer? changelog style is fine, just cover what changed and why. it's in the checked-out repo, it's the open one on the branch",
+        "gold": "pr-to-video"
+      },
+      {
+        "prompt": "where in this repo is the retry logic for webhook delivery? don't need the whole file, just point me to it",
+        "gold": "cavecrew"
+      },
+      {
+        "prompt": "where should the boundary go between these two services so the codebase is easier for an AI tool to navigate?",
+        "gold": "codebase-design"
+      },
+      {
+        "prompt": "need a 90 second warm lofi instrumental for a video intro, can you generate it",
+        "gold": "elevenlabs-music-generation"
+      },
+      {
+        "prompt": "prototype adding adapter layers to the attention blocks, keep it off the main branch",
+        "gold": "explore-code"
+      },
+      {
+        "prompt": "这个表格我想从Excel迁移过来，原来的VLOOKUP公式帮我在飞书表格里改写一下",
+        "gold": "lark-sheets"
+      },
+      {
+        "prompt": "grab the spacing and type scale off linear.app and generate starter design tokens for me",
+        "gold": "extract-design-system"
+      },
+      {
+        "prompt": "hey can you look over the onboarding doc I wrote and tell me if it reads clearly for new hires",
+        "gold": "writing-guidelines"
+      },
+      {
+        "prompt": "Got a bot-detection scan back from my scraper setup. Can you go through each failed item and tell me if it's the browser config, something my injected scripts are doing, the network side, or the VM itself? Some of these are probably unfixable on headless anyway.",
+        "gold": "fingerprint-failure-triage"
+      },
+      {
+        "prompt": "I've got random thoughts scattered across my notes about the product, just gather everything raw, don't organize it yet",
+        "gold": "writing-fragments"
+      },
+      {
+        "prompt": "帮我创建一个季度销售数据表，按地区汇总，再插一个柱状图",
+        "gold": "lark-sheets"
+      },
+      {
+        "prompt": "this phone video is vertical and the slot on our site is widescreen, can you widen the sides without cutting off the guy in the middle?",
+        "gold": "video-outpainting"
+      },
+      {
+        "prompt": "should I use hosted checkout or build my own charge flow for a one-time course purchase?",
+        "gold": "stripe-best-practices"
+      },
+      {
+        "prompt": "pull the pricing table off page 4 of this invoice pdf and dump it into a csv",
+        "gold": "pdf"
+      },
+      {
+        "prompt": "I want to see the prompts and model responses coming from my deployed agent on google cloud for debugging. what do I turn on and where do I look?",
+        "gold": "google-agents-cli-observability"
+      },
+      {
+        "prompt": "find a good onboarding flow layout I can copy the structure from and keep it consistent with our current components",
+        "gold": "uizze-ui"
+      },
+      {
+        "prompt": "set up a retargeting campaign on meta for people who visited pricing but didn't sign up, small budget",
+        "gold": "ads"
+      },
+      {
+        "prompt": "run the remotion dev server for this repo, I need to check how the lower-third animation looks",
+        "gold": "remotion-studio"
+      },
+      {
+        "prompt": "go through the auth code and tell me what's sketchy, check for security holes and bad practices",
+        "gold": "audit"
+      },
+      {
+        "prompt": "Our SWG is Zscaler today. Can you go through our current rules and tell me which ones Cloudflare can't match yet, and how to phase the switch so nobody gets locked out?",
+        "gold": "cloudflare-one-migrations"
+      },
+      {
+        "prompt": "There's a stray sign in this storefront photo I need gone. I'll brush over it and I want the wall behind it filled in to match the bricks.",
+        "gold": "image-inpainting"
+      },
+      {
+        "prompt": "split this migration across three worker agents and collect what each one finishes",
+        "gold": "orchestration"
+      },
+      {
+        "prompt": "this java service is pinned to old azure client libs, can you move the code over to the current sdk packages",
+        "gold": "azure-upgrade"
+      },
+      {
+        "prompt": "I have a fresh AKS cluster with GPU nodes, get me from zero to serving a model",
+        "gold": "airunway-aks-setup"
+      },
+      {
+        "prompt": "find every place we call the billing client and summarize them, keep it short, my context is getting full",
+        "gold": "cavecrew"
+      },
+      {
+        "prompt": "Our Azure Function App went down during a zonal outage. How do I make it zone redundant without rebuilding everything?",
+        "gold": "azure-reliability"
+      },
+      {
+        "prompt": "ok the plan is in docs/plan.md, just work through it step by step here in this session, no subagents",
+        "gold": "executing-plans"
+      },
+      {
+        "prompt": "My skill keeps firing on the wrong prompts. Can you rewrite its description and run some test prompts to see if the triggering actually improves?",
+        "gold": "skill-creator"
+      },
+      {
+        "prompt": "need a short message for this diff, it fixes the login redirect loop and tidies the session helper",
+        "gold": "caveman-commit"
+      },
+      {
+        "prompt": "go ahead and implement the tasks in the migration plan file inline, check off each one as you finish",
+        "gold": "executing-plans"
+      },
+      {
+        "prompt": "write a re-engagement drip for people who haven't logged in for 30 days, keep it short",
+        "gold": "emails"
+      }
+    ]
+  },
+  "negatives": {
+    "easy": [
+      "Write a regex that matches US ZIP codes, both 5-digit and ZIP+4.",
+      "I keep getting 'cannot find module' in Node even though the package is in package.json. I already ran npm install. Thoughts?",
+      "Can you add a docstring to this function? It just multiplies two matrices I think.\n\ndef mm(a, b):\n    return [[sum(x*y for x, y in zip(r, c)) for c in zip(*b)] for r in a]",
+      "Help me write a shell alias that opens my notes folder in vim: it's at ~/Documents/notes.",
+      "Can you write a small script that deletes files older than 30 days in /tmp/exports?",
+      "I need to parse a date string like '03/15/2026' into a Python date object. Easiest way?",
+      "hey quick one: what's the difference between == and === in JS, in like two sentences",
+      "my cron job runs fine when I execute the script by hand but fails under cron. Any common reasons?",
+      "Here's my regex for matching US zip codes: ^\\d{5}$. Does it also need to handle the ZIP+4 format like 12345-6789?",
+      "What's the difference between a process and a thread? Keep it under 50 words please.",
+      "Can you give me a one-line command to find all TODO comments in a repo, ignoring node_modules?",
+      "My Flask app returns 404 on every route except the root. What should I check first?",
+      "I'm getting 'ModuleNotFoundError: No module named requests' even though I pip installed it. Which pip is the problem?",
+      "Can you write a function that returns the second largest number in a list of integers? Handle duplicates sensibly.",
+      "Write a Python snippet that reads a JSON file and prints only the keys of the top-level object.",
+      "my commit message is 'stuff' and I want to rewrite it. how do I amend the most recent commit's message?",
+      "My Jest test passes locally but fails in CI with a timezone mismatch. Where should I look first?",
+      "What's the difference between a process and a thread, in terms a junior dev would get in two sentences?",
+      "What does the 'git stash pop' conflict message mean and how do I resolve it?",
+      "Write a short SQL query that finds the top 5 customers by total order amount from tables customers(id, name) and orders(id, customer_id, amount).",
+      "What does 'detached HEAD' mean in git and should I be worried?",
+      "Can you check if this bash snippet has a bug? if [ $count -gt 0 ]; then echo yes; fi where count might be empty",
+      "what's the cleanest way to format a unix timestamp as YYYY-MM-DD in JavaScript without pulling in moment or dayjs?",
+      "Write a TypeScript type for an API response that is either {ok: true, data: T} or {ok: false, error: string}.",
+      "Can you convert this temperature list from Fahrenheit to Celsius in Python?\n\ntemps = [32, 68, 98.6, 212]",
+      "lol my teammate's code has 14 nested if statements. can you help me flatten this into early returns?\n\ndef check(user):\n    if user:\n        if user.active:\n            if user.role == 'admin':\n                return True\n    return False",
+      "Our PM wants a quick script that counts how many TODO comments are in each file of a repo, sorted by count. Can you draft it?",
+      "Make a quick bash loop that pings four hosts and prints which ones are up: 10.0.0.1, 10.0.0.2, 10.0.0.5, 10.0.0.9.",
+      "Can you write a function that debounces another function in plain JavaScript?",
+      "I have a folder of 300 jpgs with names like IMG_0001.jpg. write a shell one-liner to rename them to photo_0001.jpg",
+      "Convert this bash loop to use xargs instead: for f in *.log; do gzip \"$f\"; done",
+      "Can you explain what the `yield` keyword does in Python with a tiny example?",
+      "what's the point of __init__.py in a python package, is it still needed in python 3?",
+      "My Excel export has dates like 03/04/2026 and Python parses them as the wrong month. How do I force day-first parsing?",
+      "my pandas read_csv throws UnicodeDecodeError on a file a coworker sent me. what encoding should I try?",
+      "My Dockerfile build fails at COPY with 'file not found' but the file is right there in my folder. What should I check?",
+      "What's a reasonable way to write unit tests for a function that calls the current time? I don't want flaky tests.",
+      "Can you summarize the difference between REST and GraphQL in three bullet points for a standup?",
+      "why does my React useEffect run twice in dev mode",
+      "My Makefile says 'missing separator' on line 4. I used spaces for indentation. What's the fix?",
+      "I accidentally committed my .env file. How do I remove it from the last commit without losing my other changes?",
+      "Is there a quick way to check which version of Python my venv is actually using?",
+      "Write a small Node script that prints the first 20 Fibonacci numbers, one per line.",
+      "I accidentally committed a .env file with an API key to my branch but haven't pushed yet. How do I remove it from the last commit?",
+      "My SQL query with a LEFT JOIN is returning more rows than expected. What are the usual causes?",
+      "Write a function that checks whether a string is a palindrome, ignoring spaces and punctuation.",
+      "I want to rename a git branch locally and on the remote. What are the exact commands?",
+      "Write a bash function that backs up a directory into a tar.gz with today's date in the filename.",
+      "How do I see which files changed between two git tags, just the file names?",
+      "my docker build is super slow every time even when I change one line of code. why would the layer cache be busting?",
+      "My Dockerfile build keeps re-downloading npm packages every time I change one line of source. How do I fix the layer caching?",
+      "Can you convert this JSON to a Go struct? {\"user_id\": 42, \"email\": \"a@b.com\", \"tags\": [\"x\", \"y\"], \"created\": \"2026-01-03T10:00:00Z\"}",
+      "Can you explain what `git stash pop` does when there's a conflict? I got a mess and I don't want to lose my changes.",
+      "Convert this YAML to JSON for me:\n\nname: web\nport: 8080\nenv:\n  - DEBUG=1\n  - LOG=info",
+      "I need a short bash alias that opens my current git branch on GitHub in the browser. what's a simple way?",
+      "I want to add a .gitignore entry for a folder called 'build/' but git still tracks files in it. Why?",
+      "I need to rename all .jpeg files in a folder to .jpg. What's the quickest way on Linux?",
+      "I accidentally committed my .env file to a repo that's not pushed yet. How do I remove it from the last commit without losing my other changes?",
+      "What's the simplest way to serve a folder of static files on my laptop so my coworker can open them?",
+      "Is it bad practice to use `any` in TypeScript if I'm prototyping something I'll throw away next week?"
+    ],
+    "hard": [
+      "How do animated maps in motion graphics usually work, like a route that draws itself across a world map?",
+      "帮我把一段会议内容的要点整理成几条简短的会议纪要，方便发给没参加的同事。",
+      "What is a database connection string, and what pieces of information does it usually contain?",
+      "What does a crash reporting tool actually do for a mobile app, and why would a team bother adding one?",
+      "What does a database migration do in general, and how is it different from just changing the schema directly?",
+      "In Convex, what's the point of a reusable component compared to just putting code in my app folder? One short paragraph is fine.",
+      "When one AI agent hands a task to another, what's the difference between sending a message and fully transferring ownership? Briefly, please.",
+      "What's the difference between a git branch and a git worktree, and when would I want each one?",
+      "What's the difference between ease-in and ease-out in an animation, and when would I pick each one?",
+      "What's a Key Vault secret expiration date, and why does it matter for security?",
+      "In a deep learning research repo, what's the typical job of a training entrypoint versus an inference entrypoint?",
+      "What does it mean to break down LLM API spending by workflow instead of looking at one total bill?",
+      "What are the most common reasons a website's search traffic suddenly drops?",
+      "When people talk about where their LLM spend goes, what does it actually mean to break cost down by request, model, or workflow?",
+      "What's the difference between an MCP server and a regular REST API? Explain it simply.",
+      "What's the difference between crawling a website and scraping a single page, and when would I want each?",
+      "What does it mean when a website button 'submits a form'? Keep it simple, I'm not technical.",
+      "What are design tokens, and why do teams keep colors and spacing values in a separate file instead of hardcoding them?",
+      "What's the difference between a beta launch and an early access program for a software product?",
+      "What's the difference between previewing a video project and rendering it out to a final file?",
+      "Can you explain in a few sentences how an animated video can be made from a single still photo?",
+      "My Azure Functions app is on the Consumption plan and feels slow on cold starts. What are the general differences between the plan options?",
+      "When an AI model decides whether a support ticket is urgent, what's the difference between getting a yes/no label and getting a probability score?",
+      "In general, what are the main differences between Remotion and HyperFrames for making videos?",
+      "What's the difference between merging and splitting a PDF? Just a quick explanation, please.",
+      "What does a CRT scanline effect look like in a video, and how is it different from film grain?",
+      "What is a face swap in image editing, and how is it different from a basic retouch?",
+      "How many emails does a typical welcome sequence for a new signup usually include?",
+      "What's the difference between logs, metrics, and traces when I'm monitoring an AI agent that's running in production?",
+      "When is it worth splitting a coding task into small pieces for helpers instead of doing everything in one chat?",
+      "Why do AI image generators often mangle words when I ask for text on a poster, and what's a simple way to work around it?",
+      "Which colors look good together for a clean login screen? Suggest a simple palette with hex codes.",
+      "Excel 里的 VLOOKUP 和 XLOOKUP 有什么区别？什么时候该用哪一个？",
+      "Write a tweet announcing that our new coffee shop opens this Saturday. Keep it under 280 characters and make it friendly.",
+      "In plain terms, what does it mean to register an AI agent in a registry, and why would someone do that?",
+      "In plain terms, what does a wrangler.toml file control in a Cloudflare Workers project, and what's the difference between running a Worker locally and deploying it?",
+      "What does it mean for a video render to be deterministic, and why would someone care about that?",
+      "请用简单的话解释一下，OKR 里的“目标”和“关键结果”有什么区别？举个例子就行。",
+      "Is it okay to start a sentence with 'And' in technical documentation, or does it make the writing sound too casual?"
+    ],
+    "ambiguous": [
+      "How would I write a 60-second script that explains a code change to non-engineers without getting into the technical details?",
+      "What are the main pieces that make up a brand identity, like a logo system and a color palette?",
+      "What's the difference between extracting a function and inlining one, and when would I want to do each?",
+      "In one or two sentences, what is Microsoft Foundry?",
+      "Which AI video models can turn a still image into a short animated clip, and what are the main trade-offs between them?",
+      "Why might people leave a pricing page without signing up? Give me three likely reasons.",
+      "What does a browser fingerprint check usually measure, and why would a headless browser keep failing some of those checks even after I fix its settings?",
+      "Why do small details like easing curves, a short delay before a tooltip shows, or a slight press effect on a button make an interface feel better to use?",
+      "I'm making a short product video. What's the difference between background music and sound effects, and what does a LUT do to the footage when I color grade it?",
+      "What's the difference between a cloud drive folder and a shared link to a file? My teammate sent me a long URL with a token in it, and I can't tell if it's a document, a folder, or something else.",
+      "What does running azd up do when deploying to Azure?",
+      "Before I open a pull request, what should I check in my changes to make sure they match what the ticket asked for?",
+      "When I'm working through a written implementation plan with several independent tasks, should I hand each task to a separate subagent, or just do them in order myself? What are the pros and cons?",
+      "Can you give me a simple checklist for auditing a small codebase for security and maintainability problems?",
+      "What does zone redundancy mean for an Azure App Service, and why would health probes matter if one of our instances goes down?",
+      "I need to write a short technical decision doc for picking a database. What sections usually go in one of those?",
+      "帮我把“准备季度汇报”这个待办拆成几个子任务，列个简单的清单就行。",
+      "What makes a color palette feel professional on a slide deck, and can you suggest a few colors that pair well together?",
+      "Can you explain what a .pptx file actually is under the hood? I want to know if I can read its text with a simple script or if I need special tooling.",
+      "What kinds of motion usually make a user interface feel more alive without distracting people?"
+    ]
+  }
+}
