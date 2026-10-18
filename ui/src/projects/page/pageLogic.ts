@@ -18,7 +18,7 @@ export const DAY_MS = 86_400_000;
 export interface PageFacts {
   project: Pick<Project, 'id' | 'name' | 'members' | 'status' | 'createdAt'>;
   projects: ReadonlyArray<Pick<Project, 'id' | 'name' | 'status'>>;
-  agents: ReadonlyArray<Pick<AgentProfile, 'id' | 'name' | 'description' | 'model' | 'approval'> & { emoji?: string; vm?: { enabled: boolean } }>;
+  agents: ReadonlyArray<Pick<AgentProfile, 'id' | 'name' | 'description' | 'model' | 'approval' | 'approvalSource'> & { emoji?: string; vm?: { enabled: boolean } }>;
   /** Every task the window knows (any project). */
   tasks: ReadonlyArray<Task>;
   approvals: ReadonlyArray<ApprovalRequest>;

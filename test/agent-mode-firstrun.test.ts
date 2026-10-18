@@ -156,10 +156,10 @@ test('Continue, ticked: a default that could not be saved keeps the screen open 
 
 test('Continue, ticked: once the default is saved the screen closes and says exactly what was applied', async () => {
   const all = seeds();
-  const none = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, presetSaved: true, error: 'The app default is saved, but no agent was changed: an agent changed while the question was open. Set each agent in its editor.', applied: [] }));
+  const none = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, presetSaved: true, error: 'an agent changed while the question was open. Set each agent in its editor.', applied: [] }));
   assert.equal(none.done, true);
   assert.equal(none.saved?.tone, 'error');
-  assert.match(none.saved!.text, /^Saved\. The app default is Smart\. No agent was changed: The app default is saved, but no agent was changed/);
+  assert.match(none.saved!.text, /^Saved\. The app default is Smart\. No agent was changed: an agent changed while the question was open\. Set each agent in its editor\.$/);
   const part = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, presetSaved: true, applied: ['zealot', 'builder'], failed: [{ agentId: 'scout', error: 'The agent changed while the question was open, so it was left as it was.' }, { agentId: 'x', error: 'e' }] }));
   assert.match(part.saved!.text, /2 of \d+ agents follow it now\. 2 did not change: The agent changed while/);
   const thrown = await continueFrom('smart', true, all, rig().run, async () => { throw new Error('boom'); });

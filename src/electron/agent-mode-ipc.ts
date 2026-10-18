@@ -164,13 +164,14 @@ function labels(planned: Planned[]): Map<string, string> {
 }
 const list = (n: string[]): string => (n.length < 2 ? n.join('') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`);
 
-/** The lines of every raise, one line per sentence: "A, B and C will ask only before ...". The closing safety lines are left to the caller. */
-function batchLines(raising: Planned[], label: Map<string, string>): string[] {
+/** The lines of every raise, one line per sentence: "A, B and C will ask only before ...". The closing safety lines are left to the caller.
+ *  With the app default in the same dialog its own lines already say what it does, so an agent that follows it outside a project only says so. */
+function batchLines(raising: Planned[], label: Map<string, string>, withDefault: boolean): string[] {
   const groups = new Map<string, string[]>();
   for (const { ch, pv } of raising) {
     for (const l of pv.lines) {
       if (l.text === DENY_LINE || l.text === NO_SANDBOX_LINE) continue;
-      const key = l.body ?? l.text;
+      const key = withDefault && (l.body ?? '').startsWith(FOLLOW_APP) ? 'will follow the app default.' : l.body ?? l.text;
       const names = groups.get(key) ?? [];
       const nm = label.get(ch.agentId) ?? pv.agentName;
       if (!names.includes(nm)) names.push(nm);
@@ -180,7 +181,8 @@ function batchLines(raising: Planned[], label: Map<string, string>): string[] {
   return [...groups.entries()].map(([rest, names]) => `${list(names)} ${rest}`);
 }
 
-const sameAs = (a: Preview, b: Preview): boolean => a.raises === b.raises && a.lines.length === b.lines.length && a.lines.every((l, i) => l.text === b.lines[i]!.text);
+const FOLLOW_APP = 'will follow the way agents ask outside a project.';
+const sameAs =(a: Preview, b: Preview): boolean => a.raises === b.raises && a.lines.length === b.lines.length && a.lines.every((l, i) => l.text === b.lines[i]!.text);
 const gatesDigest = (digest: string): Record<string, string> => ({ [GATES_DIGEST_HEADER]: digest });
 const STALE = 'The settings or an agent changed while the question was open, so nothing was changed.';
 
@@ -219,7 +221,7 @@ async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Pro
     const key = `batch|${presetPv?.digest ?? ''}|${planned.map((p) => p.pv.digest).join('|')}`;
     if (lastCancel && lastCancel.key === key && clock() - lastCancel.at < CANCEL_PAUSE_MS) return { ok: false, error: 'You cancelled this change a moment ago. Wait a few seconds before you try it again.', applied: [] };
     // the default's own lines first (its closing safety lines are the same ones the agents' lines end with, so they come once, last)
-    const lines = [...(presetPv?.lines ?? []).filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE), ...batchLines(raising, label)];
+    const lines = [...(presetPv?.lines ?? []).filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE), ...batchLines(raising, label, presetPv !== undefined)];
     const stricter = planned.filter((p) => !p.pv.raises).map((p) => label.get(p.ch.agentId) ?? p.pv.agentName);
     if (stricter.length > 0) lines.push(`${list(stricter)} will ask the same or more often.`);
     const closing = [DENY_LINE, NO_SANDBOX_LINE].filter((c) => (presetPv?.lines ?? []).includes(c) || raising.some((p) => p.pv.loosening.includes(c)));
@@ -249,7 +251,7 @@ async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Pro
     for (const p of planned) {
       const pr = await deps.call('POST', '/api/agents/mode-preview', p.ch);
       const again = pr && pr.status === 200 ? parsePreview(pr.json) : undefined;
-      if (!again || !sameAs(again, p.pv)) return { ok: false, presetSaved, applied: [], error: `The app default is saved, but no agent was changed: ${again ? 'an agent changed while the question was open' : 'Legion could not check an agent again'}. Set each agent in its editor.` };
+      if (!again || !sameAs(again, p.pv)) return { ok: false, presetSaved, applied: [], error: `${again ? 'an agent changed while the question was open' : 'Legion could not check an agent again'}. Set each agent in its editor.` };
       digests.push(again.digest);
     }
   }

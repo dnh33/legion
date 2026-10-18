@@ -45,6 +45,8 @@ test('one dialog holds the default and every agent made looser; Confirm saves th
   assert.equal(d.detail.split(DENY_LINE).length - 1, 1, 'the closing lines once');
   assert.equal(d.detail.split(NO_SANDBOX_LINE).length - 1, 1);
   assert.doesNotMatch(JSON.stringify(d), /—/);
+  assert.equal(d.detail.split('will follow the app default.').length - 1, 1, 'the followers say so once; the default line already says what it does');
+  assert.doesNotMatch(d.detail, /There it will/);
   const w = r.writes();
   assert.equal(w[0]!.route, '/api/gates/app', 'the default is saved first');
   assert.equal(w[0]!.native, true);
@@ -99,7 +101,8 @@ test('an agent that reads differently once the default is saved stops the agents
   assert.equal(res.ok, false);
   assert.equal(res.presetSaved, true);
   assert.deepEqual(res.applied, []);
-  assert.match(res.error ?? '', /no agent was changed/i);
+  // the screen puts "Saved. ... No agent was changed:" in front, so the reason alone is returned
+  assert.equal(res.error, 'an agent changed while the question was open. Set each agent in its editor.');
   assert.equal(r.core.store.app().preset, 'smart');
   assert.deepEqual(r.writes().map((w) => w.route), ['/api/gates/app'], 'no agent request was sent');
   assert.deepEqual(r.modes(), ['ask/own', 'full/own', 'ask/own', 'ask/own']);
@@ -135,7 +138,7 @@ test('a name over 60 characters does not leave its name inside the sentence', wi
   r.f.ctx.store.upsertAgent({ ...r.f.ctx.store.getAgent('bravo')!, name: long });
   const res = await agentModeBatch({ preset: 'smart', changes: follow(['bravo']) }, r.deps);
   assert.equal(res.ok, true, res.error);
-  const line = r.dialogs[0]!.detail.split(NL + NL).find((l) => /will follow the way agents ask/.test(l))!;
+  const line = r.dialogs[0]!.detail.split(NL + NL).find((l) => /will follow the app default/.test(l))!;
   assert.ok(line.indexOf(' will ') < 80, 'the name is in front once, shortened: ' + line.slice(0, 120));
   assert.doesNotMatch(r.dialogs[0]!.detail, /N{70}/);
 }));
