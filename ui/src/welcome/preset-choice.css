@@ -10,3 +10,4 @@
 .preset-agents ul { margin: 6px 0 0; padding-left: 18px; }
 .preset-agents li { margin: 1px 0; text-wrap: pretty; }
 .preset-follow { margin-top: 2px; }
+.preset-follow > span { text-wrap: pretty; }

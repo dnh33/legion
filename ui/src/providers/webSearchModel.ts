@@ -43,4 +43,18 @@ export function pickedNotReady(v: WebSearchView, job: WebJob): string | undefine
   return p && !p.ready ? p.label : undefined;
 }
 
+/**
+ * While a paid provider waits for "Use <name>", the select still shows what the runs use. Say that, and name the pick that is not in use yet.
+ * `jobs` are the picks the change carries (search, read); nothing for a cap or an address.
+ */
+export function pendingStatus(v: Pick<WebSearchView, 'search' | 'read' | 'providers'>, pending: { name: string; enableLabel: string; body: Record<string, unknown> }): string | undefined {
+  const jobs = (['search', 'read'] as const).filter((j) => typeof pending.body[j] === 'string');
+  if (jobs.length === 0) return undefined;
+  const label = (id: string): string => (id === 'builtin' ? BUILTIN_LABEL : v.providers.find((p) => p.id === id)?.label ?? id);
+  const noun = { search: 'Search', read: 'Page reading' } as const;
+  const now = jobs.map((j) => `${noun[j]} is still on ${label(v[j])}`);
+  const head = now.length === 1 ? now[0]! : `${now[0]!} and ${now[1]!.charAt(0).toLowerCase()}${now[1]!.slice(1)}`;
+  return `${head}. ${pending.name} is picked but not in use until you choose "${pending.enableLabel}".`;
+}
+
 export const noticeParagraphs = (notice: string): string[] => notice.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);

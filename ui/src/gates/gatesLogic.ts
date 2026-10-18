@@ -159,4 +159,4 @@ export const VERDICT_TEXT: Record<GateTestResult['verdict'], string> = {
 };
 
 /** The empty state's teaching line: mode first, gates on top. */
-export const GATES_EMPTY = 'Your agents’ approval mode decides the default. Gates adjust it for one agent, one command or one project. Block rules apply even to Full; Ask rules do not.';
+export const GATES_EMPTY = 'Your agents\' approval mode decides the default. Gates adjust it for one agent, one command or one project. Block rules apply even to Full; Ask rules do not.';

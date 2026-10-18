@@ -34,3 +34,32 @@ export function trustHeading(total: number, trusted: number): string {
   if (total > 0 && trusted >= total) return total === 1 ? 'This folder is trusted' : 'These folders are trusted';
   return total === 1 ? "This folder's settings were held back" : "These folders' settings were held back";
 }
+
+/** The card was written when a run held a folder back. The folder may have been trusted since: this is what the window can read of that (the trusted list with its "still fits" flag). */
+export type CardTrust = 'held' | 'trusted' | 'trusted-differs';
+
+const tidy = (v: string): string => v.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim();
+// the list route cuts a line at 300 characters the way the core does; the card keeps the whole line
+const sameLine = (card: string, now: string): boolean => {
+  const a = tidy(card); const b = tidy(now);
+  return a === b || (b.length >= 300 && b.endsWith('…') && a.startsWith(b.slice(0, -1)));
+};
+const pathKey = (p: string): string => { const q = p.replace(/\\/g, '/').replace(/\/+$/, ''); return /^[A-Za-z]:|^\/\//.test(q) ? q.toLowerCase() : q; };
+
+/**
+ * Is the folder this card names trusted now? Held: not on the list, or on it but its commands changed since it was trusted (Trust stays: it trusts what the folder holds now).
+ * Trusted: on the list and it still fits what it holds. The card carries no fingerprint, so "the same commands" is read from its lines: when they still match what the
+ * folder holds the card says it is trusted; when they do not, the folder is trusted at what it holds now, which the card says too. Trust is never offered for a trusted folder.
+ */
+export function cardTrust(f: { folder: string; lines: readonly string[]; more: number }, rows: readonly TrustedRow[] | null): CardTrust {
+  const row = rows?.find((r) => pathKey(r.folder) === pathKey(f.folder));
+  if (!row || !row.current) return 'held';
+  const same = row.more === f.more && row.summary.length === f.lines.length && f.lines.every((l, i) => sameLine(l, row.summary[i] ?? ''));
+  return same ? 'trusted' : 'trusted-differs';
+}
+
+export const TRUSTED_AFTER_LINE = 'Trusted. It applies from the next run.';
+export const TRUSTED_CHANGED_AFTER_LINE = 'Trusted with what it holds now. It applies from the next run.';
+/** The line above the commands once the folder is trusted (the card's own first sentence ends in "What was held back:" only while it is held back). */
+export const TRUSTED_LEAD = 'From the next run these can run:';
+export const TRUSTED_CHANGED_LEAD = 'This run held back:';

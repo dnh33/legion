@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { WebProviderId } from '../../../src/shared/web-search-config';
 import { acceptNotice, chooseProvider, clearAddress, dismissNotice, loadWebSearch, removeKey, runTest, saveAddress, saveCap, saveKey, useWebSearch } from './webSearchStore';
-import { APPLIES_LINE, keyPlaceholder, noticeParagraphs, parseCap, pickedNotReady, selectOptions } from './webSearchModel';
+import { APPLIES_LINE, keyPlaceholder, noticeParagraphs, parseCap, pendingStatus, pickedNotReady, selectOptions } from './webSearchModel';
 import type { WebJob } from './webSearchModel';
 import './providers.css';
 
@@ -63,6 +63,7 @@ export function WebSearchSection() {
       {missing.map((name) => <p key={name} className="field-note" role="status">{name} is picked but not set up yet. Add its {name === 'SearXNG' ? 'address' : 'key'} below.</p>)}
       {pending && (
         <div className="prov-card" role="group" aria-label={`Before you use ${pending.name}`}>
+          {pendingStatus(v, pending) && <p className="prov-notice"><b>{pendingStatus(v, pending)}</b></p>}
           {noticeParagraphs(pending.notice).map((t) => <p key={t} className="prov-notice">{t}</p>)}
           <div className="prov-row">
             <button type="button" className="btn sm" disabled={!!busy} onClick={() => void acceptNotice()}>{pending.enableLabel}</button>

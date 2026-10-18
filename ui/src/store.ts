@@ -71,6 +71,8 @@ export interface AppState {
   mascotForce: RelicState | null;
   mascotVm: boolean | null;
   settings: SettingsView | null;
+  /** Why Settings has nothing to show: the core did not answer (`offline`), or answered with an error. Null while loading or loaded. */
+  settingsFail: { kind: 'offline' | 'other'; message: string } | null;
   settingsOpen: boolean;
   settingsSection: SettingsSection;
   showClosed: boolean;
@@ -106,7 +108,7 @@ let state: AppState = {
   onboardingDismissed: ls('legion.onboarded') === '1', toasts: [],
   catalog: null, catalogLoading: false,
   mascotLab: false, mascotForce: null, mascotVm: null,
-  settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
+  settings: null, settingsFail: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
   view: 'chat',
   projects: [], projectsLoaded: false, projectFilter: ls(FILTER_KEY) || null,
 };
@@ -358,6 +360,7 @@ export function init() {
     setState({ conn });
     if (conn === 'online' && prev !== 'online') {
       { const c = getState().catalog; if (!c || c.error) void loadCatalog(true); }
+      if (!getState().settings && getState().settingsOpen) void loadSettings(); // Settings that could not load while the core was away load by themselves when it is back
       void refresh().then(() => { const t = getState().selectedTaskId; if (t) void loadTask(t, true); });
     }
     prev = conn;
@@ -708,7 +711,11 @@ export async function setShowClosed(on: boolean) {
 
 /* ---------- settings ---------- */
 export async function loadSettings() {
-  try { setState({ settings: await api.settings() }); } catch (e) { toast(errText(e), 'error'); }
+  try { setState({ settings: await api.settings(), settingsFail: null }); } catch (e) {
+    // the panel says why it is empty (no spinner that never ends); the toast stays for the moment itself
+    setState({ settingsFail: { kind: e instanceof ApiError && e.status === 0 ? 'offline' : 'other', message: errText(e) } });
+    toast(errText(e), 'error');
+  }
 }
 export function openSettings(section?: SettingsSection) {
   setState({ settingsOpen: true, palette: false, doctorOpen: false, editor: null, ...(section ? { settingsSection: section } : {}) });

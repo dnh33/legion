@@ -198,10 +198,8 @@ test('P3: Folders you trust has its own heading and a divider, not the indent of
 test('P4: no word sits alone on the last line of the first-run keep line', () => {
   assert.match(src('ui/src/welcome/preset-choice.css'), /\.preset-agents li \{[^}]*text-wrap: pretty/);
 });
-test('P6: the thread header drops its chips to their own row instead of squeezing the name; the composer bar wraps and the hint is never cut', () => {
+test('P6: the thread header drops its chips to their own row instead of squeezing the name (the composer bar is pinned in ui-fix-round2.test.ts)', () => {
   const css = src('ui/src/styles/app.css');
   assert.match(css, /\.thread-head \{[^}]*flex-wrap: wrap/);
   assert.match(css, /\.th-agent \{[^}]*min-width: min\(170px, 100%\)/);
-  assert.match(css, /\.composer-bar \{[^}]*flex-wrap: wrap/);
-  assert.match(css, /\.composer-hint \{[^}]*flex: none/);
 });

@@ -9,7 +9,7 @@ export function QaGates() {
   return (
     <div className="set-card gates-qa" aria-label="QA gates">
       <h3>QA gates</h3>
-      <p className="field-note">These follow each goal{'’'}s care level. A goal can turn them down; its result then says what was not checked.</p>
+      <p className="field-note">These follow each goal's care level. A goal can turn them down; its result then says what was not checked.</p>
       <div className="gates-table-wrap">
         <table className="gates-table">
           <thead><tr><th scope="col">Check</th><th scope="col">Quick</th><th scope="col">Normal</th><th scope="col">Thorough</th></tr></thead>

@@ -51,6 +51,6 @@ test('the Settings section nav is one scrollable row in the narrow layout (it to
   assert.match(snav, /flex-wrap:\s*nowrap/);
   assert.match(snav, /overflow-x:\s*auto/);
   assert.match(narrow, /\.pg-snav button \{[^}]*flex:\s*none/, 'a button keeps its width');
-  assert.match(narrow, /\.pg-snav \.leg \{[^}]*flex:\s*none/, 'the legend keeps its width and is reached by scrolling');
+  assert.match(narrow, /\.pg-snavw \.leg \{[^}]*flex:\s*none/, 'the legend keeps its width and sits outside the scrolling row');
   assert.match(read('SettingsTab.tsx'), /nav\.scrollTo\(/, 'the current section\'s button is brought into view');
 });

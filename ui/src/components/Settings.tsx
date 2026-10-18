@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChatMessage, CompactionSettings, McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
-import { api, base, openExternal, token } from '../api';
+import { api, base, CORE_NEXT_STEP, openExternal, token } from '../api';
 import { checkBoat, compactNow, ensureBoatChecked, closeSettings, decide, errText, loadSettings, resetCompaction, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
@@ -21,7 +21,7 @@ import { NotificationsSection } from '../away/NotificationsSection';
 import { SoundsSection } from '../sound/SoundsSection';
 import { SpendingSection } from '../away/SpendingSection';
 import { AccessibilitySection } from '../a11y/AccessibilitySection';
-import { NAV, groupNav } from './settingsNav';
+import { NAV, groupNav, settingsUnreachableLine } from './settingsNav';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
 import { RELEASES } from '../whatsnew/releases';
 import { hasTipsFor } from '../whatsnew/tipsLogic';
@@ -29,6 +29,8 @@ import { hasTipsFor } from '../whatsnew/tipsLogic';
 export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
   const settings = useStore((s) => s.settings);
+  const settingsFail = useStore((s) => s.settingsFail);
+  const conn = useStore((s) => s.conn);
   useEffect(() => { if (!settings) void loadSettings(); }, []);
   // Providers ship (OpenRouter on by default); the tab shows only when the core serves the provider routes (config.json features.providers)
   const provView = useProviders((x) => x.view);
@@ -70,7 +72,15 @@ export function SettingsPanel() {
       </nav>
       <div ref={scrollEl} className="set-scroll scroll-cue">
         <div className="set-body">
-          {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
+          {!settings ? (settingsFail || conn === 'offline'
+            ? (
+              <div className="set-offline" role="alert">
+                <Icon name="x" size={13} />
+                <span>{settingsFail?.kind === 'other' && conn !== 'offline' ? `Settings could not load: ${settingsFail.message}` : settingsUnreachableLine(section, CORE_NEXT_STEP)}{' '}
+                  <button type="button" className="link-btn" onClick={() => void loadSettings()}>Try again</button></span>
+              </div>
+            )
+            : <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div>) : (
             section === 'claude' ? <ClaudeSection s={settings} />
               : section === 'gates' ? <GatesSection s={settings} />
               : section === 'notifications' ? <><NotificationsSection /><SoundsSection /></>

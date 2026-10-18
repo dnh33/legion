@@ -44,7 +44,7 @@ export function shouldShowPresetChoice(view: GatesView, welcomeDone: boolean, ag
 function names(list: readonly string[], shown = 1): string {
   if (list.length <= 2) return list.join(' and ');
   if (list.length === 3) return `${list[0]}, ${list[1]} and ${list[2]}`;
-  return `${list.slice(0, shown).join(', ')} and ${list.length - shown} others`;
+  return `${list.slice(0, shown).join(', ')} and ${list.length - shown} ${list.length - shown === 1 ? 'other' : 'others'}`;
 }
 
 /** The live list: each agent's own setting, grouped in plain words, built from the roster that is really there. */

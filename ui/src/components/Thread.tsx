@@ -11,6 +11,7 @@ import type { WelcomeItem } from './welcomeLogic';
 import { PresetGate } from '../welcome/PresetChoice';
 import { RunChipsLive } from '../gates/RunChips';
 import { legacyModeChip } from '../gates/agentFollowLogic';
+import { dropErrorEcho } from '../chat/errorEcho';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
@@ -211,7 +212,9 @@ export function Thread() {
     return () => window.removeEventListener('keydown', h);
   });
 
-  const items = useMemo(() => group(messages), [messages]);
+  // the failure card says what the history's own "Error: ..." line says: show it once
+  const failedText = task?.status === 'error' && !paused ? task.error : undefined;
+  const items = useMemo(() => group(dropErrorEcho(messages, failedText)), [messages, failedText]);
   const results = useMemo(() => toolResults(messages), [messages]);
   const lastUser = useMemo(() => [...messages].reverse().find((m) => m.role === 'user' && !m.fromAgentId), [messages]);
   const empty = items.length === 0 && !stream && !running;

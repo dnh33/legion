@@ -32,6 +32,10 @@ const ITEMS: Record<SettingsSection, Omit<NavItem, 'id'>> = {
   about: { label: 'About', hint: 'Version and folders' },
 };
 
+/** What an empty Settings page says when the core did not answer: the part that cannot load, then the way back (the same next step as every other offline line). */
+export const settingsUnreachableLine = (section: SettingsSection, nextStep: string): string =>
+  `Legion core is not reachable, so ${section === 'gates' ? 'Gates' : 'this page'} cannot load. ${nextStep}`;
+
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.ids.map((id) => ({ id, ...ITEMS[id] })));
 
 /** The visible items, regrouped in order; a group with nothing left is dropped. */

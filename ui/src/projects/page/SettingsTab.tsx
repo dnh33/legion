@@ -37,6 +37,8 @@ function Opt({ id, title, help, children }: { id: string; title: string; help?: 
 export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) {
   const [active, setActive] = useState('general');
   const root = useRef<HTMLDivElement>(null);
+  const snav = useRef<HTMLElement>(null);
+  const [edge, setEdge] = useState({ start: false, end: false });
   const away = useAway((s) => projectAway(s, project.id));
   const changed = changedSections(away);
   const archived = project.status === 'archived';
@@ -59,12 +61,37 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
   }, []);
   // the menu is one scrollable row when the page is narrow: keep the current section's button in view
   useEffect(() => {
-    const nav = root.current?.querySelector<HTMLElement>('.pg-snav');
+    const nav = snav.current;
     const on = nav?.querySelector<HTMLElement>('[aria-current="true"]');
-    if (!nav || !on) return;
+    if (!nav || !on || nav.scrollWidth <= nav.clientWidth) return;
     const n = nav.getBoundingClientRect(); const b = on.getBoundingClientRect();
-    if (b.left < n.left || b.right > n.right - 28) nav.scrollTo({ left: nav.scrollLeft + b.left - n.left - 24 });
+    if (b.left < n.left + 34 || b.right > n.right - 34) nav.scrollTo({ left: nav.scrollLeft + b.left - n.left - 40 });
   }, [active]);
+  // an arrow shows on each side of the row that has more to reach (the row is a plain scroller; this is the sign that it scrolls)
+  useEffect(() => {
+    const nav = snav.current;
+    if (!nav) return;
+    let raf = 0;
+    const read = (): void => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const more = nav.scrollWidth > nav.clientWidth + 1;
+        const next = { start: more && nav.scrollLeft > 1, end: more && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1 };
+        setEdge((e) => (e.start === next.start && e.end === next.end ? e : next));
+      });
+    };
+    read();
+    nav.addEventListener('scroll', read, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read);
+    ro?.observe(nav);
+    return () => { nav.removeEventListener('scroll', read); ro?.disconnect(); cancelAnimationFrame(raf); };
+  }, []);
+  const slide = (dir: 1 | -1): void => {
+    const nav = snav.current;
+    if (!nav) return;
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    nav.scrollBy({ left: dir * Math.max(120, Math.round(nav.clientWidth * 0.7)), behavior: calm ? 'auto' : 'smooth' });
+  };
   const go = (id: string): void => {
     const el = root.current?.querySelector<HTMLElement>(`[data-sec="${id}"]`);
     const scroller = document.getElementById('pg-panel');
@@ -76,17 +103,23 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
 
   return (
     <div className="pg-inner pg-set2" ref={root}>
-      <nav className="pg-snav" aria-label="Settings sections">
-        {SETTINGS_NAV.map((n) => {
-          const dot = n.changed ? changed.has(n.changed) : false;
-          return (
-            <button key={n.id} type="button" data-tip={n.id === 'away' ? 'project-away' : undefined} aria-current={active === n.id ? 'true' : undefined} className={active === n.id ? 'on' : ''} onClick={() => go(n.id)}>
-              {n.label}{dot && <><i className="dt" aria-hidden="true" /><span className="sr">, changed from the default</span></>}
-            </button>
-          );
-        })}
+      <div className="pg-snavw">
+        <div className="pg-snavs">
+          <nav className="pg-snav" aria-label="Settings sections" ref={snav}>
+            {SETTINGS_NAV.map((n) => {
+              const dot = n.changed ? changed.has(n.changed) : false;
+              return (
+                <button key={n.id} type="button" data-tip={n.id === 'away' ? 'project-away' : undefined} aria-current={active === n.id ? 'true' : undefined} className={active === n.id ? 'on' : ''} onClick={() => go(n.id)}>
+                  {n.label}{dot && <><i className="dt" aria-hidden="true" /><span className="sr">, changed from the default</span></>}
+                </button>
+              );
+            })}
+          </nav>
+          {edge.start && <button type="button" className="pg-snav-more start" tabIndex={-1} aria-hidden="true" onClick={() => slide(-1)}><PIcon name="back" size={14} /></button>}
+          {edge.end && <button type="button" className="pg-snav-more end" tabIndex={-1} aria-hidden="true" onClick={() => slide(1)}><PIcon name="back" size={14} /></button>}
+        </div>
         <span className="leg"><i aria-hidden="true" />Changed from the default</span>
-      </nav>
+      </div>
       <div className="pg-sbody">
         <ProjectNotice />
         <General project={project} />
