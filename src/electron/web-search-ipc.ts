@@ -17,7 +17,8 @@ export interface WebSearchIpcDeps {
 export type KeyProviderId = keyof typeof WEB_PROVIDER_HOSTS;
 export type WebSearchChange =
   | { kind: 'key'; provider: KeyProviderId; key: string }
-  | { kind: 'address'; baseUrl: string; acknowledge?: 'searxng' };
+  | { kind: 'address'; baseUrl: string; acknowledge?: 'searxng' }
+  | { kind: 'cap'; usd: number };
 export interface WebSearchChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -36,6 +37,10 @@ export function parseWebSearchChange(raw: unknown): WebSearchChange | undefined 
     if (typeof u !== 'string' || u.length === 0 || u.length > 300 || !/^https?:\/\//i.test(u) || !hostOf(u)) return undefined;
     if (raw.acknowledge !== undefined && raw.acknowledge !== 'searxng') return undefined;
     return { kind: 'address', baseUrl: u, ...(raw.acknowledge ? { acknowledge: 'searxng' as const } : {}) };
+  }
+  if (raw.kind === 'cap') {
+    if (Object.keys(raw).some((k) => k !== 'kind' && k !== 'usd')) return undefined;
+    return typeof raw.usd === 'number' && Number.isFinite(raw.usd) ? { kind: 'cap', usd: raw.usd } : undefined;
   }
   return undefined;
 }
@@ -64,6 +69,22 @@ export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Pro
     const where = cur.json?.keyStoreState === 'encrypted' ? 'It is encrypted with your system key store, in its own file in your Legion data folder' : 'It is stored in its own file in your Legion data folder';
     detail = `Legion will send requests to ${WEB_PROVIDER_HOSTS[ch.provider]} and send this key only there. ${where}, not in the settings file, and Legion will not show it in full again.`;
     route = '/api/settings/web-search/key'; method = 'POST'; body = { provider: ch.provider, key: ch.key };
+  } else if (ch.kind === 'cap') {
+    body = { tregMaxCostUsd: ch.usd };
+    const chk = await deps.call('POST', '/api/settings/web-search/check', body);
+    const bad = fail(chk);
+    if (bad) return bad;
+    if (chk!.json?.ok !== true) return { ok: false, error: dialogLine(chk!.json?.error, 300) || 'That cap was not accepted.' };
+    route = '/api/settings/web-search'; method = 'PATCH';
+    if (chk!.json?.needsNative !== true) {
+      // A lower cap needs no confirmation: the core accepts it with the admin key alone.
+      const res = await deps.call(method, route, body, false);
+      return fail(res) ?? { ok: true, view: res!.json };
+    }
+    const was = typeof cur.json?.tregMaxCostUsd === 'number' ? cur.json.tregMaxCostUsd : undefined;
+    title = 'Raise the spending cap?'; confirmLabel = 'Raise the cap';
+    message = `Let one treg call cost up to $${ch.usd}?`;
+    detail = `${was !== undefined ? `Today one call may cost up to $${was}. ` : ''}With this change it may cost up to $${ch.usd}. Your agents decide when to make calls, so a higher cap lets a run spend more of your treg balance. Only continue if you want that.`;
   } else {
     body = { searxng: { baseUrl: ch.baseUrl }, ...(ch.acknowledge ? { acknowledge: ch.acknowledge } : {}) };
     const chk = await deps.call('POST', '/api/settings/web-search/check', body);

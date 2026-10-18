@@ -87,9 +87,10 @@ test('PATCH: a private-network SearXNG address needs the native header; with it 
   await assert.rejects(noNative.call('PATCH', '/api/settings/web-search', { searxng: { baseUrl: 'http://localhost:8080' } }, { 'x-legion-native': 'anything' }), /native_unavailable/);
 });
 test('PATCH: the change is written to config.json (so it survives a restart) and is read back by loadConfig', async () => {
-  const w = webSearchRoutes();
+  const w = webSearchRoutes({ native: 'n_secret' });
   writeFileSync(w.configPath, JSON.stringify({ port: 4747, authToken: 'x'.repeat(48), keepMe: true }));
-  await w.call('PATCH', '/api/settings/web-search', { read: 'tavily', acknowledge: 'tavily', tregMaxCostUsd: 0.05 });
+  // raising the cap (0.01 to 0.05) is a loosening: it carries the native header
+  await w.call('PATCH', '/api/settings/web-search', { read: 'tavily', acknowledge: 'tavily', tregMaxCostUsd: 0.05 }, { 'x-legion-native': 'n_secret' });
   const disk = JSON.parse(readFileSync(w.configPath, 'utf8')); assert.equal(disk.keepMe, true, 'the rest of the file is kept');
   assert.deepEqual({ read: disk.webSearch.read, search: disk.webSearch.search, cap: disk.webSearch.tregMaxCostUsd }, { read: 'tavily', search: 'builtin', cap: 0.05 });
   const prev = process.env.LEGION_HOME; process.env.LEGION_HOME = w.dir;

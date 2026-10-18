@@ -1,7 +1,7 @@
 /**
  * UI store for Settings, Web search. Same small external-store pattern as providersStore. Talks to /api/settings/web-search (admin routes).
- * A provider key and a private-network SearXNG address go through the Electron main process (window.legion.webSearchChange): it shows a native
- * confirmation and holds the secret the core demands for those two changes. The key leaves this file only through that call.
+ * A provider key, a private-network SearXNG address and a higher spending cap go through the Electron main process (window.legion.webSearchChange): it shows a native
+ * confirmation and holds the secret the core demands for those changes. The key leaves this file only through that call.
  * The one-time provider notice is learned from the core (POST .../check) before anything is sent, then the change is sent again with the acknowledgement.
  */
 import { useSyncExternalStore } from 'react';
@@ -56,6 +56,15 @@ async function send(body: Record<string, unknown>, needsNative: boolean, id: str
     const bridge = window.legion?.webSearchChange;
     if (!bridge) throw new Error('A private-network address needs the Legion app window (it shows a confirmation). Open the app to do this.');
     const r = await bridge({ kind: 'address', baseUrl: sx.baseUrl, ...(body.acknowledge === 'searxng' ? { acknowledge: 'searxng' } : {}) });
+    if (r.cancelled) { setNote(id, 'Cancelled. Nothing changed.'); return; }
+    if (!r.ok) throw new Error(r.error ?? 'The change failed.');
+    return request<WebSearchView>('GET', BASE);
+  }
+  // A higher spending cap also goes through the app's native confirmation; a lower one goes straight to the core.
+  if (needsNative && typeof body.tregMaxCostUsd === 'number') {
+    const bridge = window.legion?.webSearchChange;
+    if (!bridge) throw new Error('Raising the cap needs the Legion app window (it shows a confirmation). Open the app to do this.');
+    const r = await bridge({ kind: 'cap', usd: body.tregMaxCostUsd });
     if (r.cancelled) { setNote(id, 'Cancelled. Nothing changed.'); return; }
     if (!r.ok) throw new Error(r.error ?? 'The change failed.');
     return request<WebSearchView>('GET', BASE);
