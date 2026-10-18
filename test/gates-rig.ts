@@ -28,7 +28,7 @@ export const idle = () => (async function* () {
 })();
 
 type Decision = { allow: boolean; message?: string };
-type Hook = (i: Record<string, unknown>) => Promise<{ hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } } | undefined>;
+type Hook = (i: Record<string, unknown>) => Promise<{ hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string; updatedInput?: Record<string, unknown> } } | undefined>;
 type HookEntry = { matcher?: string; hooks: Hook[] };
 
 export interface RigOptions {
@@ -152,7 +152,8 @@ export async function gatesRig(o: RigOptions = {}) {
     const { out, summaries } = await settle(Promise.all(pre.flatMap((h) => h.hooks).map((fn) => fn({ hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: id }))), ho.allow ?? false);
     const ds = out.map((x) => x?.hookSpecificOutput?.permissionDecision).filter((d): d is string => !!d);
     const decision = ds.includes('deny') ? 'deny' : ds.includes('ask') ? 'ask' : ds.includes('allow') ? 'allow' : undefined;
-    return { cards: approvalEvents() - before, decision, id, summaries };
+    const updatedInput = out.find((x) => x?.hookSpecificOutput?.permissionDecision === 'allow')?.hookSpecificOutput?.updatedInput;
+    return { cards: approvalEvents() - before, decision, id, summaries, updatedInput };
   };
   /** The run's canUseTool for one call (with the tool use id the SDK passes), each card answered `allow`; `cards` as for hookAll. */
   const canUse = async (toolName: string, input: Record<string, unknown>, id: string, allow = false) => {

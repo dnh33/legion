@@ -250,8 +250,8 @@ function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'Pr
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
 /** The owner already decided this call (on a floor card): skip the ordinary permission check for it. */
-function preToolAllow(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string } } {
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason } };
+function preToolAllow(reason: string, updatedInput?: Record<string, unknown>): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string; updatedInput?: Record<string, unknown> } } {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, ...(updatedInput ? { updatedInput } : {}) } };
 }
 
 /** The path with symlinks and junctions resolved as far as it exists (the rest of the name is appended as written). */
@@ -1757,7 +1757,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const d = await own(toolName, input);
     if (!d) return { continue: true };
     this.noteHookDecided(job, toolUseId, d);
-    return d.allow ? preToolAllow('The owner approved this call on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+    if (!d.allow) return preToolDeny(d.message ?? 'The user denied this action.');
+    // the input goes back unchanged, as canUseTool's allow does: a tool such as ExitPlanMode needs it with a hook allow (hooks doc, "allow with updatedInput")
+    return preToolAllow('The owner approved this call on its card.', input);
   }
 
   /** Calls a PreToolUse hook decided on a card, by (task, tool use id), until canUseTool reads them or a minute passes. */

@@ -22,6 +22,7 @@ test('(a) a run capped by an outside app: the hook raises the card for Bash echo
     assert.deepEqual([no.cards, no.decision], [1, 'deny'], 'the ceiling cards from the hook; the "no" is final');
     const yes = await r.hookAll('Bash', { command: 'echo hi' }, { allow: true });
     assert.deepEqual([yes.cards, yes.decision], [1, 'allow']);
+    assert.deepEqual(yes.updatedInput, { command: 'echo hi' }, 'the input goes back unchanged with the allow, as canUseTool does');
     // Claude Code may still ask canUseTool after a hook allow (an ask rule): it keeps the hook's answer, with no second card
     const after = await r.canUse('Bash', { command: 'echo hi' }, yes.id);
     assert.deepEqual([after.cards, after.behavior], [0, 'allow']);
