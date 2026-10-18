@@ -115,6 +115,22 @@ test('the same readers: a delete behind a pipe or a runner is read, a verb used 
   assert.equal(hit('rg -n del D:/work/app'), undefined);
 });
 
+test('Linux and macOS folders: a delete inside the project stays free, the project and the folders above it are critical', () => {
+  const PX = '/home/runner/work/app';
+  const pw = { cwd: PX, roots: [PX], home: '/home/runner' };
+  const ph = (cmd: string, shell: ShellKind = 'sh') => criticalDelete(cmd, shell, pw);
+  for (const c of ['rm -rf build', 'rm -rf ./node_modules', 'rm -rf build/*', 'cd build && rm -rf *', 'rm -rf ../app/build', `rm -rf ${PX}/dist`, 'cd /tmp && rm -rf x', 'rm -f src/old/file.ts']) assert.equal(ph(c), undefined, c);
+  assert.equal(ph('Remove-Item build -Recurse', 'pwsh'), undefined);
+  assert.match(ph('rm -rf .') ?? '', /project folder \/home\/runner\/work\/app/);
+  assert.match(ph('rm -rf ..') ?? '', /\/home\/runner\/work, a folder that holds the project/);
+  assert.match(ph('rm -rf *') ?? '', /everything in \/home\/runner\/work\/app/);
+  for (const c of ['rm -rf ../..', 'cd src && rm -rf ..', 'rm -rf /home/runner', 'cd /home/runner/work && rm -rf app', 'rm -rf /', 'rm -rf ~', 'rm -rf ../../../../..']) assert.ok(ph(c), c);
+  assert.ok(ph('Remove-Item .. -Recurse', 'pwsh'));
+  assert.deepEqual(criticalDeleteRead('cd /tmp/x && ls', 'sh', pw).cwds, [PX, '/tmp/x'], 'a plain cd to a POSIX folder is followed');
+  assert.equal(criticalDeleteRead('cd /tmp/x && ls', 'sh', where).cwds, undefined, 'Git Bash on Windows: /tmp is inside the Git install, so the folder is not known');
+  assert.ok(hit('cd /usr && rm -rf ../d/work/app'), 'Git Bash: back to / and down into a drive');
+});
+
 /* ---------- the engine ---------- */
 
 const using = async (o: Parameters<typeof gatesRig>[0], body: (r: GatesRig) => Promise<void>) => {

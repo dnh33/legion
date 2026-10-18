@@ -1303,7 +1303,15 @@ function place(v: string, shell: ShellKind, cwd: string | undefined): Placed {
     const rel = w.split('/').filter((s) => s && s !== '.');
     return !rel.length || rel.includes('..') ? 'here' : { rel };
   }
-  if (cwd !== undefined && !/^[a-z]:(?:\/|$)/.test(cwd)) return 'could';
+  // a working folder is a drive path (Windows) or a POSIX path (Linux, macOS); anything else cannot be placed
+  const posixCwd = cwd !== undefined && cwd.startsWith('/');
+  if (cwd !== undefined && !posixCwd && !/^[a-z]:(?:\/|$)/.test(cwd)) return 'could';
+  if (posixCwd && shell !== 'sh' && !DRIVE.test(w)) {
+    // PowerShell on Linux or macOS: / is the root, .. stops there
+    const out: string[] = [];
+    for (const s of (w.startsWith('/') ? w : `${cwd}/${w}`).split('/')) { if (!s || s === '.') continue; if (s === '..') out.pop(); else out.push(s); }
+    return out.length ? { segs: ['', ...out] } : 'could';
+  }
   if (shell !== 'sh') {
     // \work in cmd and PowerShell is on the drive of the folder the shell is in; .. stops at a drive's root
     if (!DRIVE.test(w) && w.startsWith('/') && cwd === undefined) return 'could';
@@ -1314,7 +1322,7 @@ function place(v: string, shell: ShellKind, cwd: string | undefined): Placed {
   }
   // sh: fold on the POSIX form first (Git Bash's / holds the drives), then read /x/, /mnt/x/ and /cygdrive/x/ as drive x
   const drive = DRIVE.test(w);
-  const posix = drive ? `/${w[0]}${w.slice(2)}` : w.startsWith('/') ? w : `/${cwd![0]}${cwd!.slice(2)}/${w}`;
+  const posix = drive ? `/${w[0]}${w.slice(2)}` : w.startsWith('/') ? w : posixCwd ? `${cwd}/${w}` : `/${cwd![0]}${cwd!.slice(2)}/${w}`;
   const out: string[] = [];
   let atRoot = false;
   for (const s of posix.split('/')) {
@@ -1505,7 +1513,10 @@ function readCritical(raw: string, shell: ShellKind, where: CriticalWhere, start
     const v = plainValue(lead.tok, shell);
     const to = (cwd: string | undefined): string | undefined => {
       const res = v ? place(v, shell, cwd) : 'could';
-      return typeof res !== 'string' && 'segs' in res && /^[a-z]:$/.test(res.segs[0]!) && !res.segs.some((s) => GLOB_SEG.test(s)) ? joinSegs(res.segs) : undefined;
+      // a drive path; a POSIX path (its first part is the empty root) only on Linux and macOS, where the folders are POSIX: in Git Bash a
+      // folder such as /tmp or /usr is somewhere in the Git install, so there such a cd leaves the folder unknown
+      const posixOk = cwd !== undefined ? cwd.startsWith('/') : roots.length > 0 && roots.every((s) => s[0] === '');
+      return typeof res !== 'string' && 'segs' in res && (/^[a-z]:$/.test(res.segs[0]!) || (posixOk && res.segs[0] === '' && res.segs.length > 1)) && !res.segs.some((s) => GLOB_SEG.test(s)) ? joinSegs(res.segs) : undefined;
     };
     const next = (cands ?? [{ p: undefined as string | undefined }]).map((c) => ({ ...c, p: to(c.p) }));
     // cmd's cd to another drive without /d sets that drive's folder but stays where it is
