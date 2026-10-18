@@ -10,9 +10,10 @@
 @container pg (max-width: 760px) {
   .pg-set2 { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   /* the stuck row reaches up into the scroll area's top padding, so no scrolled content shows above it */
-  .pg-snav { top: -24px; margin-top: -24px; padding-top: 24px; flex-direction: row; flex-wrap: wrap; gap: 2px 4px; background: var(--bg); z-index: 2; padding-bottom: 8px; border-bottom: 1px solid var(--line); align-items: center; }
-  .pg-snav button { white-space: nowrap; }
-  .pg-snav .leg { padding: 0 8px; }
+  .pg-snav { top: -24px; margin-top: -24px; padding-top: 24px; flex-direction: row; flex-wrap: nowrap; gap: 4px; background: var(--bg); z-index: 2; padding-bottom: 8px; border-bottom: 1px solid var(--line); align-items: center; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+  .pg-snav::-webkit-scrollbar { display: none; }
+  .pg-snav button { flex: none; white-space: nowrap; }
+  .pg-snav .leg { flex: none; padding: 0 28px 0 8px; white-space: nowrap; }
 }
 .pg-sbody { max-width: 720px; min-width: 0; }
 .pg-sbody section { padding: 0 0 24px; margin-bottom: 24px; border-bottom: 1px solid var(--line); scroll-margin-top: 4px; }

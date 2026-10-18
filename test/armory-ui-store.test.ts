@@ -272,7 +272,7 @@ test('a dead core is an error with a reason; a 404 means this version has no Arm
   reset(); world.down = true;
   await store.loadArmory();
   assert.equal(getArmory().loaded, false);
-  assert.equal(getArmory().loadError, 'Cannot reach Legion core');
+  assert.equal(getArmory().loadError, 'Cannot reach Legion core. If it stopped, use Restart core in the tray menu, or restart Legion.');
   assert.equal(getArmory().loading, false, 'the Try again button must be usable');
   world.down = false;
   await store.loadArmory();
@@ -282,7 +282,7 @@ test('a dead core is an error with a reason; a 404 means this version has no Arm
   world.down = true;
   await store.loadArmory();
   assert.equal(getArmory().data!.skills.length, n, 'the old list is still there');
-  assert.equal(getArmory().loadError, 'Cannot reach Legion core');
+  assert.equal(getArmory().loadError, 'Cannot reach Legion core. If it stopped, use Restart core in the tray menu, or restart Legion.');
   world.down = false;
   assert.equal(await store.retryLoad(), true);
   assert.match(getArmory().notice, /^Armory reloaded\./);
@@ -746,7 +746,7 @@ test('what an agent sees: the latest answer wins even when an older one arrives 
   world.down = true;
   await store.loadEffective('beta');
   assert.equal(getArmory().effective.beta!.status, 'error');
-  assert.equal(getArmory().effective.beta!.error, 'Cannot reach Legion core');
+  assert.equal(getArmory().effective.beta!.error, 'Cannot reach Legion core. If it stopped, use Restart core in the tray menu, or restart Legion.');
   world.down = false;
 });
 

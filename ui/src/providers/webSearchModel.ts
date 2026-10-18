@@ -27,7 +27,7 @@ export function selectOptions(v: Pick<WebSearchView, 'providers'>, job: WebJob):
 export function parseCap(text: string, limits: { min: number; max: number }): { ok: true; value: number } | { ok: false; error: string } {
   const n = Number(text.trim().replace(',', '.'));
   if (text.trim() !== '' && Number.isFinite(n) && n >= limits.min && n <= limits.max) return { ok: true, value: n };
-  return { ok: false, error: `The cap must be between $${limits.min} and $${limits.max.toFixed(2)} per call.` };
+  return { ok: false, error: `The per-call spending cap must be between $${limits.min} and $${limits.max.toFixed(2)}.` };
 }
 
 export function keyPlaceholder(v: Pick<WebSearchView, 'keys'>, id: WebProviderId): string {

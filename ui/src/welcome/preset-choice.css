@@ -8,5 +8,5 @@
 /* the live list: what each agent really does with this choice. A plain surface, no stripe. */
 .preset-agents { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); font-size: 13px; line-height: 1.5; color: var(--text-2); }
 .preset-agents ul { margin: 6px 0 0; padding-left: 18px; }
-.preset-agents li { margin: 1px 0; }
+.preset-agents li { margin: 1px 0; text-wrap: pretty; }
 .preset-follow { margin-top: 2px; }

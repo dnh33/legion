@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { Icon } from './icons';
 import { applyViaBridge } from '../gates/gatesAction';
-import { cardLines, trustChange } from '../gates/trustLogic';
+import { cardLines, trustChange, trustHeading } from '../gates/trustLogic';
 
 type Held = NonNullable<ChatMessage['folderTrust']>['folders'][number];
 
@@ -10,14 +10,14 @@ type Held = NonNullable<ChatMessage['folderTrust']>['folders'][number];
  * The notice a run leaves when it held back a folder's own settings: the folder, what could run (labelled lines, no variable value), and one button.
  * The button asks the app for the same native confirmation as the Gates page; the dialog there lists every command. Nothing runs until that is confirmed.
  */
-function HeldFolder({ f }: { f: Held }) {
+function HeldFolder({ f, onTrusted }: { f: Held; onTrusted: (folder: string) => void }) {
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const [msg, setMsg] = useState('');
   const { shown, hidden } = cardLines(f.lines, f.more);
   const trust = async () => {
     setState('busy'); setMsg('');
     const r = await applyViaBridge(window.legion?.gatesChange, trustChange(f.folder), async () => undefined);
-    if (r.state === 'ok') { setState('done'); setMsg('Trusted. It applies from the next run.'); return; }
+    if (r.state === 'ok') { setState('done'); setMsg('Trusted. It applies from the next run.'); onTrusted(f.folder); return; }
     setState('idle');
     setMsg(r.state === 'cancelled' ? 'Cancelled. Nothing changed.' : r.message);
   };
@@ -37,11 +37,13 @@ function HeldFolder({ f }: { f: Held }) {
 }
 
 export function FolderTrustCard({ text, folders }: { text: string; folders: Held[] }) {
+  const [trusted, setTrusted] = useState<readonly string[]>([]);
+  const all = folders.length > 0 && folders.every((f) => trusted.includes(f.folder));
   return (
-    <div className="msg system ft-card" role="group" aria-label="Folder settings held back">
-      <div className="ft-head"><Icon name="shield" size={14} /><b>This folder's settings were held back</b></div>
-      <p className="ft-why">{text.split('\n')[0]}</p>
-      {folders.map((f) => <HeldFolder key={f.folder} f={f} />)}
+    <div className={`msg system ft-card${all ? ' trusted' : ''}`} role="group" aria-label={all ? 'Folder trusted' : 'Folder settings held back'}>
+      <div className="ft-head"><Icon name={all ? 'check' : 'shield'} size={14} /><b>{trustHeading(folders.length, trusted.length)}</b></div>
+      <p className="ft-why">{all ? 'This run used your user settings only.' : text.split('\n')[0]}</p>
+      {folders.map((f) => <HeldFolder key={f.folder} f={f} onTrusted={(p) => setTrusted((t) => (t.includes(p) ? t : [...t, p]))} />)}
     </div>
   );
 }

@@ -26,7 +26,7 @@ export function TrustedFolders({ view, busy, pending, note, run }: { view: Gates
   const list: TrustedRow[] = rows ?? records.map((r) => ({ folder: r.folder, current: true, summary: [], more: 0 }));
   return (
     <div className="gates-sites gates-trust" aria-label={TRUSTED_FOLDERS_LABEL}>
-      <div className="gates-site-head"><b>{TRUSTED_FOLDERS_LABEL}</b></div>
+      <h3 className="gates-trust-h">{TRUSTED_FOLDERS_LABEL}</h3>
       <p className="muted-s">{TRUST_NOTE}</p>
       {!view.canSign && <p className="muted-s">Trusting a folder is off. {KEYSTORE_LINE}</p>}
       {list.length === 0 ? <p className="muted-s">{TRUST_EMPTY_LINE}</p> : (

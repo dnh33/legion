@@ -28,3 +28,9 @@ export function trustSummary(row: Pick<TrustedRow, 'summary' | 'more'>): string 
 export function cardLines(lines: readonly string[], more: number, show = 6): { shown: string[]; hidden: number } {
   return { shown: lines.slice(0, show), hidden: Math.max(0, lines.length - show) + more };
 }
+
+/** The card's heading says what is true now: held back until you trust the folder, then trusted. */
+export function trustHeading(total: number, trusted: number): string {
+  if (total > 0 && trusted >= total) return total === 1 ? 'This folder is trusted' : 'These folders are trusted';
+  return total === 1 ? "This folder's settings were held back" : "These folders' settings were held back";
+}

@@ -1,4 +1,4 @@
-import { platform } from '../api';
+import { CORE_NEXT_STEP, platform } from '../api';
 import { BlenderChip } from '../blender/BlenderChip';
 import { BsvChip } from '../bsv/BsvChip';
 import { CiChip } from '../ci/CiChip';
@@ -35,6 +35,7 @@ export function TitleBar() {
   const roomAttn = useRooms((s) => s.rooms.filter((r) => r.paused || isUnread(s, r)).length);
   const bad = doctor ? doctor.filter((c) => !c.ok).length : 0;
   const connLabel = conn === 'online' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Offline, retrying';
+  const connTitle = conn === 'offline' ? `Legion core is not answering, so Legion keeps retrying. ${CORE_NEXT_STEP}` : connLabel;
   const padRight = platform === 'darwin' || platform === 'linux' ? 16 : 140;
   const padLeft = platform === 'darwin' ? 84 : 14;
   return (
@@ -63,7 +64,7 @@ export function TitleBar() {
             );
           })}
         </div>
-        <span className={`conn conn-${conn}`} title={connLabel}><i className="conn-dot" /> <span className="conn-label">{connLabel}</span></span>
+        <span className={`conn conn-${conn}`} title={connTitle}><i className="conn-dot" /> <span className="conn-label">{connLabel}</span></span>
         <BsvChip />
         <BlenderChip />
         <GithubChip />

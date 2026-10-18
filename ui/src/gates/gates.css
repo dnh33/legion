@@ -31,6 +31,10 @@ button.gate-chip:hover { color: var(--text); }
 .gate-preview { font-size: 13px; font-weight: 600; line-height: 1.45; padding: 8px 10px; border: 1px solid var(--accent-line); background: var(--surface-2); border-radius: var(--r-sm); margin: 0 0 4px; }
 
 .gate-tester h4 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; }
+.gate-tester .set-inline { min-width: 0; }
+.gate-tester .set-inline > label { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+/* a long agent name is cut inside the select, so it never widens the card or the pane */
+.gate-tester .set-inline select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; height: 30px; padding: 0 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--text); font-size: 13px; }
 .gate-test-out { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r); display: flex; flex-direction: column; gap: 4px; }
 .gate-test-out b { font-size: 12.5px; letter-spacing: .02em; }
 .gate-test-out.v-allow b { color: var(--accent-text); }
@@ -139,6 +143,9 @@ button.gate-chip:hover { color: var(--text); }
 .gates-keep .gates-hosts code { min-width: 0; }
 .gates-keep-shared { margin: 2px 0 8px 10px; max-width: 70ch; }
 .gates-trust p { margin: 0; }
+/* its own section under the gate rows, with its own heading: it is not a detail of the row above it ("Your ask rules") */
+.gates-sites.gates-trust { margin: 20px 0 6px; padding: 16px 0 0; border: 0; border-top: 1px solid var(--line-strong); border-radius: 0; background: none; gap: 8px; }
+.gates-trust-h { margin: 0; font-size: 15px; }
 .gates-trust .gates-hosts { margin-top: 0; }
 .gates-trust-list li { align-items: flex-start; }
 .gates-trust-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

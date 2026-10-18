@@ -5,7 +5,7 @@
  * rule created only after Confirm.
  */
 import { useEffect, useRef, useState } from 'react';
-import { PROJECT_LIMITS } from '../../../../src/shared/projects';
+import { PROJECT_LIMITS, usesDefaultFolder } from '../../../../src/shared/projects';
 import type { Project } from '../../../../src/shared/projects';
 import { loadSettings, useStore } from '../../store';
 import { archiveProject, changeMembers, chooseFolder, saveProject, unarchiveProject, useDefaultFolder } from '../projectsStore';
@@ -57,6 +57,14 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
     on();
     return () => scroller.removeEventListener('scroll', on);
   }, []);
+  // the menu is one scrollable row when the page is narrow: keep the current section's button in view
+  useEffect(() => {
+    const nav = root.current?.querySelector<HTMLElement>('.pg-snav');
+    const on = nav?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!nav || !on) return;
+    const n = nav.getBoundingClientRect(); const b = on.getBoundingClientRect();
+    if (b.left < n.left || b.right > n.right - 28) nav.scrollTo({ left: nav.scrollLeft + b.left - n.left - 24 });
+  }, [active]);
   const go = (id: string): void => {
     const el = root.current?.querySelector<HTMLElement>(`[data-sec="${id}"]`);
     const scroller = document.getElementById('pg-panel');
@@ -132,6 +140,7 @@ function General({ project }: { project: Project }) {
 function Folders({ project }: { project: Project }) {
   const [busy, setBusy] = useState(false);
   const run = async (fn: () => Promise<unknown>): Promise<void> => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
+  const isDefault = usesDefaultFolder(project);
   return (
     <section data-sec="folders" aria-labelledby="set-h-folders">
       <h2 id="set-h-folders" tabIndex={-1}>Folders</h2>
@@ -139,7 +148,8 @@ function Folders({ project }: { project: Project }) {
       <p className="pg-path"><code>{project.folder}</code></p>
       <div className="pg-row2">
         <button type="button" className="pg-btn" disabled={busy} onClick={() => void run(() => chooseFolder(project.id))}>Choose folder&hellip;</button>
-        <button type="button" className="pg-btn ghost" disabled={busy} onClick={() => void run(() => useDefaultFolder(project.id))}>Use default folder</button>
+        <button type="button" className="pg-btn ghost" disabled={busy || isDefault} title={isDefault ? 'This project already uses its default folder.' : undefined} onClick={() => void run(() => useDefaultFolder(project.id))}>Use default folder</button>
+        {isDefault && <span className="muted-s">This project already uses its default folder.</span>}
       </div>
       <ProjectRepoLine project={project} />
     </section>

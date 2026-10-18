@@ -76,6 +76,14 @@ export function adminRefusal(status: number, serverMessage: string | undefined):
   return undefined;
 }
 
+/**
+ * What to do when the core does not answer. The window cannot tell a core that stopped from one that is still starting, so the line is true in both:
+ * it names the way back if it stopped. The only restart in 0.3.5 is the tray item (or quitting and opening Legion).
+ */
+export const CORE_NEXT_STEP = 'If it stopped, use Restart core in the tray menu, or restart Legion.';
+/** The error of a call that got no answer at all. */
+export const CORE_UNREACHABLE = `Cannot reach Legion core. ${CORE_NEXT_STEP}`;
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -85,7 +93,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError(0, 'Cannot reach Legion core');
+    throw new ApiError(0, CORE_UNREACHABLE);
   }
   const text = await res.text();
   let data: unknown = undefined;

@@ -19,4 +19,10 @@
 .prov-feedback:hover { color: var(--text); }
 :root[data-kbd-nav][data-focus-rings] .prov-feedback:focus-visible { color: var(--text); outline: 2px solid var(--accent); outline-offset: 2px; }
 .prov-row input.narrow { width: 110px; }
+/* the same select and text fields as the rest of Settings (Gates presets and filters), not the browser's own */
+.prov-row input:not([type='checkbox']):not([type='radio']):not([type='range']) { height: 30px; min-width: 0; padding: 0 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--text); font-size: 13px; }
+.prov-row input::placeholder { color: var(--faint); }
+.prov-row select { height: 30px; min-width: 0; max-width: 100%; padding: 0 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--text); font-size: 13px; }
 .prov-notice { margin: 0; font-size: 13px; line-height: 1.45; }
+/* the key store did not unlock: said first, above the long explainer, with its one way out */
+.key-store-blocked > div { display: flex; flex-direction: column; gap: 8px; } .key-store-blocked p { margin: 0; }

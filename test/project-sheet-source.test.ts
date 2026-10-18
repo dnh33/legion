@@ -43,11 +43,14 @@ test('the Best fit copy says what the code does: the member with the fewest runn
   assert.equal(/[–—]/.test(s), false, 'no em or en dash');
 });
 
-test('the Settings section nav wraps in the narrow layout: no sideways scroll, so the legend is never clipped', () => {
+test('the Settings section nav is one scrollable row in the narrow layout (it took two rows of a 600 px window); no button or legend is squeezed or cut', () => {
   const css = read('settings.css');
   const narrow = /@container pg \(max-width: 760px\) \{[\s\S]*?\n\}/.exec(css)?.[0] ?? '';
   const snav = /\.pg-snav \{[^}]*\}/.exec(narrow)?.[0] ?? '';
   assert.ok(snav, 'the narrow .pg-snav rule exists');
-  assert.match(snav, /flex-wrap:\s*wrap/);
-  assert.equal(/overflow-x:\s*(auto|scroll)/.test(snav), false, snav);
+  assert.match(snav, /flex-wrap:\s*nowrap/);
+  assert.match(snav, /overflow-x:\s*auto/);
+  assert.match(narrow, /\.pg-snav button \{[^}]*flex:\s*none/, 'a button keeps its width');
+  assert.match(narrow, /\.pg-snav \.leg \{[^}]*flex:\s*none/, 'the legend keeps its width and is reached by scrolling');
+  assert.match(read('SettingsTab.tsx'), /nav\.scrollTo\(/, 'the current section\'s button is brought into view');
 });

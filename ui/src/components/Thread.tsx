@@ -4,7 +4,7 @@ import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } fr
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
 import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
 import { shortcutRefused } from '../a11y/keyClockCore';
-import { base, token } from '../api';
+import { base, CORE_NEXT_STEP, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
@@ -265,7 +265,7 @@ export function Thread() {
       <TaskSwitcher />
       {taskId && searchOpen && <ThreadSearch taskId={taskId} onJump={jumpTo} onClose={() => { setSearchOpen(false); setHitId(null); }} />}
       {loaded && conn === 'offline' && agents.length > 0 && (
-        <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
+        <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not answering. Legion keeps retrying, and replies resume when it is back. {CORE_NEXT_STEP}</span></div>
       )}
       <ProposalCards agentId={agentId} taskId={taskId ?? null} />
       {otherApprovals.length > 0 && (
@@ -369,7 +369,7 @@ function EmptyState() {
       <div className="empty down">
         <span className="avatar xl"><Icon name="pulse" size={24} /></span>
         <h3>{conn === 'connecting' ? 'Connecting to Legion core\u2026' : 'Cannot reach Legion core'}</h3>
-        <p>{conn === 'connecting' ? 'Hold on, this takes a moment.' : 'The local core is not answering. Start it with start-legion.cmd, then try again. Legion keeps retrying on its own.'}</p>
+        <p>{conn === 'connecting' ? 'Hold on, this takes a moment.' : `The local core is not answering. Legion keeps retrying on its own. ${CORE_NEXT_STEP} Started the core by hand? Run start-legion.cmd again.`}</p>
         <button className="btn" onClick={() => void refresh()}>Try again</button>
       </div>
     );

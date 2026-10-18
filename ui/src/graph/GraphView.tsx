@@ -1,5 +1,6 @@
 /** The Lattice: knowledge graph view. Left: search / filters / lint. Centre: canvas. Right: node details. */
 import { useEffect, useRef, useState } from 'react';
+import { CORE_NEXT_STEP, CORE_UNREACHABLE } from '../api';
 import { useStore } from '../store';
 import { CanvasPane } from './CanvasPane';
 import { DetailPanel } from './DetailPanel';
@@ -60,7 +61,7 @@ export function GraphView() {
 
   let content: React.ReactNode;
   if (bootState === 'loading' && !stats) content = <LoadingState />;
-  else if (bootState === 'error' && !stats) content = <ErrorState message={bootError} offline={conn === 'offline' || bootError === 'Cannot reach Legion core'} />;
+  else if (bootState === 'error' && !stats) content = <ErrorState message={bootError} offline={conn === 'offline' || bootError === CORE_UNREACHABLE} />;
   else if (empty) content = <EmptyState />;
   else content = (
     <>
@@ -69,7 +70,7 @@ export function GraphView() {
         <CanvasPane insetLeft={narrow && leftShown ? LEFT_W : 0} insetRight={detailOpen ? detailW : 0} leftOpen={leftShown} onToggleLeft={toggleLeft} />
         {(conn === 'offline' || offline) && (
           <div className="lt-offline" role="alert" style={{ right: detailOpen ? detailW + 10 : 10, left: (narrow && leftShown ? LEFT_W : 0) + 190 }}>
-            <GIcon name="alert" size={14} /> Cannot reach Legion core. Showing what was loaded; it will refresh when the connection returns.
+            <GIcon name="alert" size={14} /> Cannot reach Legion core. Showing what was loaded; it will refresh when the connection returns. {CORE_NEXT_STEP}
           </div>
         )}
         {nodeCount === 0 && !loading && (
@@ -104,7 +105,7 @@ function ErrorState({ message, offline }: { message: string | null; offline: boo
       <div className="lt-state-card">
         <span className="lt-state-ic bad"><GIcon name="alert" size={22} /></span>
         <b>{offline ? 'Legion core is not reachable' : 'The Lattice did not load'}</b>
-        <span>{offline ? 'The knowledge graph lives in the core process. This view retries on its own when the connection returns.' : message}</span>
+        <span>{offline ? 'The knowledge graph lives in the core process. This view retries on its own when the connection returns. ' + CORE_NEXT_STEP : message}</span>
         <button className="btn primary" onClick={() => void boot()}>Try again</button>
       </div>
     </div>
