@@ -136,7 +136,7 @@ function parseModeChange(b: Record<string, unknown>): AgentModeChange {
   return out;
 }
 
-export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string; /** Every successful change writes `gate-changed` lines here. */ activity?: ActivityLog }): GatesModule {
+export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectStore; core: GatesCore; nativeSecret?: string; dataDir?: string; /** Legion's own program folder when this is an installed Legion: protected like the data folder. */ installTargets?: string[]; /** Every successful change writes `gate-changed` lines here. */ activity?: ActivityLog }): GatesModule {
   const { store } = opts.core;
   const wrap = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof GatesError) throw new HttpError(e.status, e.message); throw e; }
@@ -185,7 +185,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   return {
     id: 'gates', store, agentMode,
     // One protected set for the file tools and the shell guard: the gates folder, the key file, config, state and the project list (not agents' workspaces).
-    protectedPaths: () => [store.folder, ...(opts.dataDir ? dataFolderTargets(opts.dataDir) : [])],
+    protectedPaths: () => [store.folder, ...(opts.dataDir ? dataFolderTargets(opts.dataDir) : []), ...(opts.installTargets ?? [])],
     routes: (add) => {
       add('GET', '/api/gates/settings', () => store.view(opts.projects.list().map((p) => p.id)));
       // The approved sites with when each was approved and last read, and the built-in docs list. Read-only; admin-only like every gates route.

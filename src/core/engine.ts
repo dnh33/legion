@@ -27,7 +27,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
 import { globMatchesAny, secretFileNames, secretReadDetail, secretReadHit, type SecretLocation } from './secret-paths.js';
-import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
+import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit, startsAtLogin } from './protected-paths.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
 import { loadDocsHosts } from '../shared/docs-hosts.js';
@@ -1474,7 +1474,7 @@ export class Engine {
       }
     } else if (SHELL_TOOLS.has(toolName) && typeof o.command === 'string') {
       const folder = projectFolder ?? this.agentCwd(job.agentId);
-      hit = o.command.split(/[\s;&|<>()"'`=,:]+/).some((t) => t !== '' && isBuildFile(t)) && classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }).level >= 2;
+      hit = o.command.split(/[\s;&|<>()"'`=,:]+/).some((t) => t !== '' && isBuildFile(t)) && classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [], home: homedir() }).level >= 2;
     }
     if (!hit) return;
     const pid = startProjectOf(job);
@@ -1627,7 +1627,7 @@ export class Engine {
     const projectId = this.store.getTask(job.taskId)?.projectId;
     // "inside" means inside the project's folder, else inside the agent's own working folder: with neither there is nothing to check against
     const folder = this.projectOf(job.taskId, agent.id)?.folder ?? this.agentCwd(agent.id);
-    return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }) };
+    return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [], home: homedir() }) };
   }
 
   /**
@@ -1728,7 +1728,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       return rel !== undefined && rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : abs;
     };
     const hit = protectedWriteHit(toolName, input, this.askExtras(job, agent, toolName, input).consequence.level, resolveTarget);
-    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to change ${hit}. A change there can run code the next time you use Git, or change what an agent may do.`) : undefined;
+    if (!hit) return undefined;
+    return this.guardCard(job, agent, toolName, input, `Legion wants to change ${hit}. A change there can run code ${startsAtLogin(hit) ? 'when you log in or open a shell' : 'the next time you use Git'}, or change what an agent may do.`);
   }
 
   /**

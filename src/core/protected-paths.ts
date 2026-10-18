@@ -1,4 +1,5 @@
-// Protected paths: a write to Git internals and hooks, editor and agent settings, shell startup files or package manager
+// Protected paths: a write to Git internals and hooks, editor and agent settings, shell startup files, the places that start
+// programs when you log in (Startup folder, PowerShell profiles, LaunchAgents, autostart, systemd user units, Legion's launcher) or package manager
 // settings always asks in Ask, Accept edits and Smart (never in Bypass). A change there can run code the next time Git or a
 // shell starts, or change what an agent may do. The list is the one the owner approved (gates PR 2, ruling U2).
 
@@ -20,6 +21,18 @@ export const PROTECTED_FILES: readonly string[] = [
   '.pre-commit-config.yaml', 'lefthook.yml', 'lefthook.yaml', '.lefthook.yml', '.lefthook.yaml',
   'gradle-wrapper.properties', 'maven-wrapper.properties', '.devcontainer.json', '.ripgreprc', 'pyrightconfig.json', '.mcp.json', '.claude.json',
 ];
+
+/** Runs of folder names (in order, whole segments): the places that start a program when you log in, and Legion's own launcher. Anything inside one is protected. */
+const PROTECTED_RUNS: ReadonlyArray<readonly string[]> = [
+  ['start menu', 'programs', 'startup'], ['library', 'launchagents'], ['.config', 'autostart'], ['.config', 'systemd', 'user'], ['.local', 'bin', 'legion'],
+];
+/** PowerShell profile files: they run each time PowerShell starts. `profile.ps1` counts under a PowerShell folder only. */
+const PS_PROFILES: ReadonlySet<string> = new Set(['microsoft.powershell_profile.ps1', 'microsoft.vscode_profile.ps1']);
+const PS_FOLDERS: ReadonlySet<string> = new Set(['windowspowershell', 'powershell']);
+/** Is this hit a place that starts a program at login (or a PowerShell profile)? The card words it for that. */
+export const startsAtLogin = (hit: string): boolean => PROTECTED_RUNS.some((r) => r.join('/') === hit) || PS_PROFILES.has(hit) || hit === 'profile.ps1';
+/** The Startup folder named inside a quoted shell word (it holds spaces, so the word split cannot see it). */
+const STARTUP_TEXT = /start menu[\\/]+programs[\\/]+startup/i;
 
 const SHELL = new Set(['Bash', 'PowerShell', 'Monitor', 'mcp__host__shell']);
 const HOOK_CFG = /\bcore\.(hookspath|fsmonitor)\b/i;
@@ -45,7 +58,10 @@ export function protectedHit(p: string): string | undefined {
     }
     if (DIR_SET.has(s)) return s;
     if (s === '.config' && segs[i + 1] === 'git') return '.config/git';
+    const run = PROTECTED_RUNS.find((r) => r.every((n, k) => segs[i + k] === n));
+    if (run) return run.join('/');
   }
+  if (segs.length > 0 && (PS_PROFILES.has(segs[last]!) || (segs[last] === 'profile.ps1' && segs.slice(0, last).some((n) => PS_FOLDERS.has(n))))) return segs[last];
   return segs.length > 0 && FILE_SET.has(segs[last]!) ? segs[last] : undefined;
 }
 
@@ -62,6 +78,7 @@ export function protectedWriteHit(toolName: string, input: Record<string, unknow
   const c = typeof input.command === 'string' ? input.command : '';
   if (/\bgit\b/i.test(c) && HOOK_CFG.test(c)) return '.git';
   if (shellLevel < 2) return undefined;
+  if (STARTUP_TEXT.test(c)) return 'start menu/programs/startup';
   for (const tok of c.split(/[\s"'`;|&<>()=]+/)) { const h = tok ? protectedHit(tok) : undefined; if (h) return h; }
   return undefined;
 }

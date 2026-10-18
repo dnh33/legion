@@ -195,6 +195,14 @@ export function dataFolderTargets(dataDir: string): string[] {
   return ['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers'].map((n) => join(dataDir, n));
 }
 
+/**
+ * Legion's own program folder (its code, launcher and updater state), as a protected target, but only for an installed Legion: a prebuilt package
+ * (`isPackage`) or a folder the Mac and Linux installer marked (`.legion-install.json`). A dev or test checkout has neither and stays free to edit.
+ */
+export function installFolderTargets(root: string, isPackage: boolean, exists: (p: string) => boolean = existsSync): string[] {
+  return isPackage || exists(join(root, '.legion-install.json')) ? [root] : [];
+}
+
 /** The data-folder targets (when `dataDir` is given) plus every module's own `protectedPaths()`. */
 export function protectedTargets(dataDir: string | undefined, modules: ReadonlyArray<{ protectedPaths?(): string[] }>): string[] {
   const out = dataDir ? dataFolderTargets(dataDir) : [];

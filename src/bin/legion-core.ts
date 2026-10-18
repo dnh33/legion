@@ -49,6 +49,7 @@ import { attemptLimits } from '../core/marshal/ledger.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
+import { installFolderTargets } from '../core/exec/canonical-path.js';
 import { VmManager } from '../core/vm-manager.js';
 
 // One sink: <dataDir>/logs. log() is a thin call into it (component 'core') and writes nothing else: core.log (the raw stream file
@@ -168,7 +169,8 @@ async function main() {
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
-  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, activity, dataDir: dataDir(), ...(nativeSecret ? { nativeSecret } : {}) });
+  // Legion's own program folder is protected like the data folder, but only for an installed Legion (a dev checkout stays editable)
+  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, activity, dataDir: dataDir(), installTargets: installFolderTargets(installRoot, isPackageInstall(installRoot)), ...(nativeSecret ? { nativeSecret } : {}) });
   const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, createActivityModule(moduleDeps, activity), bsv, blender, ...providersModules, webSearchModule, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({

@@ -73,3 +73,33 @@ test('L1: the same spellings in a shell command are caught at level 2', () => {
 test('L1: ordinary names that only look similar are not protected', () => {
   for (const p of ['D:/p/src/main.ts', 'D:/p/a.b./c', 'D:/p/..', 'D:/p/../x', 'D:/p/vscode/tasks.json', 'D:/p/.vscodeish/x', 'D:/p/notes...']) assert.equal(protectedHit(p), undefined, p);
 });
+
+// ---- security fix 1: Legion's launcher and the places that start a program at login or when a shell opens
+test('login-start places and PowerShell profiles are protected, in any case and either slash', () => {
+  const hits: Array<[string, string]> = [
+    ['/h/.local/bin/legion', '.local/bin/legion'], ['C:\\Users\\a\\.LOCAL\\BIN\\Legion', '.local/bin/legion'],
+    ['C:\\Users\\a\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\x.cmd', 'start menu/programs/startup'],
+    ['C:/ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp', 'start menu/programs/startup'],
+    ['C:/Users/a/Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1', 'microsoft.powershell_profile.ps1'],
+    ['C:/Users/a/Documents/PowerShell/Microsoft.VSCode_profile.ps1', 'microsoft.vscode_profile.ps1'],
+    ['C:/Users/a/Documents/PowerShell/profile.ps1', 'profile.ps1'], ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Profile.ps1', 'profile.ps1'],
+    ['/h/Library/LaunchAgents/x.plist', 'library/launchagents'], ['/h/.config/autostart/x.desktop', '.config/autostart'], ['/h/.config/systemd/user/x.service', '.config/systemd/user'],
+    ['C:/Users/a/Documents/WindowsPowerShell./Microsoft.PowerShell_profile.ps1.', 'microsoft.powershell_profile.ps1'],
+  ];
+  for (const [p, name] of hits) assert.equal(protectedHit(p), name, p);
+});
+test('login-start names: look-alikes and ordinary project files are not protected', () => {
+  for (const p of ['/p/profile.ps1', '/p/src/profile.ps1', '/p/.local/bin/other', '/p/.local/legion', '/h/.config/other/a', '/h/.config/systemd/system/x.service', '/p/Library/Caches/a', '/p/start menu/programs/a.txt', '/p/Startup/x.cmd', '/p/autostart/x', '/p/legion', '/p/src/Microsoft.PowerShell_profile.txt']) {
+    assert.equal(protectedHit(p), undefined, p);
+  }
+});
+test('login-start names: file tools and write-level shell commands hit; a read does not', () => {
+  assert.equal(protectedWriteHit('Write', { file_path: '/h/.local/bin/legion' }, 1), '.local/bin/legion');
+  assert.equal(protectedWriteHit('Edit', { file_path: 'C:/Users/a/Documents/WindowsPowerShell/profile.ps1' }, 1), 'profile.ps1');
+  assert.equal(protectedWriteHit('Bash', { command: 'echo x >> ~/.local/bin/legion' }, 2), '.local/bin/legion');
+  assert.equal(protectedWriteHit('Bash', { command: 'cp a.service ~/.config/systemd/user/a.service' }, 2), '.config/systemd/user');
+  assert.equal(protectedWriteHit('PowerShell', { command: 'Set-Content "C:\\Users\\a\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\x.cmd" "calc"' }, 2), 'start menu/programs/startup');
+  assert.equal(protectedWriteHit('PowerShell', { command: 'Copy-Item a.ps1 $HOME\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1' }, 2), 'microsoft.powershell_profile.ps1');
+  assert.equal(protectedWriteHit('Bash', { command: 'cat ~/.local/bin/legion' }, 1), undefined);
+  assert.equal(protectedWriteHit('PowerShell', { command: 'Get-Content "C:\\Users\\a\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\x.cmd"' }, 1), undefined);
+});
