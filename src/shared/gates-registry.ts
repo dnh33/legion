@@ -20,6 +20,9 @@ export interface GateDef {
 
 const all = (v: GateValue, bypass: GateValue = v): Record<Preset, GateValue> => ({ ask: v, 'accept-edits': v, smart: v, bypass });
 
+/** What a command still asks about in Bypass, and what the file tools never change in any mode: one list, in plain words, for every place that says it. */
+export const PROTECTED_FILES_TEXT = "your gate settings, Legion's settings file, your agents' settings or your projects";
+
 const GATE_LIST = [
   { id: 'tool-cards', family: 'permission', scope: 'project', label: 'Ask before tools run', protects: 'An agent runs a command or changes files only after you say yes, as its own setting says.', ifOff: 'Agents run commands and change files without asking.', defaults: all(true, false) },
   { id: 'github-write-card', family: 'permission', scope: 'project', label: 'Ask before every GitHub write', protects: 'Every issue, comment, pull request, review or CI action an agent sends to GitHub waits for your yes.', ifOff: 'Agents write to GitHub without asking. Merge, push and delete are still never offered to them.', defaults: all(true, false) },
@@ -52,7 +55,7 @@ const GATE_LIST = [
   { id: 'rail-signed-updates', family: 'rail', scope: 'global', label: 'Only signed updates install', protects: 'An update installs only when Legion release key signed it.', ifOff: '', defaults: 'always' },
   { id: 'rail-secret-scrub', family: 'rail', scope: 'global', label: 'Secrets are masked', protects: 'Keys and tokens are hidden in results and messages.', ifOff: '', defaults: 'always' },
   { id: 'rail-root-confine', family: 'rail', scope: 'global', label: 'File tools stay in your folders', protects: 'File tools only touch the folders you allowed.', ifOff: '', defaults: 'always' },
-  { id: 'rail-protected-paths', family: 'rail', scope: 'global', label: 'Agents cannot edit Legion own settings', protects: 'File tools cannot change your gate settings, projects, config or the Armory in any mode. A command that changes your gate settings, projects or config asks you first, even in Full.', ifOff: '', defaults: 'always' },
+  { id: 'rail-protected-paths', family: 'rail', scope: 'global', label: 'Agents cannot edit Legion own settings', protects: `File tools cannot change ${PROTECTED_FILES_TEXT} or the Armory in any mode. In Bypass, a command that changes ${PROTECTED_FILES_TEXT} still asks you first.`, ifOff: '', defaults: 'always' },
   { id: 'rail-house-trust', family: 'rail', scope: 'global', label: 'Only house files you adopted load', protects: 'A changed house file is not loaded until you adopt it.', ifOff: '', defaults: 'always' },
   { id: 'rail-browser-url', family: 'rail', scope: 'global', label: 'The browser stays on the open web', protects: 'The browser cannot reach private or reserved addresses.', ifOff: '', defaults: 'always' },
   { id: 'rail-shell-floor', family: 'rail', scope: 'global', label: 'Commands that wipe a drive are refused', protects: 'Commands that wipe a drive, a system folder or your home folder never run.', ifOff: '', defaults: 'always' },
@@ -103,7 +106,7 @@ export const PRESET_LINES: Record<Preset, string> = {
   ask: 'Every action asks, as now.',
   'accept-edits': 'File edits run. Everything else asks.',
   smart: "Asks before anything that reaches the web, sends data out, deletes, spends, can't be undone, or that Legion can't classify.",
-  bypass: "No permission cards, except for a command that changes your gate settings, config, state or projects. Your deny rules and Legion's safety rails still apply. Everything is logged.",
+  bypass: `No permission cards, except for a command that changes ${PROTECTED_FILES_TEXT}. Your deny rules and Legion's safety rails still apply. Everything is logged.`,
 };
 
 /** Said in every confirm that loosens a preset, and on the Gates page: Legion does not confine the commands it runs. */

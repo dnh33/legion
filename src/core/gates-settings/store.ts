@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { DENY_LINE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { DENY_LINE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../../shared/gates-signed.js';
@@ -131,7 +131,7 @@ export const PRESET_NAME: Record<Preset, string> = { ask: 'Ask', 'accept-edits':
 const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
   'accept-edits': 'File edits run without asking. Everything else still asks.',
   smart: "Legion decides when to ask. It asks only before an action that reaches the web, sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
-  bypass: 'No permission cards. Agents run commands, change files and write to GitHub without asking. Only a command that changes your gate settings, config, state or projects still asks. Everything is logged.',
+  bypass: `No permission cards. Agents run commands, change files and write to GitHub without asking. Only a command that changes ${PROTECTED_FILES_TEXT} still asks. Everything is logged.`,
 };
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
 const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
