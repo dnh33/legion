@@ -172,7 +172,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   /** The presets that decide the mode an agent follows: the app's, and the preset of each project it is in. */
   const worldOf = (agentId: string | undefined): ModeWorld => ({
     appPreset: store.app().preset,
-    projects: agentId ? opts.projects.list().filter((p) => p.status !== 'archived' && p.members.includes(agentId)).map((p) => ({ id: p.id, name: p.name, preset: store.project(p.id).preset })) : [],
+    projects: agentId ? opts.projects.list().filter((p) => p.status !== 'archived' && p.members.includes(agentId)).map((p) => ({ id: p.id, name: p.name, preset: store.project(p.id).preset, limit: store.project(p.id).limit !== false })) : [],
   });
   const agentMode: AgentModeGuard = {
     check(c, { cur, name, change }) {

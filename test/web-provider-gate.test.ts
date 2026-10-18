@@ -199,7 +199,7 @@ test('a cap stop is shown with the owner\'s cap and nothing is charged', () => {
   const f = fixtureFetch({ detail: { error: 'route_max_cost' } }, {}, 402);
   return using(withWs({ read: 'treg', tregMaxCostUsd: 0.001 }, { 'web:treg': 'k_test_12345' }, f), async (r) => {
     const t = await r.callTool('mcp__legion__web_read', { url: 'https://example.com/' });
-    assert.equal(t.text, 'Error: treg stopped this call at your cap of $0.001. Raise the cap in Settings, Web search.');
+    assert.equal(t.text, 'Error: treg stopped this call at your per-call spending cap of $0.001. Raise the cap in Settings, Web search.');
   });
 });
 test('the activity log gets one fixed-field web-call line with the charge, and never the query', () => {

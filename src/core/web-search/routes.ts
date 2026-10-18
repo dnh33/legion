@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
 import { writeConfigFile } from '../../shared/config.js';
-import { NATIVE_REQUIRED, NOTICE_REQUIRED, PROVIDER_NOTICE, TREG_NOTICE } from '../../shared/web-search-copy.js';
+import { KEYED_COST_NOTICE, NATIVE_REQUIRED, NOTICE_REQUIRED, PROVIDER_NOTICE, TREG_NOTICE } from '../../shared/web-search-copy.js';
 import { TREG_CAP_MAX, TREG_CAP_MIN, WEB_PROVIDERS, isWebProviderId, normalizeWebSearch, webProviderMeta } from '../../shared/web-search-config.js';
 import type { CoreModule } from '../modules.js';
 import { HttpError } from '../server.js';
@@ -35,7 +35,9 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** The notice the page shows before the first use of a provider (treg adds its own paragraph). */
 export function noticeFor(id: WebProviderId): string {
   const name = webProviderMeta(id).label;
-  return id === 'treg' ? `${PROVIDER_NOTICE(name)}\n\n${TREG_NOTICE}` : PROVIDER_NOTICE(name);
+  if (id === 'treg') return `${PROVIDER_NOTICE(name)}\n\n${TREG_NOTICE}`;
+  // Every other provider that needs a key can charge too; SearXNG is an address you run or pick, with no price of ours to state.
+  return webProviderMeta(id).needsKey ? `${PROVIDER_NOTICE(name)}\n\n${KEYED_COST_NOTICE(name)}` : PROVIDER_NOTICE(name);
 }
 
 export function createWebSearchModule(opts: WebSearchModuleOpts): CoreModule {

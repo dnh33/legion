@@ -17,7 +17,11 @@ export interface AgentModeFields { approval: ApprovalMode; approvalSource: 'own'
 /** What a request may change. */
 export interface AgentModeChange { approval?: ApprovalMode; approvalSource?: 'own' | 'project' }
 /** The presets that decide a followed mode: the app's, and one entry per project the agent is a member of. */
-export interface ModeWorld { appPreset: Preset | undefined; projects: Array<{ id: string; name: string; preset: Preset | undefined }> }
+export interface ModeWorld {
+  appPreset: Preset | undefined;
+  /** `limit` is the project's "Limit agents to this" switch; absent counts as on, like the run does. */
+  projects: Array<{ id: string; name: string; preset: Preset | undefined; limit?: boolean }>;
+}
 export interface AgentModePreview {
   raises: boolean;
   /** The plain sentences of what gets looser, then the closing safety lines. Empty when nothing is raised. */
@@ -42,6 +46,9 @@ export function modeOf(a: Pick<AgentProfile, 'approval' | 'approvalSource'> | un
 const place = (f: AgentModeFields, appPreset: Preset | undefined, projectPreset: Preset | undefined): RunMode =>
   f.approvalSource === 'project' ? presetMode(projectPreset ?? appPreset ?? 'ask') : f.approval;
 const atLeastAsStrict = (a: RunMode, b: RunMode): boolean => stricterMode(a, b) === a;
+
+/** What a mode is called where the owner reads it (the Gates page, the agent editor). */
+const MODE_NAME: Record<RunMode, string> = { ask: 'Ask', 'smart-edits': 'Smart, and file edits run', 'auto-edits': 'Accept edits', smart: 'Smart', full: 'Bypass' };
 
 const DOES: Record<RunMode, string> = {
   ask: 'ask before it runs commands or changes files',
@@ -69,8 +76,20 @@ export function previewAgentMode(o: { agentId: string | undefined; name: string;
     if (after.approvalSource === 'own') { if (lines.length === 0) lines.push(`${o.name} will ${DOES[now]}.`); continue; }
     lines.push(`${o.name} will follow the way agents ask ${p.where}. There it will ${DOES[now]}.`);
   }
+  // A project that limits its agents still holds this one back there. The dialog says so, so the owner does not think the change reaches a place it does not.
+  // Every line starts with the agent's name, so the first-run dialog can group agents that share a sentence.
+  if (raises) {
+    for (const p of world.projects) {
+      if (p.limit === false || !p.preset) continue;
+      const now = place(after, world.appPreset, p.preset);
+      const held = stricterMode(now, presetMode(p.preset));
+      if (held === now) continue;
+      lines.push(held === 'ask' ? `${o.name} will still ask in the project "${p.name}" (project limit).` : `${o.name} will still run as ${MODE_NAME[held]} in the project "${p.name}" (project limit).`);
+    }
+  }
   const loosening = raises ? [...lines, DENY_LINE, NO_SANDBOX_LINE] : [];
-  const digest = createHash('sha256').update(JSON.stringify([o.agentId ?? 'new', o.before, after, world.appPreset ?? null, world.projects.map((p) => [p.id, p.preset ?? null])])).digest('hex');
+  // the digest binds the presets and each project's limit switch: a limit turned off while the question is open changes what the dialog said
+  const digest = createHash('sha256').update(JSON.stringify([o.agentId ?? 'new', o.before, after, world.appPreset ?? null, world.projects.map((p) => [p.id, p.preset ?? null, p.limit !== false])])).digest('hex');
   return { raises, loosening, digest, runsAs: after.approvalSource === 'own' ? runsAs.slice(0, 1) : runsAs };
 }
 

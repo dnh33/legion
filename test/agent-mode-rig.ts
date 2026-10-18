@@ -39,7 +39,7 @@ export async function boot(answers: boolean[] = [], own: Own = {}) {
   };
   const modes = () => IDS.map((id) => { const a = f.ctx.store.getAgent(id)!; return `${a.approval}/${a.approvalSource ?? 'own'}`; });
   const writes = () => calls.filter((c) => c.method === 'PATCH');
-  return { f, core, deps, dialogs, calls, writes, modes, http, close: async () => { await mod.dispose?.(); await s.close(); } };
+  return { f, core, projects, deps, dialogs, calls, writes, modes, http, close: async () => { await mod.dispose?.(); await s.close(); } };
 }
 export type R = Awaited<ReturnType<typeof boot>>;
 export const withBoot = (answers: boolean[], fn: (r: R) => Promise<void>, own: Own = {}) => async () => { const r = await boot(answers, own); try { await fn(r); } finally { await r.close(); } };

@@ -66,3 +66,12 @@ test('PERMISSION_GATE_IDS is exactly the permission family that ships', () => {
 test('there is no update-consent gate: automatic installs stay the Updates panel setting', () => {
   assert.ok(!GATES.some((g) => g.id === 'update-consent'));
 });
+
+test('the rail rows read as sentences: possessives are written out', () => {
+  const text = (id: string): string => { const g = GATES.find((x) => x.id === id)!; return `${g.label} | ${g.protects}`; };
+  assert.match(text('rail-ceiling'), /cannot borrow an agent’s rights/);
+  assert.match(text('rail-signed-updates'), /only when Legion’s release key signed it/);
+  assert.match(text('rail-protected-paths'), /^Agents cannot edit Legion’s own settings/);
+  assert.match(text('qa-goal-checks'), /The goal’s own checks run/);
+  for (const g of GATES) for (const s of [g.label, g.protects]) assert.ok(!/(Legion|goal|agent) (own|release|rights)/.test(s), `a missing apostrophe in ${g.id}: ${s}`);
+});

@@ -190,7 +190,7 @@ export function validateWebSearchPatch(raw: unknown, current: WebSearchConfig = 
   }
   if (b.tregMaxCostUsd !== undefined) {
     const v = b.tregMaxCostUsd;
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < TREG_CAP_MIN || v > TREG_CAP_MAX) return bad(`The treg cap must be between $${TREG_CAP_MIN} and $${TREG_CAP_MAX} per call.`);
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < TREG_CAP_MIN || v > TREG_CAP_MAX) return bad(`The per-call spending cap must be between $${TREG_CAP_MIN} and $${TREG_CAP_MAX}.`);
     patch.tregMaxCostUsd = v;
     // a higher cap lets one call spend more of the owner's money: it needs the app's confirm like every loosening (a lower or equal cap does not)
     if (v > clampTregCap(current.tregMaxCostUsd)) needsNative = true;

@@ -18,6 +18,15 @@ export interface Project {
   updatedAt: string;
 }
 
+/**
+ * True when the project's folder is its default one (<workspace>/projects/<id>): the core builds that path from the project id and nothing else does,
+ * so the window can tell without knowing the workspace folder. Slashes of either kind, and a trailing one, are fine.
+ */
+export function usesDefaultFolder(p: Pick<Project, 'id' | 'folder'>): boolean {
+  const parts = p.folder.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts.length >= 2 && parts[parts.length - 1] === p.id && parts[parts.length - 2] === 'projects';
+}
+
 export const PROJECT_LIMITS = { nameChars: 80, instructionsChars: 4_000, members: 24, projects: 50 } as const;
 
 export const PROJECT_ID_RE = /^proj_[a-f0-9]{12}$/;
