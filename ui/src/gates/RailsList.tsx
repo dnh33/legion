@@ -1,9 +1,10 @@
 import { Icon } from '../components/icons';
 import { qaRows, railRows } from './presetsLogic';
 
-/** The QA gates, read only: they follow each goal's care level. */
+/** The QA gates, read only: they follow each goal's care level. Nothing here until goals ship: a card with no rows would be a heading over an empty table. */
 export function QaGates() {
   const rows = qaRows();
+  if (rows.length === 0) return null;
   const cell = (on: boolean) => (on ? 'On' : 'Off');
   return (
     <div className="set-card gates-qa" aria-label="QA gates">

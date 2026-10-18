@@ -205,18 +205,18 @@ test('C1: dropping an override that rides on another change is named in the dial
 }));
 
 test('a limit raise rides on Accept edits and is named', withHarness([true], {}, async (r) => {
-  r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 2 }, 'goal-caps': { on: true, limit: 3 } } });
-  await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'accept-edits', overrides: { 'attempt-caps': { on: true, limit: 100 }, 'goal-caps': { on: true, limit: 100 } } } }, r.deps);
+  r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 2 } } });
+  await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'accept-edits', overrides: { 'attempt-caps': { on: true, limit: 100 } } } }, r.deps);
   const d = r.dialogs[0]!.detail;
   assert.match(d, /File edits run without asking/);
-  assert.match(d, /Limit retries on one item: the limit goes from 2 to 100/); assert.match(d, /Limit the size of a goal: the limit goes from 3 to 100/);
+  assert.match(d, /Limit retries on one item: the limit goes from 2 to 100/); assert.doesNotMatch(d, /Limit the size of a goal/);
 }));
 
 test('N1 through the dialog: Accept edits that drops owner caps names the cap raises', withHarness([true], {}, async (r) => {
-  r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'goal-caps': { on: true, limit: 3 }, 'attempt-caps': { on: true, limit: 1 } } });
+  r.core.store.patchProject(r.pid, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 1 } } });
   const res = await gatesChange({ kind: 'project', id: r.pid, patch: { preset: 'accept-edits', overrides: {} } }, r.deps);
   assert.equal(res.ok, true, res.error);
-  assert.match(r.dialogs[0]!.detail, /Limit the size of a goal: the limit goes from 3 to 12/);
+  assert.doesNotMatch(r.dialogs[0]!.detail, /Limit the size of a goal/);
   assert.match(r.dialogs[0]!.detail, /Limit retries on one item: the limit goes from 1 to 4/);
 }));
 

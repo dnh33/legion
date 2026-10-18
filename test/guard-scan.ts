@@ -116,6 +116,15 @@ const NAMED_CAP = new RegExp(String.raw`\b(?:${CAPITAL.join('|')})\b`);
 /** The feature "Soul" + the product word is Legion's own name for the agents' souls; it is not the product. */
 const OWN_PHRASE = new RegExp(String.raw`\bsouls?[ -]${DISTINCT[1]}\b`, 'gi');
 
+/** The gate ids no file reads: an id counts as read when a source file (comments cut out) writes it as a quoted string. The registry itself is the caller's to leave out. */
+export function unreadGates(ids: readonly string[], sources: ReadonlyArray<{ file: string; text: string }>): string[] {
+  const code = sources.map((s) => s.text.replace(/\/\*[\s\S]*?\*\//g, ' ').split('\n').map((l) => {
+    const m = /(?<!:)\/\//.exec(l);
+    return m ? l.slice(0, m.index) : l;
+  }).join('\n'));
+  return ids.filter((id) => !code.some((t) => ["'", '"', '`'].some((q) => t.includes(`${q}${id}${q}`))));
+}
+
 /** Lines that name another coding-agent product. */
 export function agentNameHits(file: string, src: string): Hit[] {
   const hits: Hit[] = [];

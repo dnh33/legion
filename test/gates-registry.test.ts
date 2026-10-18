@@ -1,7 +1,7 @@
 // test/gates-registry.test.ts
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GATES, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS, PRESET_LINES, gateValue, isPreset } from '../src/shared/gates-registry.js';
+import { GATES, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS, PRESET_LINES, gateShown, gateValue, isPreset } from '../src/shared/gates-registry.js';
 import type { GateSettings } from '../src/shared/gates-registry.js';
 
 const app: GateSettings = { version: 1 };
@@ -56,8 +56,8 @@ test('PRESET_LINES and NO_SANDBOX_LINE are plain: every preset has a line, no em
   assert.match(NO_SANDBOX_LINE, /^Legion has no sandbox for commands on your computer\./);
 });
 
-test('PERMISSION_GATE_IDS is exactly the permission family', () => {
-  assert.deepEqual([...PERMISSION_GATE_IDS], GATES.filter((g) => g.family === 'permission').map((g) => g.id));
+test('PERMISSION_GATE_IDS is exactly the permission family that ships', () => {
+  assert.deepEqual([...PERMISSION_GATE_IDS], GATES.filter((g) => g.family === 'permission' && gateShown(g)).map((g) => g.id));
   assert.ok(PERMISSION_GATE_IDS.includes('tool-cards')); assert.ok(!PERMISSION_GATE_IDS.includes('rail-shell-floor')); assert.ok(!PERMISSION_GATE_IDS.includes('qa-evidence'));
 });
 

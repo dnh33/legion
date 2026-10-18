@@ -1,7 +1,7 @@
 // test/gates-presets-logic.test.ts: the pure view model of the Gates page (Task 11).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GATES, PRESET_LINES } from '../src/shared/gates-registry.js';
+import { GATES, PRESET_LINES, gateShown } from '../src/shared/gates-registry.js';
 import { presetChoices, scopeSummary, permissionRows, qaRows, railRows, runsAsChip, MODE_LABEL, type GatesView } from '../ui/src/gates/presetsLogic.js';
 
 const view = (over: Partial<GatesView> = {}): GatesView => ({ app: { version: 1 }, projects: {}, unreadable: [], changedOutside: [], canSign: true, ...over });
@@ -16,16 +16,17 @@ test('presetChoices has four rows, Ask first, only Ask is not looser', () => {
 
 test('permissionRows covers every permission gate in the registry', () => {
   const ids = permissionRows(view()).map((r) => r.id);
-  assert.deepEqual(ids, GATES.filter((g) => g.family === 'permission').map((g) => g.id));
+  assert.deepEqual(ids, GATES.filter((g) => g.family === 'permission' && gateShown(g)).map((g) => g.id));
+  assert.ok(!ids.includes('goal-caps') && !ids.includes('ask-timeout-deny'), 'the goal gate waits for goals; ask-timeout-deny is a rail');
   for (const id of ['protected-path-cards', 'secret-file-reads', 'env-scrub', 'web-reads']) assert.ok(ids.includes(id), id);
 });
 
 test('permissionRows marks an override and shows the preset default beside it', () => {
-  const v = view({ app: { version: 1, preset: 'ask' }, projects: { p1: { version: 1, preset: 'smart', overrides: { 'tool-cards': false, 'goal-caps': { on: true, limit: 20 } } } } });
+  const v = view({ app: { version: 1, preset: 'ask' }, projects: { p1: { version: 1, preset: 'smart', overrides: { 'tool-cards': false, 'attempt-caps': { on: true, limit: 20 } } } } });
   const rows = permissionRows(v, 'p1');
   const tool = rows.find((r) => r.id === 'tool-cards')!;
   assert.equal(tool.overridden, true); assert.equal(tool.value, false); assert.equal(tool.presetDefault, true);
-  assert.deepEqual(rows.find((r) => r.id === 'goal-caps')!.value, { on: true, limit: 20 });
+  assert.deepEqual(rows.find((r) => r.id === 'attempt-caps')!.value, { on: true, limit: 20 });
   const plain = rows.find((r) => r.id === 'github-write-card')!;
   assert.equal(plain.overridden, false); assert.equal(plain.value, true);
   assert.ok(rows.every((r) => r.label && r.protects && r.ifOff));
@@ -46,15 +47,16 @@ test('scopeSummary: a project with no preset reads per-agent; a changed-outside 
   assert.equal(scopeSummary(v, 'missing').preset, 'per-agent');
 });
 
-test('qaRows lists every qa gate with its care levels', () => {
-  const rows = qaRows();
-  assert.deepEqual(rows.map((r) => r.id), GATES.filter((g) => g.family === 'qa').map((g) => g.id));
-  for (const r of rows) assert.deepEqual([r.quick, r.normal, r.thorough], [true, true, true]);
+test('qaRows lists the qa gates that ship: none until goals do, and the rows are still in the registry', () => {
+  assert.deepEqual(qaRows().map((r) => r.id), GATES.filter((g) => g.family === 'qa' && gateShown(g)).map((g) => g.id));
+  assert.deepEqual(qaRows(), []);
+  assert.ok(GATES.filter((g) => g.family === 'qa').length >= 7, 'the rows are still in the registry');
 });
 
 test('railRows are the registry rails, with no expert key', () => {
   const rows = railRows();
   assert.equal(rows.length, GATES.filter((g) => g.family === 'rail').length);
+  assert.ok(rows.some((r) => r.id === 'ask-timeout-deny'));
   for (const r of rows) { assert.ok(!('expert' in r)); assert.deepEqual(Object.keys(r).sort(), ['id', 'label', 'protects']); }
 });
 
@@ -90,7 +92,7 @@ test('disabledReason: the keystore text for a looser preset when Legion cannot s
 
 test('overridesWith replaces the whole map: set one gate, or drop it to go back to the preset', () => {
   const v = view({ projects: { p: { version: 1, overrides: { 'tool-cards': false } } } });
-  assert.deepEqual(overridesWith(v, 'p', 'goal-caps', { on: true, limit: 20 }), { 'tool-cards': false, 'goal-caps': { on: true, limit: 20 } });
+  assert.deepEqual(overridesWith(v, 'p', 'attempt-caps', { on: true, limit: 20 }), { 'tool-cards': false, 'attempt-caps': { on: true, limit: 20 } });
   assert.deepEqual(overridesWith(v, 'p', 'tool-cards', undefined), {});
   assert.deepEqual(overridesWith(v, 'none', 'tool-cards', true), { 'tool-cards': true });
 });

@@ -13,6 +13,7 @@ import { AgentBust } from './AgentBust';
 import { announce } from './announce';
 import { buildAskRows } from './askLogic';
 import { setVisibleRows, startAnswer, useAnswers } from './answerStore';
+import { useHoldOff } from './holdOff';
 import { AnsweredRow, OpenRow } from './Digest';
 import { Menu } from './Menu';
 import { RunsButton } from './Overview';
@@ -73,6 +74,7 @@ function TaskSheet({ f, project, id, openBoard }: { f: PageFacts; project: Proje
   useEffect(() => { closeBtn.current?.focus(); }, []);
 
   const pid = f.project.id;
+  const holdOff = useHoldOff(pid);
   const away = useAway((s) => projectAway(s, pid));
   const quiet = useAway((s) => s.view?.app.quiet);
   const answers = useAnswers();
@@ -97,7 +99,7 @@ function TaskSheet({ f, project, id, openBoard }: { f: PageFacts; project: Proje
   const onRow = (row: (typeof rows)[number], actName: string, b: (typeof rows)[number]['buttons'][number], li: HTMLElement | null): void => {
     if (actName === 'open' || actName === 'review') return; // it is already open here
     if (actName === 'read') { closeSheet(); openBoard(); return; }
-    startAnswer({ row, b, projectId: pid, height: li?.offsetHeight ?? 0 });
+    startAnswer({ row, b, projectId: pid, holdOff, height: li?.offsetHeight ?? 0 });
   };
   const open = new Set(rows.map((r) => r.key));
   return (

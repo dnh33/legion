@@ -16,7 +16,9 @@ import { engineMatcher } from '../../marshal/matcher.js';
 import { MarshalDriver } from '../../marshal/driver.js';
 import { MAX_DONE_WHEN } from '../../marshal/ledger.js';
 import type { AttemptLimits } from '../../marshal/ledger.js';
-import type { MarshalPorts, RunState } from '../../marshal/orchestrator.js';
+import { stallKeptText } from '../../marshal/orchestrator.js';
+import type { MarshalPorts, RunState, StallKept } from '../../marshal/orchestrator.js';
+import type { ActivityLog } from '../../activity/index.js';
 import type { ProjectStore } from '../store.js';
 import { BOARD_PREAMBLE, boardDigest, runPrompt } from './prompt.js';
 import type { BoardNotes } from './notes.js';
@@ -38,6 +40,10 @@ export interface BoardModuleOpts {
   away?: { isPaused(projectId: string): boolean };
   /** The attempt caps per project (the `attempt-caps` gate); absent: the ledger's defaults. */
   limits?: (projectId: string) => AttemptLimits;
+  /** The `stall-ladder` gate per project (read on every Marshal pass); absent: on. */
+  stallLadder?: (projectId: string) => boolean;
+  /** Where the "a stalled run was left running" line goes (the activity log); absent: no line. */
+  activity?: ActivityLog;
   /** The Marshal's clock. The app takes Date.now; a test passes its own. */
   marshalNow?: () => number;
   /** The Marshal's timer: starts the tick and returns the cancel function. Tests pass a no-op and call `module.marshal.tick()` themselves. */
@@ -141,6 +147,10 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     project: (pid) => { try { return projects.get(pid); } catch { return undefined; } },
     ...(opts.away ? { paused: (pid: string) => opts.away!.isPaused(pid) } : {}),
     ...(opts.limits ? { limits: opts.limits } : {}),
+    ...(opts.stallLadder ? { stallLadder: opts.stallLadder } : {}),
+    ...(opts.activity ? { stallKept: (pid: string, a: StallKept) => {
+      try { opts.activity!.append({ kind: 'note', text: stallKeptText(a), taskId: a.taskId, projectId: pid, agentId: a.botId }); } catch { /* advisory */ }
+    } } : {}),
     ports: portsFor,
     changed,
     now: opts.marshalNow ?? Date.now,

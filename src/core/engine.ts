@@ -520,8 +520,8 @@ export class Engine {
     // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
     this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
     this.bus.on((e) => { if (e.type === 'project.updated') { try { this.onProjectUpdated(e.project); } catch { /* the note is advisory */ } } });
-    // a pause was lifted or a budget changed: what was held can start now
-    this.bus.on((e) => { if (e.type === 'away.updated') this.pump(); });
+    // a pause was lifted, a budget changed, or "Stop at the budget" was switched off: what was held can start now
+    this.bus.on((e) => { if (e.type === 'away.updated' || e.type === 'gates.updated') this.pump(); });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -1025,11 +1025,21 @@ export class Engine {
     return ids;
   }
 
+  /**
+   * The project's budget holds starts: it is reached with no override in force, and the owner has not switched "Stop at the budget" off
+   * for the project the run started in. The budget itself (what the page shows, the notice) is the away module's and is not touched by the switch.
+   * A gate that cannot be read is on.
+   */
+  private budgetHolds(pid: string): boolean {
+    if (!this.away?.budgetBlocked(pid)) return false;
+    try { return this.gates?.gate('budget-stop', pid) !== false; } catch { return true; }
+  }
+
   /** Held by the owner's pause or budget (not by a slot or another run). */
   private heldByPolicy(job: Job): boolean {
     const pid = job.projectAtStart;
     if (!this.away || !pid) return false;
-    try { return this.away.budgetBlocked(pid) || ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)); } catch { return false; }
+    try { return this.budgetHolds(pid) || ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)); } catch { return false; }
   }
 
   /**
@@ -1041,7 +1051,7 @@ export class Engine {
     const pid = job.projectAtStart;
     if (this.away && pid) {
       try {
-        if (this.away.budgetBlocked(pid)) return 'budget';
+        if (this.budgetHolds(pid)) return 'budget';
         if ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)) return 'paused';
       } catch { /* a failing hook holds nothing */ }
     }
@@ -1092,7 +1102,7 @@ export class Engine {
         const pid = j.projectAtStart;
         if (!pid || this.active.has(j.taskId)) continue;
         try {
-          if (!this.away.budgetBlocked(pid)) continue;
+          if (!this.budgetHolds(pid)) continue;
           const r = this.away.budgetRollsAt(pid);
           if (r !== undefined && Number.isFinite(r) && (at === undefined || r < at)) at = r;
         } catch { /* no timer for this one */ }

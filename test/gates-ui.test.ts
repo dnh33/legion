@@ -282,7 +282,12 @@ test('render: the Gates page shows the presets, the notes, fine tuning, QA, rail
     assert.match(html, /class="gates-value">On, limit 4</, 'at the app default the gates read as plain values, not switches');
     assert.ok(!/role="switch"/.test(html));
     assert.match(html, /Check which websites agents read/, 'the new web gate has a row');
-    assert.match(html, /These follow each goal.s care level/);
+    assert.doesNotMatch(html, /These follow each goal.s care level|QA gates|Limit the size of a goal|A separate reviewer/, 'the goal and QA rows wait for goals');
+    assert.match(html, />14 permission gates\./, 'the Fine tuning count is the rows shown');
+    assert.equal((html.match(/class="gates-gate-wrap"/g) ?? []).length, 14, 'and 14 rows are shown');
+    for (const label of ['A few seconds to take back an Allow', 'Stop runs that stall', 'Stop at the budget']) assert.ok(html.includes(label), `${label} has a switch row`);
+    assert.ok(!html.includes('Not used: without this'), 'ask-timeout-deny has no switch row');
+    assert.match(html, /No answer means no[\s\S]{0,120}refused after 10 minutes[\s\S]{0,200}Always on/, 'it is in the rails list with its sentence');
     assert.match(html, /Always on/);
     assert.match(html, /Activity/);
     assert.ok(!/Gate settings changed outside Legion/.test(html), 'no banner when nothing changed');

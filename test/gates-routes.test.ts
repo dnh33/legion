@@ -304,11 +304,12 @@ test('the preview words each kind of loosening from the core itself, and says no
     assert.equal((await r.native('PATCH', `/api/gates/projects/${P}`, { preset: 'ask' })).status, 200);
     assert.match((await pv(r, P, { preset: null })).loosening.join('\n'), /Each agent's own mode applies, Bypass included/);
     // a limit raise and a limited gate going unlimited
-    assert.equal((await r.native('PATCH', `/api/gates/projects/${P}`, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 2 }, 'goal-caps': { on: true, limit: 3 } } })).status, 200);
-    const raise = await pv(r, P, { overrides: { 'attempt-caps': { on: true, limit: 100 }, 'goal-caps': true } });
+    assert.equal((await r.native('PATCH', `/api/gates/projects/${P}`, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 2 } } })).status, 200);
+    const raise = await pv(r, P, { overrides: { 'attempt-caps': { on: true, limit: 100 } } });
     assert.ok(raise.loosening.some((l) => /Limit retries on one item: the limit goes from 2 to 100/.test(l)), raise.loosening.join('|'));
-    assert.ok(raise.loosening.some((l) => /Limit the size of a goal: the limit is removed/.test(l)));
-    const lower = await pv(r, P, { overrides: { 'attempt-caps': { on: true, limit: 1 }, 'goal-caps': { on: true, limit: 3 } } });
+    const unlimited = await pv(r, P, { overrides: { 'attempt-caps': true } });
+    assert.ok(unlimited.loosening.some((l) => /Limit retries on one item: the limit is removed/.test(l)), unlimited.loosening.join('|'));
+    const lower = await pv(r, P, { overrides: { 'attempt-caps': { on: true, limit: 1 } } });
     assert.equal(lower.loosens, false);
   } finally { await r.close(); }
 });

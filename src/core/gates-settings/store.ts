@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
 import { plain, realFolder, sameFolder, scanFolder } from '../folder-trust.js';
 import type { FolderScan } from '../folder-trust.js';
@@ -41,7 +41,8 @@ const DEBOUNCE_MS = 400;
 const MAX_HOSTS = 200;
 const HOST_RE = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const PERMISSION_IDS = new Set<string>(GATES.filter((g) => g.family === 'permission').map((g) => g.id));
+/** The gates a change may name: the permission gates the page shows. A stored name that is not here (a gate that became a rail, or one whose feature has not shipped) is left out when a file is read, and refused when a change names it. */
+const PERMISSION_IDS = new Set<string>(PERMISSION_GATE_IDS);
 const RANK: Record<Preset, number> = { ask: 0, 'accept-edits': 1, smart: 2, bypass: 3 };
 /** "Per agent" (no preset) is the 0.3.0 behavior, which ranks the same as Ask for this comparison. */
 const rank = (p: Preset | undefined): number => (p ? RANK[p] : 0);

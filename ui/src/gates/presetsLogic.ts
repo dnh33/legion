@@ -3,7 +3,7 @@ export { WEB_CARD, WEB_NOTICE, WEB_LINE, CONSENT_LINE } from '../../../src/share
 import { WEB_LINE as WEB_LINE_TEXT } from '../../../src/shared/web-copy.js';
 
 // The view model of the Gates page. Pure: it reads the registry and the settings the core sent, and decides nothing.
-import { GATES, NO_SANDBOX_LINE, PRESETS, PRESET_LINES, gateValue, type GateSettings, type GateValue, type Preset } from '../../../src/shared/gates-registry.js';
+import { GATES, NO_SANDBOX_LINE, PRESETS, PRESET_LINES, gateShown, gateValue, type GateSettings, type GateValue, type Preset } from '../../../src/shared/gates-registry.js';
 import type { ApprovalMode, RunMode } from '../../../src/shared/types.js';
 
 export interface GatesView { app: GateSettings; projects: Record<string, GateSettings>; unreadable: string[]; changedOutside: string[]; canSign: boolean }
@@ -43,12 +43,12 @@ export function scopeSummary(view: GatesView, projectId?: string): { preset: Pre
 }
 
 export interface GateRow { id: string; label: string; protects: string; ifOff: string; value: GateValue; overridden: boolean; presetDefault: GateValue }
-/** Every permission gate the registry has, with its value for this scope and what the preset alone would give. */
+/** Every permission gate the page shows (one whose feature is in this build), with its value for this scope and what the preset alone would give. */
 export function permissionRows(view: GatesView, projectId?: string): GateRow[] {
   const project = projectId === undefined ? undefined : view.projects[projectId];
   const scope = projectId === undefined ? view.app : project;
   const preset: Preset = project?.preset ?? view.app.preset ?? 'ask';
-  return GATES.filter((g) => g.family === 'permission').map((g) => ({
+  return GATES.filter((g) => g.family === 'permission' && gateShown(g)).map((g) => ({
     id: g.id, label: g.label, protects: g.protects, ifOff: g.ifOff,
     value: gateValue(g.id, { project, app: view.app }),
     overridden: scope?.overrides?.[g.id as keyof NonNullable<GateSettings['overrides']>] !== undefined,
@@ -56,14 +56,20 @@ export function permissionRows(view: GatesView, projectId?: string): GateRow[] {
   }));
 }
 
-/** The QA gates follow a goal's care level. Every one is on at every level today. */
+/** The QA gates follow a goal's care level. They arrive with goals, so none is listed until then. */
 export function qaRows(): Array<{ id: string; label: string; protects: string; quick: boolean; normal: boolean; thorough: boolean }> {
-  return GATES.filter((g) => g.family === 'qa').map((g) => ({ id: g.id, label: g.label, protects: g.protects, quick: true, normal: true, thorough: true }));
+  return GATES.filter((g) => g.family === 'qa' && gateShown(g)).map((g) => ({ id: g.id, label: g.label, protects: g.protects, quick: true, normal: true, thorough: true }));
 }
 
 /** The rails: always on, no switch. */
 export function railRows(): Array<{ id: string; label: string; protects: string }> {
-  return GATES.filter((g) => g.family === 'rail').map((g) => ({ id: g.id, label: g.label, protects: g.protects }));
+  return GATES.filter((g) => g.family === 'rail' && gateShown(g)).map((g) => ({ id: g.id, label: g.label, protects: g.protects }));
+}
+
+/** Is one gate off for a project, as the window knows it? A view that has not loaded yet reads as on: the safe side. */
+export function gateOffFor(view: GatesView | null, id: string, projectId: string): boolean {
+  if (!view) return false;
+  return gateValue(id, { project: view.projects[projectId], app: view.app }) === false;
 }
 
 /** The chip on a run: how it runs and, when that differs from the agent's own setting, why. */

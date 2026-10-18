@@ -79,9 +79,9 @@ test('property: over 2000 random changes every gate that gets looser is named, a
 
 test('N1: Accept edits that drops an owner cap override names the cap raise', () => {
   const s = store();
-  s.patchProject(P1, { preset: 'ask', overrides: { 'goal-caps': { on: true, limit: 3 }, 'attempt-caps': { on: true, limit: 1 } } });
+  s.patchProject(P1, { preset: 'ask', overrides: { 'attempt-caps': { on: true, limit: 1 } } });
   const pv = s.preview(P1, { preset: 'accept-edits', overrides: {} });
-  assert.ok(pv.loosening.some((l) => /Limit the size of a goal: the limit goes from 3 to 12/.test(l)), pv.loosening.join('\n'));
+  assert.ok(!pv.loosening.some((l) => /Limit the size of a goal/.test(l)), 'the goal limit waits for goals');
   assert.ok(pv.loosening.some((l) => /Limit retries on one item: the limit goes from 1 to 4/.test(l)), pv.loosening.join('\n'));
 });
 
@@ -92,7 +92,7 @@ test('N2: Ask to Bypass lists every consequence that loosens, one line each', ()
   assert.match(text, /No permission cards/);
   for (const id of ['tool-cards', 'github-write-card', 'module-cards', 'board-delete-card', 'digest-hold', 'gate-rules-ask']) assert.ok(pv.loosening.some((l) => l.startsWith(`${label(id)}: off.`)), `${id} is named`);
   assert.match(text, /Limit retries on one item: the limit goes from 4 to 8/);
-  assert.match(text, /Limit the size of a goal: the limit goes from 12 to 24/);
+  assert.doesNotMatch(text, /Limit the size of a goal/, 'the goal limit is not on the page until goals ship, so the dialog does not name it');
   assert.match(text, /Your ask rules are skipped/);
 });
 
@@ -115,11 +115,13 @@ test('N3: the digest covers the starting point and, for a project, the app setti
 
 test('N4: a limit is refused on a gate that has none, and accepted on one that has', () => {
   const s = store();
-  assert.ok(LIMIT_IDS.includes('goal-caps') && LIMIT_IDS.includes('attempt-caps') && !LIMIT_IDS.includes('tool-cards'));
+  assert.ok(LIMIT_IDS.includes('attempt-caps') && !LIMIT_IDS.includes('goal-caps') && !LIMIT_IDS.includes('tool-cards'));
   for (const call of [() => s.preview(P1, { overrides: { 'tool-cards': { on: true, limit: 5 } } }), () => s.patchProject(P1, { overrides: { 'stall-ladder': { on: true, limit: 2 } } })]) {
     assert.throws(call, (e: unknown) => e instanceof GatesError && e.status === 400 && /has no limit/.test(e.message));
   }
-  assert.doesNotThrow(() => s.patchProject(P1, { overrides: { 'goal-caps': { on: true, limit: 5 } } }));
+  assert.doesNotThrow(() => s.patchProject(P1, { overrides: { 'attempt-caps': { on: true, limit: 5 } } }));
+  assert.throws(() => s.patchProject(P1, { overrides: { 'goal-caps': { on: true, limit: 5 } } }), (e: unknown) => e instanceof GatesError && e.status === 400, 'goal-caps waits for goals');
   assert.equal(parseGatesChange({ kind: 'project', id: P1, patch: { overrides: { 'tool-cards': { on: true, limit: 5 } } } }), undefined);
-  assert.ok(parseGatesChange({ kind: 'project', id: P1, patch: { overrides: { 'goal-caps': { on: true, limit: 5 } } } }));
+  assert.ok(parseGatesChange({ kind: 'project', id: P1, patch: { overrides: { 'attempt-caps': { on: true, limit: 5 } } } }));
+  assert.equal(parseGatesChange({ kind: 'project', id: P1, patch: { overrides: { 'goal-caps': { on: true, limit: 5 } } } }), undefined);
 });

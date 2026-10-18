@@ -16,7 +16,16 @@ export interface GateDef {
   protects: string;
   ifOff: string;
   defaults: Record<Preset, GateValue> | 'always';
+  /**
+   * The feature this gate guards is not in this build. A gate with `ships` stays in the registry (and in the list of ids), but the Gates page,
+   * the Fine tuning count and the confirm lines leave it out, and the core refuses a change that names it. Every one of them comes back by
+   * deleting this one field.
+   */
+  ships?: 'goals';
 }
+
+/** A gate the Gates page shows: its feature is in this build. */
+export const gateShown = (g: { ships?: string }): boolean => g.ships === undefined;
 
 const all = (v: GateValue, bypass: GateValue = v): Record<Preset, GateValue> => ({ ask: v, 'accept-edits': v, smart: v, bypass });
 
@@ -31,24 +40,23 @@ const GATE_LIST = [
   { id: 'board-delete-card', family: 'permission', scope: 'project', label: 'Ask before a board item is deleted', protects: 'An agent deletes a board item only after you say yes.', ifOff: 'The lead agent deletes board items without asking.', defaults: all(true, false) },
   { id: 'module-cards', family: 'permission', scope: 'project', label: 'Ask before browser, Blender and room actions', protects: 'The browser, Blender and room tools ask before they act, as the agent setting says.', ifOff: 'These tools act without asking.', defaults: all(true, false) },
   { id: 'digest-hold', family: 'permission', scope: 'project', label: 'A few seconds to take back an Allow', protects: 'An Allow on the project page waits 5 or 10 seconds with Undo.', ifOff: 'An Allow is sent at once.', defaults: all(true, false) },
-  { id: 'ask-timeout-deny', family: 'permission', scope: 'project', label: 'No answer means no', protects: 'A card nobody answers is refused after 10 minutes.', ifOff: 'Not used: without this, an unanswered card would wait forever.', defaults: all(true) },
   { id: 'attempt-caps', family: 'permission', scope: 'project', label: 'Limit retries on one item', protects: 'An item is tried at most twice per agent and four times in all.', ifOff: 'An item can be retried without limit.', defaults: all({ on: true, limit: 4 }, { on: true, limit: 8 }) },
-  { id: 'stall-ladder', family: 'permission', scope: 'project', label: 'Stop runs that stall', protects: 'A run with no progress for 8 minutes is stopped; after two stalls the item waits for you.', ifOff: 'A stalled run keeps going.', defaults: all(true) },
-  { id: 'goal-caps', family: 'permission', scope: 'project', label: 'Limit the size of a goal', protects: 'A goal pauses at 12 steps, 3 re-splits, 4 dispatches per step or 3 checks per step.', ifOff: 'A goal can grow without limit.', defaults: all({ on: true, limit: 12 }, { on: true, limit: 24 }) },
-  { id: 'budget-stop', family: 'permission', scope: 'project', label: 'Stop at the budget', protects: 'When a budget you set is reached, new runs wait.', ifOff: 'Runs start even past the budget.', defaults: all(true) },
+  { id: 'stall-ladder', family: 'permission', scope: 'project', label: 'Stop runs that stall', protects: 'A run with no progress for 8 minutes is stopped; after two stalls the item waits for you.', ifOff: 'A stalled run keeps going. Legion still notes in the activity log that it stalled.', defaults: all(true) },
+  { id: 'goal-caps', family: 'permission', scope: 'project', label: 'Limit the size of a goal', protects: 'A goal pauses at 12 steps, 3 re-splits, 4 dispatches per step or 3 checks per step.', ifOff: 'A goal can grow without limit.', defaults: all({ on: true, limit: 12 }, { on: true, limit: 24 }), ships: 'goals' },
+  { id: 'budget-stop', family: 'permission', scope: 'project', label: 'Stop at the budget', protects: 'When a budget you set is reached, new runs wait.', ifOff: 'Runs start even past the budget. The budget still shows what you have spent.', defaults: all(true) },
   { id: 'proposals-inbox', family: 'permission', scope: 'project', label: 'Agent proposals wait in the Inbox', protects: 'Work an agent proposes waits until you accept it.', ifOff: 'Proposals go straight to the Backlog.', defaults: all(true) },
   { id: 'env-scrub', family: 'permission', scope: 'project', label: 'Keep keys and passwords out of commands', protects: 'Variables that look like keys, tokens or passwords are not passed to the commands an agent runs, except the ones you chose to keep. Settings that make a program load other code (PYTHONPATH, NODE_OPTIONS, LD_LIBRARY_PATH and the like) are held back too. The agent is told which names were held back.', ifOff: 'Commands an agent runs get your keys, tokens and passwords from your environment, and the settings that make a program load other code.', defaults: all(true) },
   { id: 'protected-path-cards', family: 'permission', scope: 'project', label: 'Ask before changing Git, hooks and agent settings', protects: 'A change to Git (hooks included), editor and agent settings, shell startup files and package manager settings waits for your yes.', ifOff: 'An agent can plant a Git hook or change agent settings without asking. The next commit can then run it.', defaults: all(true, false) },
   { id: 'secret-file-reads', family: 'permission', scope: 'project', label: 'Ask before reading password and key files', protects: 'Reading .env, .pem, .key, SSH, cloud and .npmrc files, and the key files in Legion\'s own data folder, waits for your yes. After one is read, every web call in that run asks.', ifOff: 'An agent can read your password and key files without asking. Web calls still ask after a read while the website check is on.', defaults: all(true, false) },
   { id: 'web-reads', family: 'permission', scope: 'project', label: 'Check which websites agents read', protects: 'Stops an agent reading a site you did not approve, or hiding your data in the address it asks for.', ifOff: 'Agents can read any website without asking, and an address can carry your data out.', defaults: all(true, false) },
   { id: 'gate-rules-ask', family: 'permission', scope: 'project', label: 'Your "ask" rules', protects: 'Your Gates rules set to ask raise a card.', ifOff: 'Your ask rules are skipped. Your deny rules still apply.', defaults: all(true, false) },
-  { id: 'qa-harness-check', family: 'qa', scope: 'project', label: 'Legion runs the checks itself', protects: 'A step counts as checked only when Legion ran its checks in a clean copy of the repo.', ifOff: 'A step can count as checked without its checks being run.', defaults: all(true) },
-  { id: 'qa-fail-first', family: 'qa', scope: 'project', label: 'A check must fail before the work', protects: 'A check that already passes proves nothing, so it is flagged.', ifOff: 'A check that always passes is accepted.', defaults: all(true) },
-  { id: 'qa-freeze-checks', family: 'qa', scope: 'project', label: 'Checks are frozen', protects: 'A step that changes its own checks is stopped.', ifOff: 'An agent can change the checks that judge it.', defaults: all(true) },
-  { id: 'qa-evidence', family: 'qa', scope: 'project', label: 'Evidence with every result', protects: 'Each result keeps the command, its exit code, its output and the commit.', ifOff: 'Results are kept without proof.', defaults: all(true) },
-  { id: 'qa-regression', family: 'qa', scope: 'project', label: 'Run the whole test suite after shared changes', protects: 'A change to shared code runs the project tests, not only the step check.', ifOff: 'Only the step checks run.', defaults: all(true) },
-  { id: 'qa-fresh-reviewer', family: 'qa', scope: 'project', label: 'A separate reviewer', protects: 'A fresh reviewer judges the work from the diff and the evidence, not from the worker report.', ifOff: 'No second look.', defaults: all(true) },
-  { id: 'qa-goal-checks', family: 'qa', scope: 'project', label: 'The goal checks run on the finished work', protects: 'The goal own checks run on the merged result before it reaches you.', ifOff: 'Only the step checks run.', defaults: all(true) },
+  { id: 'qa-harness-check', family: 'qa', scope: 'project', label: 'Legion runs the checks itself', protects: 'A step counts as checked only when Legion ran its checks in a clean copy of the repo.', ifOff: 'A step can count as checked without its checks being run.', defaults: all(true), ships: 'goals' },
+  { id: 'qa-fail-first', family: 'qa', scope: 'project', label: 'A check must fail before the work', protects: 'A check that already passes proves nothing, so it is flagged.', ifOff: 'A check that always passes is accepted.', defaults: all(true), ships: 'goals' },
+  { id: 'qa-freeze-checks', family: 'qa', scope: 'project', label: 'Checks are frozen', protects: 'A step that changes its own checks is stopped.', ifOff: 'An agent can change the checks that judge it.', defaults: all(true), ships: 'goals' },
+  { id: 'qa-evidence', family: 'qa', scope: 'project', label: 'Evidence with every result', protects: 'Each result keeps the command, its exit code, its output and the commit.', ifOff: 'Results are kept without proof.', defaults: all(true), ships: 'goals' },
+  { id: 'qa-regression', family: 'qa', scope: 'project', label: 'Run the whole test suite after shared changes', protects: 'A change to shared code runs the project tests, not only the step check.', ifOff: 'Only the step checks run.', defaults: all(true), ships: 'goals' },
+  { id: 'qa-fresh-reviewer', family: 'qa', scope: 'project', label: 'A separate reviewer', protects: 'A fresh reviewer judges the work from the diff and the evidence, not from the worker report.', ifOff: 'No second look.', defaults: all(true), ships: 'goals' },
+  { id: 'qa-goal-checks', family: 'qa', scope: 'project', label: 'The goal checks run on the finished work', protects: 'The goal own checks run on the merged result before it reaches you.', ifOff: 'Only the step checks run.', defaults: all(true), ships: 'goals' },
   { id: 'rail-injection-guard', family: 'rail', scope: 'global', label: 'Text an agent read cannot start work', protects: 'Words in a web page, a file or an issue never start a run.', ifOff: '', defaults: 'always' },
   { id: 'rail-ceiling', family: 'rail', scope: 'global', label: 'An outside app or another bot cannot borrow an agent rights', protects: 'A run started by an outside app or another bot always asks.', ifOff: '', defaults: 'always' },
   { id: 'rail-mcp-no-connectors', family: 'rail', scope: 'global', label: 'Runs started by an outside app cannot use GitHub', protects: 'Only runs you start can reach GitHub.', ifOff: '', defaults: 'always' },
@@ -61,6 +69,7 @@ const GATE_LIST = [
   { id: 'rail-house-trust', family: 'rail', scope: 'global', label: 'Only house files you adopted load', protects: 'A changed house file is not loaded until you adopt it.', ifOff: '', defaults: 'always' },
   { id: 'rail-browser-url', family: 'rail', scope: 'global', label: 'The browser stays on the open web', protects: 'The browser cannot reach private or reserved addresses.', ifOff: '', defaults: 'always' },
   { id: 'rail-shell-floor', family: 'rail', scope: 'global', label: 'Commands that wipe a drive are refused', protects: 'Commands that wipe a drive, a system folder or your home folder never run.', ifOff: '', defaults: 'always' },
+  { id: 'ask-timeout-deny', family: 'rail', scope: 'global', label: 'No answer means no', protects: 'A card nobody answers is refused after 10 minutes.', ifOff: '', defaults: 'always' },
 ] as const satisfies readonly GateDef[];
 
 export const GATES: readonly GateDef[] = GATE_LIST;
@@ -117,11 +126,11 @@ export function gateValue(id: string, ctx: { project?: GateSettings; app: GateSe
   return g.defaults[preset];
 }
 
-/** The permission gates (the ones a preset or an override can switch): the only ids a change from the window may name. */
-export const PERMISSION_GATE_IDS: readonly string[] = GATES.filter((g) => g.family === 'permission').map((g) => g.id);
+/** The permission gates the page shows (the ones a preset or an override can switch): the only ids a change from the window may name. */
+export const PERMISSION_GATE_IDS: readonly string[] = GATES.filter((g) => g.family === 'permission' && gateShown(g)).map((g) => g.id);
 
 /** The permission gates that have a limit (a number), not only on or off: the only ones a limit value may be set on. */
-export const LIMIT_GATE_IDS: readonly string[] = GATES.filter((g) => g.family === 'permission' && g.defaults !== 'always' && Object.values(g.defaults).some((v) => typeof v === 'object')).map((g) => g.id);
+export const LIMIT_GATE_IDS: readonly string[] = GATES.filter((g) => g.family === 'permission' && gateShown(g) && g.defaults !== 'always' && Object.values(g.defaults).some((v) => typeof v === 'object')).map((g) => g.id);
 
 /** One line per preset: the single copy source for the confirm dialogs and the Gates page. */
 export const PRESET_LINES: Record<Preset, string> = {

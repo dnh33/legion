@@ -3,7 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { agentNameHits, borderLeftStripes, emDashesOutsideComments, outlineRings, swallowedCatches, walk } from './guard-scan.js';
+import { agentNameHits, borderLeftStripes, emDashesOutsideComments, outlineRings, swallowedCatches, unreadGates, walk } from './guard-scan.js';
+import { GATES, gateShown } from '../src/shared/gates-registry.js';
 import type { Hit } from './guard-scan.js';
 
 const ROOT = process.cwd();
@@ -151,4 +152,30 @@ test('the em dash scanner skips comments and finds strings (planted)', () => {
   assert.equal(emDashesOutsideComments('a.ts', `// one ${dash} two\nconst a = 1;`).length, 0);
   assert.equal(emDashesOutsideComments('a.ts', `/* one ${dash} two\n   three ${dash} four */\nconst a = 1;`).length, 0);
   assert.equal(emDashesOutsideComments('a.ts', `const u = 'http://x'; const s = '${dash}';`).length, 1);
+});
+
+// ---- every switch on the Gates page acts ----
+
+/** Fails, naming each gate, when a switch the page shows has no reader. */
+function requireGateReaders(ids: readonly string[], sources: ReadonlyArray<{ file: string; text: string }>): void {
+  const dead = unreadGates(ids, sources);
+  assert.deepEqual(dead, [], `A switch on the Gates page that nothing reads: ${dead.join(', ')}\n`
+    + 'Why it matters: the owner turns it off and nothing changes, so the page lies about what is protected.\n'
+    + 'How to fix: read the gate where the thing it guards happens (gate(id, projectAtStart) in the core, or gateOffFor in the window) and add a test that turns it off. '
+    + "If the feature is not built yet, mark the gate ships: 'goals' in src/shared/gates-registry.ts so the page hides it.");
+}
+const GATE_READER_FILES = [...files('src', /\.ts$/), ...files('ui/src', /\.tsx?$/)].filter((f) => f !== 'src/shared/gates-registry.ts');
+test('every switch the Gates page shows has a reader outside the registry', () => {
+  const switches = GATES.filter((g) => g.family !== 'rail' && gateShown(g)).map((g) => g.id);
+  assert.ok(switches.length >= 14, 'the page shows its switches');
+  requireGateReaders(switches, GATE_READER_FILES.map((f) => ({ file: f, text: read(f) })));
+});
+test('a gate nothing reads fails the guard with what, why and how (planted)', () => {
+  const sources = [{ file: 'a.ts', text: "if (gate('tool-cards')) run(); // 'ghost-gate' is only named in a comment\n/* 'ghost-gate' */" }];
+  requireGateReaders(['tool-cards'], sources);
+  assert.deepEqual(unreadGates(['tool-cards', 'ghost-gate'], sources), ['ghost-gate']);
+  assert.throws(() => requireGateReaders(['tool-cards', 'ghost-gate'], sources), (e: unknown) => {
+    const m = (e as Error).message;
+    return /ghost-gate/.test(m) && /Why it matters/.test(m) && /How to fix/.test(m) && !/tool-cards,/.test(m);
+  });
 });

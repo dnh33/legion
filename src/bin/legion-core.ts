@@ -156,7 +156,7 @@ async function main() {
   const webSearchModule = createWebSearchModule({ config: () => config.webSearch, keys: providerKeys, service: webSearch, configPath: configPath(), nativeSecret });
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
-  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service, limits: (pid) => attemptLimits(gatesCore.gate('attempt-caps', pid)) })] : [];
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service, limits: (pid) => attemptLimits(gatesCore.gate('attempt-caps', pid)), stallLadder: (pid) => gatesCore.gate('stall-ladder', pid) !== false, activity })] : [];
   const away = createAwayModule(moduleDeps, {
     projects, core: awayCore, questions,
     agentOk: (id) => agentIdVisible({ bsvEnabled, store }, id),

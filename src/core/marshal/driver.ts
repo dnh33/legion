@@ -14,7 +14,7 @@ import type { MarshalConfig } from '../../shared/board.js';
 import type { BoardStore, ProjectRef } from '../projects/board/store.js';
 import type { AttemptLimits } from './ledger.js';
 import { Marshal } from './orchestrator.js';
-import type { MarshalPorts, MarshalStatus } from './orchestrator.js';
+import type { MarshalPorts, MarshalStatus, StallKept } from './orchestrator.js';
 
 /** How often an enabled project gets a pass: minutes, not seconds — a dispatch is a run on a bot, not a poll. */
 export const MARSHAL_TICK_MS = 15_000;
@@ -38,6 +38,10 @@ export interface MarshalDriverDeps {
   paused?(pid: string): boolean;
   /** The attempt caps for this project, read at every dispatch check (the `attempt-caps` gate). Absent: the exported defaults. */
   limits?(pid: string): AttemptLimits;
+  /** The `stall-ladder` gate for this project, read on every pass. False: a stalled run is left running. Absent: on. */
+  stallLadder?(pid: string): boolean;
+  /** A stalled run was left running because the ladder is off: one line for the activity log, once per run. */
+  stallKept?(pid: string, a: StallKept): void;
   /** The loop's clock. */
   now(): number;
   /** Starts the tick; returns the cancel function. Tests pass a no-op and call `tick()` themselves. */
@@ -61,7 +65,12 @@ export class MarshalDriver {
     const p = this.deps.project(pid);
     if (!p) return undefined;
     const cfg = this.deps.board.marshalConfig(pid);
-    const marshal = new Marshal(this.deps.ports(pid), p, { waveSize: cfg.waveSize, stallMs: cfg.stallMinutes * 60_000, ...(this.deps.limits ? { limits: (id: string) => this.deps.limits!(id) } : {}) });
+    const marshal = new Marshal(this.deps.ports(pid), p, {
+      waveSize: cfg.waveSize, stallMs: cfg.stallMinutes * 60_000,
+      ...(this.deps.limits ? { limits: (id: string) => this.deps.limits!(id) } : {}),
+      ...(this.deps.stallLadder ? { stallLadder: (id: string) => this.deps.stallLadder!(id) } : {}),
+      ...(this.deps.stallKept ? { onStallKept: (a: StallKept) => this.deps.stallKept!(pid, a) } : {}),
+    });
     this.marshals.set(pid, marshal);
     return marshal;
   }
