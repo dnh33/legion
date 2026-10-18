@@ -17,6 +17,8 @@ export const isSecretPath = (p: string): boolean => NAMES.test(p) || DIRS.test(p
 export interface SecretLocation {
   /** The folder a relative word means when no `cd` came before it. */
   cwd: string;
+  /** Legion's data folder (what the card says a search can reach into). */
+  dataFolder: string;
   /** Is this path one of Legion's key files or inside one of its key folders? `cwd` overrides the folder a relative path means. */
   inside(path: string, cwd?: string): boolean;
   /** Is this path the data folder, a folder between it and a key folder, or a folder above it? A recursive search from there reaches key files. */
@@ -75,6 +77,9 @@ function globRegex(glob: string): RegExp {
 
 /** Could this glob match any of these names? A glob that cannot be read as a pattern counts as yes (it fails towards the card). */
 export function globMatchesAny(glob: string, names: readonly string[]): boolean {
+  // Shapes the check cannot read with certainty fail toward the card: a leading `!` (rg reads it as "everything except"), whitespace or a comma
+  // outside braces (a tool may split the string into several globs).
+  if (glob.startsWith('!') || /\s/.test(glob) || /,/.test(glob.replace(/\{[^}]*\}/g, ''))) return true;
   try { const re = globRegex(glob); return names.some((n) => re.test(n)); } catch { return true; }
 }
 
@@ -82,18 +87,29 @@ export function globMatchesAny(glob: string, names: readonly string[]): boolean 
 const secretPath = (p: string, where?: SecretLocation, cwd?: string): boolean => isSecretPath(p) || where?.inside(expandHomeWord(p), cwd) === true;
 
 /**
+ * What a check found. `hit` is the word as written (what the card used to name), `path` the full path it means (resolved against the folder the
+ * call or the command's own `cd` put it in), and `search` is true when the path only CONTAINS Legion's key folders (the data folder, a folder
+ * above it): a search from there can read the keys, but the path itself is not a key file.
+ */
+export interface SecretFound { hit: string; path: string; search: boolean }
+const shown = (text: string, where?: SecretLocation, cwd?: string): string => {
+  if (!where) return text;
+  try { return resolve(cwd ?? where.cwd, expandHomeWord(text)); } catch { return text; }
+};
+
+/**
  * A path that may hold wildcards. Tested with the wildcards dropped and with them replaced by `x`. A folder before the first wildcard that
  * holds key files (the data folder, or a folder above it), followed by a pattern that can match a key file name, counts too: `<data>/*\/keys.json`.
  */
-function wildcardPathHit(value: unknown, where?: SecretLocation, cwd?: string): string | undefined {
+function wildcardPathHit(value: unknown, where?: SecretLocation, cwd?: string): SecretFound | undefined {
   if (typeof value !== 'string' || value === '') return undefined;
-  if (secretPath(value.replace(/[*?]/g, ''), where, cwd) || secretPath(value.replace(/[*?]/g, 'x'), where, cwd)) return value;
+  if (secretPath(value.replace(/[*?]/g, ''), where, cwd) || secretPath(value.replace(/[*?]/g, 'x'), where, cwd)) return { hit: value, path: shown(value, where, cwd), search: false };
   const at = value.search(/[*?{[]/);
   if (at < 0 || !where) return undefined;
   const base = value.slice(0, at).replace(/[\\/][^\\/]*$/, '');
   if (!base) return undefined;
   const last = value.slice(base.length).split(/[\\/]/).pop() || '*';
-  return where.reaches(expandHomeWord(base), cwd) && where.globReaches(last) ? value : undefined;
+  return where.reaches(expandHomeWord(base), cwd) && where.globReaches(last) ? { hit: value, path: shown(base, where, cwd), search: true } : undefined;
 }
 
 /**
@@ -101,13 +117,16 @@ function wildcardPathHit(value: unknown, where?: SecretLocation, cwd?: string): 
  * the root or the glob names a key file or key folder, or when the root is the data folder, a folder above it or a folder between it and a key
  * folder and the glob can match a key file (no glob at all can).
  */
-function searchHit(where: SecretLocation | undefined, root: unknown, glob: unknown): string | undefined {
+function searchHit(where: SecretLocation | undefined, root: unknown, glob: unknown): SecretFound | undefined {
   const r = typeof root === 'string' && root !== '' ? expandHomeWord(root) : undefined;
   const g = typeof glob === 'string' && glob !== '' ? expandHomeWord(glob) : undefined;
-  if (wildcardPathHit(r, where)) return root as string;
-  if (wildcardPathHit(g, where)) return glob as string;
-  if (r && g && wildcardPathHit(isAbsolute(g) ? g : join(r, g), where)) return glob as string;
-  if (where && where.reaches(r ?? '.') && (g === undefined || where.globReaches(g))) return (root as string | undefined) ?? '.';
+  const a = wildcardPathHit(r, where);
+  if (a) return { ...a, hit: root as string };
+  const b = wildcardPathHit(g, where);
+  if (b) return { ...b, hit: glob as string };
+  const c = r && g ? wildcardPathHit(isAbsolute(g) ? g : join(r, g), where) : undefined;
+  if (c) return { ...c, hit: glob as string };
+  if (where && where.reaches(r ?? '.') && (g === undefined || where.globReaches(g))) return { hit: (root as string | undefined) ?? '.', path: shown(r ?? '.', where), search: true };
   return undefined;
 }
 
@@ -115,7 +134,7 @@ function searchHit(where: SecretLocation | undefined, root: unknown, glob: unkno
 const SEARCHERS: ReadonlySet<string> = new Set(['grep', 'rg', 'findstr', 'select-string', 'sls', 'awk', 'sed']);
 /** Programs that move the shell's folder: the words after them mean that folder. */
 const NAV: ReadonlySet<string> = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl']);
-/** Programs that list a folder; with a recursive flag and a pipe after them, what they list is read by the next program. */
+/** Programs that list a folder. With a pipe after them, what they list is read by the next program. */
 const LISTERS: ReadonlySet<string> = new Set(['get-childitem', 'gci', 'dir', 'ls']);
 
 /** Does this program read every file under the folders it is given? */
@@ -129,7 +148,7 @@ function recursiveRead(first: string, flags: string[], piped: boolean, whole: st
   return false;
 }
 
-function shellHit(command: string, where?: SecretLocation): string | undefined {
+function shellHit(command: string, where?: SecretLocation): SecretFound | undefined {
   // a redirect such as 2>&1 or &> is not a command break; brackets and redirects around a word are not part of it
   const parts = command.replace(/\d*>&\d*|&>/g, ' ').split(/([;|&\n\r]+)/);
   let cwd = where?.cwd;
@@ -139,14 +158,18 @@ function shellHit(command: string, where?: SecretLocation): string | undefined {
     const words = seg.replace(/[()<>]/g, ' ').trim().split(/\s+/).filter(Boolean);
     const first = unquote(words[0] ?? '').split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, '');
     if (where && NAV.has(first)) {
-      // the words after a folder change mean that folder; a target the check cannot read (a variable) leaves the folder as it was
+      // the words after a folder change mean that folder; a target the check cannot read (a variable) leaves the folder as it was;
+      // a bare `cd` means the home folder
       const target = words.slice(1).map(unquote).filter((w) => !w.startsWith('-') && !/^\/d$/i.test(w)).pop();
+      if (!target && first === 'cd') { try { cwd = homedir(); } catch { /* the folder stays as it was */ } continue; }
       const expanded = target ? expandHomeWord(target) : '';
       if (expanded && !/[$%`]/.test(expanded)) { try { cwd = resolve(cwd ?? '.', expanded); } catch { /* the folder stays as it was */ } }
       continue;
     }
     const recursive = recursiveRead(first, words.slice(1).map(unquote), piped, seg);
-    if (!READERS.has(first) && !recursive) continue;
+    // a listing that a pipe passes on reads whatever it names, with or without a recursive flag
+    const lists = piped && LISTERS.has(first);
+    if (!READERS.has(first) && !recursive && !lists) continue;
     let pattern = SEARCHERS.has(first);
     let sawPath = false;
     for (const w of words.slice(1)) {
@@ -154,28 +177,31 @@ function shellHit(command: string, where?: SecretLocation): string | undefined {
       if (!f || f.startsWith('-')) continue;
       if (pattern) { pattern = false; if (!/[\\/]/.test(f) && !f.startsWith('.')) continue; }
       sawPath = true;
-      if (isSecretPath(f) || wildcardPathHit(f, where, cwd)) return f;
-      if (recursive && where?.reaches(expandHomeWord(f), cwd)) return f;
+      if (isSecretPath(f)) return { hit: f, path: shown(f, where, cwd), search: false };
+      const wild = wildcardPathHit(f, where, cwd);
+      if (wild) return wild;
+      if (recursive && where?.reaches(expandHomeWord(f), cwd)) return { hit: f, path: shown(f, where, cwd), search: true };
     }
     // a recursive search given no folder searches the folder the shell is in
-    if (recursive && !sawPath && where?.reaches('.', cwd)) return '.';
+    if (recursive && !sawPath && where?.reaches('.', cwd)) return { hit: '.', path: shown('.', where, cwd), search: true };
   }
   return undefined;
 }
 
 /**
- * The secret file a tool call reads, or undefined. Read: `file_path`. LS: `path`, `glob`, `pattern`. Grep: `path` and `glob` (its `pattern` is text
- * to find, not a file, so a search for the word "credentials" is not a read). Glob: `path` and `pattern`. Shell tools: a reader program (see
- * READERS) in any `;`, `|`, `&` or newline segment, with a secret path among its later words. Gaps: a program not listed, `cat $X`, a renamed file,
- * and (without `where`) a search over a folder that does not name the file. `where` (optional) also counts a path that is secret by its location:
- * the engine passes the check for Legion's own key files (providers, connectors, the gates folder and key), resolved against the call's folder.
- * With it, a recursive search (Grep, Glob, grep -r, rg, findstr /s, a recursive listing piped on) from the data folder, a folder above it or a
- * folder between it and a key folder is a read, and a shell `cd` earlier in the same command changes the folder its words mean.
+ * The secret file a tool call reads, with where it is and whether it is a search folder (see SecretFound), or undefined. Read: `file_path`. LS:
+ * `path`, `glob`, `pattern`. Grep: `path` and `glob` (its `pattern` is text to find, not a file, so a search for the word "credentials" is not a
+ * read). Glob: `path` and `pattern`. Shell tools: a reader program (see READERS) in any `;`, `|`, `&` or newline segment, with a secret path among
+ * its later words; a listing passed on by a pipe counts the same. Gaps: a program not listed, `cat $X`, a renamed file, and (without `where`) a
+ * search over a folder that does not name the file. `where` (optional) also counts a path that is secret by its location: the engine passes the
+ * check for Legion's own key files (providers, connectors, the gates folder and key), resolved against the call's folder. With it, a recursive
+ * search (Grep, Glob, grep -r, rg, findstr /s, a recursive listing piped on) from the data folder, a folder above it or a folder between it and a
+ * key folder is a read, and a shell `cd` earlier in the same command changes the folder its words mean (a bare `cd` is the home folder).
  */
-export function secretReadHit(toolName: string, input: Record<string, unknown>, where?: SecretLocation): string | undefined {
-  if (toolName === 'Read' || toolName === 'mcp__host__read_file') { const p = toolName === 'Read' ? input.file_path : input.path; return typeof p === 'string' && secretPath(p, where) ? p : undefined; }
+export function secretReadDetail(toolName: string, input: Record<string, unknown>, where?: SecretLocation): SecretFound | undefined {
+  if (toolName === 'Read' || toolName === 'mcp__host__read_file') { const p = toolName === 'Read' ? input.file_path : input.path; return typeof p === 'string' && secretPath(p, where) ? { hit: p, path: shown(p, where), search: false } : undefined; }
   if (toolName === 'LS') {
-    for (const k of ['path', 'glob', 'pattern']) { const v = input[k]; if (typeof v === 'string' && wildcardPathHit(expandHomeWord(v), where)) return v; }
+    for (const k of ['path', 'glob', 'pattern']) { const v = input[k]; const f = typeof v === 'string' ? wildcardPathHit(expandHomeWord(v), where) : undefined; if (f) return { ...f, hit: v as string }; }
     return undefined;
   }
   if (toolName === 'Grep') return searchHit(where, input.path, input.glob);
@@ -183,3 +209,6 @@ export function secretReadHit(toolName: string, input: Record<string, unknown>, 
   if ((toolName === 'Bash' || toolName === 'PowerShell' || toolName === 'Monitor' || toolName.startsWith('mcp__host__')) && typeof input.command === 'string') return shellHit(input.command, where);
   return undefined;
 }
+
+/** The word of the secret read (see `secretReadDetail`), or undefined. */
+export const secretReadHit = (toolName: string, input: Record<string, unknown>, where?: SecretLocation): string | undefined => secretReadDetail(toolName, input, where)?.hit;

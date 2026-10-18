@@ -23,7 +23,7 @@ import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
-import { globMatchesAny, secretFileNames, secretReadHit, type SecretLocation } from './secret-paths.js';
+import { globMatchesAny, secretFileNames, secretReadDetail, secretReadHit, type SecretLocation } from './secret-paths.js';
 import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit } from './protected-paths.js';
 import { webVerdict } from '../shared/web-verdict.js';
 import type { WebVerdict } from '../shared/web-verdict.js';
@@ -1699,14 +1699,20 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const inside = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon); } catch { return false; } };
     const reaches = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon, true); } catch { return false; } };
     const globReaches = (glob: string): boolean => { names ??= secretFileNames(roots); return globMatchesAny(glob, names); };
-    return { cwd: base, inside, reaches, globReaches };
+    return { cwd: base, dataFolder: dirname(roots[0]!), inside, reaches, globReaches };
   }
 
   /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */
   private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
     if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
-    const hit = secretReadHit(toolName, input, this.dataSecretLocation(agent, toolName, input));
-    return hit ? this.guardCard(job, agent, toolName, input, `Legion wants to read ${hit.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || hit}. It may hold passwords or keys.`) : undefined;
+    const where = this.dataSecretLocation(agent, toolName, input);
+    const found = secretReadDetail(toolName, input, where);
+    if (!found) return undefined;
+    // always the full path; a search folder that only CONTAINS Legion's key folders says so, so the owner sees why a plain search asks
+    const summary = found.search && where
+      ? `An agent wants to search ${found.path}. Legion's key files are inside it (${where.dataFolder}), so the search can read your passwords and keys.`
+      : `Legion wants to read ${found.path}. It may hold passwords or keys.`;
+    return this.guardCard(job, agent, toolName, input, summary);
   }
 
   /** The card every guard raises: no Remember (no tool-wide rule can pass a guard), and the answer is final for this call. */

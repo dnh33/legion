@@ -208,7 +208,7 @@ test('Ask, Accept edits, Smart: Reading .env cards with no Remember; Bypass does
     try {
       const p = r.call('Read', { file_path: `${r.projectDir()}/.env` }); await r.tick();
       assert.equal(r.pending().length, 1, m); assert.equal(r.pending()[0]!.noRemember, true);
-      assert.match(r.pending()[0]!.summary, /^Legion wants to read \.env\. It may hold passwords or keys\.$/);
+      assert.match(r.pending()[0]!.summary, /^Legion wants to read .*[\\/]\.env\. It may hold passwords or keys\.$/);
       r.answer(false); assert.equal((await p).allow, false);
     } finally { r.stop(); }
   }

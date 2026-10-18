@@ -14,12 +14,12 @@ test('N4: the list is one string, in plain words', () => {
   assert.doesNotMatch(PROTECTED_FILES_TEXT, /config|state|\.json|[\u2014\u2013]/i);
 });
 
-test('N4: the Bypass line, the Bypass confirm and the rail row name the same list, and the rail says Bypass, not Full', () => {
+test('N4: the Bypass line, the Bypass confirm and the rail row name the same list, and the rail names both mode labels', () => {
   assert.ok(PRESET_LINES.bypass.includes(PROTECTED_FILES_TEXT), PRESET_LINES.bypass);
   const rail = GATES.find((g) => g.id === 'rail-protected-paths')!;
   assert.ok(rail.protects.includes(PROTECTED_FILES_TEXT), rail.protects);
-  assert.match(rail.protects, /In Bypass, /);
-  assert.doesNotMatch(rail.protects, /\bFull\b/);
+  assert.equal(rail.protects, `File tools cannot change these, or the Armory, in any mode: ${PROTECTED_FILES_TEXT}. In Bypass or Full, a command that changes any of them still asks you first.`);
+  assert.doesNotMatch(rail.protects, /projects or the Armory/);
   const store = new GatesStore(join(tempDir('legion-n4-'), 'gates'), { allowed: ['ask', 'accept-edits', 'smart', 'bypass'], signer: makeSigner(Buffer.alloc(32, 5))! });
   const lines = store.preview('app', { preset: 'bypass' }).lines.join('\n');
   assert.ok(lines.includes(PROTECTED_FILES_TEXT), lines);

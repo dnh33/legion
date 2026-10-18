@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { gatesRig } from './gates-rig.js';
 import type { GatesRig } from './gates-rig.js';
 import { dataFolderTargets } from '../src/core/exec/canonical-path.js';
@@ -105,7 +105,7 @@ test('I1: the same shell readers on other paths are not secret reads (summary ch
       ['PowerShell', { command: `Get-Content ${DATA}\\logs\\core.log` }],
     ] as Array<[string, Record<string, unknown>]>) {
       const o = await ask(r, tool, input);
-      assert.doesNotMatch(o.summary, /may hold passwords or keys/, `${tool} ${JSON.stringify(input)}`);
+      assert.doesNotMatch(o.summary, /may hold passwords or keys|key files are inside it/, `${tool} ${JSON.stringify(input)}`);
     }
   });
 });
@@ -113,7 +113,7 @@ test('I1: the same shell readers on other paths are not secret reads (summary ch
 test('I1: the card says what is being read', async () => {
   await withRig(() => gatesRig({ own: 'ask' }), async (r) => {
     const o = await ask(r, 'Read', { file_path: `${fwd}/providers/keys.json` });
-    assert.match(o.summary, /^Legion wants to read keys\.json\. It may hold passwords or keys\.$/);
+    assert.equal(o.summary, `Legion wants to read ${resolve(`${fwd}/providers/keys.json`)}. It may hold passwords or keys.`);
   });
 });
 
@@ -154,7 +154,7 @@ test('I1: with secret-file-reads off there is no read card, but web calls still 
 
 test('the pure matcher: no data folder known means the same answers as before; the home spellings expand', () => {
   assert.equal(secretReadHit('Read', { file_path: `${fwd}/providers/keys.json` }), undefined);
-  const where = { cwd: DATA, inside: (p: string) => p.endsWith('keys.json'), reaches: () => false, globReaches: () => false };
+  const where = { cwd: DATA, dataFolder: DATA, inside: (p: string) => p.endsWith('keys.json'), reaches: () => false, globReaches: () => false };
   assert.equal(secretReadHit('Read', { file_path: `${fwd}/providers/keys.json` }, where), `${fwd}/providers/keys.json`);
   const h = homedir();
   for (const w of ['~/x', '$HOME/x', '${HOME}/x', '%USERPROFILE%/x', '%HOME%\\x', '$env:USERPROFILE/x', '$env:HOME\\x']) assert.equal(expandHomeWord(w).startsWith(h), true, w);
@@ -174,6 +174,9 @@ const SEARCHES: Array<[string, Record<string, unknown>]> = [
   ['Grep', { pattern: 'sk-', path: fwd, glob: 'providers/**' }],
   ['Grep', { pattern: 'sk-', path: fwd, glob: '{keys,key}.*', output_mode: 'content' }],
   ['Grep', { pattern: 'sk-', path: homedir() }],
+  ['Grep', { pattern: 'sk-', path: DATA, glob: '!*.log', output_mode: 'content' }],
+  ['Grep', { pattern: 'sk-', path: DATA, glob: '*.log keys.json' }],
+  ['Grep', { pattern: 'sk-', path: DATA, glob: '*.log,keys.json' }],
   ['Glob', { path: DATA, pattern: '**/keys.json' }],
   ['Glob', { pattern: `${fwd}/**/*.enc` }],
   ['Glob', { pattern: `${fwd}/*/keys.json` }],
@@ -190,6 +193,9 @@ const SEARCHES: Array<[string, Record<string, unknown>]> = [
   ['Bash', { command: `cd ${fwd} && cat providers/keys.json` }],
   ['Bash', { command: `cd ${fwd} && cat ./gates/app.json` }],
   ['Bash', { command: `cat ${fwd}/*/keys.json` }],
+  ['Bash', { command: `ls ${fwd}/providers/* | xargs cat` }],
+  ['Bash', { command: 'cd && cat .legion-secrettest/providers/keys.json' }],
+  ['PowerShell', { command: `Get-ChildItem ${DATA}\\providers | Get-Content` }],
   ['PowerShell', { command: `findstr /s /i sk- ${DATA}\\*` }],
   ['PowerShell', { command: `Get-ChildItem -Recurse ${DATA} | Select-String sk-` }],
   ['PowerShell', { command: `gci -Recurse -Path ${DATA} -Filter *.json | Get-Content` }],
@@ -199,6 +205,11 @@ const SEARCHES: Array<[string, Record<string, unknown>]> = [
 ];
 const SEARCHES_FREE: Array<[string, Record<string, unknown>]> = [
   ['Grep', { pattern: 'sk-', path: DATA, glob: '*.log' }],
+  ['Grep', { pattern: 'sk-', path: DATA, glob: '*.{log,md}' }],
+  ['Bash', { command: `ls ${fwd}/logs | xargs cat` }],
+  ['Bash', { command: `ls ${fwd}/workspaces | wc -l` }],
+  ['Bash', { command: 'cd && cat notes.txt' }],
+  ['PowerShell', { command: `Get-ChildItem ${DATA}\\providers` }],
   ['Grep', { pattern: 'sk-', path: fwd, glob: '*.md' }],
   ['Grep', { pattern: 'sk-', path: `${fwd}/workspaces` }],
   ['Grep', { pattern: 'sk-', path: `${fwd}/logs` }],
@@ -225,7 +236,7 @@ test('fix round 2: a search over the data folder, or a shell that moves into a k
         const o = await ask(r, tool, input);
         assert.equal(o.card, true, `${mode}: ${tool} ${JSON.stringify(input)}`);
         assert.equal(o.noRemember, true, `${mode}: no Remember: ${tool} ${JSON.stringify(input)}`);
-        assert.match(o.summary, /^Legion wants to read .+\. It may hold passwords or keys\.$/, `${mode}: the secret-read card: ${tool} ${JSON.stringify(input)}`);
+        assert.match(o.summary, /^(Legion wants to read .+\. It may hold passwords or keys\.|An agent wants to search .+\. Legion's key files are inside it \(.+\), so the search can read your passwords and keys\.)$/, `${mode}: the secret-read card: ${tool} ${JSON.stringify(input)}`);
       }
     });
   }
@@ -236,7 +247,7 @@ test('fix round 2: searches that cannot reach a key file stay free (no secret-re
     await withRig(make, async (r) => {
       for (const [tool, input] of SEARCHES_FREE) {
         const o = await ask(r, tool, input);
-        assert.doesNotMatch(o.summary, /may hold passwords or keys/, `${mode}: ${tool} ${JSON.stringify(input)}`);
+        assert.doesNotMatch(o.summary, /may hold passwords or keys|key files are inside it/, `${mode}: ${tool} ${JSON.stringify(input)}`);
       }
     });
   }
@@ -249,7 +260,7 @@ test('fix round 2: Bypass does not card those searches', async () => {
 });
 
 test('fix round 2: a search over the data folder sets the same flag: a later call to an approved site asks', async () => {
-  for (const probe of [['Grep', { pattern: 'sk-', path: DATA }], ['Grep', { pattern: 'sk-', path: DATA, glob: 'keys.json' }], ['Bash', { command: `grep -r sk- ${fwd}` }], ['Bash', { command: `cd ${fwd}/providers && cat keys.json` }], ['Bash', { command: `find ${fwd} -name keys.json -exec cat {} +` }]] as Array<[string, Record<string, unknown>]>) {
+  for (const probe of [['Grep', { pattern: 'sk-', path: DATA }], ['Grep', { pattern: 'sk-', path: DATA, glob: 'keys.json' }], ['Bash', { command: `grep -r sk- ${fwd}` }], ['Bash', { command: `cd ${fwd}/providers && cat keys.json` }], ['Bash', { command: `find ${fwd} -name keys.json -exec cat {} +` }], ['Grep', { pattern: 'sk-', path: DATA, glob: '!*.log', output_mode: 'content' }], ['Bash', { command: `ls ${fwd}/providers/* | xargs cat` }], ['PowerShell', { command: `Get-ChildItem ${DATA}\\providers | Get-Content` }], ['Bash', { command: 'cd && cat .legion-secrettest/providers/keys.json' }]] as Array<[string, Record<string, unknown>]>) {
     await withRig(() => gatesRig({ preset: 'smart', follow: true }), async (r) => {
       r.core.store.patchApp({ allowedHosts: ['trusted.example'] });
       assert.equal((await r.run('WebFetch', { url: 'https://trusted.example/a' })).card, false);
@@ -258,4 +269,24 @@ test('fix round 2: a search over the data folder sets the same flag: a later cal
       assert.equal(r.pending().length, 1, `${probe[0]} ${JSON.stringify(probe[1])}`); r.answer(false); await p;
     });
   }
+});
+
+test('fix round 3: a search folder that only contains the key folders is worded as a search; a key file keeps the read wording; always full paths', async () => {
+  await withRig(() => gatesRig({ own: 'ask' }), async (r) => {
+    const search = (folder: string) => `An agent wants to search ${resolve(folder)}. Legion's key files are inside it (${DATA}), so the search can read your passwords and keys.`;
+    assert.equal((await ask(r, 'Grep', { pattern: 'sk-', path: DATA })).summary, search(DATA));
+    assert.equal((await ask(r, 'Grep', { pattern: 'sk-', path: homedir() })).summary, search(homedir()));
+    assert.equal((await ask(r, 'Glob', { path: DATA, pattern: '**/keys.json' })).summary, search(DATA));
+    assert.equal((await ask(r, 'Bash', { command: 'grep -r sk- ~' })).summary, search(homedir()));
+    assert.equal((await ask(r, 'Bash', { command: `rg sk- ${fwd}/` })).summary, search(DATA));
+    const read = (file: string) => `Legion wants to read ${resolve(file)}. It may hold passwords or keys.`;
+    assert.equal((await ask(r, 'Read', { file_path: `${fwd}/gates-key.bin` })).summary, read(`${fwd}/gates-key.bin`));
+    assert.equal((await ask(r, 'Read', { file_path: `${r.projectDir()}/.env` })).summary, read(`${r.projectDir()}/.env`));
+    assert.equal((await ask(r, 'Bash', { command: `cd ${fwd}/providers && cat keys.json` })).summary, read(`${fwd}/providers/keys.json`), 'the command'+"'"+'s own cd decides the path shown');
+    assert.equal((await ask(r, 'Bash', { command: 'cd && cat .legion-secrettest/providers/keys.json' })).summary, read(`${fwd}/providers/keys.json`));
+    for (const [tool, input] of SEARCHES) {
+      const o = await ask(r, tool, input);
+      assert.doesNotMatch(o.summary, /read \.+\.|read [A-Za-z]+\. It/, `${tool} ${JSON.stringify(input)}: ${o.summary}`);
+    }
+  });
 });
