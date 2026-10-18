@@ -3,7 +3,7 @@
  * configs, and anything under a `scripts` folder. Smart asks for local build and test commands once an agent changed one
  * of these in the project (see needsApproval). Matched on the whole path with either slash, case-insensitive.
  */
-const BUILD = /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|makefile|gnumakefile|cargo\.toml|cargo\.lock|pyproject\.toml|setup\.cfg|setup\.py|tox\.ini|pytest\.ini|conftest\.py|\.npmrc|go\.mod|go\.sum|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|bunfig\.toml|(jest|vitest|playwright|mocha|karma)\.config\.[cm]?[jt]s|\.mocharc\.[\w.]+|scripts\/.*)$/i;
+const BUILD = /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|makefile|gnumakefile|cargo\.toml|cargo\.lock|pyproject\.toml|setup\.cfg|setup\.py|tox\.ini|pytest\.ini|conftest\.py|\.npmrc|go\.mod|go\.sum|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|bunfig\.toml|[^/]*\.config\.[cm]?[jt]s|\.mocharc\.[\w.]+|build\.rs|[^/]*\.gradle(\.kts)?|cmakelists\.txt|meson\.build|sconstruct|rakefile|gemfile|noxfile\.py|justfile|taskfile\.ya?ml|deno\.jsonc?|\.husky\/.*|scripts\/.*)$/i;
 
 /**
  * Windows reads some other spellings as the same file: a trailing dot or space (`package.json.`), an NTFS stream (`package.json::$DATA`)
