@@ -50,7 +50,7 @@ export function parseProviderChange(raw: unknown): ProviderChange | undefined {
 
 /** Text for a dialog: control characters out, one line, bounded. */
 export function dialogLine(v: unknown, max = 120): string {
-  return String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u061c\ufeff\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 const hostOf = (u: unknown): string => { try { return new URL(String(u)).host; } catch { return ''; } };

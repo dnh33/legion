@@ -622,6 +622,9 @@ if (instance.quit) {
   }
 
   ipcMain.on('legion:bootstrap', (e) => {
+    // Only our own window page gets the port, token and admin secret. Anything else gets nothing: the preload then keeps its defaults.
+    const bootFrame = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(bootFrame, uiUrl)) { e.returnValue = null; return; }
     // Port and token are the ones pinned when the core was started or adopted (config.json is not re-read: a bot can edit it).
     const { port, token } = pinned ?? readConfig();
     // `admin` is the per-launch secret, only while our own child is alive and has proved (HMAC challenge) that it holds it.
@@ -686,7 +689,9 @@ if (instance.quit) {
       });
     } catch { return { ok: false, error: 'The connect failed.' }; }
   });
-  ipcMain.handle('legion:open-external', (_e, url: unknown) => {
+  ipcMain.handle('legion:open-external', (e, url: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return false;
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }
     return false;
   });

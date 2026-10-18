@@ -86,7 +86,7 @@ async function main() {
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
-  const config = loadConfig();
+  const config = loadConfig({ log: (l) => log(l) });
   const store = new Store(dataDir());
   // The one GitHub client (no network until something asks). Everyone else reaches it through getGitHubClient().
   createGitHubClient({ tokens: new TokenStore(join(dataDir(), 'connectors'), connectorKeyring), log: (l) => log(l) });

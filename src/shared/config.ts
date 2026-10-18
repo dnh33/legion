@@ -207,7 +207,7 @@ function gateHosts(v: unknown, isAllow: boolean, strict: boolean): string[] | st
  * reads as "no rules", exactly like an older release). `strict` is the Settings PATCH path: anything malformed
  * throws with a message naming the rule, so a bad rule is a 400, never a surprise at run time.
  */
-export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): GatesConfig {
+export function normalizeGates(v: unknown, opts: { strict?: boolean; onDropped?: (line: string) => void } = {}): GatesConfig {
   const strict = opts.strict === true;
   const bad = (msg: string): never => { throw new Error(msg); };
   if (v === undefined || v === null) return { rules: [], presetsVersion: DEFAULT_GATES.presetsVersion };
@@ -243,7 +243,12 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
     else if (strict && ctx?.length) bad(`${at}.when.contexts may only hold capped, room-hop, tainted or connector-data`);
     if (w.hosts !== undefined) {
       const hosts = gateHosts(w.hosts, r.then === 'allow', strict);
-      if (typeof hosts === 'string') { if (strict) bad(hosts); continue; }
+      if (typeof hosts === 'string') {
+        if (strict) bad(hosts);
+        // A hand-edited rule whose sites cannot be read is dropped whole (unchanged). Say so once, naming the rule by id only.
+        opts.onDropped?.(`gates: left out the ${r.then} rule ${r.id.slice(0, 40)}: ${hosts} Fix its sites in config.json, or remove the rule.`);
+        continue;
+      }
       when.hosts = hosts;
     }
     rules.push({
@@ -367,7 +372,7 @@ function merge<T>(base: T, over: unknown): T {
 }
 
 /** Load config, creating it (with a fresh auth token) on first run. Env overrides: LEGION_PORT, BOAT_API_KEY, ANTHROPIC_API_KEY (only used when auth='api-key'). */
-export function loadConfig(): CoreConfig {
+export function loadConfig(opts: { log?: (line: string) => void } = {}): CoreConfig {
   const p = configPath();
   let cfg = defaultConfig();
   if (existsSync(p)) {
@@ -385,7 +390,7 @@ export function loadConfig(): CoreConfig {
   cfg.features = normalizeFeatures(cfg.features);
   cfg.webSearch = normalizeWebSearch(cfg.webSearch);
   // Tolerant: a rule the file cannot parse is dropped on load, never handed to a matcher at run time.
-  cfg.gates = normalizeGates(cfg.gates);
+  cfg.gates = normalizeGates(cfg.gates, opts.log ? { onDropped: opts.log } : {});
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

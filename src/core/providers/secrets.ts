@@ -14,7 +14,7 @@
  * machine that can encrypt). `startOver()`, reached only through the app's confirmation, sets the unreadable keys.enc aside.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tightenConfigMode, writeConfigFile } from '../../shared/config.js';
 import { openBlob, sealBlob } from '../connectors/store.js';
@@ -27,6 +27,13 @@ export const MAX_KEY_LENGTH = 500;
 export const keyFileFor = (dataDir: string): string => join(dataDir, 'providers', 'keys.json');
 /** The sealed file next to keys.json. A NEW name on purpose: 0.3.4 reads an unparseable keys.json as empty and overwrites it. */
 export const sealedFileFor = (dataDir: string): string => join(dataDir, 'providers', 'keys.enc');
+/**
+ * True when a key file was set aside (key.bin.unreadable-* or keys.enc.unreadable-*): this machine had encrypted keys. A start over that fails
+ * between the set-aside and the new key leaves neither file, and that must still read as "was encrypted", never as a plain-save machine.
+ */
+export function hasSetAsideKeyFiles(providersDir: string): boolean {
+  try { return readdirSync(providersDir).some((n) => n.startsWith('key.bin.unreadable-') || n.startsWith('keys.enc.unreadable-')); } catch { return false; }
+}
 export { KEYS_BLOCKED_MESSAGE };
 
 interface Stored { key: string; origin: string }
@@ -130,7 +137,7 @@ export class ProviderKeys {
       // A machine that ever encrypted (key.bin or keys.enc is there) never turns into plain writes because the key store is down right now.
       // A core started without the app (no key line, no admin pipe) keeps today's plain behaviour.
       const fromApp = this.opts.noKey === 'unavailable' || (this.opts.noKey === undefined && !!this.opts.launchedByApp);
-      const everEncrypted = this.locked || existsSync(join(dirname(this.file), 'key.bin'));
+      const everEncrypted = this.locked || existsSync(join(dirname(this.file), 'key.bin')) || hasSetAsideKeyFiles(dirname(this.file));
       this.blocked = this.opts.noKey === 'unreadable' || (fromApp && everEncrypted);
       return;
     }

@@ -112,6 +112,21 @@ test('F4 an Electron-launched core (admin pipe) with no PKEY line: plain only wh
   }
 });
 
+test('B-L3: key files set aside by a start over still count as "was encrypted": a failed start over cannot fall back to plain saves', () => {
+  for (const name of ['key.bin.unreadable-2026-10-18', 'keys.enc.unreadable-2026-10-18-2']) {
+    const m = setup();
+    writeFileSync(join(m.dir, 'providers', name), 'set aside'); // neither key.bin nor keys.enc is left
+    const k = new ProviderKeys(m.plain, { launchedByApp: true, noKey: 'unavailable' });
+    assert.equal(k.status().blocked, true, name);
+    assert.throws(() => k.set('x', K2, O1), /did not unlock/);
+    assert.equal(existsSync(m.plain), false, 'nothing was written in plain');
+  }
+  const none = setup();
+  writeFileSync(join(none.dir, 'providers', 'other.unreadable-2026-10-18'), 'x'); // an unrelated file does not count
+  const k = new ProviderKeys(none.plain, { launchedByApp: true, noKey: 'unavailable' });
+  assert.equal(k.status().blocked, undefined);
+});
+
 test('F4 legion-core passes the admin-pipe flag to the key store', () => {
   const src = readFileSync(join(repoRoot, 'src/bin/legion-core.ts'), 'utf8');
   assert.match(src, /const launchedByApp = process\.env\[ADMIN_STDIN_FLAG\] === '1';\s+const \{ admin: adminSecret/);

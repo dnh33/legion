@@ -104,3 +104,17 @@ test('owner rules: an empty hosts list is refused, and a bad entry on load keeps
   assert.deepEqual(kept[0]?.when.hosts, ['example.com', 'b.com']);
   assert.equal(normalizeGates({ rules: [raw('deny', ['x y'])] }).rules.length, 0);
 });
+
+test('C-L5: a hand-edited deny rule dropped on load for sites that cannot be read leaves one log line naming the rule, and drops what it dropped before', () => {
+  const lines: string[] = [];
+  const rules = normalizeGates({ rules: [raw('deny', ['*.example.com']), { id: 'gr_keep', then: 'deny', when: { hosts: ['docs.stripe.com'] } }] }, { onDropped: (l) => lines.push(l) }).rules;
+  assert.deepEqual(rules.map((r) => r.id), ['gr_keep'], 'the same rule is dropped as before and the valid one stays');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]!, /gr_abc/);
+  assert.match(lines[0]!, /deny rule/);
+  assert.doesNotMatch(lines[0]!, /example\.com/, 'the sites themselves are not written');
+  // no listener: the same drop, silently (a strict PATCH still throws)
+  assert.equal(normalizeGates({ rules: [raw('deny', ['*.example.com'])] }).rules.length, 0);
+  assert.throws(() => normalizeGates({ rules: [raw('deny', ['*.example.com'])] }, { strict: true, onDropped: (l) => lines.push(l) }));
+  assert.equal(lines.length, 1, 'a strict refusal logs nothing');
+});
