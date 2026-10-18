@@ -258,9 +258,8 @@ describe('sweep: the whole job on fakes', () => {
     assert.equal(result.seed, 20261018);
     assert.equal(result.mode, 'smoke');
     assert.deepEqual(result.sizes, [5]);
-    assert.equal(result.arms.length, 1);
-    assert.equal(result.arms[0].arm, 'SFH120');
-    assert.ok(result.arms[0].calls >= 1 && result.arms[0].calls <= 4);
+    assert.deepEqual(result.arms.map((a: any) => a.arm), ['SFH120', 'AFH', 'SFH120-TP']);
+    assert.ok(result.arms.every((a: any) => a.calls === 1), 'one call per arm');
     assert.ok(result.arms[0].searchCalled > 0, 'the multi-turn path ran: the fake model searched');
     assert.ok(result.spentUsd <= 5);
     // Numbers only: no request text from the fake model reaches the summary, the result or the log lines.
@@ -315,8 +314,8 @@ describe('sweep 11f: the arms', () => {
     assert.deepEqual(sweep.ARMS_11E.map((a: any) => a.name), ['A', 'S']);
     assert.ok(sweep.ARMS_11E.every((a: any) => a.search === false));
     assert.deepEqual(sweep.ARMS_11E[1].settings, sweep.SLIM_SETTINGS);
-    assert.equal(sweep.ARMS_SMOKE.length, 1);
-    assert.equal(sweep.ARMS_SMOKE[0].search, true);
+    assert.deepEqual(sweep.ARMS_SMOKE.map((a: any) => a.name), ['SFH120', 'AFH', 'SFH120-TP']);
+    assert.ok(sweep.ARMS_SMOKE.every((a: any) => a.search === true));
   });
   it('uses the sizes, counts and cap of the brief', () => {
     assert.deepEqual(sweep.ACCURACY_SIZES, [40, 60, 100, 200]);
@@ -585,5 +584,150 @@ describe('sweep 11f: the whole accuracy job on fakes', () => {
     assert.ok(summary.includes('## Search use and misses') && summary.includes('## Decision'));
     assert.equal(readdirSync(root).length, 0);
     await assert.rejects(() => sweep.runSweep({ query: fakeQuery(log), fetch: fakeFetch().fn, mode: 'accuracy-11f', cap: 5, root, armory, log: () => {}, sleep: async () => {} }), { code: 'CATALOG' });
+  });
+});
+
+// ---- Task 11g: the follow-up ----
+
+describe('sweep 11g: arms, rule and sizes', () => {
+  const by = () => Object.fromEntries(sweep.ARMS_11G.map((a: any) => [a.name, a]));
+  it('is a mode of its own and keeps the other modes', () => {
+    assert.deepEqual(sweep.MODES, ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g']);
+    assert.equal(sweep.parseSweepMode('followup-11g\n'), 'followup-11g');
+    assert.equal(sweep.parseSweepMode('accuracy-11f'), 'accuracy-11f');
+    assert.equal(sweep.parseSweepMode(''), 'accuracy-11f');
+    assert.deepEqual(sweep.FOLLOWUP_SIZES, [10, 25, 40, 100]);
+    assert.equal(sweep.ACCURACY_CAP_USD, 15);
+    assert.equal(sweep.ACCURACY_CONCURRENCY, 6);
+    assert.equal(sweep.ACCURACY_POSITIVES, 100);
+    assert.equal(sweep.ACCURACY_NEGATIVES, 60);
+  });
+  it('has the four arms with the right listing, hint and search', () => {
+    assert.deepEqual(sweep.ARMS_11G.map((a: any) => a.name), ['AF', 'AFH', 'SFH120', 'SFH120-TP']);
+    const a = by();
+    assert.ok(sweep.ARMS_11G.every((x: any) => x.search === true));
+    assert.deepEqual(a.AF.settings, {});
+    assert.deepEqual(a.AFH.settings, {}, 'AFH keeps the full listing');
+    assert.deepEqual(a.SFH120.settings, { skillListingBudgetFraction: 0.002, skillListingMaxDescChars: 120 });
+    assert.deepEqual(a['SFH120-TP'].settings, a.SFH120.settings, 'the listing is unchanged in the third-party arm');
+    assert.equal(a['SFH120-TP'].append, a.SFH120.append);
+    assert.ok(!a.AF.append.includes('armory_find') && !a.AF.thirdParty);
+    assert.ok(!a.AFH.thirdParty && !a.SFH120.thirdParty);
+    assert.equal(a['SFH120-TP'].thirdParty, true);
+  });
+  it('gives AFH the very same hint as SFH120 (the 11f constant, not a copy)', () => {
+    const a = by();
+    assert.equal(a.AFH.append, a.SFH120.append);
+    assert.ok(a.AFH.append.endsWith(sweep.HINT));
+    assert.equal(sweep.HINT, 'Your skill list shows short descriptions. If no listed skill clearly fits, call armory_find with what you want to do before answering.');
+    assert.strictEqual(sweep.ARMS_11G[2], sweep.ARMS_11F[2], 'SFH120 is the 11f arm itself');
+    const src = readFileSync(new URL('scripts/skill-finder-sweep.mjs', REPO), 'utf8');
+    assert.equal(src.split('call armory_find with what you want to do').length - 1, 1, 'the hint text is written once');
+  });
+  it('prints the unchanged 11f rule for the three tested arms, plus the SFH120 against AFH note', () => {
+    const t = sweep.ruleText11f('followup-11g');
+    assert.ok(t.includes('(AFH, SFH120, SFH120-TP)') && t.includes('with AF'));
+    assert.ok(t.includes('SFH120 against AFH'));
+    assert.ok(!sweep.ruleText11f('accuracy-11f').includes('SFH120 against AFH'));
+    assert.deepEqual(sweep.ACCURACY_RULE, { minGoldDiff: -0.03, mcnemarAlpha: 0.05, maxExtraFalseCalls: 2, negativesPerSize: 60, minTokenSaving: 0.15 });
+  });
+  it('renders the SFH120 against AFH table and the small-size note', () => {
+    const r = sweep.compareArms([], 10, 'AFH', 'SFH120');
+    const out = sweep.renderSummary11f({
+      rows: { AFH: [r], SFH120: [r], 'SFH120-TP': [r] }, vsAfh: [r], decision: { arms: [], best: null }, mode: 'followup-11g',
+      catalog: { source: 's', counts: { fetched: 0, noDescription: 0, duplicate: 0, notFound: 0, fetchError: 0, nonGithub: 0 } },
+      prompts: { stats: { written: 0, kept: 0, negWritten: 0, negKept: 0 } }, spend: { spent: 0, calls: 0 }, cap: 15, stopped: false, smoke: false, armStats: [],
+    });
+    assert.ok(out.includes('## SFH120 against AFH') && out.includes('at size 10 there are about 20'));
+    assert.ok(out.indexOf('Pre-registered rule') < out.indexOf('## SFH120 against AFH'));
+  });
+  it('compares SFH120 with AFH on the same pairs', () => {
+    const rec = (arm: string, i: number, hit: boolean, tokens: number) => ({ size: 10, i, kind: 'pos', arm, hit, called: hit, tokens, searches: 0 });
+    const recs = [rec('AFH', 0, true, 1000), rec('SFH120', 0, false, 500), rec('AFH', 1, true, 1000), rec('SFH120', 1, true, 500)];
+    const c = sweep.compareArms(recs, 10, 'AFH', 'SFH120');
+    assert.equal(c.pairs, 2);
+    assert.equal(c.table.aOnly, 1);
+    assert.equal(c.diff, -0.5);
+    assert.equal(c.tokenSaving, 0.5);
+  });
+});
+
+describe('sweep 11g: third-party search answers pinned to Legion\'s source', () => {
+  const items = [
+    { name: 'pdf-export', description: 'Export invoices and reports to PDF files.' },
+    { name: 'git-helper', description: 'Rebase, merge and resolve git conflicts.' },
+  ];
+  const callFind = async (mods: any, find: any) => {
+    const server = mods.buildFindServer(undefined, find);
+    return (await server.instance._registeredTools.armory_find.handler({ query: 'export invoices to pdf' }, {})).content[0].text as string;
+  };
+  it('returns the id and (third-party) with no description, as Legion\'s own server formats it', async () => {
+    const mods = await sweep.loadArmory();
+    const search = sweep.makeSearch(mods, [{ size: 2, items }]);
+    const hits = search.forSize(2, true)('export invoices to pdf', 5);
+    assert.ok(hits.length > 0 && hits.every((h: any) => h.thirdParty === true && h.description === undefined));
+    const tp = await callFind(mods, search.forSize(2, true));
+    assert.match(tp, /^\d+ skill\(s\) may fit:\n- pdf-export \(third-party\)/);
+    assert.ok(!tp.includes('Export invoices'), 'no description reaches the model');
+    assert.ok(tp.split('\n').slice(1).every((l) => /^- \S+ \(third-party\)$/.test(l)));
+    const own = await callFind(mods, search.forSize(2));
+    assert.match(own, /- pdf-export \(\d+\.\d+\): Export invoices/, 'the owner-skill arms still get descriptions');
+  });
+  it('keeps the format equal to the one in src/core/armory (tools.ts formats, index.ts drops the description)', () => {
+    const tools = readFileSync(new URL('src/core/armory/tools.ts', REPO), 'utf8');
+    assert.ok(tools.includes('h.thirdParty ? `- ${h.id} (third-party)`'), 'tools.ts still formats a third-party hit as the id and (third-party)');
+    const index = readFileSync(new URL('src/core/armory/index.ts', REPO), 'utf8');
+    assert.ok(index.includes("const description = thirdParty || !doc ? '' : oneLine(doc.description)"), 'index.ts still drops the description of a third-party hit');
+  });
+});
+
+describe('sweep 11g: the workflow', () => {
+  const yml = readFileSync(new URL('.github/workflows/skill-finder-sweep.yml', REPO), 'utf8').replace(/\r\n/g, '\n');
+  const marker = '\n    steps:\n';
+  /** The steps of the job as text blocks: each starts at a line "      - ". */
+  const steps = () => yml.slice(yml.indexOf(marker) + marker.length).split(/\n(?=      - )/).filter((b) => b.trim().startsWith('- '));
+  it('holds the model token under the sweep step only', () => {
+    const TOKEN = 'CLAUDE_CODE_OAUTH_TOKEN';
+    const head = yml.slice(0, yml.indexOf(marker));
+    assert.ok(!head.includes(TOKEN), 'not in the top-level or job-level env, nor anywhere before the steps');
+    const holders = steps().filter((b) => b.includes(TOKEN));
+    assert.equal(holders.length, 1, 'exactly one step names the token');
+    assert.match(holders[0], /^ {6}- name: Run the sweep\n/);
+    assert.match(holders[0], /\n {8}env:\n {10}CLAUDE_CODE_OAUTH_TOKEN: \$\{\{ secrets\.CLAUDE_CODE_OAUTH_TOKEN \}\}/);
+    assert.ok(holders[0].includes('node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode'));
+    const install = steps().filter((b) => /^ {6}- run: npm (ci|run build:ts)$/.test(b));
+    assert.ok(install.length >= 2 && install.every((b) => !b.includes(TOKEN)));
+    assert.equal(yml.split(TOKEN).length, holders[0].split(TOKEN).length, 'every mention is inside the sweep step');
+  });
+  it('keeps the GitHub token and the 240 minute limit', () => {
+    assert.match(yml, /\n {4}env:\n {6}GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}\n/);
+    assert.match(yml, /timeout-minutes: 240/);
+  });
+});
+
+describe('sweep 11g: the whole follow-up job on fakes', () => {
+  it('runs the four arms over the 11g sizes and prints the extra comparison', async () => {
+    const names = Array.from({ length: 50 }, (_, i) => `tool-${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}x`);
+    const fn = async (url: string) => {
+      const ok = (body: string) => ({ ok: true, status: 200, text: async () => body });
+      if (url === 'https://skills.sh/') return ok(`<html>${names.map((n) => `<a href="/o/r/${n}">${n}</a>`).join('')}</html>`);
+      if (url.startsWith('https://skills.sh/')) return ok('<html></html>');
+      if (url.includes('/git/trees/')) return ok(JSON.stringify({ tree: names.map((n) => ({ type: 'blob', path: `skills/${n}/SKILL.md` })) }));
+      const raw = /skills\/([^/]+)\/SKILL\.md/.exec(url);
+      return raw ? ok(`---\nname: ${raw[1]}\ndescription: Helps with ${raw[1].replace(/-/g, ' ')} work.\n---\nbody`) : { ok: false, status: 404, text: async () => '' };
+    };
+    const log = { probes: 0, text: 0, homes: new Set<string>() };
+    const root = tempDir('sweep-11g-');
+    const real = await sweep.loadArmory();
+    const armory = { ...real, buildFindServer: (_job: unknown, find: unknown) => ({ type: 'sdk', name: 'legion_armory', find }) };
+    const { summary, result } = await sweep.runSweep({ query: fakeQuery(log), fetch: fn, mode: 'followup-11g', cap: 5, root, armory, log: () => {}, sleep: async () => {} });
+    assert.equal(result.mode, 'followup-11g');
+    assert.deepEqual(result.sizes, [10, 25, 40], 'only the sizes the catalog can fill');
+    assert.deepEqual(result.arms.map((a: any) => a.arm), ['AF', 'AFH', 'SFH120', 'SFH120-TP']);
+    assert.deepEqual(Object.keys(result.rows), ['AFH', 'SFH120', 'SFH120-TP']);
+    assert.equal(result.vsAfh.length, 3);
+    assert.ok(result.rows.AFH.every((r: any) => r.pairs > 0));
+    assert.ok(summary.includes('## SFH120 against AFH') && summary.includes('## Decision'));
+    assert.equal(readdirSync(root).length, 0);
   });
 });

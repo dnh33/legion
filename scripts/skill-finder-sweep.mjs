@@ -7,9 +7,10 @@
  * has the full listing, arm S has the short list with the settings Legion passes. A hook records and denies every Skill call, so no
  * skill text loads. The logs are public: only counts and metrics are printed, never env, tokens, prompts or skill text.
  *
- * Three modes (a .sweep-mode file on the branch picks one; the default is accuracy-11f):
+ * Four modes (a .sweep-mode file on the branch picks one; the default is accuracy-11f):
  *   smoke         5 skills, one short-list arm with the search tool, under $0.10. It proves the multi-turn path.
  *   full-11e      the catalog-size sweep above (arms A and S, one turn, Skill tool only).
+ *   followup-11g  size 10, 25, 40, 100; arms AF, AFH (full list + hint), SFH120, SFH120-TP (third-party search answers).
  *   accuracy-11f  the short list as Legion ships it: with the search tool (armory_find, Legion's own server and ranking),
  *                 up to 4 turns, a hint and a longer description cut tested against the full list plus search.
  *
@@ -41,7 +42,7 @@ export const HINT = 'Your skill list shows short descriptions. If no listed skil
 
 // ---------- modes and arms ----------
 
-export const MODES = ['smoke', 'full-11e', 'accuracy-11f'];
+export const MODES = ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g'];
 export const DEFAULT_MODE = 'accuracy-11f';
 export const ACCURACY_SIZES = [40, 60, 100, 200];
 export const ACCURACY_POSITIVES = 100;
@@ -67,8 +68,21 @@ export const ARMS_11F = [
   { name: 'SFH250', settings: { ...SHORT_LIST, skillListingMaxDescChars: 250 }, append: `${PROBE_SYSTEM} ${HINT}`, search: true },
 ];
 export const BASELINE_11F = 'AF';
-/** The smoke run uses the arm with the most parts: short list, hint and search. */
-export const ARMS_SMOKE = [ARMS_11F[2]];
+/** Sizes of the 11g follow-up. At size 10 there are about 20 positives (2 per skill, before the judge), so fewer than 100. */
+export const FOLLOWUP_SIZES = [10, 25, 40, 100];
+/**
+ * Arms of the 11g follow-up. AFH is the full listing with the search tool and the same hint as SFH120 (HINT is the 11f constant, not retyped).
+ * SFH120 is the 11f arm itself. SFH120-TP is SFH120 where armory_find answers the way Legion answers for a third-party skill: the id and
+ * " (third-party)", no description. The listing is unchanged, so Claude Code still lists descriptions at 120 characters.
+ */
+export const ARMS_11G = [
+  ARMS_11F[0],
+  { name: 'AFH', settings: {}, append: `${PROBE_SYSTEM} ${HINT}`, search: true },
+  ARMS_11F[2],
+  { ...ARMS_11F[2], name: 'SFH120-TP', thirdParty: true },
+];
+/** The smoke run uses the arms with the most parts: short list, hint and search; plus AFH and the third-party search. */
+export const ARMS_SMOKE = [ARMS_11F[2], ARMS_11G[1], ARMS_11G[3]];
 
 /** The mode named in a .sweep-mode file. Empty text gives the default; an unknown word throws, so a typo never runs the wrong job. */
 export function parseSweepMode(text) {
@@ -481,13 +495,13 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
       const it = items[idx];
       // Before the first answer, a Haiku call is about $0.005 (measured in the 11e run); 0.05 stopped every small run.
       const avg = costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : FIRST_CALL_USD;
-      if (!spend.fits(arms.length * avg * 1.5 * concurrency)) { stopped = true; return; }
+      if (!spend.fits(arms.length * avg * 1.5 * Math.min(concurrency, items.length))) { stopped = true; return; }
       const home = homes.get(it.size);
       const turn = idx % arms.length;
       for (const arm of [...arms.slice(turn), ...arms.slice(0, turn)]) {
         const searched = [];
         const useSearch = arm.search ? search : null;
-        const find = useSearch?.forSize(it.size);
+        const find = useSearch?.forSize(it.size, arm.thirdParty === true);
         const server = useSearch?.buildServer(async (q, limit) => {
           const hits = await find(q, limit);
           searched.push(hits.slice(0, 5).map((h) => h.id));
@@ -673,51 +687,58 @@ export async function loadArmory(distDir = new URL('../dist/src/core/', import.m
  * The adapter. rankSearch in src/core/armory/index.ts is a closure over the live catalog, usage store and settings, none of which exist in
  * an eval, so this repeats only its keyword branch (score, drop zero, sort by score then id, cut to the limit, a description cut to 200
  * characters) over a catalog made of the size's temp skills. Every skill counts as the owner's own, so a hit carries its description.
- * `subsets` is [{ size, items }]. Returns { forSize(size) -> find function, buildServer(find) -> server config }.
+ * `subsets` is [{ size, items }]. Returns { forSize(size, thirdParty = false) -> find function, buildServer(find) -> server config }.
+ * With thirdParty, every hit is a third-party hit with no description, and Legion's own server formats it as `- id (third-party)`.
  */
 export function makeSearch(mods, subsets) {
   const finders = new Map();
-  const forSize = (size) => {
-    if (!finders.has(size)) {
+  const forSize = (size, thirdParty = false) => {
+    const key = `${size}:${thirdParty}`;
+    if (!finders.has(key)) {
       const items = subsets.find((s) => s.size === size)?.items ?? [];
       const docs = items.map((s) => ({ id: s.name, name: s.name, description: s.description, whenToUse: '', headings: '', source: 'yours', thirdParty: false }));
       const ix = mods.buildIndex(docs);
       const byId = new Map(docs.map((d) => [d.id, d]));
-      finders.set(size, (query, limit) => [...mods.scoreIndex(ix, query)]
+      finders.set(key, (query, limit) => [...mods.scoreIndex(ix, query)]
         .map(([id, h]) => ({ id, score: h.score }))
         .filter((h) => h.score > 0)
         .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         .slice(0, limit)
-        .map((h) => ({ ...h, thirdParty: false, description: mods.oneLine(byId.get(h.id).description).slice(0, FIND_DESCRIPTION_CHARS).trimEnd() })));
+        .map((h) => (thirdParty
+          ? { ...h, thirdParty: true }
+          : { ...h, thirdParty: false, description: mods.oneLine(byId.get(h.id).description).slice(0, FIND_DESCRIPTION_CHARS).trimEnd() })));
     }
-    return finders.get(size);
+    return finders.get(key);
   };
   return { forSize, buildServer: (find) => mods.buildFindServer(undefined, find) };
 }
 
 // ---------- the 11f rule and report ----------
 
-export function ruleText11f() {
+export function ruleText11f(mode = 'accuracy-11f') {
   const r = ACCURACY_RULE;
+  const tested = (mode === 'followup-11g' ? ARMS_11G : ARMS_11F).slice(1).map((a) => a.name).join(', ');
   return [
-    'Pre-registered rule (written before any result):',
-    `Each short arm (${ARMS_11F.slice(1).map((a) => a.name).join(', ')}) is compared with ${BASELINE_11F} (the full listing plus the search tool) at each size, on the same prompts.`,
+    mode === 'followup-11g' ? 'Pre-registered rule (the 11f rule, unchanged, applied to the 11g arms):' : 'Pre-registered rule (written before any result):',
+    `Each tested arm (${tested}) is compared with ${BASELINE_11F} (the full listing plus the search tool) at each size, on the same prompts.`,
     'An arm passes at a size when all four hold:',
     `1. its gold rate minus the gold rate of ${BASELINE_11F} is at least ${r.minGoldDiff}; a gold hit is the first Skill call naming the gold skill, and search calls before it do not matter;`,
     `2. McNemar on the paired positives shows no significant loss (two-sided exact test, alpha ${r.mcnemarAlpha});`,
     `3. false Skill calls on the paired negatives: McNemar shows no significant increase (alpha ${r.mcnemarAlpha}), AND the arm makes at most ${r.maxExtraFalseCalls} more false calls than ${BASELINE_11F} (of ${r.negativesPerSize} negatives per size). This replaces the 11e test of plus 1 point, which was finer than one call in ${r.negativesPerSize};`,
     `4. at least ${r.minTokenSaving * 100} percent fewer input tokens per prompt, counted over all turns (search adds turns).`,
     "An arm 'passes from N' when it passes at N and at every larger tested size. The best arm has the lowest N; a tie goes to the arm that saves the most tokens.",
+    ...(mode === 'followup-11g' ? [`Also printed, not part of the rule: SFH120 against AFH (gold difference, McNemar, tokens), to show whether the short list adds anything beyond the hint. AFH keeps the full listing, so it is not expected to save tokens against ${BASELINE_11F}.`] : []),
   ].join('\n');
 }
 
 const SIZE_NOTE = (r) => `${r.pairs} pos / ${r.negatives} neg`;
 
-export function renderSummary11f({ rows, decision, catalog, prompts, spend, cap, stopped, smoke, armStats }) {
+export function renderSummary11f({ rows, decision, catalog, prompts, spend, cap, stopped, smoke, armStats, mode = 'accuracy-11f', vsAfh = null }) {
   const out = [];
-  out.push('# Skill finder: short list accuracy with the search tool', '');
+  const is11g = mode === 'followup-11g';
+  out.push(is11g ? '# Skill finder: hint and third-party search, follow-up' : '# Skill finder: short list accuracy with the search tool', '');
   if (smoke) out.push('**Smoke run.** It proves the multi-turn path end to end. These numbers are not a result.', '');
-  out.push('```', ruleText11f(), '```', '');
+  out.push('```', ruleText11f(mode), '```', '');
   out.push('## Catalog', `- source: ${catalog.source}`, `- skills fetched: ${catalog.counts.fetched}; skipped: ${catalog.counts.noDescription} without a description, ${catalog.counts.duplicate} duplicate names, ${catalog.counts.notFound} not found in the repo, ${catalog.counts.fetchError} fetch errors, ${catalog.counts.nonGithub} on non-GitHub sources`, '');
   out.push('## Prompts', `- positives: ${prompts.stats.written} written, ${prompts.stats.kept} kept by the judge; negatives: ${prompts.stats.negWritten} written, ${prompts.stats.negKept} kept`, '- model calls: written by haiku, judged by sonnet', '');
   out.push('## Spend', `- $${round(spend.spent)} of the $${cap} cap over ${spend.calls} calls${stopped ? '; the run stopped at the cap, so later items did not run' : ''}`, '');
@@ -733,6 +754,10 @@ export function renderSummary11f({ rows, decision, catalog, prompts, spend, cap,
         out.push(`| ${arm} | ${r.size} | ${SIZE_NOTE(r)} | ${pct(r.rateBase)} | ${pct(r.rateArm)} | ${r.diff === null ? 'n/a' : `${(r.diff * 100).toFixed(1)} pts`} | ${r.table.aOnly} / ${r.table.sOnly} | ${r.mcnemarP} | ${r.falseBase} | ${r.falseArm} | ${r.falseExtra >= 0 ? '+' : ''}${r.falseExtra} | ${r.falseP} | ${r.tokensBase ?? 'n/a'} | ${r.tokensArm ?? 'n/a'} | ${pct(r.tokenSaving)} | ${pass ? 'yes' : 'no'} |`);
       }
     }
+    if (vsAfh) {
+      out.push('', '## SFH120 against AFH (not part of the rule)', '', '| size | pairs | gold AFH | gold SFH120 | SFH120 minus AFH | AFH only / SFH120 only | McNemar p | tokens AFH | tokens SFH120 | saved |', '|---|---|---|---|---|---|---|---|---|---|');
+      for (const r of vsAfh) out.push(`| ${r.size} | ${SIZE_NOTE(r)} | ${pct(r.rateBase)} | ${pct(r.rateArm)} | ${r.diff === null ? 'n/a' : `${(r.diff * 100).toFixed(1)} pts`} | ${r.table.aOnly} / ${r.table.sOnly} | ${r.mcnemarP} | ${r.tokensBase ?? 'n/a'} | ${r.tokensArm ?? 'n/a'} | ${pct(r.tokenSaving)} |`);
+    }
     out.push('', '## Search use and misses (counts)', '', '| arm | size | search-call rate | AF search-call rate | misses | misses with a search | misses where armory_find had the gold skill in its top 5 |', '|---|---|---|---|---|---|---|');
     for (const arm of Object.keys(rows)) for (const r of rows[arm]) out.push(`| ${arm} | ${r.size} | ${pct(r.searchRate)} | ${pct(r.searchRateBase)} | ${r.misses} | ${r.missesSearched} | ${r.missesGoldInTop5} |`);
     out.push('', '## Decision');
@@ -740,6 +765,7 @@ export function renderSummary11f({ rows, decision, catalog, prompts, spend, cap,
     out.push(decision.best ? `Best arm: ${decision.best}.` : 'No arm passes at any tested size from which it keeps passing.');
   }
   out.push('', '## Limits', "- The positives are written by a model from each skill's description, then graded; the judge saw only the closest skills by word overlap, not all of them.", "- The skills are all personal skills in a temp HOME; the model also sees Claude Code's own built-in skills in every arm.", "- Search hits carry descriptions (every skill counts as the owner's own) and use Legion's keyword ranker over the size's skills only.", '- Input tokens are the sum over all turns of fresh, cache-read and cache-write tokens.');
+  if (is11g) out.push('- Per size, up to 100 positives and 60 negatives. A small size has fewer positives: at size 10 there are about 20 (two written per skill, then judged). The pairs column shows the real counts.', '- SFH120-TP answers every search hit as a third-party skill: the id and "(third-party)", no description, as Legion does for third-party skills. The listing is unchanged.');
   return out.join('\n');
 }
 
@@ -782,11 +808,12 @@ function planItems(subsets, prompts, posCap, negCap, base) {
   return { items, homes };
 }
 
-/** mode: 'smoke' | 'full-11e' | 'accuracy-11f'. The old `smoke: true` still means the smoke mode. */
+/** mode: 'smoke' | 'full-11e' | 'accuracy-11f' | 'followup-11g'. The old `smoke: true` still means the smoke mode. */
 export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mode = smoke ? 'smoke' : 'full-11e', cap, root, log = console.log, sleep, armory }) {
   if (!MODES.includes(mode)) throw Object.assign(new Error('mode'), { code: 'BAD_MODE' });
   const isSmoke = mode === 'smoke';
-  const is11f = mode === 'accuracy-11f';
+  const is11g = mode === 'followup-11g';
+  const is11f = mode === 'accuracy-11f' || is11g; // both use the multi-turn search arms, the 100/60 caps and concurrency 6
   const totalCap = cap ?? (isSmoke ? 0.1 : is11f ? ACCURACY_CAP_USD : CAP_USD);
   const base = mkdtempSync(join(root ?? tmpdir(), 'finder-sweep-'));
   try {
@@ -797,7 +824,7 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     log(`catalog: ${catalog.skills.length} skills from ${catalog.source}`);
     if (catalog.skills.length < Math.min(target, 5)) throw Object.assign(new Error('catalog too small'), { code: 'CATALOG' });
     // The subsets nest over the whole 400, as in 11e, so a size holds the same skills as in that run.
-    const sizes = isSmoke ? [Math.min(5, catalog.skills.length)] : (is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
+    const sizes = isSmoke ? [Math.min(5, catalog.skills.length)] : (is11g ? FOLLOWUP_SIZES : is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
     // A catalog a little short of 400 still gets its own top size, so the largest size is never silently dropped.
     if (mode === 'full-11e' && catalog.skills.length > sizes[sizes.length - 1]) sizes.push(catalog.skills.length);
     // A catalog smaller than the smallest size cannot be measured; say so instead of running on nothing.
@@ -808,12 +835,13 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     // Prompts are needed only for the skills of the largest size, since every smaller size sits inside it.
     const promptSkills = is11f ? subsets[subsets.length - 1].items : catalog.skills;
     const prompts = await makePrompts({ query, spend: prep, skills: promptSkills, perSkill: 2, negWanted: isSmoke ? 2 : NEGATIVES_WANTED, cwd: work, log });
-    const posCap = isSmoke ? 2 : is11f ? ACCURACY_POSITIVES : POSITIVES_PER_SIZE;
-    const negCap = isSmoke ? 2 : is11f ? ACCURACY_NEGATIVES : NEGATIVES_PER_SIZE;
+    // The smoke run asks one positive prompt, so each of its three arms makes exactly one call.
+    const posCap = isSmoke ? 1 : is11f ? ACCURACY_POSITIVES : POSITIVES_PER_SIZE;
+    const negCap = isSmoke ? 0 : is11f ? ACCURACY_NEGATIVES : NEGATIVES_PER_SIZE;
     const { items, homes } = planItems(subsets, prompts, posCap, negCap, base);
     log(`arms: ${items.length} items over sizes ${sizes.join(', ')}`);
 
-    const arms = mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : ARMS_11F;
+    const arms = mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : is11g ? ARMS_11G : ARMS_11F;
     const search = arms.some((a) => a.search) ? makeSearch(armory ?? await loadArmory(), subsets) : null;
     const { records, stopped } = await runArms({ query, spend, items, homes, arms, search, concurrency: is11f ? ACCURACY_CONCURRENCY : PROBE_CONCURRENCY, workDir: work, log });
     const common = {
@@ -831,8 +859,9 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     const rows = {};
     for (const a of arms) if (a.name !== BASELINE_11F) rows[a.name] = sizes.map((size) => compareArms(records, size, BASELINE_11F, a.name));
     const decision = decideAccuracy(rows);
-    const summary = renderSummary11f({ rows, decision, catalog, prompts, spend, cap: totalCap, stopped, smoke: isSmoke, armStats: stats });
-    return { summary, result: { ...common, smoke: isSmoke, rule: ACCURACY_RULE, sizes, arms: stats, rows, decision } };
+    const vsAfh = is11g ? sizes.map((size) => compareArms(records, size, 'AFH', 'SFH120')) : null;
+    const summary = renderSummary11f({ rows, decision, catalog, prompts, spend, cap: totalCap, stopped, smoke: isSmoke, armStats: stats, mode, vsAfh });
+    return { summary, result: { ...common, smoke: isSmoke, rule: ACCURACY_RULE, sizes, arms: stats, rows, decision, ...(vsAfh ? { vsAfh } : {}) } };
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

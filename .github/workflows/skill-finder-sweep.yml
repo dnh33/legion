@@ -18,15 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Stop early if the token is missing
-        run: |
-          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "The repository secret CLAUDE_CODE_OAUTH_TOKEN is empty or missing. Add it under Settings, Secrets and variables, Actions, then push again."
-            exit 1
-          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -37,9 +30,17 @@ jobs:
       - run: npm ci
       - run: npm run build:ts
       - name: Run the sweep
-        # A .sweep-mode file on the branch picks the job: smoke (5 skills, one search arm, under $0.10), full-11e, or accuracy-11f.
+        # The model token is scoped to this step only, so npm ci and the build never see it.
+        # A .sweep-mode file on the branch picks the job: smoke (5 skills, three arms, under $0.10), full-11e, accuracy-11f or followup-11g.
         # With no file the default is accuracy-11f. A word that is not a mode fails the job before any model call.
-        run: node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode --json sweep-result.json
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "The repository secret CLAUDE_CODE_OAUTH_TOKEN is empty or missing. Add it under Settings, Secrets and variables, Actions, then push again."
+            exit 1
+          fi
+          node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode --json sweep-result.json
       - name: Upload the numbers
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
