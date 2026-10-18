@@ -61,7 +61,7 @@ test('opaque device paths are named', () => {
 test('the protected set: the five names plus module paths; workspaces and other folders stay free', opts, () => {
   const away = join(data, 'away');
   const set = protectedTargets(data, [{ protectedPaths: () => [away] }, {}]);
-  assert.deepEqual(dataFolderTargets(data).map((p) => p.slice(data.length + 1)), ['gates', 'gates-key.bin', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers']);
+  assert.deepEqual(dataFolderTargets(data).map((p) => p.slice(data.length + 1)), ['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers']);
   for (const p of [join(data, 'gates', 'app.json'), join(data, 'gates-key.bin'), join(data, 'config.json'), join(data, 'state.json'), join(data, 'projects.json'), join(away, 'p.json'), share('localhost', '\\'), `${data}\\state.json.`, '\\\\?\\Volume{1}\\x']) assert.equal(isProtected(p, set), true, p);
   assert.equal(isProtected('state.json', set, data), true);
   for (const p of [join(data, 'workspaces', 'builder', 'a.md'), join(data, 'workspaces'), join(data, 'other', 'x.txt'), join(root, 'elsewhere.txt'), join(data, 'state.json.bak2')]) assert.equal(isProtected(p, set), false, p);

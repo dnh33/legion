@@ -153,7 +153,7 @@ test('key state: the launch line carries new, old or lost; electron decides it b
   writeFileSync(gatesKeyFilePath(root), 'x');
   assert.equal(gatesKeyState(root), 'old');
   const main = readFileSync(join(process.cwd(), 'src/electron/main.ts'), 'utf8');
-  assert.ok(main.indexOf('gatesKeyState(dataDir())') > -1 && main.indexOf('gatesKeyState(dataDir())') < main.indexOf('ensureGatesKey(dataDir()'), 'decided before the key file is made');
+  assert.ok(main.indexOf('gatesKeyState(dataDir()') > -1 && main.indexOf('gatesKeyState(dataDir()') < main.indexOf('ensureGatesKey(dataDir()'), 'decided before the key file is made');
   assert.match(main, /gatesKeyLine\(gatesKey, gatesState\)/);
   assert.equal(existsSync(root), true);
 });

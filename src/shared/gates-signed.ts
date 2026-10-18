@@ -26,3 +26,14 @@ export function hasSignedGatesFile(gatesDir: string): boolean {
   } catch { /* an unreadable folder is read as having none */ }
   return false;
 }
+
+/**
+ * The marker Electron writes with a NEW gates key, before the core builds its store. The store removes it after its first signed write. A key file
+ * with this marker and no signed file in gates/ is still a first keyed start (the core never got to sign anything), not a lost folder. The marker is
+ * one of the protected data-folder names, so an agent cannot make or delete it; next to a signed file it means nothing.
+ */
+export const UNCONFIRMED_MARKER = 'gates-key.unconfirmed';
+export const unconfirmedMarkerPath = (dataDir: string): string => join(dataDir, UNCONFIRMED_MARKER);
+export function keyUnconfirmed(dataDir: string): boolean {
+  try { return existsSync(unconfirmedMarkerPath(dataDir)) && !hasSignedGatesFile(join(dataDir, 'gates')); } catch { return false; }
+}

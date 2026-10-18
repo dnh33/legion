@@ -14,7 +14,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
-import { ensureConnectorKey, ensureGatesKey, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
+import { ensureConnectorKey, ensureGatesKey, gatesKeyFilePath, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
@@ -62,6 +62,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let signals: Signals | undefined;
+/** This session made the gates key file. A respawn in the same session (a failed start, Restart core) then still reads as a first keyed start while gates/ has no signed file. */
+let gatesKeyMadeThisSession = false;
 let coreProc: ChildProcess | null = null;
 let quitting = false;
 let booting = true;
@@ -177,8 +179,10 @@ async function spawnCore(port: number): Promise<string | null> {
     const connectorKey = await loadConnectorKey(dataDir(), safeStorage);
     // The gates key signs the gate settings files. It has its own keystore file and launch line, so signing never waits for a GitHub Connect.
     // new / old / lost is decided before the key file is made: a lost key in a used folder must not look like a fresh install
-    const gatesState = gatesKeyState(dataDir());
+    const gatesState = gatesKeyState(dataDir(), { madeThisSession: gatesKeyMadeThisSession });
+    const gatesKeyExisted = existsSync(gatesKeyFilePath(dataDir()));
     const gatesKey = await ensureGatesKey(dataDir(), safeStorage);
+    if (gatesKey && !gatesKeyExisted) gatesKeyMadeThisSession = true;
     // no usable key (a key file that does not open, or no key file and none could be made) is its own state: the core reads every
     // project as Ask, never as "no key"
     const gatesLine = gatesKey ? gatesKeyLine(gatesKey, gatesState) : gatesKeyLine(undefined, 'unreadable');

@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renameWithRetry } from '../shared/rename-retry.js';
-import { hasSignedGatesFile } from '../shared/gates-signed.js';
+import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../shared/gates-signed.js';
 
 export interface SafeStorageLike {
   isAsyncEncryptionAvailable(): Promise<boolean>;
@@ -92,7 +92,11 @@ export async function ensureGatesKey(dataDir: string, ss: SafeStorageLike, platf
   try {
     if (!keystoreUsable(ss, platform) || !(await ss.isAsyncEncryptionAvailable())) return undefined;
     const hex = randomBytes(32).toString('hex');
-    writeAtomic(gatesKeyFilePath(dataDir), await ss.encryptStringAsync(hex));
+    const wrapped = await ss.encryptStringAsync(hex);
+    // The marker goes down first (a marker with no key file means nothing), and only where no signed file exists: the core removes it after its first
+    // signed write, so a core that never got that far (a failed spawn, a quick quit, Restart core) does not leave the next start a "lost" folder.
+    if (!hasSignedGatesFile(join(dataDir, 'gates'))) { try { writeAtomic(unconfirmedMarkerPath(dataDir), Buffer.from('1')); } catch { /* the session flag still covers a respawn */ } }
+    writeAtomic(gatesKeyFilePath(dataDir), wrapped);
     return hex;
   } catch { return undefined; }
 }
@@ -102,8 +106,13 @@ export async function ensureGatesKey(dataDir: string, ss: SafeStorageLike, platf
  * unsigned Ask files keep their meaning. This is a hint; the core store makes the same decision from the folder (shared helper).
  */
 export type GatesKeyState = 'new' | 'old' | 'lost' | 'unreadable';
-export function gatesKeyState(dataDir: string): GatesKeyState {
-  if (existsSync(gatesKeyFilePath(dataDir))) return 'old';
+export function gatesKeyState(dataDir: string, opts: { madeThisSession?: boolean } = {}): GatesKeyState {
+  if (existsSync(gatesKeyFilePath(dataDir))) {
+    // The key file is there. It is also a first keyed start when this app made it and the core has not signed anything yet: the marker says so across
+    // launches, and `madeThisSession` (main's flag for a respawn) says so inside one. A signed file in gates/ ends both.
+    if ((opts.madeThisSession || keyUnconfirmed(dataDir)) && !hasSignedGatesFile(join(dataDir, 'gates'))) return 'new';
+    return 'old';
+  }
   return hasSignedGatesFile(join(dataDir, 'gates')) ? 'lost' : 'new';
 }
 export const gatesKeyLine = (hex: string | undefined, state: GatesKeyState = 'old'): string => hex ? `GATESKEY ${hex} ${state}

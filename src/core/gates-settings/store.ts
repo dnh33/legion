@@ -22,11 +22,11 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DENY_LINE, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset } from '../../shared/gates-registry.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
-import { hasSignedGatesFile } from '../../shared/gates-signed.js';
+import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../../shared/gates-signed.js';
 import { canonicalize } from './sign.js';
 import type { Signer } from './sign.js';
 
@@ -228,7 +228,8 @@ export class GatesStore {
     // `lost` means "gates/ holds a signed file and the key file is gone". Electron's word is only a hint: a data folder from 0.3.4 or 0.3.0
     // has no gates-key.bin and no signed gates file, and that is a first keyed start (its unsigned Ask files keep their old meaning).
     const hint = opts.keyState ?? 'new';
-    this.keyState = hint === 'lost' && !hasSignedGatesFile(this.folder) ? 'new' : hint;
+    // The same holds for `old` when Electron made the key file but no core signed anything yet (the marker it wrote with the key, no signed file).
+    this.keyState = (hint === 'lost' && !hasSignedGatesFile(this.folder)) || (hint === 'old' && keyUnconfirmed(dirname(this.folder))) ? 'new' : hint;
     this.reload();
     // A new install writes its (blank) signed app file at once, so a missing app file later means it was deleted, not never made.
     if (this.signer && this.keyState === 'new' && !existsSync(join(this.folder, 'app.json'))) this.mark('app');
@@ -564,6 +565,10 @@ export class GatesStore {
       rmSync(file, { force: true });
       renameSync(tmp, file);
     }
-    if (this.signer) { this.seq = gen; if (name !== 'app') this.fileGens.set(name, gen); }
+    if (this.signer) {
+      this.seq = gen; if (name !== 'app') this.fileGens.set(name, gen);
+      // a signed file now exists: the key file is confirmed, and the "first start" marker has done its job
+      try { rmSync(unconfirmedMarkerPath(dirname(this.folder)), { force: true }); } catch { /* a marker left behind means nothing next to a signed file */ }
+    }
   }
 }

@@ -230,7 +230,7 @@ const GUARD_MEMO_MS = 5000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
 const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
 /** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
-const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'config.json', 'state.json', 'projects.json']);
+const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
 const WEB_BATCH_MS = 10;
 type Decision = { allow: boolean; message?: string };

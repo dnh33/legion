@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createGatesCore } from '../src/core/gates-settings/index.js';
 import { GatesKeyring } from '../src/core/gates-settings/keyring.js';
 import { gatesKeyFilePath, gatesKeyLine, gatesKeyState } from '../src/electron/connector-key.js';
@@ -166,3 +167,89 @@ test('C1 window: a first keyed start that quits at once (nothing patched, nothin
     assert.doesNotThrow(() => second.core.store.patchApp({ noticeSeen: true }), variant);
   }
 });
+
+// ---- fix round 2: the key file exists but the core never built the store (spawn failure, quick quit, Restart core) ----
+import { ensureGatesKey } from '../src/electron/connector-key.js';
+import { dataFolderTargets } from '../src/core/exec/canonical-path.js';
+import { existsSync, readFileSync } from 'node:fs';
+
+const fakeStore = {
+  isAsyncEncryptionAvailable: async () => true,
+  encryptStringAsync: async (s: string) => Buffer.from(`enc:${s}`),
+  decryptStringAsync: async (b: Buffer) => ({ result: b.toString().slice(4), shouldReEncrypt: false }),
+};
+const markerOf = (root: string): string => join(root, 'gates-key.unconfirmed');
+const coreFor = (root: string, hex: string, state: ReturnType<typeof gatesKeyState>) => {
+  const ring = new GatesKeyring();
+  assert.ok(ring.installLine(gatesKeyLine(hex, state).trim()));
+  return createGatesCore({ dataDir: root, keyring: { get: () => ring.get(), state: () => ring.state() } });
+};
+
+test('C1 window, as the reviewer ran it: Electron made gates-key.bin, no core started, the next start must not read lost', async () => {
+  for (const variant of ['none', 'unsigned-app'] as const) {
+    const root = folder034(variant);
+    assert.equal(gatesKeyState(root), 'new');
+    await ensureGatesKey(root, fakeStore, 'win32'); // main makes the key before it spawns the core; the core never builds the store
+    const state = gatesKeyState(root);
+    assert.equal(state, 'new', `${variant}: key file + marker + no signed file is still a first keyed start`);
+    const hex = (await ensureGatesKey(root, fakeStore, 'win32'))!;
+    const core = coreFor(root, hex, state);
+    assert.deepEqual(core.store.view([P1]).changedOutside, [], variant);
+    assert.equal(core.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), 'full', variant);
+    assert.doesNotThrow(() => core.store.patchApp({ noticeSeen: true }), variant);
+    // the store signed what it found at once and took the marker away
+    assert.equal(existsSync(markerOf(root)), false, `${variant}: the marker goes after the first signed write`);
+    assert.equal(gatesKeyState(root), 'old');
+  }
+});
+
+test('C1 window: the core itself reads key file + marker + no signed file as new, whatever the launch line said', async () => {
+  const root = folder034('none');
+  const hex = (await ensureGatesKey(root, fakeStore, 'win32'))!;
+  const core = coreFor(root, hex, 'old');
+  assert.deepEqual(core.store.view([P1]).changedOutside, []);
+  assert.equal(core.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), 'full');
+});
+
+test('C1 window: a respawn in the same session sends new while gates/ has no signed file (the flag is the second layer)', async () => {
+  const root = folder034('none');
+  await ensureGatesKey(root, fakeStore, 'win32');
+  rmSync(markerOf(root)); // the marker could not be written, or is gone
+  assert.equal(gatesKeyState(root), 'old');
+  assert.equal(gatesKeyState(root, { madeThisSession: true }), 'new');
+  const main = readFileSync(join(process.cwd(), 'src/electron/main.ts'), 'utf8');
+  assert.match(main, /madeThisSession/, 'main passes the session flag');
+  // a signed file ends it
+  const a = startKeyed(folder034('none'));
+  a.core.store.patchApp({ preset: 'smart' });
+  await a.core.store.flush();
+});
+
+test('C1 window: a marker next to a signed file never turns a lost or old folder into new', async () => {
+  const root = folder034('none');
+  const first = startKeyed(root);
+  first.core.store.patchApp({ preset: 'smart' });
+  await first.core.store.flush(); // signed
+  writeFileSync(markerOf(root), 'x'); // an agent or a leftover
+  assert.equal(gatesKeyState(root), 'lost', 'no key file, a signed file, a marker: lost');
+  writeFileSync(gatesKeyFilePath(root), 'wrapped');
+  assert.equal(gatesKeyState(root), 'old', 'key file, a signed file, a marker: old');
+  assert.equal(gatesKeyState(root, { madeThisSession: true }), 'old', 'the session flag does not override a signed file');
+  // the core agrees: a wrong key with a marker still reads lost
+  const other = coreFor(root, 'c3'.repeat(32), 'old');
+  assert.ok(other.store.view([P1]).changedOutside.includes('app'));
+  assert.equal(other.resolver.mode({ agentMode: 'full', source: 'own', startProjectId: P1 }), 'ask');
+});
+
+test('C1 window: the marker is in the protected set, and is made only with a new key in a folder with no signed file', async () => {
+  assert.ok(dataFolderTargets(DATA_FOR_MARKER).some((t) => t.endsWith('gates-key.unconfirmed')));
+  const root = folder034('none');
+  await ensureGatesKey(root, fakeStore, 'win32');
+  assert.equal(existsSync(markerOf(root)), true);
+  const signed = folder034('none');
+  mkdirSync(join(signed, 'gates'));
+  writeFileSync(join(signed, 'gates', 'app.json'), JSON.stringify({ version: 1, gen: 1, sig: 'x' }));
+  await ensureGatesKey(signed, fakeStore, 'win32'); // the key was lost and is made again
+  assert.equal(existsSync(markerOf(signed)), false, 'no marker where a signed file already exists');
+});
+const DATA_FOR_MARKER = join(tmpdir(), 'legion-marker-probe');
