@@ -1636,7 +1636,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         type: 'preset', preset: 'claude_code',
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
           + '\n\n' + renderTeamwork(servers)
-          + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
+          + this.modulePreamble(agent, { prompt, taskId: job.taskId, runtime: 'claude', ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
           + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
@@ -1919,7 +1919,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const rankText = act.rankText;
     const note = finder.suggest && rankText ? await this.liveTurnNote(agent, act, { prompt: rankText, taskId, runtime: 'provider' }, this.turnWaitMs(finder)) : undefined;
     // the library briefing (turnContext) goes with this turn too, in front of the note: per-prompt, so never in the system prompt
-    const runCtx: PreambleContext = { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) };
+    const runCtx: PreambleContext = { prompt, taskId, runtime: 'provider', ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) };
     const briefing = this.moduleTurnContext(agent, runCtx);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,

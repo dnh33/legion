@@ -39,6 +39,8 @@ export interface PreambleContext {
   tainted: boolean;
   /** The run's project (same rules as ModuleJob.projectId). */
   projectId?: string;
+  /** Which runtime the prompt is for. Absent outside a run. */
+  runtime?: 'claude' | 'provider';
 }
 
 /** How a run ended, as the engine reports it to onTaskEnd. */

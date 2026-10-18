@@ -10,6 +10,13 @@
  * Settings warning threshold (SKILL_WARN_ABOVE, 40).
  */
 
+/**
+ * The one line added to a Claude run's system prompt when the short skill list is on. Measured in the 11f eval: with this line the short list
+ * beat the full list at every size tested, with about 48 percent fewer input tokens. Do not reword it; a test keeps it equal to the
+ * eval's copy. The engine shows the tool to the model as mcp__legion_armory__armory_find; the eval used the short name and so does this line.
+ */
+export const SLIM_SEARCH_HINT = 'Your skill list shows short descriptions. If no listed skill clearly fits, call armory_find with what you want to do before answering.';
+
 /** Weight of each field in the BM25F score. The id's parts count as part of `name`. */
 export const FIELD_WEIGHTS = { name: 3, description: 1.5, whenToUse: 1.5, headings: 0.5 } as const;
 

@@ -16,7 +16,7 @@ import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentProfile } from '../../shared/types.js';
 import { agentSkillsAllow, armoryId, drillId } from '../../shared/skill-ids.js';
 import { HttpError } from '../server.js';
-import type { CoreModule, FinderWiring, ModuleDeps, ModuleJob, TurnContext, TurnNote } from '../modules.js';
+import type { CoreModule, FinderWiring, ModuleDeps, ModuleJob, PreambleContext, TurnContext, TurnNote } from '../modules.js';
 import { CONTEXT_DIRNAME } from '../house/context.js';
 import { listSkills } from '../house/skills.js';
 import { ArmoryInputError, buildSkillMd, prepareImport, reviewImport, sanitizeSkillMd } from './files.js';
@@ -33,7 +33,7 @@ import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, upd
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch, suggestOn } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
-import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, SEARCH_FUSION_WEIGHT, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
+import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, SLIM_SEARCH_HINT, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, SEARCH_FUSION_WEIGHT, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
 import { cachedPassages, createVectorCache, MAX_NEW_PASSAGES, passageVectors } from './finder/embed.js';
 import type { Embedder, VectorCache } from './finder/embed.js';
 import { createFinderModel } from './finder/model.js';
@@ -270,6 +270,13 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     return new Set(onSkillIds(agent, all, deliveredFor.delivered));
   };
   const finderSettings = (agent: AgentProfile) => finderFor(readArmoryFile(deps.dataDir), agent);
+  /**
+   * Whether this agent's Claude run gets the short skill list. The slim listing relies on the search tool to find what it no longer describes:
+   * no search, no slim listing (for all three values). 'auto' counts the skills this agent is really given (the set claudeSkills returns)
+   * against the Settings warning threshold.
+   */
+  const slimFor = (agent: AgentProfile, f: FinderSettings): boolean =>
+    f.searchTool && (f.slimListing === 'auto' ? candidateIds(agent, 'claude').size > SKILL_WARN_ABOVE : f.slimListing);
   /** Usage is kept only while it can be used: for an agent whose search tool or suggestions are on. An agent set to 'off' leaves no trace. */
   const recordsUsage = (agent: AgentProfile | undefined): boolean => {
     if (!agent) return false;
@@ -413,12 +420,15 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       return { [ARMORY_SERVER_NAME]: buildArmoryServer(agent, job, catalog, searchTool ? findFor(agent, 'provider') : undefined) };
     },
 
+    // Static for a given agent and setting, so the prompt cache holds. A provider run has no Claude listing: no hint there.
+    preamble(agent: AgentProfile, ctx?: PreambleContext): string {
+      return ctx?.runtime !== 'provider' && slimFor(agent, finderSettings(agent)) ? SLIM_SEARCH_HINT : '';
+    },
+
     finderWiring(agent: AgentProfile): FinderWiring {
       const f = finderSettings(agent);
       const emb = embedderFor(f);
-      // The slim listing relies on the search tool to find what it no longer describes: no search, no slim listing (for all three values).
-      // 'auto' counts the skills this agent is really given (the set claudeSkills returns) against the Settings warning threshold.
-      const slim = f.searchTool && (f.slimListing === 'auto' ? candidateIds(agent, 'claude').size > SKILL_WARN_ABOVE : f.slimListing);
+      const slim = slimFor(agent, f);
       return { suggest: suggestOn(f, emb !== undefined), subagents: f.subagents, slimListing: slim, rerank: f.rerank, embeddings: emb !== undefined };
     },
 
