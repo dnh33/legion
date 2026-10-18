@@ -23,6 +23,14 @@ The next agent owns the PR, the merge and the release.
    harness so far. On 267 fresh prompts at 100 skills it scored +16.9 points (95% CI 11.5 to 22.2, p < 0.0001), with precision going
    from 90.2 to 94.0 percent. But it made 6 wrong loads against 3 on 159 no-skill prompts, which fails the pre-set limit by one load.
 
+   **Before any merge, know this:** this branch does NOT contain MSL. Its per-turn note is the older description-based note with
+   threshold gates, and it is off by default. The one thing the branch turns on by default is `SEARCH_HINT`, which has no measured gain
+   (harmless, cache-stable). Merging as-is gives users none of the +16.9 points. Getting the gain needs three steps:
+   - build MSL into Legion (a top-5 note with no floor, plugin skills shown by id only, the pick-or-none text, and the middle hint as a
+     static append, all switchable);
+   - test it against Legion itself, the real engine and not only the eval harness;
+   - only then claim the gain anywhere.
+
    The owner paused here to iterate later ("until we hit 100%"). The MSL default decision is pending. The full record, the exact
    strings and the next steps are in Aetherkeep `06-projects/legion/skill-finder/accuracy-RESUME-2026-10-18.md` and on branch
    `eval/catalog-sweep`.
