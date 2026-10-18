@@ -1,6 +1,6 @@
 // The first-run screen "How should agents ask by default?". Four radio rows, Ask preselected, a live list of what each of the agents really does, and
 // an unticked box "Also make my agents follow this". Choosing a looser preset runs the same native confirm as the Gates page (window.legion.gatesChange);
-// following is one more native confirm for every agent made looser (window.legion.agentModeBatch). Cancelling returns here with Ask selected.
+// with the box ticked the default and every agent made looser share ONE native confirm (window.legion.agentModeBatch). Cancelling returns here with Ask selected.
 // "Decide later" changes nothing and remembers that the question was seen (firstRunChoice only, no preset), so the screen does not return.
 import { useEffect, useRef, useState } from 'react';
 import type { Preset } from '../../../src/shared/gates-registry';
@@ -76,23 +76,24 @@ export function PresetChoice({ onDone }: { onDone: () => void }) {
   const [selected, setSelected] = useState<Preset>('ask');
   const [follow, setFollow] = useState(false);
   const [working, setWorking] = useState(false);
+  const [own, setOwn] = useState<Note | null>(null);
   if (!view) return null;
   const batch: Batch = window.legion?.agentModeBatch ? (b) => window.legion!.agentModeBatch!(b) as ReturnType<NonNullable<Batch>> : undefined;
   const onContinue = async (): Promise<void> => {
-    setWorking(true);
+    setWorking(true); setOwn(null);
     try {
       const r = await continueFrom(selected, follow, agents, run, batch);
       if (r.done) {
         // The screen goes away now, so what changed is said where it stays visible.
         if (r.saved) toast(r.saved.text, r.saved.tone === 'error' ? 'error' : 'info');
         onDone();
-      } else setSelected(r.selected);
+      } else { setSelected(r.selected); if (r.note) setOwn(r.note); }
     } finally { setWorking(false); }
   };
   // Remembered in the app file like an answer, but with no preset: nothing gets looser, so there is no dialog. If it cannot be written the screen
   // still goes away for this launch and comes back next time.
   const onLater = async (): Promise<void> => { await laterFrom(run); onDone(); };
-  return <PresetChoiceView view={view} agents={agents} selected={selected} follow={follow} busy={pending || working} note={note} onPick={setSelected} onFollow={setFollow} onContinue={() => void onContinue()} onLater={() => void onLater()} />;
+  return <PresetChoiceView view={view} agents={agents} selected={selected} follow={follow} busy={pending || working} note={own ?? note} onPick={setSelected} onFollow={setFollow} onContinue={() => void onContinue()} onLater={() => void onLater()} />;
 }
 
 /**

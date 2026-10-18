@@ -7,7 +7,8 @@
  */
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
-import { DENY_LINE, GATES_DIGEST_HEADER, NO_SANDBOX_LINE } from '../shared/gates-registry.js';
+import { DENY_LINE, GATES_DIGEST_HEADER, NO_SANDBOX_LINE, PRESETS } from '../shared/gates-registry.js';
+import type { Preset } from '../shared/gates-registry.js';
 
 export interface AgentModeChange { agentId: string; approval?: 'ask' | 'auto-edits' | 'full'; approvalSource?: 'own' | 'project' }
 export interface AgentModeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
@@ -36,11 +37,15 @@ export function parseAgentModeChange(raw: unknown): AgentModeChange | undefined 
   return out;
 }
 
-interface Preview { raises: boolean; digest: string; loosening: string[]; agentName: string }
+/** One sentence of a preview: the text as shown, and the part after the agent's own name (cut from the core's raw name, so a long name still matches). */
+interface Line { text: string; body?: string }
+interface Preview { raises: boolean; digest: string; loosening: string[]; lines: Line[]; agentName: string }
 function parsePreview(j: unknown): Preview | undefined {
   if (!isObj(j) || typeof j.raises !== 'boolean' || typeof j.digest !== 'string' || !/^[0-9a-f]{64}$/.test(j.digest)) return undefined;
   if (!Array.isArray(j.loosening) || j.loosening.some((l) => typeof l !== 'string')) return undefined;
-  return { raises: j.raises, digest: j.digest, agentName: dialogLine(j.agentName, 60) || 'this agent', loosening: (j.loosening as string[]).map((l) => dialogLine(l, 400)).filter(Boolean) };
+  const raw = typeof j.agentName === 'string' ? j.agentName : '';
+  const lines: Line[] = (j.loosening as string[]).map((l) => ({ text: dialogLine(l, 400), ...(raw && l.startsWith(`${raw} `) ? { body: dialogLine(l.slice(raw.length + 1), 400) } : {}) })).filter((l) => l.text);
+  return { raises: j.raises, digest: j.digest, agentName: dialogLine(raw, 60) || 'this agent', loosening: lines.map((l) => l.text), lines };
 }
 
 let open = false;
@@ -100,6 +105,8 @@ async function run(ch: AgentModeChange, deps: AgentModeIpcDeps): Promise<AgentMo
 
 export interface AgentModeBatchResult {
   ok: boolean; error?: string; cancelled?: boolean;
+  /** Only when the request carried the app default: whether it was saved. A cancel, or a default that could not be saved, leaves this false and changes nothing. */
+  presetSaved?: boolean;
   /** The agents whose change was saved. */
   applied: string[];
   /** The agents whose change was not saved, and why. A cancel or a refusal before the dialog leaves both empty. */
@@ -108,9 +115,17 @@ export interface AgentModeBatchResult {
 const MAX_BATCH = 100;
 const NL = String.fromCharCode(10);
 
-/** Strict parse: `{ changes: [...] }`, one to 100 plain mode changes, each agent once, nothing else. */
+/** What the window asked for: a list of agent mode changes and, for the first-run screen, the app default to save with them. */
+export interface AgentModeBatchRequest { changes: AgentModeChange[]; preset?: Preset }
+
+/** Strict parse: `{ changes: [...], preset? }`, one to 100 plain mode changes, each agent once, an optional app default, nothing else. */
 export function parseAgentModeBatch(raw: unknown): AgentModeChange[] | undefined {
-  if (!isObj(raw) || Object.keys(raw).length !== 1 || !Array.isArray(raw.changes)) return undefined;
+  return parseRequest(raw)?.changes;
+}
+function parseRequest(raw: unknown): AgentModeBatchRequest | undefined {
+  if (!isObj(raw) || !Array.isArray(raw.changes)) return undefined;
+  if (Object.keys(raw).some((k) => k !== 'changes' && k !== 'preset')) return undefined;
+  if (raw.preset !== undefined && !(typeof raw.preset === 'string' && (PRESETS as readonly string[]).includes(raw.preset))) return undefined;
   if (raw.changes.length < 1 || raw.changes.length > MAX_BATCH) return undefined;
   const out: AgentModeChange[] = [];
   const seen = new Set<string>();
@@ -120,48 +135,76 @@ export function parseAgentModeBatch(raw: unknown): AgentModeChange[] | undefined
     seen.add(ch.agentId);
     out.push(ch);
   }
-  return out;
+  return { changes: out, ...(raw.preset !== undefined ? { preset: raw.preset as Preset } : {}) };
 }
 
 /**
- * One native confirm for a whole list of mode changes. The core describes every change first (`mode-preview`); if any of them raises, ONE dialog
- * names every agent made looser (agents with the same sentence share a line), and only after "Confirm" does each change go out as an ordinary
- * guarded PATCH with its own digest (the native secret only on a raise). There is no bulk route in the core: a change that went stale while the
- * dialog was open is refused by its own digest and reported, and the others still apply. A cancel, or a change the core cannot describe,
- * sends no PATCH at all.
+ * One native confirm for a whole list of mode changes, and for the app default that goes with them on the first-run screen. The core describes every
+ * change first (`mode-preview`, and for the default `gates/preview`; an agent is previewed AS IF the default were already saved, read-only); if any of
+ * them loosens, ONE dialog lists the default's lines and every agent made looser (agents with the same sentence share a line), then the agents that
+ * get stricter. Cancel sends nothing at all. On Confirm the default is saved first (an ordinary guarded save with its own digest), then every agent is
+ * previewed again against the saved default and must read exactly as shown (else no agent is changed and the answer says the default is saved), then
+ * each change goes out as an ordinary guarded PATCH with its own digest (the native secret only on a raise). There is no bulk route in the core.
  */
 export async function agentModeBatch(raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeBatchResult> {
-  const changes = parseAgentModeBatch(raw);
-  if (!changes) return { ok: false, error: 'That request was not understood.', applied: [] };
+  const req = parseRequest(raw);
+  if (!req) return { ok: false, error: 'That request was not understood.', applied: [] };
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.', applied: [] };
   open = true;
-  try { return await runBatch(changes, deps); } finally { open = false; }
+  try { return await runBatch(req, deps); } finally { open = false; }
 }
 
 interface Planned { ch: AgentModeChange; pv: Preview }
 
-/** The lines of every raise, one line per sentence: "A, B and C will ask only before ...". The closing safety lines come once at the end. */
-function batchLines(raising: Planned[]): string[] {
+/** "Scout" alone, or "Scout (scout-2)" when another agent in the batch has the same display name. */
+function labels(planned: Planned[]): Map<string, string> {
+  const count = new Map<string, number>();
+  for (const p of planned) count.set(p.pv.agentName, (count.get(p.pv.agentName) ?? 0) + 1);
+  return new Map(planned.map((p) => [p.ch.agentId, (count.get(p.pv.agentName) ?? 0) > 1 ? `${p.pv.agentName} (${p.ch.agentId})` : p.pv.agentName]));
+}
+const list = (n: string[]): string => (n.length < 2 ? n.join('') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`);
+
+/** The lines of every raise, one line per sentence: "A, B and C will ask only before ...". The closing safety lines are left to the caller. */
+function batchLines(raising: Planned[], label: Map<string, string>): string[] {
   const groups = new Map<string, string[]>();
-  let closing = false;
-  for (const { pv } of raising) {
-    for (const l of pv.loosening) {
-      if (l === DENY_LINE || l === NO_SANDBOX_LINE) { closing = true; continue; }
-      const cut = l.startsWith(`${pv.agentName} `) ? l.slice(pv.agentName.length + 1) : l;
-      const names = groups.get(cut) ?? [];
-      if (!names.includes(pv.agentName)) names.push(pv.agentName);
-      groups.set(cut, names);
+  for (const { ch, pv } of raising) {
+    for (const l of pv.lines) {
+      if (l.text === DENY_LINE || l.text === NO_SANDBOX_LINE) continue;
+      const key = l.body ?? l.text;
+      const names = groups.get(key) ?? [];
+      const nm = label.get(ch.agentId) ?? pv.agentName;
+      if (!names.includes(nm)) names.push(nm);
+      groups.set(key, names);
     }
   }
-  const list = (n: string[]): string => (n.length < 2 ? n.join('') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`);
-  const lines = [...groups.entries()].map(([rest, names]) => `${list(names)} ${rest}`);
-  return closing ? [...lines, DENY_LINE, NO_SANDBOX_LINE] : lines;
+  return [...groups.entries()].map(([rest, names]) => `${list(names)} ${rest}`);
 }
 
-async function runBatch(changes: AgentModeChange[], deps: AgentModeIpcDeps): Promise<AgentModeBatchResult> {
+const sameAs = (a: Preview, b: Preview): boolean => a.raises === b.raises && a.lines.length === b.lines.length && a.lines.every((l, i) => l.text === b.lines[i]!.text);
+const gatesDigest = (digest: string): Record<string, string> => ({ [GATES_DIGEST_HEADER]: digest });
+const STALE = 'The settings or an agent changed while the question was open, so nothing was changed.';
+
+async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Promise<AgentModeBatchResult> {
+  const { changes, preset } = req;
+  // the app default (first-run screen): what it would do, as the core words it
+  let presetPv: { loosens: boolean; digest: string; lines: string[] } | undefined;
+  const patch = preset !== undefined ? { preset, firstRunChoice: true } : undefined;
+  if (patch) {
+    const cur = await deps.call('GET', '/api/gates/settings');
+    if (!cur || cur.status !== 200) return { ...noCore, applied: [] };
+    if (cur.json?.canSign === false && preset !== 'ask') return { ok: false, error: 'Your computer has no safe keystore, so only Ask can be used.', applied: [] };
+    const pr = await deps.call('POST', '/api/gates/preview', { name: 'app', patch });
+    if (!pr) return { ...noCore, applied: [] };
+    if (pr.status !== 200) return { ...refused(pr), applied: [] };
+    const j = pr.json;
+    if (!isObj(j) || typeof j.loosens !== 'boolean' || typeof j.digest !== 'string' || !/^[0-9a-f]{64}$/.test(j.digest) || !Array.isArray(j.loosening) || j.loosening.some((l) => typeof l !== 'string')) return { ...cannotDescribe, applied: [] };
+    presetPv = { loosens: j.loosens, digest: j.digest, lines: (j.loosening as string[]).map((l) => dialogLine(l, 400)).filter(Boolean) };
+    if (presetPv.loosens && presetPv.lines.length === 0) return { ...cannotDescribe, applied: [] };
+  }
+
   const planned: Planned[] = [];
   for (const ch of changes) {
-    const pr = await deps.call('POST', '/api/agents/mode-preview', ch);
+    const pr = await deps.call('POST', '/api/agents/mode-preview', preset !== undefined ? { ...ch, assumeAppPreset: preset } : ch);
     if (!pr) return { ...noCore, applied: [] };
     if (pr.status !== 200) return { ...refused(pr), applied: [] };
     const pv = parsePreview(pr.json);
@@ -169,28 +212,57 @@ async function runBatch(changes: AgentModeChange[], deps: AgentModeIpcDeps): Pro
     if (pv.raises && pv.loosening.length === 0) return { ...cannotDescribe, applied: [] };
     planned.push({ ch, pv });
   }
+  const label = labels(planned);
   const raising = planned.filter((p) => p.pv.raises);
-  if (raising.length > 0) {
+  if (raising.length > 0 || presetPv?.loosens) {
     const clock = deps.now ?? Date.now;
-    const key = `batch|${planned.map((p) => p.pv.digest).join('|')}`;
+    const key = `batch|${presetPv?.digest ?? ''}|${planned.map((p) => p.pv.digest).join('|')}`;
     if (lastCancel && lastCancel.key === key && clock() - lastCancel.at < CANCEL_PAUSE_MS) return { ok: false, error: 'You cancelled this change a moment ago. Wait a few seconds before you try it again.', applied: [] };
+    // the default's own lines first (its closing safety lines are the same ones the agents' lines end with, so they come once, last)
+    const lines = [...(presetPv?.lines ?? []).filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE), ...batchLines(raising, label)];
+    const stricter = planned.filter((p) => !p.pv.raises).map((p) => label.get(p.ch.agentId) ?? p.pv.agentName);
+    if (stricter.length > 0) lines.push(`${list(stricter)} will ask the same or more often.`);
+    const closing = [DENY_LINE, NO_SANDBOX_LINE].filter((c) => (presetPv?.lines ?? []).includes(c) || raising.some((p) => p.pv.loosening.includes(c)));
     const n = raising.length;
     const ok = await deps.confirm({
-      title: 'Let these agents ask less?',
-      message: n === 1 ? `Change how ${raising[0]!.pv.agentName} asks?` : `Change how ${n} agents ask?`,
-      detail: batchLines(raising).join(NL + NL),
+      title: preset !== undefined ? 'Let agents ask less?' : 'Let these agents ask less?',
+      message: preset !== undefined ? (n === 0 ? 'Change the default for how agents ask?' : `Change the default and how ${n === 1 ? label.get(raising[0]!.ch.agentId) : `${n} agents`} ask?`) : (n === 1 ? `Change how ${label.get(raising[0]!.ch.agentId)} asks?` : `Change how ${n} agents ask?`),
+      detail: [...lines, ...closing].join(NL + NL),
       confirmLabel: 'Confirm change',
     });
-    if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true, applied: [] }; }
+    if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true, presetSaved: false, applied: [] }; }
   }
+
+  // the default first: an ordinary guarded save with its own digest (the native secret when it loosens)
+  let presetSaved = false;
+  if (patch && presetPv) {
+    const res = await deps.call('PATCH', '/api/gates/app', patch, presetPv.loosens, gatesDigest(presetPv.digest));
+    if (!res) return { ...noCore, presetSaved: false, applied: [] };
+    if (res.status !== 200) return { ok: false, presetSaved: false, applied: [], error: res.status === 409 || (res.status === 403 && /native_/.test(String(res.json?.error ?? ''))) ? STALE : refused(res).error ?? 'The change was not made.' };
+    presetSaved = true;
+  }
+
+  // with the default saved, every agent must read exactly as it was shown; else no agent is changed
+  let digests = planned.map((p) => p.pv.digest);
+  if (patch) {
+    digests = [];
+    for (const p of planned) {
+      const pr = await deps.call('POST', '/api/agents/mode-preview', p.ch);
+      const again = pr && pr.status === 200 ? parsePreview(pr.json) : undefined;
+      if (!again || !sameAs(again, p.pv)) return { ok: false, presetSaved, applied: [], error: `The app default is saved, but no agent was changed: ${again ? 'an agent changed while the question was open' : 'Legion could not check an agent again'}. Set each agent in its editor.` };
+      digests.push(again.digest);
+    }
+  }
+
   const applied: string[] = [];
   const failed: Array<{ agentId: string; error: string }> = [];
-  for (const { ch, pv } of planned) {
-    const { agentId, ...patch } = ch;
-    const res = await deps.call('PATCH', `/api/agents/${encodeURIComponent(agentId)}`, patch, pv.raises, { [GATES_DIGEST_HEADER]: pv.digest });
+  for (const [i, { ch, pv }] of planned.entries()) {
+    const { agentId, ...body } = ch;
+    const res = await deps.call('PATCH', `/api/agents/${encodeURIComponent(agentId)}`, body, pv.raises, gatesDigest(digests[i]!));
     if (!res) { failed.push({ agentId, error: noCore.error }); continue; }
     if (res.status === 200) { applied.push(agentId); continue; }
     failed.push({ agentId, error: res.status === 409 ? 'The agent changed while the question was open, so it was left as it was.' : refused(res).error ?? 'The change was not made.' });
   }
-  return failed.length === 0 ? { ok: true, applied } : { ok: false, applied, failed, error: `${failed.length} of ${planned.length} agents were not changed.` };
+  const done = { ...(patch ? { presetSaved } : {}), applied };
+  return failed.length === 0 ? { ok: true, ...done } : { ok: false, ...done, failed, error: `${failed.length} of ${planned.length} agents were not changed.` };
 }

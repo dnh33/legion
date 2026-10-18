@@ -114,11 +114,11 @@ function rig(o: { presetOk?: boolean; batch?: BatchResult | 'none' } = {}) {
   const log: string[] = [];
   const sent: unknown[] = [];
   const run = async (c: unknown): Promise<boolean> => { log.push('preset'); sent.push(c); return o.presetOk ?? true; };
-  const batch: Batch = o.batch === 'none' ? undefined : async (b) => { log.push('batch'); sent.push(b); return (o.batch as BatchResult | undefined) ?? { ok: true, applied: b.changes.map((c) => c.agentId) }; };
+  const batch: Batch = o.batch === 'none' ? undefined : async (b) => { log.push('batch'); sent.push(b); return (o.batch as BatchResult | undefined) ?? { ok: true, presetSaved: true, applied: b.changes.map((c) => c.agentId) }; };
   return { log, sent, run, batch };
 }
 
-test('Continue, box unticked: the default is saved and no agent is touched', async () => {
+test('Continue, box unticked: the default is saved through the Gates path and no agent is touched', async () => {
   const all = seeds(); const r = rig();
   const out = await continueFrom('smart', false, all, r.run, r.batch);
   assert.deepEqual(r.log, ['preset']);
@@ -126,47 +126,54 @@ test('Continue, box unticked: the default is saved and no agent is touched', asy
   assert.equal(out.saved?.text, 'Saved. The app default is Smart. Your agents keep their own settings.');
 });
 
-test('Continue, box ticked: the default first, then ONE batch of follow changes for every agent; the line says only what changed', async () => {
+test('Continue, box ticked: ONE request carries the default and a follow change for every agent; the line says only what changed', async () => {
   const all = seeds(); const r = rig();
   const out = await continueFrom('smart', true, all, r.run, r.batch);
-  assert.deepEqual(r.log, ['preset', 'batch']);
-  const b = r.sent[1] as { changes: Array<{ agentId: string; approvalSource: string }> };
+  assert.deepEqual(r.log, ['batch'], 'no separate save of the default: it is in the same confirm');
+  const b = r.sent[0] as { preset: string; changes: Array<{ agentId: string; approvalSource: string }> };
+  assert.equal(b.preset, 'smart');
   assert.equal(b.changes.length, all.length);
   assert.deepEqual(b.changes[0], { agentId: all[0]!.id, approvalSource: 'project' });
   assert.equal(out.saved?.text, `Saved. The app default is Smart. All ${all.length} agents follow it.`);
   assert.equal(out.saved?.tone, 'ok');
 });
 
-test('Continue: a cancelled or refused default stops before any agent is touched and keeps Ask selected', async () => {
-  const all = seeds(); const r = rig({ presetOk: false });
-  const out = await continueFrom('bypass', true, all, r.run, r.batch);
-  assert.deepEqual(r.log, ['preset']);
-  assert.deepEqual([out.done, out.selected, out.saved], [false, 'ask', undefined]);
-});
-
-test('Continue: a cancelled agent question leaves the saved default and says no agent changed', async () => {
-  const all = seeds(); const r = rig({ batch: { ok: false, cancelled: true, applied: [] } });
+test('Continue, ticked: a cancel saves nothing, the screen stays with Ask selected and says so', async () => {
+  const all = seeds(); const r = rig({ batch: { ok: false, cancelled: true, presetSaved: false, applied: [] } });
   const out = await continueFrom('smart', true, all, r.run, r.batch);
-  assert.equal(out.done, true);
-  assert.equal(out.saved?.tone, 'info');
-  assert.match(out.saved!.text, /^Saved\. The app default is Smart\. No agent was changed, because you cancelled that question\./);
+  assert.deepEqual([out.done, out.selected, out.saved], [false, 'ask', undefined]);
+  assert.deepEqual(out.note, { tone: 'info', text: 'Cancelled. Nothing changed.' });
+  assert.deepEqual(r.log, ['batch']);
 });
 
-test('Continue: a partial result and a total failure each say what happened', async () => {
+test('Continue, ticked: a default that could not be saved keeps the screen open with the reason', async () => {
   const all = seeds();
-  const part = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, applied: ['zealot', 'builder'], failed: [{ agentId: 'scout', error: 'The agent changed while the question was open, so it was left as it was.' }, { agentId: 'x', error: 'e' }] }));
-  assert.equal(part.saved?.tone, 'error');
-  assert.match(part.saved!.text, /2 of \d+ agents follow it now\. 2 did not change: The agent changed while/);
-  const none = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, error: 'Legion could not reach its own core. Restart Legion.', applied: [] }));
-  assert.match(none.saved!.text, /No agent was changed: Legion could not reach its own core/);
-  const thrown = await continueFrom('smart', true, all, rig().run, async () => { throw new Error('boom'); });
-  assert.match(thrown.saved!.text, /No agent was changed: boom/);
-  const noBridge = await continueFrom('smart', true, all, rig().run, undefined);
-  assert.equal(noBridge.saved?.tone, 'error');
-  assert.match(noBridge.saved!.text, /needs the Legion app window/);
+  const out = await continueFrom('bypass', true, all, rig().run, async () => ({ ok: false, presetSaved: false, error: 'The settings or an agent changed while the question was open, so nothing was changed.', applied: [] }));
+  assert.equal(out.done, false);
+  assert.equal(out.note?.tone, 'error');
+  assert.match(out.note!.text, /changed while the question was open/);
 });
 
-test('Continue, everyone already follows: nothing to send', async () => {
+test('Continue, ticked: once the default is saved the screen closes and says exactly what was applied', async () => {
+  const all = seeds();
+  const none = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, presetSaved: true, error: 'The app default is saved, but no agent was changed: an agent changed while the question was open. Set each agent in its editor.', applied: [] }));
+  assert.equal(none.done, true);
+  assert.equal(none.saved?.tone, 'error');
+  assert.match(none.saved!.text, /^Saved\. The app default is Smart\. No agent was changed: The app default is saved, but no agent was changed/);
+  const part = await continueFrom('smart', true, all, rig().run, async () => ({ ok: false, presetSaved: true, applied: ['zealot', 'builder'], failed: [{ agentId: 'scout', error: 'The agent changed while the question was open, so it was left as it was.' }, { agentId: 'x', error: 'e' }] }));
+  assert.match(part.saved!.text, /2 of \d+ agents follow it now\. 2 did not change: The agent changed while/);
+  const thrown = await continueFrom('smart', true, all, rig().run, async () => { throw new Error('boom'); });
+  assert.equal(thrown.done, false, 'nothing was saved, so the screen stays');
+  assert.match(thrown.note!.text, /boom/);
+});
+
+test('Continue, ticked, no app window: the screen stays and says it needs the app', async () => {
+  const out = await continueFrom('smart', true, seeds(), rig().run, undefined);
+  assert.equal(out.done, false);
+  assert.match(out.note!.text, /needs the Legion app window/);
+});
+
+test('Continue, everyone already follows: only the default is saved', async () => {
   const all = seeds().map((a) => ({ ...a, approvalSource: 'project' as const })); const r = rig();
   const out = await continueFrom('ask', true, all, r.run, r.batch);
   assert.deepEqual(r.log, ['preset']);

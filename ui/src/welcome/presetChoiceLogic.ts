@@ -99,39 +99,41 @@ export function presetSubmit(id: Preset): { patch: { preset: Preset; firstRunCho
 }
 
 type Run = (change: GatesChangeRequest, done: string) => Promise<boolean>;
-export interface BatchResult { ok: boolean; error?: string; cancelled?: boolean; applied: string[]; failed?: Array<{ agentId: string; error: string }> }
-/** The window's bridge for many agent changes in one confirm. undefined = no bridge (a plain browser). */
-export type Batch = ((b: { changes: Array<{ agentId: string; approvalSource: 'project' }> }) => Promise<BatchResult>) | undefined;
-export interface Outcome { done: boolean; selected: Preset; /** What the owner reads after the screen is gone: only what changed. */ saved?: { tone: 'ok' | 'info' | 'error'; text: string } }
+export interface BatchResult { ok: boolean; error?: string; cancelled?: boolean; presetSaved?: boolean; applied: string[]; failed?: Array<{ agentId: string; error: string }> }
+/** The window's bridge for the default and many agent changes in ONE confirm. undefined = no bridge (a plain browser). */
+export type Batch = ((b: { preset: Preset; changes: Array<{ agentId: string; approvalSource: 'project' }> }) => Promise<BatchResult>) | undefined;
+type Words = { tone: 'ok' | 'info' | 'error'; text: string };
+/** `saved`: what the owner reads after the screen is gone (only what changed). `note`: what the screen shows while it stays (a cancel, a refusal). */
+export interface Outcome { done: boolean; selected: Preset; saved?: Words; note?: Words }
 
 /** The line the owner reads once the screen has closed. It says only what changed, and what did not. */
-export function savedWords(preset: Preset, follow: boolean, total: number, r: BatchResult | 'none' | 'unchanged'): { tone: 'ok' | 'info' | 'error'; text: string } {
+export function savedWords(preset: Preset, follow: boolean, total: number, r: BatchResult | 'unchanged'): Words {
   const head = `Saved. The app default is ${labelOf(preset)}.`;
   if (!follow) return { tone: 'ok', text: `${head} Your agents keep their own settings.` };
   if (r === 'unchanged') return { tone: 'ok', text: `${head} All ${total} agents already follow it.` };
-  if (r === 'none') return { tone: 'error', text: `${head} The agents were not changed: changing agents needs the Legion app window.` };
   if (r.ok) return { tone: 'ok', text: `${head} All ${total} agents follow it.` };
-  if (r.cancelled) return { tone: 'info', text: `${head} No agent was changed, because you cancelled that question. Each agent can be set in its editor.` };
   if (r.applied.length === 0) return { tone: 'error', text: `${head} No agent was changed: ${r.error ?? 'the change was not made.'}` };
   const first = r.failed?.[0];
   return { tone: 'error', text: `${head} ${r.applied.length} of ${total} agents follow it now. ${r.failed?.length ?? 0} did not change${first ? `: ${first.error}` : '.'}` };
 }
 
 /**
- * Continue. First the app default is saved through the Gates path (its own native confirm for a looser one). Only then, when the box is ticked,
- * each agent's change goes through the agent-mode bridge, with ONE native confirm naming every agent made looser; they are checked against the
- * default that now stands. A cancelled or refused default stops here and the screen stays with Ask selected. A cancelled agent question leaves the
- * saved default as it is, and the words say so.
+ * Continue. Unticked: the app default is saved through the Gates path (its own native confirm for a looser one). Ticked: the default and every agent's
+ * change go to the app in ONE request and ONE native confirm; a cancel saves nothing and the screen stays with Ask selected. Once the default is saved
+ * the screen closes and says exactly what was applied, even when an agent could not be changed.
  */
 export async function continueFrom(selected: Preset, follow: boolean, agents: readonly RosterAgent[], run: Run, batch: Batch): Promise<Outcome> {
-  const ok = await run({ kind: 'app', patch: presetSubmit(selected).patch }, `Saved. The app default is ${labelOf(selected)}.`);
-  if (!ok) return { done: false, selected: 'ask' };
-  if (!follow) return { done: true, selected, saved: savedWords(selected, false, agents.length, 'unchanged') };
   const plan = followPlan(agents, selected);
-  if (plan.changes.length === 0) return { done: true, selected, saved: savedWords(selected, true, agents.length, 'unchanged') };
-  if (!batch) return { done: true, selected, saved: savedWords(selected, true, agents.length, 'none') };
+  if (!follow || plan.changes.length === 0) {
+    const ok = await run({ kind: 'app', patch: presetSubmit(selected).patch }, `Saved. The app default is ${labelOf(selected)}.`);
+    if (!ok) return { done: false, selected: 'ask' };
+    return { done: true, selected, saved: savedWords(selected, follow, agents.length, 'unchanged') };
+  }
+  if (!batch) return { done: false, selected: 'ask', note: { tone: 'error', text: 'Changing agents needs the Legion app window, which shows a confirmation. Open the app to do this.' } };
   let r: BatchResult;
-  try { r = await batch({ changes: plan.changes }); } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e), applied: [] }; }
+  try { r = await batch({ preset: selected, changes: plan.changes }); } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e), applied: [] }; }
+  if (r.cancelled) return { done: false, selected: 'ask', note: { tone: 'info', text: 'Cancelled. Nothing changed.' } };
+  if (r.presetSaved !== true && !r.ok) return { done: false, selected: 'ask', note: { tone: 'error', text: r.error ?? 'The change was not made.' } };
   return { done: true, selected, saved: savedWords(selected, true, agents.length, r) };
 }
 /** Decide later: the question is remembered as seen, then the screen goes. A write that fails still lets this launch go on. */

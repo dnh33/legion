@@ -88,12 +88,14 @@ test('batch: a tightening alone shows no dialog and sends no native secret', wit
   assert.deepEqual(r.modes(), ['full/project', 'ask/project', 'ask/project', 'ask/project'], 'alpha keeps Full as the setting it goes back to');
 }, { alpha: 'full' }));
 
-test('batch: an agent that loses nothing is not named in the dialog', withBoot([true], async (r) => {
+test('batch: an agent that loses nothing is not in the ask-less lines; it is named once, in the line that says it asks the same or more', withBoot([true], async (r) => {
   r.core.store.patchApp({ preset: 'smart' });
   // alpha is Full on its own: following Smart is stricter for it
   const res = await agentModeBatch(follow(IDS), r.deps);
   assert.equal(res.ok, true, res.error);
-  assert.doesNotMatch(r.dialogs[0]!.detail, /Alpha/);
+  const lines = r.dialogs[0]!.detail.split(String.fromCharCode(10).repeat(2));
+  assert.ok(!lines.filter((l) => !/same or more often/.test(l)).join(' ').includes('Alpha'), 'Alpha is not in an ask-less line');
+  assert.ok(lines.some((l) => l === 'Alpha will ask the same or more often.'));
   assert.match(r.dialogs[0]!.detail, /Bravo/);
   assert.equal(r.writes().find((w) => w.route.endsWith('/alpha'))?.native, false, 'the tightening carries no native secret');
 }, { alpha: 'full' }));

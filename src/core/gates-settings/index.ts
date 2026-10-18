@@ -214,11 +214,16 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
       // What a change of an agent's mode would do (the app words its dialog from this) and the digest the change must carry. No agentId: a new agent.
       add('POST', '/api/agents/mode-preview', (c) => {
         const b = body(c);
-        if (Object.keys(b).some((k) => k !== 'agentId' && k !== 'approval' && k !== 'approvalSource')) throw new HttpError(400, 'Only agentId, approval and approvalSource can be sent.');
+        if (Object.keys(b).some((k) => k !== 'agentId' && k !== 'approval' && k !== 'approvalSource' && k !== 'assumeAppPreset')) throw new HttpError(400, 'Only agentId, approval, approvalSource and assumeAppPreset can be sent.');
         const change = parseModeChange(b);
+        // Read-only "what if the app default were this": the first-run screen asks about the default and the agents in ONE dialog, before the default is saved.
+        // Nothing is written; the digest of an answer given this way still carries the preset it assumed, so it only fits a save made once that preset stands.
+        if (b.assumeAppPreset !== undefined && !(typeof b.assumeAppPreset === 'string' && (PRESETS as readonly string[]).includes(b.assumeAppPreset))) throw new HttpError(400, 'assumeAppPreset must be ask, accept-edits, smart or bypass');
         const cur = b.agentId === undefined ? undefined : deps.store.getAgent(String(b.agentId));
         if (b.agentId !== undefined && !cur) throw new HttpError(404, `Unknown agent "${String(b.agentId).slice(0, 40)}"`);
-        const pv = previewAgentMode({ agentId: cur?.id, name: cur?.name ?? 'This agent', before: modeOf(cur), change, world: worldOf(cur?.id) });
+        const world = worldOf(cur?.id);
+        if (b.assumeAppPreset !== undefined) world.appPreset = b.assumeAppPreset as Preset;
+        const pv = previewAgentMode({ agentId: cur?.id, name: cur?.name ?? 'This agent', before: modeOf(cur), change, world });
         return { ...pv, agentName: cur?.name ?? '' };
       });
       add('POST', '/api/gates/reload', () => { wrap(() => store.reload()); emit(); return store.view(opts.projects.list().map((p) => p.id)); });
