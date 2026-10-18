@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
+import { wrapperName } from '../shared/shell-wrappers.js';
 
 /**
  * Which file paths hold secrets (gates PR 2): an agent that reads one of these may not then send anything out without asking.
@@ -37,7 +38,7 @@ export function expandHomeWord(word: string): string {
 }
 
 /** Programs whose later words are files they read, copy or send. A program not in this list is a known gap. */
-const READERS: ReadonlySet<string> = new Set(['cat', 'type', 'more', 'less', 'head', 'tail', 'get-content', 'gc', 'select-string', 'sls', 'findstr', 'grep', 'rg', 'awk', 'sed', 'cp', 'copy', 'copy-item', 'xcopy', 'robocopy', 'base64', 'certutil', 'openssl', 'scp', 'curl', 'wget', 'strings', 'xxd', 'od', 'hexdump', 'sort', 'bat']);
+const READERS: ReadonlySet<string> = new Set(['cat', 'type', 'more', 'less', 'head', 'tail', 'get-content', 'gc', 'select-string', 'sls', 'findstr', 'grep', 'rg', 'awk', 'sed', 'cp', 'copy', 'copy-item', 'xcopy', 'robocopy', 'base64', 'certutil', 'openssl', 'scp', 'curl', 'wget', 'strings', 'xxd', 'od', 'hexdump', 'sort', 'bat', 'cut', 'uniq', 'nl', 'column', 'cmp', 'diff', 'jq', 'sd', 'tac', 'rev']);
 /** A shell drops quote marks inside a word too (`"$HOME"/.legion`), so every one goes before the home expansion and the path test. */
 const unquote = (s: string): string => s.replace(/["'`]/g, '');
 
@@ -132,11 +133,11 @@ function searchHit(where: SecretLocation | undefined, root: unknown, glob: unkno
 }
 
 /** Search programs: their first plain word is the text to find, so `grep -r credentials src` is not a read (a word with a slash or a leading dot still counts). */
-const SEARCHERS: ReadonlySet<string> = new Set(['grep', 'rg', 'findstr', 'select-string', 'sls', 'awk', 'sed']);
+const SEARCHERS: ReadonlySet<string> = new Set(['grep', 'rg', 'findstr', 'select-string', 'sls', 'awk', 'sed', 'jq', 'sd']);
 /** Programs that move the shell's folder: the words after them mean that folder. */
 const NAV: ReadonlySet<string> = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl']);
 /** Programs that list a folder. With a pipe after them, what they list is read by the next program. */
-const LISTERS: ReadonlySet<string> = new Set(['get-childitem', 'gci', 'dir', 'ls']);
+const LISTERS: ReadonlySet<string> = new Set(['get-childitem', 'gci', 'dir', 'ls', 'get-item', 'gi', 'resolve-path']);
 
 /** Does this program read every file under the folders it is given? */
 function recursiveRead(first: string, flags: string[], piped: boolean, whole: string): boolean {
@@ -149,6 +150,30 @@ function recursiveRead(first: string, flags: string[], piped: boolean, whole: st
   return false;
 }
 
+/** The secret read in one command (its words, the line it came from, whether a pipe follows), or undefined. */
+function segmentHit(words: string[], seg: string, piped: boolean, where: SecretLocation | undefined, cwd: string | undefined): SecretFound | undefined {
+  const first = unquote(words[0] ?? '').split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, '');
+  const recursive = recursiveRead(first, words.slice(1).map(unquote), piped, seg);
+  // a listing that a pipe passes on reads whatever it names, with or without a recursive flag
+  const lists = piped && LISTERS.has(first);
+  if (!READERS.has(first) && !recursive && !lists) return undefined;
+  let pattern = SEARCHERS.has(first);
+  let sawPath = false;
+  for (const w of words.slice(1)) {
+    const f = unquote(unquote(w).replace(/^--[\w-]+=/, '').replace(/^-[\w-]+:/, '').replace(/^@/, ''));
+    if (!f || f.startsWith('-')) continue;
+    if (pattern) { pattern = false; if (!/[\\/]/.test(f) && !f.startsWith('.')) continue; }
+    sawPath = true;
+    if (isSecretPath(f)) return { hit: f, path: shown(f, where, cwd), search: false };
+    const wild = wildcardPathHit(f, where, cwd);
+    if (wild) return wild;
+    if (recursive && where?.reaches(expandHomeWord(f), cwd)) return { hit: f, path: shown(f, where, cwd), search: true };
+  }
+  // a recursive search given no folder searches the folder the shell is in
+  if (recursive && !sawPath && where?.reaches('.', cwd)) return { hit: '.', path: shown('.', where, cwd), search: true };
+  return undefined;
+}
+
 function shellHit(command: string, where?: SecretLocation): SecretFound | undefined {
   // a redirect such as 2>&1 or &> is not a command break; brackets and redirects around a word are not part of it
   const parts = command.replace(/\d*>&\d*|&>/g, ' ').split(/([;|&\n\r]+)/);
@@ -156,35 +181,24 @@ function shellHit(command: string, where?: SecretLocation): SecretFound | undefi
   for (let i = 0; i < parts.length; i += 2) {
     const seg = parts[i]!;
     const piped = (parts[i + 1] ?? '').includes('|');
-    const words = seg.replace(/[()<>]/g, ' ').trim().split(/\s+/).filter(Boolean);
-    const first = unquote(words[0] ?? '').split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, '');
-    if (where && NAV.has(first)) {
+    const all = seg.replace(/[()<>]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const programOf = (w: string | undefined): string => unquote(w ?? '').split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, '');
+    const lead = programOf(all[0]);
+    if (where && NAV.has(lead)) {
       // the words after a folder change mean that folder; a target the check cannot read (a variable) leaves the folder as it was;
       // a bare `cd` means the home folder
-      const target = words.slice(1).map(unquote).filter((w) => !w.startsWith('-') && !/^\/d$/i.test(w)).pop();
-      if (!target && first === 'cd') { try { cwd = homedir(); } catch { /* the folder stays as it was */ } continue; }
+      const target = all.slice(1).map(unquote).filter((w) => !w.startsWith('-') && !/^\/d$/i.test(w)).pop();
+      if (!target && lead === 'cd') { try { cwd = homedir(); } catch { /* the folder stays as it was */ } continue; }
       const expanded = target ? expandHomeWord(target) : '';
       if (expanded && !/[$%`]/.test(expanded)) { try { cwd = resolve(cwd ?? '.', expanded); } catch { /* the folder stays as it was */ } }
       continue;
     }
-    const recursive = recursiveRead(first, words.slice(1).map(unquote), piped, seg);
-    // a listing that a pipe passes on reads whatever it names, with or without a recursive flag
-    const lists = piped && LISTERS.has(first);
-    if (!READERS.has(first) && !recursive && !lists) continue;
-    let pattern = SEARCHERS.has(first);
-    let sawPath = false;
-    for (const w of words.slice(1)) {
-      const f = unquote(unquote(w).replace(/^--[\w-]+=/, '').replace(/^-[\w-]+:/, '').replace(/^@/, ''));
-      if (!f || f.startsWith('-')) continue;
-      if (pattern) { pattern = false; if (!/[\\/]/.test(f) && !f.startsWith('.')) continue; }
-      sawPath = true;
-      if (isSecretPath(f)) return { hit: f, path: shown(f, where, cwd), search: false };
-      const wild = wildcardPathHit(f, where, cwd);
-      if (wild) return wild;
-      if (recursive && where?.reaches(expandHomeWord(f), cwd)) return { hit: f, path: shown(f, where, cwd), search: true };
+    // timeout, nice and time run the command after them: every later word could be where that command starts (their options are not all known)
+    const starts = wrapperName(lead) ? all.slice(1).map((_, k) => all.slice(k + 1).map(unquote)) : [all];
+    for (const words of starts) {
+      const found = segmentHit(words, seg, piped, where, cwd);
+      if (found) return found;
     }
-    // a recursive search given no folder searches the folder the shell is in
-    if (recursive && !sawPath && where?.reaches('.', cwd)) return { hit: '.', path: shown('.', where, cwd), search: true };
   }
   return undefined;
 }

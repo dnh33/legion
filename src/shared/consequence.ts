@@ -13,6 +13,7 @@
  */
 import { refuseCatastrophic, unjudgeableCommand } from '../core/exec/shell-floor.js';
 import { AWAY_COPY } from './away-copy.js';
+import { unwrapAll, unwrapCommand } from './shell-wrappers.js';
 
 export type ConsequenceTag = 'spends' | 'leaves' | 'deletes' | 'irreversible' | 'edits' | 'reads' | 'decides' | 'unknown' | 'net' | 'runs-code';
 export type ConsequenceLevel = 0 | 1 | 2 | 3;
@@ -84,8 +85,8 @@ interface ProgramRule extends Sub {
 /** A local build or test run: level 1, tagged `runs-code` so Smart asks for it once an agent changed a build or script file (needsApproval). */
 const LOCAL = (): Consequence => rule(1, ['runs-code'], C.localRun);
 const LOCALSUB: Sub = { level: 1, tags: ['runs-code'], chip: C.localRun };
-const SCRIPTS_OK = /^(test|build|lint|typecheck|check|format)$/;
-/** `npm|pnpm|yarn run <script>`: only the listed script names; extra flags or any other name stay unknown. */
+const SCRIPTS_OK = /^(test|build|lint|typecheck|check|format)(:(ts|js|ui|types|unit|run|app|core|server|client|css|fix))?$/;
+/** `npm|pnpm|yarn run <script>`: only the listed script names (and the plain parts of a project they commonly take, `build:ts`); extra flags or any other name stay unknown. */
 const runScript = (args: string[]): Consequence | undefined => {
   const plain = args.filter((a) => a !== '--silent' && a !== '--quiet');
   return plain.length === 1 && SCRIPTS_OK.test(plain[0]!) ? LOCAL() : undefined;
@@ -148,6 +149,23 @@ const nodeTest = (args: string[], w: Where): Consequence | undefined => {
     if (!shape || v === undefined || !shape.test(v)) return unknownConsequence();
   }
   return LOCAL();
+};
+/**
+ * `npx tsc --noEmit`, a type check that writes nothing: the only other words are `--skipLibCheck`, `--pretty [true|false]` and `-p|--project <config in the
+ * project>`. Anything else (a build, `-b`, an output option, another package) is unknown.
+ */
+const npxTsc = (args: string[], w: Where): Consequence | undefined => {
+  if (args[0] !== 'tsc') return undefined;
+  let noEmit = false;
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--noEmit') noEmit = true;
+    else if (a === '--skipLibCheck') continue;
+    else if (a === '--pretty') { if (args[i + 1] === 'true' || args[i + 1] === 'false') i++; }
+    else if (a === '-p' || a === '--project') { const v = args[++i]; if (v === undefined || !insideWord(v, w)) return unknownConsequence(); }
+    else return unknownConsequence();
+  }
+  return noEmit ? LOCAL() : unknownConsequence();
 };
 const pkgManager = (): ProgramRule => ({ level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--script-shell', '--node-options'], subs: {
   publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' },
@@ -234,6 +252,168 @@ const positional = (args: readonly string[]): string[] => {
 };
 const WRITES = (): Consequence => rule(2, ['edits'], C.writesFile);
 
+/**
+ * Is this sed script only commands that print, select, number or rewrite text? Allowed: addresses (line numbers, `$`, `first~step`, `/re/` and
+ * `\cREc` with the I/M flags, `a,b`, `a,+n`, `a,~n`), `!`, blocks, and the commands p d q Q = l n s y. Not allowed, so unknown: r R w W e f F z a i c
+ * (they read or write a file, run a program or take free text), labels, branches, hold space, a comment, and the s flags e and w. A regex or text
+ * part ends at the first unescaped delimiter; a part that has a delimiter inside a bracket expression is refused, because GNU and BSD sed end it in
+ * different places there (so what this reads could differ from what runs).
+ */
+function sedScriptOk(src: string): boolean {
+  const n = src.length;
+  if (n > 2000) return false;
+  let i = 0;
+  const ws = (): void => { while (i < n && (src[i] === ' ' || src[i] === '\t')) i++; };
+  const delimiterOk = (d: string | undefined): d is string => d !== undefined && /[/|#,:@%!~+=.^-]/.test(d);
+  // the bracket expression at i (a `[`), as BSD sed reads it: false when it holds the delimiter or never ends
+  const bracket = (d: string): boolean => {
+    i++;
+    if (src[i] === '^') i++;
+    if (src[i] === ']') i++;
+    while (i < n && src[i] !== ']') {
+      if (src[i] === d || src[i] === '\n') return false;
+      if (src[i] === '[' && /[.:=]/.test(src[i + 1] ?? '')) {
+        const kind = src[i + 1]!;
+        i += 2;
+        while (i < n && !(src[i] === kind && src[i + 1] === ']')) { if (src[i] === d || src[i] === '\n') return false; i++; }
+        if (i >= n) return false;
+        i += 2;
+        continue;
+      }
+      i++;
+    }
+    if (i >= n) return false;
+    i++;
+    return true;
+  };
+  // text up to the next unescaped delimiter (consumed); a raw line break is only allowed after a backslash
+  const part = (d: string, brackets: boolean): boolean => {
+    while (i < n) {
+      const c = src[i]!;
+      if (c === '\\') { if (i + 1 >= n) return false; i += 2; continue; }
+      if (c === d) { i++; return true; }
+      if (c === '\n') return false;
+      if (c === '[' && brackets) { if (!bracket(d)) return false; continue; }
+      i++;
+    }
+    return false;
+  };
+  // true when an address was read; false (nothing consumed) when there is none; a malformed one sets `bad`
+  let bad = false;
+  const address = (): boolean => {
+    if (src[i] === '$') { i++; return true; }
+    if (/\d/.test(src[i] ?? '')) {
+      while (/\d/.test(src[i] ?? '')) i++;
+      if (src[i] === '~') { i++; if (!/\d/.test(src[i] ?? '')) bad = true; while (/\d/.test(src[i] ?? '')) i++; }
+      return true;
+    }
+    let d = src[i];
+    if (d === '\\') { i++; d = src[i]; if (!delimiterOk(d)) { bad = true; return true; } } else if (d !== '/') return false;
+    i++;
+    if (!part(d!, true)) bad = true;
+    while (src[i] === 'I' || src[i] === 'M') i++;
+    return true;
+  };
+  const end = (): boolean => {
+    ws();
+    return i >= n || src[i] === ';' || src[i] === '\n' || src[i] === '}';
+  };
+  let depth = 0;
+  while (true) {
+    while (i < n && /[\s;]/.test(src[i]!)) i++;
+    if (i >= n) return depth === 0;
+    if (src[i] === '}') { if (depth === 0) return false; depth--; i++; if (!end()) return false; continue; }
+    if (address()) {
+      ws();
+      if (src[i] === ',') {
+        i++; ws();
+        if (src[i] === '+' || src[i] === '~') { i++; if (!/\d/.test(src[i] ?? '')) return false; while (/\d/.test(src[i] ?? '')) i++; } else if (!address()) return false;
+      }
+      if (bad) return false;
+      ws();
+    }
+    while (src[i] === '!') { i++; ws(); }
+    const cmd = src[i++];
+    if (cmd === '{') { depth++; if (depth > 8) return false; continue; }
+    if (cmd === 'p' || cmd === 'd' || cmd === '=' || cmd === 'n') { if (!end()) return false; continue; }
+    if (cmd === 'q' || cmd === 'Q' || cmd === 'l') { while (/\d/.test(src[i] ?? '')) i++; if (!end()) return false; continue; }
+    if (cmd === 's' || cmd === 'y') {
+      const d = src[i];
+      if (!delimiterOk(d)) return false;
+      i++;
+      if (!part(d, true) || !part(d, true)) return false;
+      if (cmd === 's') while (/[gpiImM\d]/.test(src[i] ?? '')) i++;
+      if (!end()) return false;
+      continue;
+    }
+    return false;
+  }
+}
+
+/** sed's options that change nothing about what it reads or writes. Anything else (-i, -f, --in-place, --file, -l, a value-taking option) is unknown. */
+const SED_PLAIN = /^(-[nErszu]+|--(quiet|silent|regexp-extended|separate|null-data|unbuffered|posix|sandbox|debug))$/;
+/** `sed` as a filter or viewer: the script (the first plain word, or each -e) must pass sedScriptOk. Files after it are read; none are written. */
+const sedRule = (args: string[]): Consequence | undefined => {
+  const scripts: string[] = [];
+  let hadScriptFlag = false;
+  let rest = false;
+  const words: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (rest || a === '-') { words.push(a); continue; }
+    if (a === '--') { rest = true; continue; }
+    if (a === '-e' || a === '--expression') { const s = args[++i]; if (s === undefined) return unknownConsequence(); scripts.push(s); hadScriptFlag = true; continue; }
+    if (a.startsWith('--expression=')) { scripts.push(a.slice(13)); hadScriptFlag = true; continue; }
+    if (SED_PLAIN.test(a)) continue;
+    if (a.startsWith('-')) return unknownConsequence();
+    words.push(a);
+  }
+  if (!hadScriptFlag) { const s = words.shift(); if (s === undefined) return unknownConsequence(); scripts.push(s); }
+  return scripts.every(sedScriptOk) ? undefined : unknownConsequence();
+};
+
+/** jq's options that only change how it prints or reads its input; `--arg` and `--argjson` take a name and a value, `--indent` a number. */
+const JQ_PLAIN = /^(-[rcsneSCMajRh]+|--(raw-output|raw-output0|compact-output|slurp|null-input|exit-status|sort-keys|color-output|monochrome-output|ascii-output|join-output|raw-input|tab|seq|stream|unbuffered))$/;
+/** A jq filter that reads the environment, loads a module or names the file it is reading. */
+const JQ_REACH = /\benv\b|\$ENV|\bimport\b|\binclude\b|input_filename|modulemeta|get_search_list|\$__/;
+/**
+ * `jq` with a filter that only reshapes JSON. The files after the filter are read (the reader check sees them). --rawfile, --slurpfile, --argfile,
+ * -f, -L, --args, --jsonargs and every other option, and a filter that reads the environment or loads a module, are unknown.
+ */
+const jqRule = (args: string[]): Consequence | undefined => {
+  const words: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--') { words.push(...args.slice(i + 1)); break; }
+    if (a === '--arg' || a === '--argjson') { if (args[i + 2] === undefined) return unknownConsequence(); i += 2; continue; }
+    if (a === '--indent') { if (!/^\d$/.test(args[i + 1] ?? '')) return unknownConsequence(); i++; continue; }
+    if (JQ_PLAIN.test(a)) continue;
+    if (a.startsWith('-') && a !== '-') return unknownConsequence();
+    words.push(a);
+  }
+  const filter = words[0];
+  return filter === undefined || JQ_REACH.test(filter) ? unknownConsequence() : undefined;
+};
+
+/** `sleep` takes only a length of time; `infinity` waits for good, which is harmless. */
+const sleepRule = (args: string[]): Consequence | undefined => (args.length && args.every((a) => /^(\d+(\.\d+)?[smhd]?|infinity)$/.test(a)) ? undefined : unknownConsequence());
+/** PowerShell's Start-Sleep: a number of seconds or milliseconds, with the parameter names written out or shortened. */
+const startSleepRule = (args: string[]): Consequence | undefined => (args.some((x) => /^\d+$/.test(x)) && args.every((a) => /^(\d+|-(s|se|sec|seco|secon|second|seconds|m|mi|mil|mill|milli|millis|millise|millisec|millisecon|millisecond|milliseconds))$/i.test(a)) ? undefined : unknownConsequence());
+
+/** A git command with no side effect that takes only these flags (and, if `listing`, plain words after one of them). Anything else is unknown. */
+const gitListing = (flags: RegExp, listing: RegExp): Sub => ({ ...R1, inspect: (args) => {
+  let listed = false;
+  const plain: string[] = [];
+  for (const a of args) {
+    if (a.startsWith('-')) { if (!flags.test(a)) return unknownConsequence(); if (listing.test(a)) listed = true; } else plain.push(a);
+  }
+  return plain.length && !listed ? unknownConsequence() : undefined;
+} });
+/** git commands that print what is stored, and cannot write or run a program (the flags that can are unknownFlags). */
+const GITSAFE: Sub = { ...R1, unknownFlags: ['--ext-diff', '--textconv', '--output'] };
+/** `git grep -O` / `--open-files-in-pager` runs a program on the matches; git also accepts any unambiguous start of a long option. */
+const gitGrep: Sub = { ...R1, unknownFlags: ['--ext-diff', '--textconv'], inspect: (args) => (args.some((a) => /^-O/.test(a) || (a.startsWith('--') && a.length > 2 && '--open-files-in-pager'.startsWith(a.split('=')[0]!.toLowerCase()))) ? unknownConsequence() : undefined) };
+
 /** Shell programs by lower-case name (no path, no .exe). A program not here is unknown. */
 export const PROGRAM_RULES: Record<string, ProgramRule> = {
   // read only
@@ -250,7 +430,17 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
   uniq: { ...R1, inspect: (a) => (positional(a).length >= 2 ? WRITES() : undefined) },
   hostname: { ...R1, inspect: (a) => (positional(a).length ? unknownConsequence() : undefined) },
   file: { ...R1, unknownFlags: ['--compile'] },
+  // filters and viewers: the files they are given are read (secret-paths.ts READERS), none is written
+  nl: R1, column: R1, cmp: R1, readlink: R1, tr: R1, true: R1, false: R1, tac: R1, rev: R1, od: R1, hexdump: R1, strings: R1, sha256sum: R1, md5sum: R1,
+  ps: R1, netstat: R1,
+  diff: { ...R1, unknownFlags: ['--output'] },
+  sed: { ...R1, inspect: sedRule },
+  jq: { ...R1, inspect: jqRule },
+  sleep: { ...R1, inspect: sleepRule },
+  'start-sleep': { ...R1, inspect: startSleepRule },
+  'get-item': R1, gi: R1, 'resolve-path': R1, 'select-object': R1, 'sort-object': R1, 'format-table': R1, 'format-list': R1, 'get-process': R1, 'get-nettcpconnection': R1, 'get-date': R1,
   // reversible local changes
+  sd: R2,
   mkdir: R2, md: R2, touch: R2, cp: R2, copy: R2, 'copy-item': R2, mv: R2, move: R2, 'move-item': R2, ren: R2, rename: R2, 'rename-item': R2,
   'new-item': R2, 'set-content': R2, 'add-content': R2, 'out-file': R2, chmod: R2,
   tee: { level: 2, tags: ['edits'], chip: C.writesFile },
@@ -276,6 +466,14 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
     subs: {
       status: R1, 'ls-files': R1, 'rev-parse': R1, describe: R1, shortlog: R1,
       log: GITREAD, diff: GITREAD, show: GITREAD, blame: GITREAD,
+      'rev-list': GITSAFE, 'ls-tree': GITSAFE, 'for-each-ref': GITSAFE, 'merge-base': GITSAFE, 'show-ref': GITSAFE, 'diff-tree': GITREAD, 'name-rev': GITSAFE, 'count-objects': GITSAFE,
+      'cat-file': { ...GITSAFE, unknownFlags: ['--ext-diff', '--textconv', '--output', '--filters'] }, grep: gitGrep, 'ls-remote': NETSUB,
+      branch: gitListing(/^(-a|-r|-v|-vv|-l|--all|--remotes|--verbose|--list|--show-current|--contains|--no-contains|--merged|--no-merged|--points-at|--sort=[\w:-]+|--format=[^\s]*|--no-color|--color)$/, /^(-l|--list|--contains|--no-contains|--merged|--no-merged|--points-at)$/),
+      tag: gitListing(/^(-l|-n\d*|--list|--contains|--no-contains|--merged|--no-merged|--points-at|--sort=[\w:-]+|--format=[^\s]*)$/, /^(-l|--list|--contains|--no-contains|--merged|--no-merged|--points-at)$/),
+      remote: { ...R1, inspect: (a) => (a.every((x) => x === '-v' || x === '--verbose') ? undefined : unknownConsequence()) },
+      worktree: { ...R1, inspect: (a) => (a[0] === 'list' && a.slice(1).every((x) => /^(--porcelain|-v|--verbose|-z)$/.test(x)) ? undefined : unknownConsequence()) },
+      stash: { ...GITREAD, inspect: (a) => (a[0] === 'list' || a[0] === 'show' ? undefined : unknownConsequence()) },
+      reflog: { ...R1, inspect: (a) => (a[0] === 'expire' || a[0] === 'delete' ? unknownConsequence() : undefined) },
       add: R2, commit: R2, merge: R2, pull: { ...R2, tags: ['edits', 'net'] }, fetch: NETSUB, clone: NETSUB,
       push: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Pushing' },
       clean: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
@@ -283,7 +481,7 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
     },
   },
   npm: pkgManager(), yarn: pkgManager(), pnpm: pkgManager(),
-  npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a.length === 2 && a[0] === 'tsc' && a[1] === '--noEmit' ? LOCAL() : undefined) },
+  npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: npxTsc },
   node: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: nodeTest },
   pytest: { level: 1, tags: ['runs-code'], chip: C.localRun, unknownFlags: ['-p', '--pyargs', '-o', '--override-ini', '-c', '--rootdir', '--confcutdir'], inspect: localRun(PYTEST_PATH_FLAGS) },
   cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--config', '-z', '--manifest-path'], exactFlags: ['-C'], subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: CARGO_RUN, build: CARGO_RUN, check: CARGO_RUN } },
@@ -378,12 +576,17 @@ function classifySegment(words: string[], w: Where): Consequence {
   return !w.cwdOk && c.level === 1 && c.tags.includes('runs-code') ? unknownConsequence() : c;
 }
 
-function classifyWords(words: string[], w: Where): Consequence {
+function classifyWords(words: string[], w: Where, depth = 0): Consequence {
   const first = words[0]!;
   // a program named by a path, or an assignment before it, could be anything
   if (/[\\/]/.test(first) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) return unknownConsequence();
+  // timeout, nice and time run the command after them: that command is what gets judged (a wrapper whose options are not understood is unknown)
+  const wrapped = unwrapCommand(words);
+  if (wrapped) return depth >= 8 ? unknownConsequence() : classifyWords(wrapped, w, depth + 1);
   const name = lc(first).replace(/\.exe$/, '');
   if (!Object.prototype.hasOwnProperty.call(PROGRAM_RULES, name)) return unknownConsequence();
+  // PowerShell reads the environment, variables, functions and the registry through drive-like names (Env:, Variable:, HKLM:): values the check cannot see
+  if (!TEXT_ARGS.has(name) && readsProvider(name, words.slice(1))) return unknownConsequence();
   const pr = PROGRAM_RULES[name]!;
   let args = words.slice(1);
   const lowered = args.map(lc);
@@ -426,12 +629,23 @@ function combine(parts: Consequence[]): Consequence {
 }
 
 /** Programs whose arguments are text, not paths. */
-const TEXT_ARGS: ReadonlySet<string> = new Set(['echo', 'printf', 'write-output', 'write-host', 'pwd', 'whoami', 'hostname', 'uname', 'date']);
-/** Programs whose first plain argument is a pattern, not a path. */
-const PATTERN_FIRST: ReadonlySet<string> = new Set(['grep', 'rg', 'fd', 'select-string', 'sls']);
+const TEXT_ARGS: ReadonlySet<string> = new Set(['echo', 'printf', 'write-output', 'write-host', 'pwd', 'whoami', 'hostname', 'uname', 'date', 'tr', 'sleep', 'start-sleep', 'true', 'false']);
+/** A PowerShell provider path: `Env:`, `Variable:`, `Function:`, `Alias:`, `Cert:` or a registry hive, also behind `-Path:` or `=`. */
+const PROVIDER_PATH = /^(-[a-z]+:)?(env|variable|function|alias|cert|hkcu|hklm|hkcr|hku|wsman):/i;
+/** Programs whose first plain argument is a pattern, not a path (sed's and jq's is the script or filter). */
+const PATTERN_FIRST: ReadonlySet<string> = new Set(['grep', 'rg', 'fd', 'select-string', 'sls', 'sed', 'jq']);
 /** Places that hold secrets: reading them is never "read only, inside this project", wherever they are. */
 const SECRET_PATH = /(^|[\\/])(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config[\\/]gcloud|\.env(\.[^\\/]*)?|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)[^\\/]*|credentials?|secrets?(\.[^\\/]*)?|[^\\/]*\.(pem|key|pfx|p12|kdbx))$/i;
 const PATH_LIKE = /^([\\/~.]|[A-Za-z]:)|[\\/]/;
+
+/** Does a word of this program (not counting the pattern or script a search program starts with) name a provider path? */
+function readsProvider(name: string, args: readonly string[]): boolean {
+  let pattern = PATTERN_FIRST.has(name);
+  return args.some((x) => {
+    if (pattern && !x.startsWith('-')) { pattern = false; return false; }
+    return PROVIDER_PATH.test(x);
+  });
+}
 
 /**
  * A level 1 shell read is only "inside this project" when its path-like arguments are: inside the folders, or a plain relative path.
@@ -497,6 +711,8 @@ function writeTargets(name: string, args: readonly string[], kind: 'sh' | 'pwsh'
   if (name === 'tree') { const v = optionValue(args, 'o', ''); return v === null ? [] : [v]; }
   if (name === 'git') { const v = optionValue(args, '', 'output'); return v === null ? [] : [v]; }
   if (name === 'uniq') return positional(args).slice(1, 2);
+  // sd rewrites the files after its find and replace words (a flag value among them only adds a word to check)
+  if (name === 'sd') return positional(args).slice(2);
   if (name === 'find') return args.flatMap((a, i) => (/^-(fprint0?|fprintf|fls)$/.test(a) ? [args[i + 1] ?? ''] : []));
   return [];
 }
@@ -523,9 +739,11 @@ function classifyShell(toolName: string, input: unknown, folders: readonly strin
   let outside = false;
   parsed.segments.forEach((w, i) => {
     const name = lc(w[0]!).replace(/\.exe$/, '');
-    parts.push(checkShellReads(classifySegment(w, where), w, folders));
+    // timeout, nice and time run the command after them: its name and words decide what is read and written
+    const run = unwrapAll(w) ?? w;
+    parts.push(checkShellReads(classifySegment(w, where), run, folders));
     // a write is judged by its target, like the Write tool: outside the project, or a place the check cannot read, is level 3
-    if ([...writeTargets(name, w.slice(1), kind), ...written[i]!].some((t) => !insideWord(t, where))) outside = true;
+    if ([...writeTargets(lc(run[0]!).replace(/\.exe$/, ''), run.slice(1), kind), ...written[i]!].some((t) => !insideWord(t, where))) outside = true;
     if (MOVES.has(name)) { const to = positional(w.slice(1)).pop(); where.cwdOk = where.cwdOk && to !== undefined && insideWord(to, where); }
   });
   if (parsed.redirects) parts.push(rule(2, ['edits'], C.writesFile));
