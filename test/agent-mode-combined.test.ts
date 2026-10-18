@@ -70,7 +70,10 @@ test('the dialog also says who will ask more often, so the owner confirms everyt
   const res = await agentModeBatch({ preset: 'smart', changes: follow() }, r.deps);
   assert.equal(res.ok, true, res.error);
   assert.match(r.dialogs[0]!.detail, /Alpha will ask the same or more often/);
-  assert.doesNotMatch(r.dialogs[0]!.detail.split('\n\n').filter((l) => /will ask only before/.test(l)).join(), /Alpha/, 'Alpha is not in the ask-less line');
+  // The old filter looked for "will ask only before", a phrase this dialog never carried, so it matched nothing and the check was empty.
+  const followLines = r.dialogs[0]!.detail.split('\n\n').filter((l) => /will follow the app default/.test(l));
+  assert.equal(followLines.length, 1, 'the line naming the agents that now follow the looser default is there');
+  assert.doesNotMatch(followLines[0]!, /Alpha/, 'Alpha is not in the line of agents that ask less');
 }, { alpha: 'full' }));
 
 test('a default that is only stricter, with agents that only get stricter, needs no dialog and sends no native secret', withBoot([true], async (r) => {
