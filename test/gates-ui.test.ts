@@ -78,7 +78,7 @@ test('presets are offered, never auto-applied, and a preset rule is stamped as s
   assert.equal(r.then, 'deny');
   assert.deepEqual(r.when.commands, ['rm -rf *', 'sudo *', 'mkfs*', 'format *']);
   assert.match(r.id, /^gr_/);
-  // destructive classes are never proposed as allow (Hermes rule)
+  // destructive classes are never proposed as allow (a standing rule)
   assert.ok(GATE_PRESETS.every((p) => p.then !== 'allow'));
 });
 

@@ -419,7 +419,7 @@ test('REAL COMMANDS (0.2.6-v): multi-line scripts in quotes, a find -exec termin
     ['S="C:/tmp/x"; rm -rf "$S"', 'sh'], ['OUT=dist/site\nrm -rf "$OUT"', 'sh'], ["$d = 'out\\build'; Remove-Item $d -Recurse -Force", 'pwsh'],
     // comments, functions, quoted program paths, a program set on the same line, escaped and heredoc text
     ['# just a note', 'sh'], ['echo a\n# note\necho b', 'sh'], ['f(){ curl -s "$1"; }; f x', 'sh'], ['"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless', 'sh'],
-    ['$c="C:\\Program Files\\x\\codex.exe"; & $c --version', 'pwsh'], ['node -e "\nconst out=\\`a\\`;\nconsole.log(out)\n"', 'sh'],
+    ['$c="C:\\Program Files\\x\\tool.exe"; & $c --version', 'pwsh'], ['node -e "\nconst out=\\`a\\`;\nconsole.log(out)\n"', 'sh'],
     ["git commit -m \"$(cat <<'EOF'\nfix `x` (y)\nEOF\n)\"", 'sh'], ['echo "\\$(rm -rf /)"', 'sh'], ['diff <(sort a.txt) <(sort b.txt)', 'sh'],
   ];
   for (const [cmd, shell] of free) {

@@ -929,7 +929,7 @@ function literalTarget(w: string, cmd: string): string | undefined {
   return sets[0]![1]!.replace(/^["']|["']$/g, '').toLowerCase() + (m[2] ?? '');
 }
 /**
- * A program word that is a variable the command sets once to a written-out program (`$c="C:\\x\\codex.exe"; & $c`), when
+ * A program word that is a variable the command sets once to a written-out program (`$c="C:\\x\\tool.exe"; & $c`), when
  * that program is an ordinary one: never a shell, a runner, a wrapper or a delete, which would need the full reading.
  */
 function knownProgram(w: string, cmd: string): boolean {
