@@ -411,8 +411,6 @@ const gitListing = (flags: RegExp, listing: RegExp): Sub => ({ ...R1, inspect: (
 } });
 /** git commands that print what is stored, and cannot write or run a program (the flags that can are unknownFlags). */
 const GITSAFE: Sub = { ...R1, unknownFlags: ['--ext-diff', '--textconv', '--output'] };
-/** `git grep -O` / `--open-files-in-pager` runs a program on the matches; git also accepts any unambiguous start of a long option. */
-const gitGrep: Sub = { ...R1, unknownFlags: ['--ext-diff', '--textconv'], inspect: (args) => (args.some((a) => /^-O/.test(a) || (a.startsWith('--') && a.length > 2 && '--open-files-in-pager'.startsWith(a.split('=')[0]!.toLowerCase()))) ? unknownConsequence() : undefined) };
 
 /** Shell programs by lower-case name (no path, no .exe). A program not here is unknown. */
 export const PROGRAM_RULES: Record<string, ProgramRule> = {
@@ -432,13 +430,13 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
   file: { ...R1, unknownFlags: ['--compile'] },
   // filters and viewers: the files they are given are read (secret-paths.ts READERS), none is written
   nl: R1, column: R1, cmp: R1, readlink: R1, tr: R1, true: R1, false: R1, tac: R1, rev: R1, od: R1, hexdump: R1, strings: R1, sha256sum: R1, md5sum: R1,
-  ps: R1, netstat: R1,
-  diff: { ...R1, unknownFlags: ['--output'] },
+  netstat: R1,
+  diff: { ...R1, unknownFlags: ['--output', '-l', '--paginate'] },
   sed: { ...R1, inspect: sedRule },
   jq: { ...R1, inspect: jqRule },
   sleep: { ...R1, inspect: sleepRule },
   'start-sleep': { ...R1, inspect: startSleepRule },
-  'get-item': R1, gi: R1, 'resolve-path': R1, 'select-object': R1, 'sort-object': R1, 'format-table': R1, 'format-list': R1, 'get-process': R1, 'get-nettcpconnection': R1, 'get-date': R1,
+  'get-item': R1, gi: R1, 'resolve-path': R1, 'select-object': R1, 'sort-object': R1, 'format-table': R1, 'format-list': R1, 'get-nettcpconnection': R1, 'get-date': R1,
   // reversible local changes
   sd: R2,
   mkdir: R2, md: R2, touch: R2, cp: R2, copy: R2, 'copy-item': R2, mv: R2, move: R2, 'move-item': R2, ren: R2, rename: R2, 'rename-item': R2,
@@ -467,13 +465,13 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
       status: R1, 'ls-files': R1, 'rev-parse': R1, describe: R1, shortlog: R1,
       log: GITREAD, diff: GITREAD, show: GITREAD, blame: GITREAD,
       'rev-list': GITSAFE, 'ls-tree': GITSAFE, 'for-each-ref': GITSAFE, 'merge-base': GITSAFE, 'show-ref': GITSAFE, 'diff-tree': GITREAD, 'name-rev': GITSAFE, 'count-objects': GITSAFE,
-      'cat-file': { ...GITSAFE, unknownFlags: ['--ext-diff', '--textconv', '--output', '--filters'] }, grep: gitGrep, 'ls-remote': NETSUB,
+      'cat-file': { ...GITSAFE, unknownFlags: ['--ext-diff', '--textconv', '--output', '--filters'] }, 'ls-remote': NETSUB,
       branch: gitListing(/^(-a|-r|-v|-vv|-l|--all|--remotes|--verbose|--list|--show-current|--contains|--no-contains|--merged|--no-merged|--points-at|--sort=[\w:-]+|--format=[^\s]*|--no-color|--color)$/, /^(-l|--list|--contains|--no-contains|--merged|--no-merged|--points-at)$/),
       tag: gitListing(/^(-l|-n\d*|--list|--contains|--no-contains|--merged|--no-merged|--points-at|--sort=[\w:-]+|--format=[^\s]*)$/, /^(-l|--list|--contains|--no-contains|--merged|--no-merged|--points-at)$/),
       remote: { ...R1, inspect: (a) => (a.every((x) => x === '-v' || x === '--verbose') ? undefined : unknownConsequence()) },
       worktree: { ...R1, inspect: (a) => (a[0] === 'list' && a.slice(1).every((x) => /^(--porcelain|-v|--verbose|-z)$/.test(x)) ? undefined : unknownConsequence()) },
       stash: { ...GITREAD, inspect: (a) => (a[0] === 'list' || a[0] === 'show' ? undefined : unknownConsequence()) },
-      reflog: { ...R1, inspect: (a) => (a[0] === 'expire' || a[0] === 'delete' ? unknownConsequence() : undefined) },
+      reflog: { ...R1, inspect: (a) => (a.length === 0 || a[0]!.startsWith('-') || a[0] === 'show' || a[0] === 'list' || a[0] === 'exists' ? undefined : unknownConsequence()) },
       add: R2, commit: R2, merge: R2, pull: { ...R2, tags: ['edits', 'net'] }, fetch: NETSUB, clone: NETSUB,
       push: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Pushing' },
       clean: { level: 3, tags: ['deletes', 'irreversible'], chip: C.deletes, ing: 'Deleting' },
@@ -632,6 +630,8 @@ function combine(parts: Consequence[]): Consequence {
 const TEXT_ARGS: ReadonlySet<string> = new Set(['echo', 'printf', 'write-output', 'write-host', 'pwd', 'whoami', 'hostname', 'uname', 'date', 'tr', 'sleep', 'start-sleep', 'true', 'false']);
 /** A PowerShell provider path: `Env:`, `Variable:`, `Function:`, `Alias:`, `Cert:` or a registry hive, also behind `-Path:` or `=`. */
 const PROVIDER_PATH = /^(-[a-z]+:)?(env|variable|function|alias|cert|hkcu|hklm|hkcr|hku|wsman):/i;
+/** The same stores by a provider-qualified path (`Environment::Path`, `Registry::HKEY_CURRENT_USER\...`, `Microsoft.PowerShell.Core\Registry::...`); a pytest id such as `a.py::T::x` is not one. */
+const PROVIDER_QUALIFIED = /^(-[a-z]+:)?([\w.]+\\)?(environment|registry|variable|function|alias|certificate|wsman|filesystem)::/i;
 /** Programs whose first plain argument is a pattern, not a path (sed's and jq's is the script or filter). */
 const PATTERN_FIRST: ReadonlySet<string> = new Set(['grep', 'rg', 'fd', 'select-string', 'sls', 'sed', 'jq']);
 /** Places that hold secrets: reading them is never "read only, inside this project", wherever they are. */
@@ -643,7 +643,8 @@ function readsProvider(name: string, args: readonly string[]): boolean {
   let pattern = PATTERN_FIRST.has(name);
   return args.some((x) => {
     if (pattern && !x.startsWith('-')) { pattern = false; return false; }
-    return PROVIDER_PATH.test(x);
+    // a provider-qualified path (`Registry::HKEY_CURRENT_USER\...`, `Environment::Path`) reaches the same stores
+    return PROVIDER_PATH.test(x) || PROVIDER_QUALIFIED.test(x);
   });
 }
 
@@ -655,11 +656,17 @@ function checkShellReads(c: Consequence, words: string[], folders: readonly stri
   if (c.level !== 1 || !c.tags.includes('reads')) return c;
   const name = lc(words[0]!).replace(/\.exe$/, '');
   if (TEXT_ARGS.has(name)) return c;
-  let skipFirst = PATTERN_FIRST.has(name);
+  // a script or pattern given with -e/--expression/--regexp is not the first plain word: that one is a file
+  let skipFirst = PATTERN_FIRST.has(name) && !words.some((x) => x === '-e' || /^--(expression|regexp)(=|$)/.test(x));
   let verdict: 'ok' | 'outside' | 'unchecked' = 'ok';
-  for (const w of words.slice(1)) {
-    if (w.startsWith('-')) continue;
-    if (skipFirst) { skipFirst = false; continue; }
+  for (const raw of words.slice(1)) {
+    let w = raw;
+    if (w.startsWith('-')) {
+      // `--option=value`: the value is a word to check as well (diff --from-file=/etc/x)
+      const m = /^--[\w-]+=(.+)$/.exec(w);
+      if (!m) continue;
+      w = m[1]!;
+    } else if (skipFirst) { skipFirst = false; continue; }
     if (SECRET_PATH.test(w)) { verdict = 'outside'; break; }
     if (!PATH_LIKE.test(w) && !/[*?]/.test(w)) continue;
     if (w.startsWith('~') || /(^|[\\/])\.\.([\\/]|$)/.test(w) || w === '..' || /[$%]/.test(w)) { verdict = 'unchecked'; continue; }

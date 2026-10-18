@@ -143,6 +143,8 @@ const LISTERS: ReadonlySet<string> = new Set(['get-childitem', 'gci', 'dir', 'ls
 function recursiveRead(first: string, flags: string[], piped: boolean, whole: string): boolean {
   if (first === 'rg' || first === 'ag' || first === 'ack') return true;
   if (first === 'grep' || first === 'egrep' || first === 'fgrep') return flags.some((w) => /^-[A-Za-z]*[rR][A-Za-z]*$/.test(w) || w === '--recursive' || w === '--dereference-recursive');
+  // diff -r (-rN, --recursive) prints every file that differs, so a folder that holds key files is a read
+  if (first === 'diff') return flags.some((w) => /^-[A-Za-z]*r[A-Za-z]*$/.test(w) || w === '--recursive');
   if (first === 'findstr') return flags.some((w) => /^\/s$/i.test(w));
   if (first === 'select-string' || first === 'sls') return flags.some((w) => /^-r(ec(urse)?)?$/i.test(w));
   if (LISTERS.has(first)) return piped && flags.some((w) => /^-r(ec(urse)?)?$/i.test(w) || /^-[A-Za-z]*R[A-Za-z]*$/.test(w) || /^\/s$/i.test(w));

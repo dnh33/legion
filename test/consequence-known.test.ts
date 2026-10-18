@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import { classifySafe } from '../src/shared/consequence.js';
 import { unwrapAll, unwrapCommand } from '../src/shared/shell-wrappers.js';
 import { needsApproval } from '../src/core/approvals.js';
-import { secretReadHit } from '../src/core/secret-paths.js';
+import { expandHomeWord, secretReadHit, type SecretLocation } from '../src/core/secret-paths.js';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 const FOLDERS = ['D:/work/shop'];
 const HOME = 'C:/Users/me';
@@ -85,8 +87,9 @@ test('jq: a file it reads is checked like cat does', () => {
 test('tr, nl, column, cmp, diff, readlink, od, tac, rev, sleep, true, false are quiet; their dangerous options are not', () => {
   quiet(["echo abc | tr a-z A-Z", "cat a.ts | tr -d '\\r'", "tr '/' '-'", 'nl a.ts', 'nl -ba a.ts', "column -t a.ts", "column -s , -t a.csv", 'cmp a.ts b.ts', 'diff a.ts b.ts', 'diff -u a.ts b.ts', 'diff -r src dist',
     'readlink -f a.ts', 'od -c a.bin', 'hexdump -C a.bin', 'strings a.bin', 'tac a.ts', 'rev a.ts', 'sha256sum a.ts', 'md5sum a.ts', 'sleep 5', 'sleep 1.5', 'sleep 2m', 'sleep infinity', 'true', 'false', 'sleep 3 && echo hi',
-    'ps', 'netstat -ano']);
-  carded(['tasklist /s otherhost']);
+    'netstat -ano']);
+  // process lists carry command lines (tokens): the same class as env and printenv
+  carded(['tasklist /s otherhost', 'ps', 'ps -ef', 'ps auxww', 'ps aux | grep node']);
   const bad = ['diff --output=x.txt a.ts b.ts', 'diff a.ts b.ts > /tmp/x', 'nl a.ts > /tmp/x', 'sleep', 'sleep abc', 'sleep 5; rm -rf build', 'sleep -5x', 'sleep 5 6 x', 'column -t < a.ts'];
   carded(bad);
   assert.equal(judge('diff --output=x.txt a.ts b.ts').level, 3);
@@ -136,7 +139,7 @@ test('shell-wrappers: unwrapCommand and unwrapAll read the wrapper options exact
 test('git: reads that cannot write or run a program are quiet, inside the project or with -C to it', () => {
   quiet(['git status', 'git -C D:/work/shop log --oneline', 'git -C D:/work/shop status', 'git log --oneline -5', 'git branch', 'git branch -a', 'git branch -vv', 'git branch --list \'feat/*\'', 'git branch --show-current',
     'git branch --contains abc123', 'git branch -r --merged main', 'git tag', 'git tag -l \'v*\'', 'git tag --list', 'git tag -n5 -l', 'git tag --contains abc123', 'git remote -v', 'git remote', 'git worktree list', 'git worktree list --porcelain',
-    'git stash list', 'git stash show', 'git reflog', 'git reflog show HEAD', 'git rev-list --count HEAD', 'git ls-tree -r HEAD', 'git cat-file -p HEAD', 'git cat-file -t HEAD', 'git for-each-ref refs/heads', 'git grep foo', 'git grep -n foo -- src',
+    'git stash list', 'git stash show', 'git reflog', 'git reflog show HEAD', 'git rev-list --count HEAD', 'git ls-tree -r HEAD', 'git cat-file -p HEAD', 'git cat-file -t HEAD', 'git for-each-ref refs/heads',
     'git merge-base main HEAD', 'git show-ref', 'git diff-tree --name-only HEAD', 'git name-rev HEAD', 'git count-objects -v']);
 });
 test('git: creating, deleting or renaming a branch or tag, a remote or worktree change, stash writes, reflog expiry and every program-running flag stay carded', () => {
@@ -145,10 +148,14 @@ test('git: creating, deleting or renaming a branch or tag, a remote or worktree 
     'git remote add x https://example.com/r.git', 'git remote remove x', 'git remote set-url origin https://example.com/r.git', 'git remote update', 'git remote show origin', 'git remote -v add x y',
     'git worktree add ../x', 'git worktree remove x', 'git worktree prune', 'git worktree', 'git worktree list --unknown',
     'git stash', 'git stash pop', 'git stash drop', 'git stash push', 'git stash clear', 'git stash apply', 'git stash branch x', 'git stash',
-    'git reflog expire --all', 'git reflog delete HEAD@{1}', 'git reflog expire',
+    'git reflog expire --all', 'git reflog delete HEAD@{1}', 'git reflog expire', 'git reflog HEAD', 'git reflog prune', 'git reflog gc',
+    // git grep also searches untracked files (--no-index) and git is not in the secret check, so it stays unknown, with its pager option
+    'git grep foo', 'git grep -n foo -- src', 'git grep --no-index -e . /tmp', 'git grep --untracked foo',
     'git cat-file --textconv HEAD:a.ts', 'git cat-file --filters HEAD:a.ts', 'git grep -O vim foo', 'git grep -Ovim foo', 'git grep --open-files-in-pager=vim foo', 'git grep --open-files-in-pager vim foo', 'git grep --open-files=vim foo', 'git grep --open=vim foo',
     'git rev-list --output=x HEAD', 'git ls-tree --output=x HEAD', 'git for-each-ref --ext-diff', 'git grep --textconv foo', 'git -c core.pager=x log', 'git -c alias.log=x log', 'git ls-remote origin']);
   assert.equal(judge('git grep -O vim foo').level, 3);
+  assert.equal(judge('git reflog show').level, 1);
+  assert.equal(judge('git reflog exists refs/heads/main').level, 1);
   assert.equal(judge('git branch newname').level, 3);
 });
 test('git: a read of another folder through -C keeps its level 2 (outside) and is not made quieter', () => {
@@ -182,10 +189,11 @@ test('sd: it rewrites files, so it is a level 2 edit inside the project and leve
 /* ---------- PowerShell ---------- */
 
 test('PowerShell: listing, selecting, sorting and formatting cmdlets are quiet; script blocks, provider drives and parameters it cannot read are not', () => {
-  quiet(['Get-ChildItem | Select-Object -First 5', 'Get-ChildItem -Recurse | Sort-Object Length | Format-Table Name, Length', 'Get-Item package.json', 'Resolve-Path src', 'Get-Process | Sort-Object CPU | Format-List',
-    'Get-Process node | Select-Object Id, ProcessName', 'Get-NetTCPConnection -LocalPort 3000 -State Listen', 'Start-Sleep -Seconds 2', 'Start-Sleep 2', 'Start-Sleep -Milliseconds 500', 'Get-Date', 'Get-Content a.ts | Select-Object -First 3',
+  quiet(['Get-ChildItem | Select-Object -First 5', 'Get-ChildItem -Recurse | Sort-Object Length | Format-Table Name, Length', 'Get-Item package.json', 'Resolve-Path src', 'Get-ChildItem | Sort-Object Name | Format-List',
+'Get-NetTCPConnection -LocalPort 3000 -State Listen', 'Start-Sleep -Seconds 2', 'Start-Sleep 2', 'Start-Sleep -Milliseconds 500', 'Get-Date', 'Get-Content a.ts | Select-Object -First 3',
     'Get-ChildItem C:/work/shop/src', 'Select-String -Pattern env: a.ts', 'gi package.json'], 'PowerShell');
-  const bad = ['Get-ChildItem | ForEach-Object { $_.Name }', 'Get-ChildItem | Where-Object { $_.Length -gt 1 }', 'Start-Sleep $x', 'Start-Sleep -Seconds', 'Start-Sleep -Foo 2', 'Get-Process | Select-Object -Property @{n="a";e={1}}',
+  const bad = ['Get-ChildItem | ForEach-Object { $_.Name }', 'Get-ChildItem | Where-Object { $_.Length -gt 1 }', 'Start-Sleep $x', 'Start-Sleep -Seconds', 'Start-Sleep -Foo 2', 'Get-ChildItem | Select-Object -Property @{n="a";e={1}}', 'Get-Process', 'Get-Process | Select-Object CommandLine',
+    'Get-Item Environment::Path', 'Get-ChildItem Registry::HKEY_CURRENT_USER\\Software', 'Get-Item Microsoft.PowerShell.Core\\Environment::Path', 'Resolve-Path FileSystem::C:\\x',
     'Get-ChildItem Env:', 'Get-ChildItem env:', 'gci Env:', 'ls env:', 'Get-Content Env:PATH', 'gc env:SECRET', 'Get-Item Env:HOME', 'Get-Item -Path Env:HOME', 'Get-Item -Path:Env:HOME', 'Get-ChildItem Variable:', 'Get-ChildItem Function:',
     'Get-ChildItem Alias:', 'Get-ChildItem Cert:\\CurrentUser\\My', 'Get-Item HKLM:\\Software', 'Get-ChildItem HKCU:\\', 'Test-Path Env:HOME', 'Resolve-Path Env:HOME', 'Get-Content HKLM:\\x'];
   carded(bad, 'PowerShell');
@@ -208,9 +216,26 @@ test('the fix 1 and review attack lists still card (spot check of every class)',
 
 /* ---------- the secret-read check sees through wrappers and covers every new reader ---------- */
 
-const KEY = '~/.legion/providers/keys.json';
 const SSH = '~/.ssh/id_rsa';
 const reads = (command: string): boolean => secretReadHit('Bash', { command }) !== undefined;
+
+// Legion's own key files, by where they are: a fake data folder under the home folder, built the way the engine builds its check
+// (dataSecretLocation): a path is a key file when it is under providers, connectors or gates (or the gates key), and a search reaches them
+// from the data folder, a folder above it or a folder between.
+const DATA = join(homedir(), '.legion-knowntest');
+const fwd = DATA.replace(/\\/g, '/');
+const norm = (p: string): string => resolve(p).replace(/\\/g, '/').toLowerCase();
+const KEY_FOLDERS = ['providers', 'connectors', 'gates'].map((n) => norm(join(DATA, n)));
+const KEY_FILES = [norm(join(DATA, 'gates-key.bin'))];
+const at = (p: string, cwd?: string): string => norm(resolve(cwd ?? DATA, expandHomeWord(p)));
+const keyInside = (r: string): boolean => KEY_FILES.includes(r) || KEY_FOLDERS.some((f) => r === f || r.startsWith(`${f}/`));
+const WHERE: SecretLocation = {
+  cwd: DATA, dataFolder: DATA,
+  inside: (p, cwd) => keyInside(at(p, cwd)),
+  reaches: (p, cwd) => { const r = at(p, cwd); return keyInside(r) || KEY_FOLDERS.some((f) => f.startsWith(`${r}/`)); },
+  globReaches: () => true,
+};
+const readsKey = (command: string, tool = 'Bash'): boolean => secretReadHit(tool, { command }, WHERE) !== undefined;
 test('secret reads: each new reader is a secret read of a key file, plain or behind timeout, nice or time', () => {
   const readers = ['sed -n 1p', 'sed -e p', 'jq .', 'jq -r .a', 'cut -c1-10', 'uniq', 'nl', 'column -t', 'cmp x', 'diff x', 'tac', 'rev', 'sd a b', 'od -c', 'hexdump -C', 'strings', 'cat', 'head -5', 'tail -5', 'grep x', 'rg x'];
   for (const r of readers) for (const f of [SSH, '.env', '~/.aws/credentials']) {
@@ -223,7 +248,8 @@ test('secret reads: each new reader is a secret read of a key file, plain or beh
   }
   // options the wrapper reader does not know do not hide the read
   assert.ok(reads(`timeout --foreground --bogus 5 cat ${SSH}`));
-  assert.ok(reads(`timeout -k 1 -s KILL 5 cat ${KEY.replace('~/.legion/providers/keys.json', '~/.ssh/id_ed25519')}`));
+  assert.ok(reads('timeout -k 1 -s KILL 5 cat ~/.ssh/id_ed25519'));
+  assert.ok(reads('timeout --signal=KILL --kill-after=2 5 cat ~/.ssh/id_ed25519'));
   // Get-Item and Resolve-Path piped on to a reader name what the next program reads
   assert.ok(secretReadHit('PowerShell', { command: `Get-Item ${SSH} | Get-Content` }) !== undefined);
   assert.ok(secretReadHit('PowerShell', { command: `Resolve-Path ${SSH} | Get-Content` }) !== undefined);
@@ -232,6 +258,49 @@ test('secret reads: each new reader is a secret read of a key file, plain or beh
   assert.ok(!reads('sed -n 1,5p src/a.ts'));
   assert.ok(!reads('jq .name package.json'));
   assert.ok(!reads('timeout 5 sleep 3'));
+});
+
+const READERS_UNDER_TEST = ['sed -n 1p', 'sed -e p', 'sed --expression=p', 'jq .', 'jq -r .a', 'cut -c1-10', 'uniq', 'nl', 'column -t', 'cmp x', 'diff x', 'diff -u x', 'tac', 'rev', 'sd a b', 'od -c', 'hexdump -C', 'strings',
+  'cat', 'head -5', 'tail -5', 'grep x', 'rg x'];
+const KEY_FILE_WORDS = [`${fwd}/providers/keys.json`, '~/.legion-knowntest/providers/keys.json', `${fwd}/connectors/github.json`, `${fwd}/gates-key.bin`, `${fwd}/gates/app.json`];
+const WRAPPERS = ['', 'timeout 5 ', 'nice -n 3 ', 'time ', 'timeout 5 nice time ', 'timeout --foreground --bogus 5 ', 'cd src && timeout -k 1 -s KILL 5 '];
+test('secret reads of Legion\'s own key files: each reader, plain and behind each wrapper, is a secret read (the data-folder check, not only the name check)', () => {
+  for (const r of READERS_UNDER_TEST) for (const w of WRAPPERS) for (const f of KEY_FILE_WORDS) {
+    assert.ok(readsKey(`${w}${r} ${f}`), `key read missed: ${w}${r} ${f}`);
+  }
+  // PowerShell readers and listings passed on by a pipe
+  for (const f of KEY_FILE_WORDS) {
+    assert.ok(readsKey(`Get-Item ${f} | Get-Content`, 'PowerShell'), `piped Get-Item missed: ${f}`);
+    assert.ok(readsKey(`Resolve-Path ${f} | Get-Content`, 'PowerShell'), `piped Resolve-Path missed: ${f}`);
+  }
+  // a recursive diff over the data folder (or a folder above it) prints every key file
+  for (const c of [`diff -r ${fwd} /tmp/empty`, `diff -rN ${fwd} /tmp/empty`, `diff -ur /tmp/empty ${fwd}/providers`, `diff --recursive ${fwd}/providers /tmp/empty`, `timeout 5 diff -rN ${fwd} /tmp/empty`, 'diff -rN ~/.legion-knowntest /tmp/empty',
+    `diff -rq ${fwd}/.. /tmp/empty`]) assert.ok(readsKey(c), `recursive diff missed: ${c}`);
+  // the project's own files and other folders are not
+  for (const c of ['sed -n 1,5p src/a.ts', 'jq .name package.json', 'diff -r src dist', 'timeout 5 cat src/a.ts', `diff -r ${fwd}/workspaces /tmp/empty`, `cat ${fwd}/config.json`]) assert.ok(!readsKey(c), `false hit: ${c}`);
+});
+
+/* ---------- a read that names its file after an option is still checked ---------- */
+
+test('a file named behind --option=value, or beside an -e script, is read-checked: outside the project stays level 2', () => {
+  assert.equal(judge('sed -n --expression=1p /etc/passwd').level, 2);
+  assert.equal(judge('sed -n -e 1p /etc/passwd').level, 2);
+  assert.equal(judge('sed --expression=1p .env').level, 2);
+  assert.equal(judge('diff --from-file=/etc/x a.ts').level, 2);
+  assert.equal(judge('diff --to-file=/etc/x a.ts').level, 2);
+  assert.equal(judge('diff --from-file=../x a.ts').level, 2);
+  assert.equal(judge('grep --regexp=foo /etc/passwd').level, 2);
+  assert.equal(judge('grep -e foo /etc/passwd').level, 2);
+  assert.equal(judge('rg --regexp=foo ~/.ssh/id_rsa').level, 2);
+  // inside the project, and option values that are not files, stay level 1
+  assert.equal(judge('sed -n --expression=1p src/a.ts').level, 1);
+  assert.equal(judge('diff --from-file=src/a.ts src/b.ts').level, 1);
+  assert.equal(judge('grep --regexp=foo src/a.ts').level, 1);
+  assert.equal(judge('rg --glob=*.ts --max-count=5 foo src').level, 1);
+  assert.equal(judge('git log --since=2.weeks --format=%H').level, 1);
+  assert.equal(judge('diff --from-file=D:/work/shop/a.ts b.ts').level, 1);
+  // diff -l and --paginate run pr
+  unknown(['diff -l a.ts b.ts', 'diff --paginate a.ts b.ts', 'diff -ul a.ts b.ts']);
 });
 
 /* ---------- the shapes the owner's sessions hold, written fresh ---------- */
