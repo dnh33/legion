@@ -22,6 +22,7 @@ test('M2: the Inherit setting no longer says it is like a terminal; it says what
   assert.match(line, /only when they carry no commands, or when you trusted that folder/);
   assert.match(line, /Folders you trust/);
   assert.match(line, /separate and applies whichever way/, 'the MCP sentence is still there');
+  assert.match(line, /Commands your Claude Code allow rules allow run without a Legion card; Legion's own safety cards still ask\./, 'the allow-rule sentence (owner ruling)');
   assert.doesNotMatch(line, /[—–]/, 'no em dash');
 });
 

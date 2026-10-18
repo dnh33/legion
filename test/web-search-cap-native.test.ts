@@ -60,6 +60,7 @@ test('M5 window: a raise shows a dialog with both amounts, then PATCHes with the
   assert.equal(r.ok, true);
   assert.equal(a.dialogs.length, 1);
   assert.match(a.dialogs[0]!.detail, /0\.01/); assert.match(a.dialogs[0]!.detail, /0\.25/);
+  assert.equal(a.dialogs[0]!.title, 'Raise the per-call spending cap?', 'the title says the cap is per call, not a total');
   assert.doesNotMatch(JSON.stringify(a.dialogs), /—|–/);
   const patch = a.calls.find((c) => c.method === 'PATCH')!;
   assert.equal(patch.native, true); assert.deepEqual(patch.body, { tregMaxCostUsd: 0.25 });

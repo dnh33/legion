@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
+import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESET_LINES, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
 import { plain, realFolder, sameFolder, scanFolder } from '../folder-trust.js';
 import type { FolderScan } from '../folder-trust.js';
@@ -149,7 +149,7 @@ function looserThan(before: GateSettings, next: GateSettings, isApp: boolean, ap
 export const PRESET_NAME: Record<Preset, string> = { ask: 'Ask', 'accept-edits': 'Accept edits', smart: 'Smart', bypass: 'Bypass' };
 const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
   'accept-edits': 'File edits run without asking. Everything else still asks.',
-  smart: "Legion decides when to ask. It asks only before an action that reaches the web, sends data out, deletes, spends, can't be undone, or that it can't classify. Everything else runs.",
+  smart: `Legion decides when to ask. ${PRESET_LINES.smart} Everything else runs.`,
   bypass: `No permission cards. Agents run commands, change files and write to GitHub without asking. Only a command that changes ${PROTECTED_FILES_TEXT} still asks. ${BYPASS_KEYS_LINE} Everything is logged.`,
 };
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";

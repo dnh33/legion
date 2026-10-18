@@ -28,6 +28,7 @@ test('ask-timeout-deny is a rail: always on, no switch, with its plain sentence'
   assert.equal(g.family, 'rail');
   assert.equal(g.defaults, 'always');
   assert.match(g.protects, /refused after 10 minutes/);
+  assert.match(g.protects, /quiet hours does not count/, 'quiet hours stretch the wait, and the sentence says so');
   assert.ok(!PERMISSION_GATE_IDS.includes('ask-timeout-deny'), 'the window cannot name it');
   for (const p of PRESETS) assert.equal(gateValue('ask-timeout-deny', { app: { version: 1, preset: p }, project: { version: 1, overrides: { 'ask-timeout-deny': false } as never } }), true, `an override is ignored in ${p}`);
   assert.ok(railRows().some((r) => r.id === 'ask-timeout-deny' && /refused after 10 minutes/.test(r.protects)), 'the rails list shows it');

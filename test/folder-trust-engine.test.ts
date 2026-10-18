@@ -244,6 +244,11 @@ test('A-H2: a hook written into the folder during the run is blocked by the Conf
     const note = x.messages(taskId).find((m) => m.folderTrust);
     assert.ok(note, 'the same notice a held-back run gets');
     assert.equal(note!.folderTrust!.folders[0]!.folder, scanFolder(repo).folder);
+    // the run already loaded its user and project settings at its start, so the notice must not say it "used your user settings only"
+    const text = x.messages(taskId).find((m) => m.folderTrust)!.text;
+    assert.match(text, /^A settings change in this folder during the run was held back: it carries commands you have not trusted\. What was held back:/);
+    assert.doesNotMatch(text, /used your user settings only|read as text instead|were off for this run/);
+    assert.match(text, /Trust this folder/);
     assert.equal(JSON.stringify(x.messages(taskId)).includes(SECRET), false, 'never an environment value');
     // the local file and the skills are scanned the same way; the user and managed settings go on
     assert.equal((await configChange(options, 'local_settings')).decision, 'block');

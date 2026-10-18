@@ -300,7 +300,7 @@ function listMd(dir: string, depth: number, out: string[], problems: string[], w
 }
 
 /** For text read into a prompt: whether a path's real path stays inside `root` (itself a real path) and is not a secret file. Skipped paths are kept. */
-interface Within { keeps(p: string): boolean; skipped: Array<{ path: string; secret: boolean }> }
+interface Within { keeps(p: string): boolean; skipped: Array<{ path: string; secret: boolean; /** a folder (the rules folder or one inside it), not a file */ dir: boolean }> }
 function insideOf(root: string): Within {
   const base = norm(fwd(realFolder(root)));
   const skipped: Within['skipped'] = [];
@@ -308,11 +308,12 @@ function insideOf(root: string): Within {
     skipped,
     keeps(p) {
       let real: string;
-      try { real = realpathSync.native(p); } catch { skipped.push({ path: p, secret: false }); return false; }
+      const dir = (() => { try { return statSync(p).isDirectory(); } catch { return false; } })();
+      try { real = realpathSync.native(p); } catch { skipped.push({ path: p, secret: false, dir }); return false; }
       const r = norm(fwd(real));
       const secret = isSecretPath(real) || isSecretPath(p);
       if ((r === base || r.startsWith(base + '/')) && !secret) return true;
-      skipped.push({ path: p, secret });
+      skipped.push({ path: p, secret, dir });
       return false;
     },
   };
@@ -416,7 +417,7 @@ export function readInstructions(folderIn: string, opts: ScanOptions = {}): Inst
     const candidates = [join(dir, 'CLAUDE.md'), join(dir, 'CLAUDE.local.md'), ...(cfgHere ? [] : [join(dir, '.claude', 'CLAUDE.md')])].filter((f) => existsSync(f) && inside.keeps(f));
     const rulesDir = join(dir, '.claude', 'rules');
     if (!cfgHere && existsSync(rulesDir) && inside.keeps(rulesDir)) { const rules: string[] = []; listMd(rulesDir, 0, rules, [], inside); candidates.push(...rules); }
-    skipped.push(...inside.skipped.map((s) => `Skipped a linked file that points ${s.secret ? 'at a password or key file' : 'outside this folder'}: ${plain(shortPath(s.path, dir), 120)}`));
+    skipped.push(...inside.skipped.map((s) => `Skipped a linked ${s.dir ? 'folder' : 'file'} that points ${s.secret ? 'at a password or key file' : 'outside this folder'}: ${plain(shortPath(s.path, dir), 120)}`));
     for (const f of candidates) {
       if (!existsSync(f)) continue;
       let body: string;

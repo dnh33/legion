@@ -338,7 +338,7 @@ test('N4: when the resolver throws, the board guard cards a stored-Full agent (i
 test('agent facts say smart in the run mode, with what smart still asks for', () => {
   const a = mkAgent('a1', 'ask');
   const text = renderCapabilities(a, { servers: {}, vmEnabledForAgent: false, runMode: 'smart' });
-  assert.match(text, /your mode is smart \(asks only for actions that leave your computer, delete, spend, can't be undone, or that Legion can't classify\)/);
+  assert.match(text, /your mode is smart \(asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify; tests and builds run without asking, and the code they run can reach the web\)/);
   const plain = renderCapabilities(a, { servers: {}, vmEnabledForAgent: false });
   assert.match(plain, /your mode is ask/);
 });

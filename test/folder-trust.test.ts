@@ -289,7 +289,7 @@ test('A-H3: a .claude/rules folder linked to an outside folder is not read, and 
   const i = readInstructions(w.repo, w.o);
   assert.equal(i.text.includes('MARKER-JUNCTION-REACHED'), false);
   assert.ok(i.text.includes('inside text'), 'the rest is still read');
-  assert.match(i.text, /Skipped a linked file that points outside this folder: \.claude\/rules/);
+  assert.match(i.text, /Skipped a linked folder that points outside this folder: \.claude\/rules/);
   assert.equal(i.text.includes(outside) || i.text.includes(outside.replace(/\\/g, '/')), false, 'the target path is not shown');
   assert.equal(i.files.some((f) => f.includes('note.md')), false);
 });
@@ -303,7 +303,7 @@ test('A-H3: a linked folder inside the rules folder that points outside is not d
   const i = readInstructions(w.repo, w.o);
   assert.equal(i.text.includes('MARKER-NESTED-REACHED'), false);
   assert.ok(i.text.includes('rule text'));
-  assert.match(i.text, /Skipped a linked file that points outside this folder: \.claude\/rules\/more/);
+  assert.match(i.text, /Skipped a linked folder that points outside this folder: \.claude\/rules\/more/);
 });
 
 test('A-H3: a .claude folder linked outside: its CLAUDE.md is not read (the per-file check, with no file symlink needed)', () => {
@@ -336,7 +336,7 @@ test('A-H3: a link that stays inside the folder is read as before', () => {
   assert.ok(link(join(w.repo, 'docs', 'house'), join(w.repo, '.claude', 'rules'), true));
   const i = readInstructions(w.repo, w.o);
   assert.ok(i.text.includes('house tone text'));
-  assert.equal(/Skipped a linked file/.test(i.text), false);
+  assert.equal(/Skipped a linked (file|folder)/.test(i.text), false);
 });
 
 test('A-H3: the scan still follows a linked skills folder that points outside (it must count what the SDK loads)', () => {

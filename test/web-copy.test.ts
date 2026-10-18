@@ -19,8 +19,12 @@ test('web copy has no em dash and no "this computer"', () => {
 test('every web line and the Smart line say it plainly: WEB_LINE and WEB_NOTICE, and the Smart line does not speak of websites', () => {
   assert.equal(WEB_LINE, 'Agents ask before they read a new website. Sites on your list open without asking.');
   assert.equal(WEB_NOTICE, 'Agents read sites on your list. A new site asks once.');
-  assert.equal(CONSENT_LINE, 'Agents will run the code they write, like tests and builds.');
+  assert.equal(CONSENT_LINE, 'Tests and builds run without asking, and the code they run can reach the web.');
   assert.doesNotMatch(PRESET_LINES.smart, /websites/i);
+  // B-M1 + the owner's spend ruling: Smart says tests and builds run (and can reach the web), and does not promise a card before something that spends
+  assert.equal(PRESET_LINES.smart, "Asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify. Tests and builds run without asking, and the code they run can reach the web.");
+  assert.ok(PRESET_LINES.smart.endsWith(CONSENT_LINE), 'the Smart line ends with the consent sentence');
+  assert.doesNotMatch(PRESET_LINES.smart, /spend/i);
 });
 
 test('buttons are exactly the four answers', () => assert.deepEqual([WEB_CARD.buttons.always('x.com'), WEB_CARD.buttons.goal, WEB_CARD.buttons.once, WEB_CARD.buttons.deny], ['Always allow x.com', 'Allow for this goal', 'Allow once', 'Deny']));

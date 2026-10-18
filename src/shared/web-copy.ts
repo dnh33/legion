@@ -41,5 +41,5 @@ export const WEB_MANY_BODY = 'Legion wants to open these sites. It has not read 
 export const WEB_NOTICE = 'Agents read sites on your list. A new site asks once.';
 /** Shown on the Gates page under the presets. */
 export const WEB_LINE = 'Agents ask before they read a new website. Sites on your list open without asking.';
-/** Shown once in the Smart confirm dialog and on the first-run screen: Smart lets agents run what they write. */
-export const CONSENT_LINE = 'Agents will run the code they write, like tests and builds.';
+/** Shown once in the Smart confirm dialog and on the first-run screen: Smart lets agents run what they write. The second sentence of the Smart line. */
+export const CONSENT_LINE = 'Tests and builds run without asking, and the code they run can reach the web.';

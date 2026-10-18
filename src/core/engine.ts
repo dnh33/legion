@@ -1524,19 +1524,24 @@ export class Engine {
       held = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit: this.config.claude.inheritClaudeCodeSettings === true, mcp: this.config.claude.inheritMcp === true }).held;
     } catch { return { decision: 'block', reason: block }; }
     if (!held.length) return { continue: true };
-    try { this.noteFolderHeld(job, agent, act, held); } catch { /* the notice is advisory; the change is blocked either way */ }
+    try { this.noteFolderHeld(job, agent, act, held, true); } catch { /* the notice is advisory; the change is blocked either way */ }
     return { decision: 'block', reason: block };
   }
 
-  private noteFolderHeld(job: Job, agent: AgentProfile, act: Active, held: FolderScan[]): void {
+  /** `midRun`: the scan was made because a settings or skills file changed while the run works, so the run already loaded what it had at its start. */
+  private noteFolderHeld(job: Job, agent: AgentProfile, act: Active, held: FolderScan[], midRun = false): void {
     const folders = held.map((h) => ({ folder: h.folder, lines: h.lines, more: h.more }));
     const key = JSON.stringify(folders);
     const already = this.store.listMessages(job.taskId).some((m) => m.folderTrust && JSON.stringify(m.folderTrust.folders) === key);
     if (!already) {
-      const extra = (held.some((h) => h.mcp) ? ' MCP servers from your Claude Code setup were off for this run too, because a .mcp.json here would start programs.' : '')
+      const extra = (!midRun && held.some((h) => h.mcp) ? ' MCP servers from your Claude Code setup were off for this run too, because a .mcp.json here would start programs.' : '')
         + (held.some((h) => h.lines.some((l) => l.startsWith('Skill file '))) ? ' A skill whose header only mentions hooks or allowed tools is counted too.' : '');
       const body = folders.map((f) => `${f.folder}\n${f.lines.map((l) => `- ${l}`).join('\n')}${f.more ? `\n- and ${f.more} more` : ''}`).join('\n\n');
-      this.addMessage(job.taskId, 'system', `This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead. What was held back:\n${body}\n${extra ? `${extra.trim()}\n` : ''}To let them run, choose Trust this folder on this notice. Settings, Gates, Fine tuning, "${TRUSTED_FOLDERS_LABEL}" lists the folders you trusted and removes them.`, undefined, undefined, { folderTrust: { folders } });
+      const lead = midRun
+        ? 'A settings change in this folder during the run was held back: it carries commands you have not trusted.'
+        : "This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead.";
+      const trust = midRun ? 'To let them run in your next run, choose Trust this folder on this notice.' : 'To let them run, choose Trust this folder on this notice.';
+      this.addMessage(job.taskId, 'system', `${lead} What was held back:\n${body}\n${extra ? `${extra.trim()}\n` : ''}${trust} Settings, Gates, Fine tuning, "${TRUSTED_FOLDERS_LABEL}" lists the folders you trusted and removes them.`, undefined, undefined, { folderTrust: { folders } });
     }
     if (!act.folderTrustNoted) {
       act.folderTrustNoted = true;

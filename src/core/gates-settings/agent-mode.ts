@@ -47,7 +47,7 @@ const DOES: Record<RunMode, string> = {
   ask: 'ask before it runs commands or changes files',
   'smart-edits': 'ask before it runs commands or changes files outside the project',
   'auto-edits': 'change files without asking, and still ask before it runs commands',
-  smart: 'ask only before an action that reaches the web, sends data out, deletes, spends, cannot be undone, or that Legion cannot classify',
+  smart: 'ask before anything that reaches the web, deletes, cannot be undone, or that Legion cannot classify; tests and builds run without asking, and the code they run can reach the web',
   full: 'never ask before it runs commands or changes files',
 };
 

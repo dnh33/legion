@@ -71,7 +71,7 @@ const GATE_LIST = [
   { id: 'rail-house-trust', family: 'rail', scope: 'global', label: 'Only house files you adopted load', protects: 'A changed house file is not loaded until you adopt it.', ifOff: '', defaults: 'always' },
   { id: 'rail-browser-url', family: 'rail', scope: 'global', label: 'The browser stays on the open web', protects: 'The browser cannot reach private or reserved addresses.', ifOff: '', defaults: 'always' },
   { id: 'rail-shell-floor', family: 'rail', scope: 'global', label: 'Commands that wipe a drive are refused', protects: 'Commands that wipe a drive, a system folder or your home folder never run.', ifOff: '', defaults: 'always' },
-  { id: 'ask-timeout-deny', family: 'rail', scope: 'global', label: 'No answer means no', protects: 'A card nobody answers is refused after 10 minutes.', ifOff: '', defaults: 'always' },
+  { id: 'ask-timeout-deny', family: 'rail', scope: 'global', label: 'No answer means no', protects: 'A card nobody answers is refused after 10 minutes. Time inside your quiet hours does not count, so it can wait longer then.', ifOff: '', defaults: 'always' },
 ] as const satisfies readonly GateDef[];
 
 export const GATES: readonly GateDef[] = GATE_LIST;
@@ -136,9 +136,9 @@ export const LIMIT_GATE_IDS: readonly string[] = GATES.filter((g) => g.family ==
 
 /** One line per preset: the single copy source for the confirm dialogs and the Gates page. */
 export const PRESET_LINES: Record<Preset, string> = {
-  ask: 'Every action asks, as now.',
+  ask: 'Every action asks, except what your own Claude Code allow rules allow.',
   'accept-edits': 'File edits run. Everything else asks.',
-  smart: "Asks before anything that reaches the web, sends data out, deletes, spends, can't be undone, or that Legion can't classify.",
+  smart: "Asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify. Tests and builds run without asking, and the code they run can reach the web.",
   bypass: `No permission cards, except for a command that changes ${PROTECTED_FILES_TEXT}. Your deny rules and Legion's safety rails still apply. Everything is logged. ${BYPASS_KEYS_LINE}`,
 };
 

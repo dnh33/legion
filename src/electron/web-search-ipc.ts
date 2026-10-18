@@ -82,7 +82,7 @@ export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Pro
       return fail(res) ?? { ok: true, view: res!.json };
     }
     const was = typeof cur.json?.tregMaxCostUsd === 'number' ? cur.json.tregMaxCostUsd : undefined;
-    title = 'Raise the spending cap?'; confirmLabel = 'Raise the cap';
+    title = 'Raise the per-call spending cap?'; confirmLabel = 'Raise the cap';
     message = `Let one treg call cost up to $${ch.usd}?`;
     detail = `${was !== undefined ? `Today one call may cost up to $${was}. ` : ''}With this change it may cost up to $${ch.usd}. Your agents decide when to make calls, so a higher cap lets a run spend more of your treg balance. Only continue if you want that.`;
   } else {
