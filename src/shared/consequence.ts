@@ -24,6 +24,8 @@ export interface ConsequenceCall {
   input: unknown;
   /** The project's folders. Absent or empty: there is no "inside" to check against. */
   projectFolders?: string[];
+  /** The home folder, so a `~` in a shell write target can be placed. Absent: such a target counts as outside. */
+  home?: string;
 }
 
 export const UNKNOWN_CHIP = AWAY_COPY.chip.unknown;
@@ -73,7 +75,7 @@ function pathOf(input: Record<string, unknown>): unknown {
 
 /* ---------- shell ---------- */
 
-type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** Any of these flags (prefix match for --long=value) makes the call unknown: it runs something else. */ unknownFlags?: string[]; /** Reads the arguments after the subcommand itself; undefined means "use the rule above". */ inspect?: (args: string[]) => Consequence | undefined };
+type Sub = { level: ConsequenceLevel; tags: ConsequenceTag[]; chip: string; ing?: string; /** flags that make the call something else (all lower case). */ flagRules?: Array<{ flags: string[]; to: Consequence }>; /** Any of these flags (prefix match for --long=value) makes the call unknown: it runs something else. */ unknownFlags?: string[]; /** Like unknownFlags, but each is matched whole and case sensitive (or as --name=value): for single-dash long flags, where a short one would match a cluster. */ exactFlags?: string[]; /** Reads the arguments after the subcommand itself; undefined means "use the rule above". `w` says where the command runs and what is inside the project. */ inspect?: (args: string[], w: Where) => Consequence | undefined };
 interface ProgramRule extends Sub {
   /** Per subcommand (git, npm, ...). When present a subcommand with no entry is unknown. */
   subs?: Record<string, Sub>;
@@ -88,11 +90,77 @@ const runScript = (args: string[]): Consequence | undefined => {
   const plain = args.filter((a) => a !== '--silent' && a !== '--quiet');
   return plain.length === 1 && SCRIPTS_OK.test(plain[0]!) ? LOCAL() : undefined;
 };
+/** Where a shell command runs: the project's folders, the home folder if known, and whether the folder it runs in is still the project (no `cd` away). */
+interface Where { folders: readonly string[]; home?: string; cwdOk: boolean }
+
+/**
+ * Is this word a place inside the project? A plain relative path stays where the command runs, so it counts while `cwdOk`. Everything the check
+ * cannot read counts as outside: no folders known, a `..` step, a variable, a glob (unless `glob`), a drive-relative name, `~user`, `~` with no home known.
+ */
+function insideWord(word: string, w: Where, glob = false): boolean {
+  if (!word || !w.folders.length) return false;
+  // `*` and `?` are read only for a path a program expands itself (a test file pattern), and never as `.*` (it can match `..`)
+  const wild = glob && !/(^|[\\/])\.[*?]/.test(word) ? word.replace(/[*?]/g, 'x') : word;
+  if (/[*?[\]{}%$`]/.test(wild) || /^[a-z]:(?![\\/])/i.test(word)) return false;
+  let p = word;
+  if (p.startsWith('~')) {
+    if (!/^~([\\/]|$)/.test(p) || !w.home) return false;
+    p = w.home + p.slice(1);
+  }
+  if (absolute(p) !== null) return insideFolders(p, w.folders) === true;
+  return w.cwdOk && !p.replace(/\\/g, '/').split('/').includes('..');
+}
+
+/** `npm|pnpm|yarn test` with nothing after it (or only --silent/--quiet): a flag such as --prefix, --dir or --cwd would run another folder's script. */
+const bareTest = (args: string[]): Consequence | undefined => (args.some((a) => a !== '--silent' && a !== '--quiet') ? unknownConsequence() : undefined);
+/**
+ * A local build or test run whose path words must stay in the project: every plain word, and the value of each of `pathFlags` (they write a file
+ * wherever they point). One that is outside or unreadable makes the call unknown. Words after `--` go to the program that is run, not to this one.
+ */
+const localRun = (pathFlags: readonly string[] = []) => (args: string[], w: Where): Consequence | undefined => {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--') break;
+    if (a.startsWith('-')) {
+      const eq = a.indexOf('=');
+      const flag = (eq < 0 ? a : a.slice(0, eq)).replace(/^--/, '-');
+      if (pathFlags.includes(flag)) { const v = eq < 0 ? args[++i] : a.slice(eq + 1); if (v === undefined || !insideWord(v, w)) return unknownConsequence(); }
+      continue;
+    }
+    if (!insideWord(a, w, true)) return unknownConsequence();
+  }
+  return undefined;
+};
+
+/** The only `node --test` options a run may carry; each takes a value (`=v` or the next word) that must have this shape. A reporter is a built-in one: any other name loads a file. */
+const NODE_TEST_FLAGS: Record<string, RegExp> = { '--test-name-pattern': /^/, '--test-reporter': /^(spec|tap|dot|junit|lcov)$/, '--test-concurrency': /^\d+$/, '--test-timeout': /^\d+$/ };
+/** `node --test` runs test files: level 1 only with plain paths inside the project and the options above. -r, --import, --loader, --env-file, --inspect and every other flag run something else. */
+const nodeTest = (args: string[], w: Where): Consequence | undefined => {
+  if (args[0] !== '--test') return undefined;
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--test-only') continue;
+    if (!a.startsWith('-')) { if (!insideWord(a, w, true)) return unknownConsequence(); continue; }
+    const eq = a.indexOf('=');
+    const name = eq < 0 ? a : a.slice(0, eq);
+    const shape = Object.prototype.hasOwnProperty.call(NODE_TEST_FLAGS, name) ? NODE_TEST_FLAGS[name] : undefined;
+    const v = eq < 0 ? args[++i] : a.slice(eq + 1);
+    if (!shape || v === undefined || !shape.test(v)) return unknownConsequence();
+  }
+  return LOCAL();
+};
 const pkgManager = (): ProgramRule => ({ level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--script-shell', '--node-options'], subs: {
   publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' },
-  test: LOCALSUB,
+  test: { ...LOCALSUB, inspect: bareTest },
   run: { level: 3, tags: [], chip: UNKNOWN_CHIP, inspect: runScript },
 } });
+
+/** Flags that write a file wherever they point: the value must stay inside the project (dashes are folded, `--x` is `-x`). */
+const PYTEST_PATH_FLAGS = ['-junitxml', '-junit-xml', '-basetemp', '-log-file', '-cache-dir', '-result-log', '-resultlog', '-report-log'];
+const CARGO_RUN: Sub = { ...LOCALSUB, inspect: localRun(['-target-dir', '-out-dir']) };
+const GO_RUN: Sub = { ...LOCALSUB, inspect: localRun(['-o', '-coverprofile', '-cpuprofile', '-memprofile', '-blockprofile', '-mutexprofile', '-trace', '-outputdir']) };
+/** go flags that load another module file, build overlay or toolchain step: both dash spellings. */
+const GO_UNKNOWN_FLAGS = ['exec', 'toolexec', 'vettool', 'overlay', 'modfile', 'ldflags', 'gcflags', 'asmflags'].flatMap((f) => [`-${f}`, `--${f}`]);
 
 const R1: Sub = { level: 1, tags: ['reads'], chip: C.readOnly };
 /** git reads that can write a file (--output) or run a configured program (--ext-diff, --textconv). */
@@ -159,7 +227,11 @@ const webRule = (args: string[]): Consequence | undefined => curlRule(args) ?? w
 const hasFlag = (lowered: readonly string[], f: string): boolean =>
   lowered.some((a) => a === f || (f.length > 2 ? a.startsWith(f + '=') : /^-[a-z]$/.test(f) && /^-[^-]/.test(a) && a.includes(f[1]!)));
 
-const positional = (args: readonly string[]): string[] => args.filter((a) => !a.startsWith('-'));
+/** The words that are not flags (a word after `--` is one too). */
+const positional = (args: readonly string[]): string[] => {
+  const end = args.indexOf('--');
+  return end < 0 ? args.filter((a) => !a.startsWith('-')) : [...args.slice(0, end).filter((a) => !a.startsWith('-')), ...args.slice(end + 1)];
+};
 const WRITES = (): Consequence => rule(2, ['edits'], C.writesFile);
 
 /** Shell programs by lower-case name (no path, no .exe). A program not here is unknown. */
@@ -212,17 +284,18 @@ export const PROGRAM_RULES: Record<string, ProgramRule> = {
   },
   npm: pkgManager(), yarn: pkgManager(), pnpm: pkgManager(),
   npx: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a.length === 2 && a[0] === 'tsc' && a[1] === '--noEmit' ? LOCAL() : undefined) },
-  node: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: (a) => (a[0] === '--test' ? LOCAL() : undefined) },
-  pytest: { level: 1, tags: ['runs-code'], chip: C.localRun, unknownFlags: ['-p', '--pyargs'] },
-  cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--config', '-z'], subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: LOCALSUB, build: LOCALSUB, check: LOCALSUB } },
-  go: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['-exec', '--exec', '-toolexec', '--toolexec', '-vettool', '--vettool'], subs: { test: LOCALSUB, build: LOCALSUB, vet: LOCALSUB } },
+  node: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--node-options'], inspect: nodeTest },
+  pytest: { level: 1, tags: ['runs-code'], chip: C.localRun, unknownFlags: ['-p', '--pyargs', '-o', '--override-ini', '-c', '--rootdir', '--confcutdir'], inspect: localRun(PYTEST_PATH_FLAGS) },
+  cargo: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: ['--config', '-z', '--manifest-path'], exactFlags: ['-C'], subs: { publish: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' }, test: CARGO_RUN, build: CARGO_RUN, check: CARGO_RUN } },
+  go: { level: 3, tags: [], chip: UNKNOWN_CHIP, unknownFlags: GO_UNKNOWN_FLAGS, exactFlags: ['-C', '--C'], subs: { test: GO_RUN, build: GO_RUN, vet: GO_RUN } },
   gh: { level: 3, tags: [], chip: UNKNOWN_CHIP, subs: { release: { level: 3, tags: ['leaves', 'irreversible'], chip: C.leaves, ing: 'Publishing' } } },
 };
 
 /** The shell tools: their input.command is read as a shell command. */
 const SHELL_TOOL_KIND: Record<string, 'sh' | 'pwsh' | 'either'> = { Bash: 'sh', PowerShell: 'pwsh', Monitor: 'sh', mcp__host__shell: 'either' };
 
-interface Parsed { segments: string[][]; redirects: boolean }
+/** `targets` are the files the redirects write (unquoted), each with the index of the segment it sits in; null sinks and stream redirects are not in it. */
+interface Parsed { segments: string[][]; redirects: boolean; targets: Array<{ word: string; seg: number }> }
 
 /** Splits a command into segments of words. Null when it cannot be read with certainty (substitutions, groups, open quotes, ...). */
 function parseShell(cmd: string): Parsed | null {
@@ -230,15 +303,15 @@ function parseShell(cmd: string): Parsed | null {
   let words: string[] = [];
   let cur = '';
   let inWord = false;
-  let redirects = false;
+  const targets: Array<{ word: string; seg: number }> = [];
   let pendingRedirect = false;
   const endWord = (): boolean => {
     if (!inWord) return true;
     if (cur.startsWith('#')) return false;
     if (pendingRedirect) {
       pendingRedirect = false;
-      if (/^(\/dev\/null|nul|&\d)$/i.test(cur)) { cur = ''; inWord = false; return true; }
-      redirects = true; cur = ''; inWord = false; return true;
+      if (/^(\/dev\/(null|stdout|stderr)|nul|&\d)$/i.test(cur)) { cur = ''; inWord = false; return true; }
+      targets.push({ word: cur, seg: segments.length }); cur = ''; inWord = false; return true;
     }
     words.push(cur); cur = ''; inWord = false; return true;
   };
@@ -270,7 +343,8 @@ function parseShell(cmd: string): Parsed | null {
     if (ch === '$' || ch === '`' || ch === '(' || ch === ')' || ch === '{' || ch === '}' || ch === '<') return null;
     if (ch === '\\') { cur += ch; inWord = true; if (cmd[i + 1] === '\n') { cur = cur.slice(0, -1); i++; } continue; }
     if (ch === '>') {
-      if (!endWord()) return null;
+      // "2>file": the digit names the stream, it is not a word of the command
+      if (inWord && /^\d$/.test(cur) && !pendingRedirect) { cur = ''; inWord = false; } else if (!endWord()) return null;
       while (cmd[i + 1] === '>' || cmd[i + 1] === '&' || cmd[i + 1] === '|') { i++; if (cmd[i] === '&' && /\d/.test(cmd[i + 1] ?? '')) { i++; pendingRedirect = false; } }
       // "2>&1": a redirect into a stream, not a file
       if (cmd[i] === '&' || /&\d/.test(cmd.slice(Math.max(0, i - 1), i + 1))) { continue; }
@@ -286,7 +360,7 @@ function parseShell(cmd: string): Parsed | null {
   }
   if (!endSegment()) return null;
   if (pendingRedirect) return null;
-  return { segments, redirects };
+  return { segments, redirects: targets.length > 0, targets };
 }
 
 const lc = (s: string): string => s.toLowerCase();
@@ -295,8 +369,16 @@ function withTags(base: Sub, certain = true): Consequence {
   return { level: base.level, tags: [...base.tags], chip: base.chip, certain, ...(base.ing ? { ing: base.ing } : {}) };
 }
 
+const exactFlag = (r: Sub, args: readonly string[]): boolean => r.exactFlags?.some((f) => args.some((a) => a === f || a.startsWith(`${f}=`))) === true;
+
 /** One segment's consequence. */
-function classifySegment(words: string[]): Consequence {
+function classifySegment(words: string[], w: Where): Consequence {
+  const c = classifyWords(words, w);
+  // a build or test run in a folder the command moved to is not a run in the project
+  return !w.cwdOk && c.level === 1 && c.tags.includes('runs-code') ? unknownConsequence() : c;
+}
+
+function classifyWords(words: string[], w: Where): Consequence {
   const first = words[0]!;
   // a program named by a path, or an assignment before it, could be anything
   if (/[\\/]/.test(first) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) return unknownConsequence();
@@ -306,6 +388,7 @@ function classifySegment(words: string[]): Consequence {
   let args = words.slice(1);
   const lowered = args.map(lc);
   if (pr.unknownFlags?.some((f) => hasFlag(lowered, f))) return unknownConsequence();
+  if (exactFlag(pr, args)) return unknownConsequence();
   let base: Sub = pr;
   if (pr.subs) {
     // git: options before the subcommand are skipped when they are the harmless kind
@@ -324,10 +407,10 @@ function classifySegment(words: string[]): Consequence {
     args = args.slice(i + 1);
   }
   const subLowered = args.map(lc);
-  if (base.unknownFlags?.some((f) => hasFlag(subLowered, f))) return unknownConsequence();
+  if (base.unknownFlags?.some((f) => hasFlag(subLowered, f)) || exactFlag(base, args)) return unknownConsequence();
   const flagged = base.flagRules?.find((r) => r.flags.some((f) => hasFlag(subLowered, f)));
   if (flagged) return { ...flagged.to, tags: [...flagged.to.tags] };
-  const inspected = base.inspect?.(args) ?? pr.inspect?.(args);
+  const inspected = base.inspect?.(args, w) ?? pr.inspect?.(args, w);
   if (inspected) return inspected;
   return withTags(base);
 }
@@ -375,7 +458,53 @@ function checkShellReads(c: Consequence, words: string[], folders: readonly stri
   return { level: 2, tags: ['reads'], chip: verdict === 'outside' ? C.readsOutside : C.readsUnchecked, certain: false };
 }
 
-function classifyShell(toolName: string, input: unknown, folders: readonly string[] = []): Consequence {
+/** The value of an option: short (`-o f`, `-of`, clustered `-ro f`) or long (`--name=f`, `--name f`, any start of the name); null when the option is not there. */
+function optionValue(args: readonly string[], short: string, long: string): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--') return null;
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = a.slice(2, eq < 0 ? undefined : eq);
+      if (long && name && long.startsWith(name)) return eq >= 0 ? a.slice(eq + 1) : args[i + 1] ?? '';
+    } else if (short && /^-[^-]/.test(a)) {
+      const at = a.indexOf(short, 1);
+      if (at > 0) return a.slice(at + 1) || (args[i + 1] ?? '');
+    }
+  }
+  return null;
+}
+
+/** PowerShell parameters given as `-Name:value`. */
+const colonValues = (args: readonly string[]): string[] => args.flatMap((a) => { const m = /^-[A-Za-z]+:(.+)$/.exec(a); return m ? [m[1]!] : []; });
+
+/** Programs whose every file word is something they change (or, for a rename or move, take away from where it was). */
+const WRITES_EVERY_WORD: ReadonlySet<string> = new Set(['tee', 'mkdir', 'md', 'touch', 'chmod', 'new-item', 'ren', 'rename', 'rename-item', 'set-content', 'add-content', 'out-file', 'mv', 'move', 'move-item']);
+
+/**
+ * The files a shell program writes, from its own words (a redirect is handled apart), or an empty list when it writes none. `cp` writes its last
+ * word or the `-t` folder; PowerShell's copy takes its parameters in any order, so there every file word counts. A rule only ever adds a target.
+ */
+function writeTargets(name: string, args: readonly string[], kind: 'sh' | 'pwsh' | 'either'): string[] {
+  if (WRITES_EVERY_WORD.has(name)) return [...positional(args), ...colonValues(args)];
+  if (name === 'cp' || name === 'copy' || name === 'copy-item') {
+    if (kind !== 'sh') return [...positional(args), ...colonValues(args)];
+    const dir = optionValue(args, 't', 'target-directory');
+    const last = positional(args).slice(-1);
+    return dir !== null ? [dir] : last;
+  }
+  if (name === 'sort') { const v = optionValue(args, 'o', 'output'); return v === null ? [] : [v]; }
+  if (name === 'tree') { const v = optionValue(args, 'o', ''); return v === null ? [] : [v]; }
+  if (name === 'git') { const v = optionValue(args, '', 'output'); return v === null ? [] : [v]; }
+  if (name === 'uniq') return positional(args).slice(1, 2);
+  if (name === 'find') return args.flatMap((a, i) => (/^-(fprint0?|fprintf|fls)$/.test(a) ? [args[i + 1] ?? ''] : []));
+  return [];
+}
+
+/** Programs that change the folder the next words mean. */
+const MOVES: ReadonlySet<string> = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl']);
+
+function classifyShell(toolName: string, input: unknown, folders: readonly string[] = [], home?: string): Consequence {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return unknownConsequence();
   const command = (input as Record<string, unknown>).command;
   if (typeof command !== 'string' || !command.trim()) return unknownConsequence();
@@ -386,8 +515,21 @@ function classifyShell(toolName: string, input: unknown, folders: readonly strin
   }
   const parsed = parseShell(command);
   if (!parsed || !parsed.segments.length) return unknownConsequence();
-  const parts = parsed.segments.map((w) => checkShellReads(classifySegment(w), w, folders));
+  const kind = SHELL_TOOL_KIND[toolName] ?? 'sh';
+  const where: Where = { folders, ...(home ? { home } : {}), cwdOk: true };
+  const parts: Consequence[] = [];
+  const written: string[][] = parsed.segments.map(() => []);
+  for (const t of parsed.targets) written[Math.min(t.seg, parsed.segments.length - 1)]!.push(t.word);
+  let outside = false;
+  parsed.segments.forEach((w, i) => {
+    const name = lc(w[0]!).replace(/\.exe$/, '');
+    parts.push(checkShellReads(classifySegment(w, where), w, folders));
+    // a write is judged by its target, like the Write tool: outside the project, or a place the check cannot read, is level 3
+    if ([...writeTargets(name, w.slice(1), kind), ...written[i]!].some((t) => !insideWord(t, where))) outside = true;
+    if (MOVES.has(name)) { const to = positional(w.slice(1)).pop(); where.cwdOk = where.cwdOk && to !== undefined && insideWord(to, where); }
+  });
   if (parsed.redirects) parts.push(rule(2, ['edits'], C.writesFile));
+  if (outside) parts.push({ level: 3, tags: ['edits'], chip: C.editsOutside, certain: false });
   return combine(parts);
 }
 
@@ -411,7 +553,7 @@ function classifyTool(call: ConsequenceCall): Consequence {
   if (typeof name !== 'string' || !Object.prototype.hasOwnProperty.call(TOOL_RULES, name)) return unknownConsequence();
   const tr = TOOL_RULES[name]!;
   const folders = (call.projectFolders ?? []).filter((f) => typeof f === 'string' && f);
-  if (tr.shell) return classifyShell(name, call.input, folders);
+  if (tr.shell) return classifyShell(name, call.input, folders, call.home);
   if (!call.input || typeof call.input !== 'object' || Array.isArray(call.input)) return unknownConsequence();
   const input = call.input as Record<string, unknown>;
   if (tr.read) {

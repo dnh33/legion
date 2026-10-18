@@ -55,10 +55,10 @@ test('the data folder given with ~ or in another spelling still matches', () => 
   assert.equal(dataFolderHit('rm ~/.legion-other/x', 'sh', ['C:\\Users\\Fakeuser\\.legion'], { env }), 'none');
 });
 
-test('the level decides: the mv and cp probes are level 2, so Smart would not ask on level alone; the guard cards them anyway', () => {
+test('the level decides: the mv and cp probes write outside the project, so they are level 3 and Smart asks on level too (the guard cards them as well)', () => {
   const lvl = (command: string) => classifySafe({ kind: 'approval', toolName: 'Bash', input: { command }, projectFolders: ['C:/work/projB'] }).level;
-  assert.equal(lvl('mv C:/Users/Fakeuser/AppData/Roaming/legion/gates/app.json C:/work/projB/x'), 2);
-  assert.equal(lvl('cp C:/work/projB/old.json C:/Users/Fakeuser/AppData/Roaming/legion/gates/app.json'), 2);
+  assert.equal(lvl('mv C:/Users/Fakeuser/AppData/Roaming/legion/gates/app.json C:/work/projB/x'), 3);
+  assert.equal(lvl('cp C:/work/projB/old.json C:/Users/Fakeuser/AppData/Roaming/legion/gates/app.json'), 3);
   assert.ok(lvl('cat C:/Users/Fakeuser/AppData/Roaming/legion/projects.json') <= 2);
 });
 
