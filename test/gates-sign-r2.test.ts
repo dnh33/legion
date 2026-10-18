@@ -180,6 +180,7 @@ test('N13: a project write while the list is lost does not write app.json: after
 test('N14: a key file that does not open: every project reads Ask and is listed, even with app.json and P deleted or blanked', async () => {
   const { root, dir } = await setup();
   rmSync(join(dir, 'app.json')); writeFileSync(join(dir, `${P}.json`), '{"version":1}');
+  writeFileSync(gatesKeyFilePath(root), 'wrapped, does not open'); // "a key file that does not open": the file is there
   const t = open(dir, { keyless: true, keyState: 'unreadable' });
   assert.equal(t.project(P).preset, 'ask');
   assert.equal(t.project(Q).preset, 'ask');

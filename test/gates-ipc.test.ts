@@ -5,7 +5,7 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gatesChange, parseGatesChange, resetGatesCancelForTests } from '../src/electron/gates-ipc.js';
@@ -135,7 +135,7 @@ test('with no keystore key a loosening is refused with the plain reason, and Ask
     assert.doesNotMatch(res.error ?? '', /this computer/i);
     assert.equal((await gatesChange({ kind: 'app', patch: { preset: 'ask' } }, r.deps)).ok, true);
   } finally { await r.close(); }
-  const u = await boot([true], { keyring: { get: () => undefined, state: () => 'unreadable' } });
+  const u = await boot([true], { keyring: { get: () => undefined, state: () => 'unreadable' }, prepare: (p) => { mkdirSync(p.data, { recursive: true }); writeFileSync(join(p.data, 'gates-key.bin'), 'wrapped, does not open'); } }); // the key file is there and does not open
   try {
     assert.match((await gatesChange({ kind: 'project', id: u.pid, patch: { preset: 'smart' } }, u.deps)).error ?? '', /could not open its settings key/);
     assert.equal(u.dialogs.length, 0);
