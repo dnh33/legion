@@ -71,20 +71,16 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
   useEffect(() => {
     const nav = snav.current;
     if (!nav) return;
-    let raf = 0;
     const read = (): void => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const more = nav.scrollWidth > nav.clientWidth + 1;
-        const next = { start: more && nav.scrollLeft > 1, end: more && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1 };
-        setEdge((e) => (e.start === next.start && e.end === next.end ? e : next));
-      });
+      const more = nav.scrollWidth > nav.clientWidth + 1;
+      const next = { start: more && nav.scrollLeft > 1, end: more && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1 };
+      setEdge((e) => (e.start === next.start && e.end === next.end ? e : next));
     };
     read();
     nav.addEventListener('scroll', read, { passive: true });
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read);
     ro?.observe(nav);
-    return () => { nav.removeEventListener('scroll', read); ro?.disconnect(); cancelAnimationFrame(raf); };
+    return () => { nav.removeEventListener('scroll', read); ro?.disconnect(); };
   }, []);
   const slide = (dir: 1 | -1): void => {
     const nav = snav.current;
