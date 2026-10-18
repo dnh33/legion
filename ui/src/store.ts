@@ -135,7 +135,7 @@ export function toast(text: string, kind: Toast['kind'] = 'info') {
     const same = s.toasts.find((t) => t.text === text && t.kind === kind);
     return { toasts: [...s.toasts.filter((t) => t !== same), { id, text, kind, n: (same?.n ?? 0) + 1 }].slice(-4) };
   });
-  window.setTimeout(() => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' || text.length > 70 ? 7000 : 3000);
+  window.setTimeout(() => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' || text.length > 40 ? 7000 : 3000);
 }
 const errText = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
