@@ -291,17 +291,22 @@ const fakePs = (dir: string, lines: string[] | 'fail'): string => {
   chmodSync(join(bin, 'ps'), 0o755);
   return px(bin);
 };
+// Git Bash on Windows rewrites an environment value that looks like a POSIX path (/home/u/...) into a Windows one when it starts a program
+// that is not its own; an awk earlier on the Windows PATH (the CI image has such tool folders) would then get C:/Program Files/Git/home/u/...
+// and never match. The test keeps the value as written, as Linux and macOS (the script's real systems) do. No effect off Windows.
+const KEEP_PAT = { MSYS2_ENV_CONV_EXCL: 'LEGION_RUN_PAT' };
+const awkAt = hasSh ? spawnSync('sh', ['-c', 'command -v awk'], { encoding: 'utf8' }).stdout.trim() : '';
 const running = (psDir: string, p: string): boolean => {
-  const r = spawnSync('sh', ['-c', `${STUBS}${fn('legion_running')}\nlegion_running "$1"`, 'sh', p], { encoding: 'utf8', env: { ...process.env, PATH: `${psDir}:${process.env.PATH}` } });
+  const r = spawnSync('sh', ['-c', `${STUBS}${fn('legion_running')}\nlegion_running "$1"`, 'sh', p], { encoding: 'utf8', env: { ...process.env, ...KEEP_PAT, PATH: `${psDir}:${process.env.PATH}` } });
   return r.status === 0;
 };
 
 test('running Legion: a process with the folder\'s Electron on its command line counts; another folder, a longer name, a missing or failing ps do not', { skip: skipSh }, () => {
   const w = tempDir('install-ps-');
   const d = '/home/u/.local/share/legion';
-  assert.equal(running(fakePs(w, ['/sbin/init', `${d}/node_modules/electron/dist/electron ${d}`]), d), true, 'Linux app process');
-  assert.equal(running(fakePs(w, [`${d}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ${d}`]), d), true, 'macOS app process');
-  assert.equal(running(fakePs(w, [`node ${d}/node_modules/electron/dist/electron --type=zygote`]), d), true, 'as an argument after a space');
+  assert.equal(running(fakePs(w, ['/sbin/init', `${d}/node_modules/electron/dist/electron ${d}`]), d), true, `Linux app process (awk: ${awkAt})`);
+  assert.equal(running(fakePs(w, [`${d}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ${d}`]), d), true, `macOS app process (awk: ${awkAt})`);
+  assert.equal(running(fakePs(w, [`node ${d}/node_modules/electron/dist/electron --type=zygote`]), d), true, `as an argument after a space (awk: ${awkAt})`);
   assert.equal(running(fakePs(w, [`${d}2/node_modules/electron/dist/electron ${d}2`]), d), false, 'a sibling folder with a longer name');
   assert.equal(running(fakePs(w, [`/other${d}/node_modules/electron/dist/electron`]), d), false, 'the same path under another prefix');
   assert.equal(running(fakePs(w, [`sh install.sh --dir ${d}`]), d), false, 'the installer itself');
@@ -363,8 +368,8 @@ test('a running Legion in the folder stops the installer before it touches node_
   writeFileSync(join(dir, 'node_modules', 'keep'), '1');
   const real = spawnSync('sh', ['-c', 'cd "$1" && pwd -P', 'sh', r.inst], { encoding: 'utf8' }).stdout.trim();
   const ps = fakePs(r.w, [`${real}/node_modules/electron/dist/electron ${real}`]);
-  const out = spawnSync('sh', [px(installSh), '--no-launch', '--dir', r.inst, '--version', '0.99.0'], { encoding: 'utf8', env: { ...r.env, PATH: `${ps}:${r.env.PATH}` } });
-  assert.notEqual(out.status, 0);
+  const out = spawnSync('sh', [px(installSh), '--no-launch', '--dir', r.inst, '--version', '0.99.0'], { encoding: 'utf8', env: { ...r.env, ...KEEP_PAT, PATH: `${ps}:${r.env.PATH}` } });
+  assert.notEqual(out.status, 0, `the installer stops (awk: ${awkAt}) ${String(out.stderr)}`);
   assert.match(out.stderr, /Legion is running from .* Close it/);
   assert.equal(existsSync(join(dir, 'node_modules', 'keep')), true, 'node_modules was not deleted');
 });

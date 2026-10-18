@@ -161,7 +161,7 @@ test('N4: when the resolver throws, the browser reads a stored-Full agent as Ask
   try {
     await t.call('browser_open', { url: 'https://a.test/' });
     assert.ok(r.cards.length >= 1, 'a throwing resolver must not leave the stored Full in charge');
-  } finally { await t.client.close(); }
+  } finally { await r.mod.dispose!(); await t.client.close(); } // dispose stops the browser it started (its idle timer would keep the test file open 5 minutes)
 });
 
 test('E8: a full run (fake Edge on Windows paths): the result names the browser, a card shows the first page, the run is tainted, the last run is recorded, and the process stops when the run ends', async () => {

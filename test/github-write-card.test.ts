@@ -5,7 +5,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ConnectorKeyring } from '../src/core/connectors/keyring.js';
 import { ApprovalBroker } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
@@ -130,7 +131,9 @@ test('no destructive verb is ever offered: merge, push, delete, branch are not t
 });
 
 test('only the registry and the gateway wiring name github-write-card in src', () => {
-  const hits = execFileSync('rg', ['-l', 'github-write-card', 'src'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean).map((p) => p.replace(/\\/g, '/')).sort();
+  // every file under src, read with node:fs (the CI machines have no ripgrep)
+  const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+  const hits = walk('src').filter((p) => readFileSync(p, 'utf8').includes('github-write-card')).map((p) => p.replace(/\\/g, '/')).sort();
   assert.deepEqual(hits, ['src/core/connectors/gateway.ts', 'src/shared/gates-registry.ts']);
 });
 
