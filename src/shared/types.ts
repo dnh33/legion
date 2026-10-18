@@ -131,6 +131,12 @@ export interface AgentProfile {
   approval: ApprovalMode;
   /** Where this agent's mode comes from (spec 4.2): its own `approval` ('own', and absent) or its project's preset ('project', "Follow project"). */
   approvalSource?: 'own' | 'project';
+  /**
+   * Set by the core only, on a seeded agent whose approval setting has never been changed by the owner: it still comes with Legion.
+   * ABSENT means "your choice" (an install from before this mark has none, so it shows no tags). The first change of approval or
+   * approvalSource clears it. Wording only: the engine never reads it and it never changes a run.
+   */
+  seedApproval?: true;
   /** Names of entries in LegionConfig.mcpServers this agent gets. ['*'] = all. */
   mcpServers: string[];
   /**

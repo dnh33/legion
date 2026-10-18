@@ -19,7 +19,7 @@ import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
 import { gatesChange } from './gates-ipc.js';
-import { agentModeChange } from './agent-mode-ipc.js';
+import { agentModeBatch, agentModeChange } from './agent-mode-ipc.js';
 import { projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
@@ -658,6 +658,11 @@ if (instance.quit) {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
     try { return await agentModeChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:agent-mode-batch', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.', applied: [] };
+    try { return await agentModeBatch(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.', applied: [] }; }
   });
   ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;

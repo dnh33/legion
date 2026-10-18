@@ -405,6 +405,8 @@ export function createServer(ctx: CoreContext): Server {
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };
     if (f.taskList === null) delete next.taskList;
+    // the first change of the approval setting is the owner's choice: the agent no longer "comes with Legion" (wording only; no run reads this)
+    if ((next.approval !== cur.approval || (next.approvalSource ?? 'own') !== (cur.approvalSource ?? 'own'))) delete next.seedApproval;
     if (f.githubWrite && f.githubWrite.length === 0) delete next.githubWrite;
     const saved = ctx.store.upsertAgent(next);
     ctx.bus.emit({ type: 'agent.updated', agent: saved });

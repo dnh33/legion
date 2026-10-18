@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('legion', {
   agentModeChange(change) {
     return ipcRenderer.invoke('legion:agent-mode-change', change);
   },
+  // First-run "Also make my agents follow this": many agents in one native confirmation; each change is still an ordinary guarded save.
+  agentModeBatch(batch) {
+    return ipcRenderer.invoke('legion:agent-mode-batch', batch);
+  },
   // Browser tool: choosing the browser program (Edge, Chrome) and local addresses. Main shows the native confirmation and holds the native secret.
   browserChange(change) {
     return ipcRenderer.invoke('legion:browser-change', change);
