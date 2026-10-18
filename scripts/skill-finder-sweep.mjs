@@ -1132,6 +1132,18 @@ export function ruleTextRound1() {
   ].join('\n');
 }
 
+/**
+ * A line about arm D's description path, or '' when D is not in the run. D that searched and never showed a description failed (its numbers
+ * are those of C); D that never searched did not exercise the path, which proves nothing either way.
+ */
+export function armDCheck(armRows) {
+  const d = armRows.find((a) => a.arm === 'D');
+  if (!d) return '';
+  if (d.searchCalled === 0) return 'Arm D did not search in this run, so its description path was not exercised.';
+  if (d.describedHits === 0) return '**Check failed.** Arm D searched but showed no description in any search answer, so its numbers are those of C.';
+  return '';
+}
+
 const sumBy = (records, arm, field) => records.filter((r) => r.arm === arm).reduce((a, r) => a + (r[field] ?? 0), 0);
 
 export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stopped, smoke }) {
@@ -1150,7 +1162,8 @@ export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stop
   out.push('## Arms', '', '| arm | calls | answered | skill called | search called | searches per call | strict gold hits | accepted gold hits | search lines with a description |', '|---|---|---|---|---|---|---|---|---|');
   for (const a of arms) out.push(`| ${a.arm} | ${a.calls} | ${a.answered} | ${a.skillCalled} | ${a.searchCalled} | ${a.searchesPerCall ?? 'n/a'} | ${a.goldHits} | ${a.acceptedHits} | ${a.describedHits} |`);
   out.push('');
-  if (result.describedHits.D !== undefined && result.describedHits.D === 0) out.push('**Check failed.** Arm D showed no description in any search answer, so its numbers are those of C.', '');
+  const dCheck = armDCheck(arms);
+  if (dCheck) out.push(dCheck, '');
   if (!smoke) {
     const sizeNote = (r) => `${r.accepted.pairs} pos / ${r.neg.pooled.n} neg`;
     out.push('## Results against ' + ROUND1_BASELINE, '', '| arm | size | pairs | strict gold C | strict gold arm | accepted gold C | accepted gold arm | accepted arm minus C | C only / arm only | McNemar p | false loads pooled C | false loads pooled arm | false searches pooled C | false searches pooled arm | tokens saved | passes |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');

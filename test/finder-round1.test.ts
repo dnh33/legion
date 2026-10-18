@@ -559,3 +559,44 @@ describe('round1: the smoke run on fakes', () => {
     assert.equal(readdirSync(root).length, 0);
   });
 });
+
+describe('round1: arm D through the server\'s own tools/call path', () => {
+  const via = async (server: any, query: string) => {
+    // A real MCP client over an in-memory pair: the call goes through the server's request dispatch, not straight to the handler.
+    const clientPath = '@modelcontextprotocol/sdk/client/index.js';
+    const memoryPath = '@modelcontextprotocol/sdk/inMemory.js';
+    const { Client } = await import(clientPath);
+    const { InMemoryTransport } = await import(memoryPath);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(serverSide);
+    const client = new Client({ name: 'round1-test', version: '1' });
+    await client.connect(clientSide);
+    try {
+      const res = await client.callTool({ name: 'armory_find', arguments: { query } });
+      return (res.content as any[])[0].text as string;
+    } finally {
+      await client.close();
+    }
+  };
+  it('returns descriptions for D and the id only for the other arms, through the dispatch', async () => {
+    const mods = await sweep.loadArmory();
+    const items = [{ name: 'pdf-export', description: 'Export invoices and reports to PDF files.​' }, { name: 'git-helper', description: 'Rebase, merge and resolve git conflicts.' }];
+    const search = sweep.makeSearch(mods, [{ size: 2, items }]);
+    let counted = 0;
+    const d = await via(search.buildServer(search.forSize(2, true, true), { describe: true, onDescribed: (n: number) => { counted += n; } }), 'export invoices to pdf');
+    assert.match(d, /^\d+ skill\(s\) may fit:\n- pdf-export \(third-party\): Export invoices and reports to PDF files\.$/m);
+    assert.ok(!d.includes('​'));
+    assert.ok(counted > 0, 'the wrapper ran on the dispatch path');
+    const c = await via(search.buildServer(search.forSize(2, true), {}), 'export invoices to pdf');
+    assert.ok(c.split('\n').slice(1).every((l) => /^- \S+ \(third-party\)$/.test(l)), 'C shows the id only');
+  });
+});
+
+describe('round1: the check on arm D', () => {
+  it('fails only when D searched and showed nothing; says "not exercised" when D never searched', () => {
+    assert.equal(sweep.armDCheck([{ arm: 'C', searchCalled: 5, describedHits: 0 }]), '');
+    assert.match(sweep.armDCheck([{ arm: 'D', searchCalled: 0, describedHits: 0 }]), /did not search.*not exercised/);
+    assert.match(sweep.armDCheck([{ arm: 'D', searchCalled: 3, describedHits: 0 }]), /^\*\*Check failed\.\*\*/);
+    assert.equal(sweep.armDCheck([{ arm: 'D', searchCalled: 3, describedHits: 7 }]), '');
+  });
+});
