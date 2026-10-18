@@ -15,10 +15,17 @@ The next agent owns the PR, the merge and the release.
    - the short list (with `SLIM_SEARCH_HINT`) is one switch away;
    - suggestions start off.
 
-   One gap is open. `SEARCH_HINT` is the measured hint's instruction sentence without its first sentence ("Your skill list shows short
-   descriptions."), because that first sentence is false on the full list. 11g measured the whole line on the full list (AFH). Run one
-   CI arm, full list + search + `SEARCH_HINT` against AFH, to confirm the shorter form keeps the gain. Use the `eval/catalog-sweep`
-   machinery and add the arm.
+   **Correction (2026-10-18, accuracy rounds 1 to 3):** the 11e to 11g runs were confounded. Every arm carried a probe line ("Use a skill
+   only if one clearly fits; otherwise answer briefly") that Legion never sends. Without it (round 1), `SEARCH_HINT` shows no measured
+   gain over no hint (74 against 69 accepted at 100 skills, not significant). The hint is harmless but unproven.
+
+   The measured winner is **MSL**: a middle hint plus a per-turn top-5 shortlist with a pick-one-or-none step. It exists only in the eval
+   harness so far. On 267 fresh prompts at 100 skills it scored +16.9 points (95% CI 11.5 to 22.2, p < 0.0001), with precision going
+   from 90.2 to 94.0 percent. But it made 6 wrong loads against 3 on 159 no-skill prompts, which fails the pre-set limit by one load.
+
+   The owner paused here to iterate later ("until we hit 100%"). The MSL default decision is pending. The full record, the exact
+   strings and the next steps are in Aetherkeep `06-projects/legion/skill-finder/accuracy-RESUME-2026-10-18.md` and on branch
+   `eval/catalog-sweep`.
 2. Do the packaged-app walk (`legion-live-render-check`), with a fresh LEGION_HOME and one real Claude run. It must show:
    - the local-model helper forks under packaged Electron (Get model, approval card, ready, Remove);
    - the first UserPromptSubmit fire has source `user` or `sdk`, so the library briefing arrives;
@@ -84,3 +91,12 @@ taint. With the short list on, plugin skills therefore lose their description ev
     fewer tokens. It passes the pre-registered rule from 10. Showing plugin skills as an id only costs little.
   - Size 10 has only 19 positives.
 - **The owner's choice:** best accuracy by default (the full list + the hint). The short list stays optional.
+- **Caveat:** every number from 11e to 11g above was measured with a probe line Legion never sends. See the correction under "Resume
+  here".
+- **Accuracy rounds 1 to 3** (runs 39132308172, 39138820950 and 39144702797; no probe line; plugin search hits shown by id only):
+  - **Round 1, at 100 skills:** the shipped hint scored 74 against 69 with no hint (not significant). A strong hint scored 85 but loaded
+    a skill on 27 of 99 no-skill prompts. Plugin descriptions in search scored 74.
+  - **Round 2:** MSL scored 80 against 73 (p 0.09), with wrong loads at C's level.
+  - **Round 3, confirmatory, 267 fresh prompts:** MSL scored 82.0 against 65.2 (+16.9 points, CI 11.5 to 22.2). Wrong loads were 6
+    against 3 of 159, failing the limit of at most C + 2. In 19 of MSL's misses the right skill was in the shortlist, shown only by its
+    id, and was not loaded.
