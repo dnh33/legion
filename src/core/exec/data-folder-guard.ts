@@ -22,7 +22,7 @@
  */
 import { homedir } from 'node:os';
 import { dirname, posix, win32 } from 'node:path';
-import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isOpaqueDevicePath } from './canonical-path.js';
+import { canonicalLocal, canonicalSet, foldCase, hitsCanonical, isHardlinkToProtected, isOpaqueDevicePath } from './canonical-path.js';
 
 export type ShellKindName = 'sh' | 'pwsh' | 'cmd';
 export type FolderHit = 'none' | 'names' | 'hidden';
@@ -249,7 +249,7 @@ function globHitsSet(raw: string, canon: readonly string[], cwd: string): boolea
   const rest = segs.slice(g).filter(Boolean);
   for (const t of canon) {
     const r = t.split(/[\\/]+/).filter(Boolean);
-    if (r.length < base.length || base.some((s, i) => s !== r[i])) continue;
+    if (r.length < base.length || base.some((s, i) => foldCase(s) !== foldCase(r[i]!))) continue;
     const tail = r.slice(base.length);
     const n = Math.min(tail.length, rest.length);
     let ok = true;
@@ -369,6 +369,8 @@ class Reader {
     else if (t.startsWith('~') && this.kind === 'sh') return 'hidden';
     if (this.kind === 'sh' && /\{[^}]*,[^}]*\}|\{\d+\.\.\d+\}/.test(t)) return 'hidden';
     if (WIN && this.kind === 'sh') t = t.replace(/^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?=\/|$)/, (_w, d: string) => `${d}:/`);
+    // PowerShell on Linux and macOS reads `\` as a folder separator too (its escape is the backtick)
+    if (!WIN && this.kind === 'pwsh') t = t.replace(/\\/g, '/');
     if (isOpaqueDevicePath(t)) return 'names';
     const rooted = P.isAbsolute(t) || /^[\\/]/.test(t);
     if (!rooted && where.cwds.length === 0) return 'hidden';
@@ -434,7 +436,8 @@ class Reader {
   /** The starting folder, or a folder that is not in, not above and not a protected entry: a `cd` there leaves the next call's relative words alone. */
   private provenOutside(cwd: string): boolean {
     try {
-      if (P.resolve(cwd).toLowerCase() === P.resolve(this.ctx.start).toLowerCase()) return true;
+      const same = (p: string): string => (WIN ? P.resolve(p).toLowerCase() : foldCase(P.resolve(p)));
+      if (same(cwd) === same(this.ctx.start)) return true;
       const c = canonicalLocal(cwd, { cwd: this.ctx.start });
       return !/~\d[\\/]/.test(c) && !hitsCanonical(c, this.ctx.canon, true);
     } catch { return false; }

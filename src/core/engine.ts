@@ -1820,7 +1820,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const base = this.gateCwd(agent, toolName, input);
     let canon: string[] | undefined; // worked out on the first path that is asked about: most tool calls never ask
     let names: string[] | undefined; // the file names under the key folders, read on the first glob that is asked about
-    const at = (p: string, cwd?: string): string => canonicalLocal(nativePath(p), { cwd: cwd ?? base });
+    // PowerShell reads `\` as a folder separator on Linux and macOS too, so there a `\` counts as one (a name that really holds a `\` asks, never the other way)
+    const own = (p: string): string => (process.platform === 'win32' ? nativePath(p) : p.replace(/\\/g, '/'));
+    const at = (p: string, cwd?: string): string => canonicalLocal(own(p), { cwd: cwd === undefined ? base : own(cwd) });
     const inside = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon); } catch { return false; } };
     const reaches = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon, true); } catch { return false; } };
     const globReaches = (glob: string): boolean => { names ??= secretFileNames(roots); return globMatchesAny(glob, names); };

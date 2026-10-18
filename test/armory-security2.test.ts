@@ -377,7 +377,8 @@ describe('M4: file tools cannot change the Armory folder', () => {
       assert.match(reasonOf(d), /only be changed by the owner/, tool);
     }
     assert.match(reasonOf(await runHooks(o, { tool_name: 'Write', tool_input: { file_path: join(deliveryRootOf(r.rig.dataDir), 'skills', 'x', 'SKILL.md') } })), /owner/);
-    assert.match(reasonOf(await runHooks(o, { tool_name: 'Write', tool_input: { file_path: target.toUpperCase().replace(/^([A-Z]):/, '$1:') } })), /owner/, 'case does not get around it on Windows');
+    // Windows and macOS disks ignore case, so another case is the same folder; on Linux it is another folder, which an agent may write
+    if (process.platform !== 'linux') assert.match(reasonOf(await runHooks(o, { tool_name: 'Write', tool_input: { file_path: target.toUpperCase().replace(/^([A-Z]):/, '$1:') } })), /owner/, 'case does not get around it on Windows or macOS');
     const rel = join(armory, '..', 'armory', 'armory.json');
     assert.match(reasonOf(await runHooks(o, { tool_name: 'Write', tool_input: { file_path: rel } })), /owner/, 'a path with .. is resolved');
     assert.deepEqual(await runHooks(o, { tool_name: 'Write', tool_input: { file_path: join(r.rig.dataDir, 'notes.txt') } }), { continue: true });

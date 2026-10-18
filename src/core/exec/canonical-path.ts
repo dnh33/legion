@@ -5,7 +5,8 @@
  * Folded into one spelling (Windows): `\\?\C:\x`, `\\?\UNC\localhost\c$\x`, `\\localhost\c$\x`, `//127.0.0.1/c$/x`, `\\[::1]\c$\x` and
  * `\\<this computer>\c$\x` become `c:\x`; trailing dots and spaces are dropped from every segment (`state.json. ` is `state.json`);
  * `.` and `..` are resolved; a relative path is resolved against `cwd`; short 8.3 names and junctions are replaced by the real
- * names, found through the deepest parent that exists; the result is lower case. A path that names a device by volume
+ * names, found through the deepest parent that exists; the result is lower case. Linux and macOS: resolved and real names only, in the
+ * case given (a Mac compare folds case in `hitsCanonical`). A path that names a device by volume
  * (`\\?\Volume{...}`, `\\.\GLOBALROOT`) has no local spelling: `isOpaqueDevicePath` says so and `isProtected` refuses it.
  */
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
@@ -118,7 +119,8 @@ function realParent(p: string): string {
   const tail: string[] = [];
   for (let i = 0; i < 64; i++) {
     if (existsSync(cur)) {
-      try { return dropPrefixes(join(realpathSync.native(cur), ...tail.reverse())); } catch { return p; }
+      // dropPrefixes is Windows only: it writes every `/` as `\`, so on Linux and macOS no path would ever be found inside a protected folder
+      try { const real = P.join(realpathSync.native(cur), ...tail.reverse()); return WIN ? dropPrefixes(real) : real; } catch { return p; }
     }
     const up = P.dirname(cur);
     if (up === cur) return p;
@@ -143,9 +145,17 @@ export const canonicalSet = (set: readonly string[]): string[] => set.map((t) =>
 
 const under = (c: string, r: string): boolean => c.startsWith(r.endsWith(P.sep) ? r : r + P.sep);
 
+/**
+ * A canonical path in the case its compare uses. Windows paths are lower case already. A Mac volume ignores case by default, so there
+ * `~/.LEGION/gates` is the same file as `~/.legion/gates` and the compare folds case (on a case-sensitive Mac volume this asks more, never less).
+ * Linux names are case-sensitive: another case is another file.
+ */
+export const foldCase = (c: string): string => (process.platform === 'darwin' ? c.toLowerCase() : c);
+
 /** Is canonical `c` a protected entry or inside one, or (with `above`) a folder that holds one (the data folder, the home folder, the drive root)? */
-export function hitsCanonical(c: string, canon: readonly string[], above = false): boolean {
-  return canon.some((r) => c === r || under(c, r) || (above && under(r, c)));
+export function hitsCanonical(c0: string, canon: readonly string[], above = false): boolean {
+  const c = foldCase(c0);
+  return canon.some((r0) => { const r = foldCase(r0); return c === r || under(c, r) || (above && under(r, c)); });
 }
 
 /** Is `p` one of the protected files or folders, or inside one? Every spelling counts; an opaque device path always does. */
