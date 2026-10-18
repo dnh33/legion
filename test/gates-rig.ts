@@ -49,6 +49,8 @@ export interface RigOptions {
   approvalTimeoutMs?: number;
   /** Names on the owner's keep list for the environment scrub (signed app file). */
   keep?: string[];
+  /** The agent a1 has Legion's own host shell on. */
+  host?: boolean;
   /** Task 28: a web search provider service over an in-memory key store and a fake fetch. Keys by id ('web:exa'); nothing here touches the network. */
   webSearch?: { cfg?: Partial<WebSearchConfig>; keys?: Record<string, string>; fetchImpl?: typeof fetch };
 }
@@ -77,6 +79,7 @@ export async function gatesRig(o: RigOptions = {}) {
   if (Object.keys(body).length) core.store.patchProject(r.project.id, body);
   const a1 = r.store.agents.get('a1')!;
   if (o.follow) a1.approvalSource = 'project';
+  if (o.host) a1.host = { enabled: true } as never;
   const task = r.start('a1', 'go');
   await pause(120);
   const origin: TaskOrigin | undefined = o.ceiling ? ({ roomId: 'r1', fromAgentId: 'x1', hop: 0, approvalCeiling: o.ceiling }) : undefined;

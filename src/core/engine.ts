@@ -1475,20 +1475,28 @@ export class Engine {
    * The one line that tells a run which environment variables Legion held back from its commands: NAMES only, never a value, and where the
    * owner can keep one. Empty when nothing was held back or the scrub is off. The names also go to the activity log, once per run.
    */
-  private heldBackNote(job: Job, agent: AgentProfile, act: Active): string {
+  private heldBackNote(job: Job, agent: AgentProfile, act: Active, consumers: { child: boolean; host: boolean }): string {
     try {
       const s = this.scrubFor(job);
       if (s.scrub === false) return '';
       const raw = scrubHostSessionEnv({ ...process.env });
+      const keep = s.keep ?? [];
+      // Worked out for each place a command can start: the Claude child keeps the cloud logins when the CLI is set up for them (buildChildEnv), the
+      // agent's host shell never does (buildHostShellEnv). The line lists the names either of them lacks, so it never says less than what happened.
       const providerAuth = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]);
-      const names = heldBackNames(raw, { keep: s.keep ?? [], providerAuth });
+      const all = new Set<string>([
+        ...(consumers.child ? heldBackNames(raw, { keep, providerAuth }) : []),
+        ...(consumers.host ? heldBackNames(raw, { keep }) : []),
+      ]);
+      const names = [...all].sort((x, y) => x.localeCompare(y));
       if (!names.length) return '';
       const shown = names.slice(0, 30).join(', ') + (names.length > 30 ? ` and ${names.length - 30} more` : '');
       if (!act.heldBackNoted) {
         act.heldBackNoted = true;
         this.activity?.append({ kind: 'note', text: `Held back from commands: ${shown}`, taskId: job.taskId, agentId: agent.id });
       }
-      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user. They can turn off "Keep keys and passwords out of commands" for the project in Settings, Gates.`;
+      const inProject = startProjectOf(job) !== undefined;
+      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why. ${inProject ? 'The user can pass them by turning off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.' : 'Outside a project they stay held back.'}`;
     } catch { return ''; }
   }
   private childScrubFor(job: Job): { scrub: false | ScrubOpts } {
@@ -2208,7 +2216,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
           + '\n\n' + renderTeamwork(servers)
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
-          + (() => { const t = this.heldBackNote(job, agent, act); return t ? '\n\n' + t : ''; })()
+          + (() => { const t = this.heldBackNote(job, agent, act, { child: true, host: agent.host?.enabled === true }); return t ? '\n\n' + t : ''; })()
           + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
@@ -2455,7 +2463,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + '\n\n' + renderTeamwork(allServers)
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) })
         // only the agent shell runs commands on a provider run, so only an agent with it has variables held back from anything
-        + (() => { const t = agent.host?.enabled ? this.heldBackNote(job, agent, act) : ''; return t ? '\n\n' + t : ''; })()
+        + (() => { const t = agent.host?.enabled ? this.heldBackNote(job, agent, act, { child: false, host: true }) : ''; return t ? '\n\n' + t : ''; })()
         + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()

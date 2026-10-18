@@ -37,6 +37,8 @@ test('I2: the preamble names the variables held back and where to keep one; no v
       assert.doesNotMatch(line, /EDITOR/);
       assert.match(line, /Settings, Gates/);
       assert.match(line, /Keep keys and passwords out of commands/, 'names the switch that exists today');
+      assert.match(line, /tell the user which one and why/);
+      assert.match(line, /for this project in Settings, Gates\. That passes all of them, not only one\./);
       assert.equal(p.includes(MARK), false, 'no value anywhere in the preamble');
       assert.equal(p.split('\n').filter((l) => l.includes('held back')).length, 1, 'one line');
     } finally { r.stop(); }
@@ -81,4 +83,36 @@ test('I2: the gate text says it also holds back settings that make a program loa
   const g = GATES.find((x) => x.id === 'env-scrub')!;
   assert.match(g.protects, /PYTHONPATH/); assert.match(g.protects, /NODE_OPTIONS/); assert.match(g.protects, /LD_LIBRARY_PATH/);
   assert.match(g.protects, /load other code/);
+});
+
+test('N1: outside a project the line has no switch to name: they stay held back', async () => {
+  await withEnv({ ...BASE, NPM_TOKEN: MARK }, async () => {
+    const r = await gatesRig({ own: 'ask' });
+    try {
+      const eng = r.engine as unknown as { heldBackNote(job: unknown, agent: unknown, act: unknown, consumers: { child: boolean; host: boolean }): string; active: Map<string, unknown> };
+      const outside = eng.heldBackNote({ ...(r.job as object), projectAtStart: undefined }, r.agent, eng.active.get(r.task.id), { child: true, host: false });
+      assert.match(outside, /^Legion held back these environment variables from your commands: NPM_TOKEN\. They look like keys, tokens or passwords, or they make a program load other code\. If a command needs one, tell the user which one and why\. Outside a project they stay held back\.$/);
+      assert.doesNotMatch(outside, /Settings, Gates/);
+      assert.equal(outside.includes(MARK), false);
+    } finally { r.stop(); }
+  });
+});
+
+test('N3: the names are worked out for each consumer: on a machine set up for a cloud login the host shell still holds the cloud login back', async () => {
+  const env = { ...BASE, CLAUDE_CODE_USE_BEDROCK: '1', AWS_SECRET_ACCESS_KEY: MARK, NPM_TOKEN: MARK };
+  await withEnv(env, async () => {
+    const withHost = await gatesRig({ own: 'ask', host: true });
+    try {
+      const line = prompt(withHost).split('\n').find((l) => l.includes('held back'))!;
+      assert.ok(line.includes('AWS_SECRET_ACCESS_KEY'), 'the host shell holds it back');
+      assert.ok(line.includes('NPM_TOKEN'));
+      assert.equal(line.includes(MARK), false);
+    } finally { withHost.stop(); }
+    const noHost = await gatesRig({ own: 'ask' });
+    try {
+      const line = prompt(noHost).split('\n').find((l) => l.includes('held back'))!;
+      assert.equal(line.includes('AWS_SECRET_ACCESS_KEY'), false, 'the Claude child keeps the cloud login it needs, so it is not listed without the host shell');
+      assert.ok(line.includes('NPM_TOKEN'));
+    } finally { noHost.stop(); }
+  });
 });
