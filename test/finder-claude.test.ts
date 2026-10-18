@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { isLegionTool } from '../src/core/approvals.js';
+import { SEARCH_HINT } from '../src/core/armory/finder/defaults.js';
 import { createUsageStore } from '../src/core/armory/finder/usage.js';
 import { HUMAN } from '../src/core/kg/types.js';
 import { init, ok, setup, toolUse, waitDone } from './library-fakes.js';
@@ -103,14 +104,18 @@ describe('finder on the Claude path', () => {
     assert.deepEqual(out, { continue: true });
   });
 
-  it('keeps the system prompt append byte-identical with the finder on and off', async () => {
+  it('keeps the system prompt append byte-identical with suggestions on and off (the note rides in the user turn)', async () => {
     const rig = await rigWith();
-    let on = ''; let off = '';
+    let on = ''; let off = ''; let noSearch = '';
     await drive(rig, PROMPT, async (o) => { on = o.systemPrompt.append; });
-    await rig.call('POST', '/api/armory/finder', { suggest: false, searchTool: false, slimListing: false });
+    await rig.call('POST', '/api/armory/finder', { suggest: false });
     await drive(rig, PROMPT, async (o) => { off = o.systemPrompt.append; });
     assert.ok(on.length > 0);
     assert.equal(on, off);
+    // the search tool's static hint is the only finder text in the append: switching search off removes exactly that line
+    await rig.call('POST', '/api/armory/finder', { searchTool: false });
+    await drive(rig, PROMPT, async (o) => { noSearch = o.systemPrompt.append; });
+    assert.equal(off.replace(`${SEARCH_HINT}\n\n`, ''), noSearch);
   });
 
   it('slim listing: off by default; true adds the keys; false drops them', async () => {

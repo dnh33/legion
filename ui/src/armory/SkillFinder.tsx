@@ -101,7 +101,7 @@ export function SkillFinder({ agents }: { agents: readonly AgentRef[] }) {
           {f.suggest === 'auto' && f.ranker !== 'local' ? <p className="set-hint arm-fdisc">{AUTO_NEEDS_LOCAL}</p> : null}
         </Row>
 
-        <Row id={id('search')} label="Search tool" help="Lets an agent search your skills by what it wants to do."
+        <Row id={id('search')} label="Search tool" help="Lets an agent search your skills by what it wants to do. Agents are told to search when no listed skill fits."
           control={<Switch label="Search tool" on={f.searchTool} describedBy={`${id('search')}-h`} onChange={(v) => { void setFinder({ searchTool: v }); }} />} />
 
         <Row id={id('slim')} label="Short skill list" help={<>{SLIM_HELP}{!f.searchTool ? <> <span className="arm-needs">{SLIM_NEEDS}</span></> : null}</>}

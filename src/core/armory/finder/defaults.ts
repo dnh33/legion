@@ -11,11 +11,17 @@
  */
 
 /**
- * The one line added to a Claude run's system prompt when the short skill list is on. Measured in the 11f eval: with this line the short list
- * beat the full list at every size tested, with about 48 percent fewer input tokens. Do not reword it; a test keeps it equal to the
- * eval's copy. The engine shows the tool to the model as mcp__legion_armory__armory_find; the eval used the short name and so does this line.
+ * The line added to a Claude run's system prompt when the short skill list is on. Measured (11f, 11g): with it, the short list matched or
+ * beat the full list plus search at 10 to 200 skills with 30 to 50 percent fewer input tokens. Do not reword it. The engine shows the
+ * tool to the model as mcp__legion_armory__armory_find; the eval used the short name and so does this line.
  */
 export const SLIM_SEARCH_HINT = 'Your skill list shows short descriptions. If no listed skill clearly fits, call armory_find with what you want to do before answering.';
+/**
+ * The line a Claude run with the search tool and the FULL skill list gets: the hint's instruction without its first sentence, which would
+ * be false there. 11g measured the whole hint on the full list (+7.6 to +13 points of right picks at 25 to 100 skills, about 10 percent
+ * more input tokens); this shorter form keeps the instruction word for word but is itself not yet measured.
+ */
+export const SEARCH_HINT = 'If no listed skill clearly fits, call armory_find with what you want to do before answering.';
 
 /** Weight of each field in the BM25F score. The id's parts count as part of `name`. */
 export const FIELD_WEIGHTS = { name: 3, description: 1.5, whenToUse: 1.5, headings: 0.5 } as const;

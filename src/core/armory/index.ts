@@ -33,7 +33,7 @@ import { armoryDir, readArmoryFile, removeSkillFolder, pluginRoot, sha256Of, upd
 import { applyFinderPatch, FinderInputError, finderFor, finderPatch, suggestOn } from './finder/settings.js';
 import { buildIndex, scoreIndex } from './finder/bm25.js';
 import type { FinderIndex } from './finder/bm25.js';
-import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, SLIM_SEARCH_HINT, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, SEARCH_FUSION_WEIGHT, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
+import { DEADLINE_MS, EMBED_QUERY_BUDGET_MS, SEARCH_HINT, SLIM_SEARCH_HINT, FUSED_THRESHOLDS, FUSION_WEIGHT, RAW_COSINE_FLOOR, SEARCH_FUSION_WEIGHT, RERANK_CANDIDATES, RERANK_MARGIN, THRESHOLDS } from './finder/defaults.js';
 import { cachedPassages, createVectorCache, MAX_NEW_PASSAGES, passageVectors } from './finder/embed.js';
 import type { Embedder, VectorCache } from './finder/embed.js';
 import { createFinderModel } from './finder/model.js';
@@ -420,9 +420,13 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       return { [ARMORY_SERVER_NAME]: buildArmoryServer(agent, job, catalog, searchTool ? findFor(agent, 'provider') : undefined) };
     },
 
-    // Static for a given agent and setting, so the prompt cache holds. A provider run has no Claude listing: no hint there.
+    // Static for a given agent and setting, so the prompt cache holds. A provider run has no Claude listing: no hint there. With the
+    // search tool on, a Claude run is told to search when nothing listed fits (owner, 2026-10-18: best accuracy by default).
     preamble(agent: AgentProfile, ctx?: PreambleContext): string {
-      return ctx?.runtime !== 'provider' && slimFor(agent, finderSettings(agent)) ? SLIM_SEARCH_HINT : '';
+      if (ctx?.runtime === 'provider') return '';
+      const f = finderSettings(agent);
+      if (!f.searchTool) return '';
+      return slimFor(agent, f) ? SLIM_SEARCH_HINT : SEARCH_HINT;
     },
 
     finderWiring(agent: AgentProfile): FinderWiring {
