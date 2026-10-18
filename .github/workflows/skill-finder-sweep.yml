@@ -32,7 +32,8 @@ jobs:
       - name: Run the sweep
         # The model token is scoped to this step only, so npm ci and the build never see it.
         # A .sweep-mode file on the branch picks the job: smoke (5 skills, three arms, under $0.10), smoke-round1 (3 arms, under $0.10), full-11e,
-        # accuracy-11f, followup-11g or round1 (accuracy round 1: sizes 25 and 100, five arms, $15 cap).
+        # accuracy-11f, followup-11g or round1 (accuracy round 1: sizes 25 and 100, five arms, $15 cap),
+        # smoke-round2 (arms SL and M, one positive and one negative, under $0.10) or round2 (accuracy round 2: the frozen round 1 sets in eval/round1-frozen.json, arms C, M, SL, MSL, H2, $15 cap).
         # With no file the default is accuracy-11f. A word that is not a mode fails the job before any model call.
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

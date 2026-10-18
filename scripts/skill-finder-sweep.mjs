@@ -7,22 +7,26 @@
  * has the full listing, arm S has the short list with the settings Legion passes. A hook records and denies every Skill call, so no
  * skill text loads. The logs are public: only counts and metrics are printed, never env, tokens, prompts or skill text.
  *
- * Six modes (a .sweep-mode file on the branch picks one; the default is accuracy-11f):
+ * Eight modes (a .sweep-mode file on the branch picks one; the default is accuracy-11f):
  *   smoke         5 skills, one short-list arm with the search tool, under $0.10. It proves the multi-turn path.
  *   round1        accuracy round 1: sizes 25 and 100, arms C, CL, H2, D, LH2 against C, hard negatives, an equivalence re-score of
  *                 the misses, a miss split, and the frozen prompt sets (round1-frozen.json).
+ *   round2        accuracy round 2: the frozen round 1 sets (eval/round1-frozen.json, read with --frozen-in), arms C, M, SL, MSL and H2.
+ *                 M is a middle hint; SL and MSL add a per-turn shortlist note from a UserPromptSubmit hook. M, SL and MSL are
+ *                 tested against C; H2 is a reference point.
+ *   smoke-round2  arms SL and M on one frozen positive and one frozen negative: proves the note reaches the model, under $0.10.
  *   smoke-round1  5 skills, arms C, D and LH2, one positive: proves the description wrapper of arm D and the logging, under $0.10.
  *   full-11e      the catalog-size sweep above (arms A and S, one turn, Skill tool only).
  *   followup-11g  size 10, 25, 40, 100; arms AF, AFH (full list + hint), SFH120, SFH120-TP (third-party search answers).
  *   accuracy-11f  the short list as Legion ships it: with the search tool (armory_find, Legion's own server and ranking),
  *                 up to 4 turns, a hint and a longer description cut tested against the full list plus search.
  *
- * usage: skill-finder-sweep.mjs [--mode name] [--mode-file path] [--smoke] [--cap usd] [--json file] [--frozen file]
+ * usage: skill-finder-sweep.mjs [--mode name] [--mode-file path] [--smoke] [--cap usd] [--json file] [--frozen file] [--frozen-in file]
  */
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inputTokens, mcnemar, round, runSkillCall, sample, wilson, writeFresh } from './lib/finder-shared.mjs';
 
 export const SEED = 20261018;
@@ -55,7 +59,7 @@ export const STRONG_HINT = `${LH2_HINT} If none fit, ${FIND_PHRASE}.`;
 
 // ---------- modes and arms ----------
 
-export const MODES = ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1'];
+export const MODES = ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1', 'round2', 'smoke-round2'];
 export const DEFAULT_MODE = 'accuracy-11f';
 export const ACCURACY_SIZES = [40, 60, 100, 200];
 export const ACCURACY_POSITIVES = 100;
@@ -132,6 +136,36 @@ export const ARMS_ROUND1 = [
   r1Arm('N', ''),
 ];
 export const ARMS_SMOKE_ROUND1 = [ARMS_ROUND1[0], ARMS_ROUND1[3], ARMS_ROUND1[4]];
+
+// ---------- round 2 ----------
+
+export const ROUND2_SIZES = ROUND1_SIZES;
+/** The middle hint of round 2: the shipped idea plus "say why you skipped one", without the strong hint's "even partly". */
+export const MIDDLE_HINT = `Before answering, check the skill list. Load a skill with the Skill tool when it clearly fits the task. If you skip a skill that looks relevant, say why in one line. If you are unsure whether one fits, ${FIND_PHRASE}.`;
+/** The per-turn note: the harness's top skills for the prompt, then a forced pick-one-or-none step. */
+export const SHORTLIST_SIZE = 5;
+export const SHORTLIST_HEAD = 'Skills that may fit this request:';
+export const SHORTLIST_FOOT = 'For each one, decide whether it clearly fits. If one does, load it with the Skill tool. If none does, answer without a skill.';
+/** The note text for a ranked list of skill ids (id only, as the third-party rule asks), or null when nothing ranked. */
+export function buildShortlistNote(ids, n = SHORTLIST_SIZE) {
+  const lines = ids.slice(0, n).map((id) => `- ${id}`);
+  return lines.length ? `${SHORTLIST_HEAD}\n${lines.join('\n')}\n${SHORTLIST_FOOT}` : null;
+}
+/** The round 2 rule: the same three tests as round 1, now with M, SL and MSL as the tested arms. Written before any result. */
+export const ROUND2_RULE = ROUND1_RULE;
+/**
+ * Round 2 arms: the full list plus armory_find, hits id-only, no probe line, as round 1 C. C is the control (the shipped hint). SL is C plus
+ * the shortlist note; MSL is M plus it. H2 is round 1's strong hint, a reference point only.
+ */
+export const ARMS_ROUND2 = [
+  r1Arm('C', SEARCH_HINT),
+  r1Arm('M', MIDDLE_HINT),
+  r1Arm('SL', SEARCH_HINT, { shortlist: true }),
+  r1Arm('MSL', MIDDLE_HINT, { shortlist: true }),
+  r1Arm('H2', STRONG_HINT),
+];
+export const ARMS_SMOKE_ROUND2 = [ARMS_ROUND2[2], ARMS_ROUND2[1]];
+const ROUND2_TESTED = ['M', 'SL', 'MSL'];
 
 /** The mode named in a .sweep-mode file. Empty text gives the default; an unknown word throws, so a typo never runs the wrong job. */
 export function parseSweepMode(text) {
@@ -590,7 +624,15 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
         let described = 0;
         const useSearch = arm.search ? search : null;
         const describe = arm.describeHits === true;
+        if (arm.shortlist && !useSearch) throw Object.assign(new Error('search'), { code: 'NO_SEARCH' });
         const find = useSearch?.forSize(it.size, arm.thirdParty === true, describe);
+        // Shortlist arms: the note is built inside the prompt hook from Legion's own ranking of the prompt. This ranking is not a model search.
+        let noteIds = null;
+        const rank = arm.shortlist ? useSearch.forSize(it.size, true, false) : null;
+        const noteFor = rank ? async (p) => {
+          noteIds = (await rank(String(p), SHORTLIST_SIZE)).slice(0, SHORTLIST_SIZE).map((h) => h.id);
+          return buildShortlistNote(noteIds);
+        } : null;
         const server = useSearch?.buildServer(async (q, limit) => {
           queries.push(String(q));
           const hits = await find(q, limit);
@@ -600,6 +642,7 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
         const rec = await runSkillCall(query, {
           model, prompt: it.prompt, cwd: workDir, append: arm.append,
           settings: arm.settings,
+          ...(noteFor ? { noteFor } : {}),
           ...(server ? { maxTurns: MAX_TURNS, mcpServers: { legion_armory: server }, allowedTools: [FIND_TOOL] } : {}),
           env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, '.claude') },
         });
@@ -611,6 +654,8 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
           hit, accepted: hit, tokens: inputTokens(rec.tokens), cost: rec.cost, error: rec.error ?? null,
           searches: searched.length, goldInTop5: it.kind === 'pos' && searched.some((ids) => ids.some((id) => isGold(id, it.gold))),
           listed: rec.init?.skills ?? null, listedDescribed: rec.init?.skillsDescribed ?? null, describedHits: described,
+          noteFired: rec.fired, noted: rec.noted, hookEvents: rec.hookEvents, noteSeen: rec.noteSeen, noteSize: noteIds ? noteIds.length : null,
+          goldInNote: it.kind === 'pos' && Boolean(noteIds?.some((id) => isGold(id, it.gold))),
         };
         Object.defineProperty(out, 'queries', { value: queries, enumerable: false });
         records.push(out);
@@ -1216,8 +1261,8 @@ export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stop
   return out.join('\n');
 }
 
-/** Everything after the arms of a round 1 run: the equivalence re-score, the comparison, the splits, the frozen sets. */
-async function finishRound1({ query, spend, records, items, arms, sizes, subsets, catalog, prompts, totalCap, stopped, isSmoke, common, work, log }) {
+/** Marks the positives that called another skill as accepted when a blind Sonnet judge says that skill solves the request in both orders. Returns the judge's counts. */
+async function applyEquivalence({ query, spend, records, items, catalog, work, log }) {
   const itemOf = new Map(items.map((it) => [`${it.size}|${it.kind}${it.i}`, it]));
   const descByName = new Map(catalog.skills.map((s) => [s.name, s.description]));
   const altKey = (rec) => {
@@ -1234,6 +1279,12 @@ async function finishRound1({ query, spend, records, items, arms, sizes, subsets
   }
   const { verdicts, stats: equivalence } = await judgeEquivalence({ query, spend, pairs: [...pairs.values()], describe: (n) => descByName.get(n), cwd: work, log });
   for (const rec of records) if (needsJudge(rec)) rec.accepted = verdicts.get(altKey(rec)) === 'yes';
+  return equivalence;
+}
+
+/** Everything after the arms of a round 1 run: the equivalence re-score, the comparison, the splits, the frozen sets. */
+async function finishRound1({ query, spend, records, items, arms, sizes, subsets, catalog, prompts, totalCap, stopped, isSmoke, common, work, log }) {
+  const equivalence = await applyEquivalence({ query, spend, records, items, catalog, work, log });
 
   const names = arms.map((a) => a.name);
   const rows = {};
@@ -1263,6 +1314,158 @@ async function finishRound1({ query, spend, records, items, arms, sizes, subsets
   return { summary, result, frozen };
 }
 
+// ---------- round 2: frozen sets, precision, the check, the report ----------
+
+/** Reads the frozen file text. Throws BAD_FROZEN (a code, no text from the file) for anything but the round 1 shape. */
+export function loadFrozen(text) {
+  const bad = () => Object.assign(new Error('frozen file'), { code: 'BAD_FROZEN' });
+  let f;
+  try { f = JSON.parse(String(text)); } catch { throw bad(); }
+  const strings = (x) => Array.isArray(x) && x.every((v) => typeof v === 'string');
+  if (!f || f.version !== 1 || f.seed !== SEED || !Array.isArray(f.sizes) || !f.catalog || !f.positives || !f.negatives) throw bad();
+  for (const size of f.sizes) {
+    if (!strings(f.catalog[size])) throw bad();
+    if (!Array.isArray(f.positives[size]) || !f.positives[size].every((p) => p && typeof p.prompt === 'string' && typeof p.gold === 'string')) throw bad();
+  }
+  for (const k of ['easy', 'hard', 'ambiguous']) if (!strings(f.negatives[k])) throw bad();
+  return f;
+}
+
+/** The skills of each frozen size, picked by name from the fetched catalog in the frozen order. A name that is gone fails the job before any model call. */
+export function selectFrozenSubsets(skills, frozen, sizes) {
+  const byName = new Map(skills.map((s) => [s.name, s]));
+  const missing = new Set();
+  for (const size of sizes) for (const n of frozen.catalog[size] ?? []) if (!byName.has(n)) missing.add(n);
+  if (missing.size) throw Object.assign(new Error(`${missing.size} frozen skills are not in the catalog`), { code: 'FROZEN_MISSING' });
+  return sizes.map((size) => ({ size, items: frozen.catalog[size].map((n) => byName.get(n)) }));
+}
+
+/** Smoke run: one positive at one size and one easy negative. */
+export function trimFrozen(frozen, size) {
+  return { ...frozen, sizes: [size], catalog: { [size]: frozen.catalog[size] }, positives: { [size]: frozen.positives[size].slice(0, 1) }, negatives: { easy: frozen.negatives.easy.slice(0, 1), hard: [], ambiguous: [] } };
+}
+
+/**
+ * Where an arm's loads were right. Right loads are accepted ones (the gold skill, or an alternative the judge accepts); strict counts the gold skill only.
+ * Negatives: loads on the pooled easy + hard ones; ambiguous apart.
+ */
+export function precisionLine(records, size, arm) {
+  const mine = records.filter((r) => r.size === size && r.arm === arm);
+  const pos = mine.filter((r) => r.kind === 'pos');
+  const loads = pos.filter((r) => r.called);
+  const neg = mine.filter((r) => r.kind === 'neg');
+  const pooled = neg.filter((r) => r.bucket === 'easy' || r.bucket === 'hard');
+  const amb = neg.filter((r) => r.bucket === 'ambiguous');
+  const rightLoads = loads.filter((r) => r.accepted).length;
+  return {
+    positives: pos.length, allLoads: loads.length, rightLoads, strictRight: loads.filter((r) => r.hit).length,
+    precision: loads.length ? rightLoads / loads.length : null, acceptedRate: pos.length ? pos.filter((r) => r.accepted).length / pos.length : null,
+    strictRate: pos.length ? pos.filter((r) => r.hit).length / pos.length : null,
+    negLoads: pooled.filter((r) => r.called).length, negN: pooled.length, ambLoads: amb.filter((r) => r.called).length, ambN: amb.length,
+  };
+}
+
+export function ruleTextRound2() {
+  const r = ROUND2_RULE;
+  return [
+    'Pre-registered rule (written before any result):',
+    `Each tested arm (M, SL and MSL) is compared with ${ROUND1_BASELINE} (the full listing plus armory_find plus the shipped hint) on the same frozen prompts from round 1, paired. Search hits show every skill as third-party (the id only). No arm has a probe line.`,
+    "M is a middle hint. SL is C plus a per-turn note from a UserPromptSubmit hook: the top 5 skills of Legion's keyword ranking for the prompt, ids only, then a pick-one-or-none step. MSL is M plus the same note. H2 is round 1's strong hint: a reference point, report only.",
+    'Accepted gold counts the first Skill call as right when it names the gold skill, or another skill that a blind Sonnet judge accepts in both orders. Strict gold is printed beside it; the rule uses accepted gold.',
+    'An arm passes when all of these hold:',
+    `1. at ${r.bigSize} skills its accepted gold is at least ${r.minGoldDiff * 100} points above ${ROUND1_BASELINE}, with McNemar p < ${r.mcnemarAlpha} (two-sided exact test on the paired positives, the gain on the arm's side);`,
+    `2. at ${r.smallSize} skills its accepted gold is not lower than ${ROUND1_BASELINE}'s by more than one item;`,
+    `3. at both sizes its false loads (a Skill call on a negative) on the pooled negatives, easy and hard, are at most ${ROUND1_BASELINE} + ${r.maxExtraFalseLoads}. The ambiguous bucket and false searches are reported apart.`,
+    'Also printed, per arm and size, for the trade-off curve: right loads / all loads on positives (precision), and loads on negatives / negatives.',
+  ].join('\n');
+}
+
+/** A line about the note path, or '' when no shortlist arm ran. The note reached the model only if the hook fired, built a note, and the stream shows it. */
+export function shortlistCheck(armRows) {
+  const rows = armRows.filter((a) => a.arm === 'SL' || a.arm === 'MSL');
+  if (!rows.length) return '';
+  const sum = (f) => rows.reduce((t, a) => t + (a[f] ?? 0), 0);
+  const [fired, built, seen, events] = [sum('hookFired'), sum('notesBuilt'), sum('noteSeen'), sum('hookEvents')];
+  if (fired === 0) return '**Check failed.** The prompt hook never fired in the shortlist arms, so SL and MSL ran as C and M.';
+  if (built === 0) return `**Check failed.** The prompt hook fired ${fired} times but no note was built (no skill ranked for any prompt), so SL and MSL ran as C and M.`;
+  if (seen === 0 && events === 0) return `The hook fired ${fired} times and returned ${built} notes, but the note was not shown in the message stream, so delivery is not proven by the stream.`;
+  if (seen === 0) return `The hook fired ${fired} times and returned ${built} notes; the stream shows ${events} hook events but not the note text.`;
+  return `The note reached the model: the hook fired ${fired} times, returned ${built} notes, and the message stream shows the note ${seen} times (${events} hook events).`;
+}
+
+export function renderSummaryRound2({ result, catalog, prompts, spend, cap, stopped, smoke }) {
+  const out = [];
+  const { rows, decision, arms, missSplit: splits, equivalence: eq, trade, sizes } = result;
+  const f1 = (x) => (x === null || x === undefined ? 'n/a' : `${(x * 100).toFixed(1)}%`);
+  out.push('# Skill finder: accuracy round 2', '');
+  if (smoke) out.push('**Smoke run.** It proves the note path end to end. These numbers are not a result.', '');
+  out.push('```', ruleTextRound2(), '```', '');
+  out.push('## Catalog', `- source: ${catalog.source}`, `- skills fetched: ${catalog.counts.fetched}`, '');
+  const s = prompts.stats;
+  out.push('## Prompts', `- the frozen sets of round 1, not regenerated: positives ${Object.entries(s.positives).map(([k, v]) => `${v} at ${k} skills`).join(', ')}`, `- negatives: ${s.easy} easy, ${s.hard} hard, ${s.ambiguous} ambiguous (reported apart)`, '');
+  out.push('## Spend', `- $${round(spend.spent)} of the $${cap} cap over ${spend.calls} calls${stopped ? '; the run stopped at the cap, so later items did not run' : ''}`, '');
+  out.push('## Equivalence re-score', `- distinct (request, called skill) pairs: ${eq.pairs}; accepted ${eq.accepted}, rejected ${eq.rejected}, called skill not in the catalog ${eq.unknown}, not judged ${eq.unjudged}`, '- a Sonnet judge, blind to the arm, run twice with the order swapped; a pair is accepted only if both runs say yes', '');
+  out.push('## Arms', '', '| arm | calls | answered | skill called | search called | searches per call | strict gold hits | accepted gold hits | hook fired | notes built | note seen in stream | hook events |', '|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const a of arms) out.push(`| ${a.arm} | ${a.calls} | ${a.answered} | ${a.skillCalled} | ${a.searchCalled} | ${a.searchesPerCall ?? 'n/a'} | ${a.goldHits} | ${a.acceptedHits} | ${a.hookFired} | ${a.notesBuilt} | ${a.noteSeen} | ${a.hookEvents} |`);
+  out.push('');
+  const check = shortlistCheck(arms);
+  if (check) out.push(check, '');
+  if (!smoke) {
+    out.push('## Results against ' + ROUND1_BASELINE, '', '| arm | size | pairs | accepted gold C | accepted gold arm | arm minus C | C only / arm only | McNemar p | false loads pooled C | false loads pooled arm | false searches pooled C | false searches pooled arm | passes |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const arm of Object.keys(rows)) {
+      for (const r of rows[arm]) {
+        const a = r.accepted;
+        const pass = decision.arms.find((d) => d.arm === arm)?.sizes.find((x) => x.size === r.size)?.pass;
+        out.push(`| ${arm} | ${r.size} | ${a.pairs} pos / ${r.neg.pooled.n} neg | ${f1(a.rateBase)} | ${f1(a.rateArm)} | ${a.diff === null ? 'n/a' : `${(a.diff * 100).toFixed(1)} pts`} | ${a.table.aOnly} / ${a.table.sOnly} | ${a.mcnemarP} | ${r.neg.pooled.loadsBase} | ${r.neg.pooled.loadsArm} | ${r.neg.pooled.searchesBase} | ${r.neg.pooled.searchesArm} | ${arm === 'H2' ? 'report only' : pass ? 'yes' : 'no'} |`);
+      }
+    }
+    out.push('', '## Trade-off (C, M, SL, MSL and H2 on one table)', '', '| arm | size | positives | accepted gold | strict gold | right loads / all loads on positives | precision | loads on negatives / negatives | ambiguous loads / ambiguous |', '|---|---|---|---|---|---|---|---|---|');
+    for (const t of trade) out.push(`| ${t.arm} | ${t.size} | ${t.positives} | ${f1(t.acceptedRate)} | ${f1(t.strictRate)} | ${t.rightLoads} / ${t.allLoads} | ${f1(t.precision)} | ${t.negLoads} / ${t.negN} | ${t.ambLoads} / ${t.ambN} |`);
+    out.push('', '## Misses (accepted gold)', '', '| arm | size | positives | strict misses | no call, no search | no call, searched | accepted alternative | wrong skill | searched but gold not in top 5 | gold in top 5 but not loaded | gold in the note but not loaded |', '|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const m of splits) out.push(`| ${m.arm} | ${m.size} | ${m.positives} | ${m.misses} | ${m.noCallNoSearch} | ${m.noCallSearched} | ${m.acceptedAlternative} | ${m.wrongSkill} | ${m.searchedGoldNotTop5} | ${m.goldTop5NotLoaded} | ${m.goldInNoteNotLoaded} |`);
+    out.push('', '## Negatives (false loads and false searches, of n)', '', '| arm | size | easy loads | easy searches | hard loads | hard searches | ambiguous loads (not pooled) | ambiguous searches |', '|---|---|---|---|---|---|---|---|');
+    const kinds = ['easy', 'hard', 'ambiguous'];
+    for (const size of sizes) {
+      const any = Object.values(rows)[0]?.find((x) => x.size === size);
+      if (any) out.push(`| ${ROUND1_BASELINE} | ${size} | ${kinds.map((k) => `${any.neg[k].loadsBase} of ${any.neg[k].n} | ${any.neg[k].searchesBase} of ${any.neg[k].n}`).join(' | ')} |`);
+      for (const arm of Object.keys(rows)) {
+        const r = rows[arm].find((x) => x.size === size);
+        if (r) out.push(`| ${arm} | ${size} | ${kinds.map((k) => `${r.neg[k].loadsArm} of ${r.neg[k].n} | ${r.neg[k].searchesArm} of ${r.neg[k].n}`).join(' | ')} |`);
+      }
+    }
+    out.push('', '## Decision');
+    for (const d of decision.arms) out.push(`- ${d.arm}: ${d.pass ? 'passes' : `does not pass (${d.reasons.join('; ')})`}`);
+    out.push(decision.passing.length ? `Passing arms: ${decision.passing.join(', ')}.` : 'No arm passes the rule.', '- H2: report only, a reference point for the trade-off.');
+  }
+  out.push('', '## Limits', "- The positives are written by a model from each skill's description, then graded. The skills are all personal skills in a temp HOME; the model also sees Claude Code's own built-in skills in every arm.", "- The note ranks the prompt text with Legion's keyword ranker over the size's skills, with no score floor; a prompt that ranks nothing gets no note.", "- The negatives are synthetic. The owner's own no-skill prompts are not part of this run (the repository is public): a gap.", '- Input tokens are the sum over all turns of fresh, cache-read and cache-write tokens.', '- Arms carry only their hint (no probe line), as round 1; hits show the id and "(third-party)".');
+  return out.join('\n');
+}
+
+/** Everything after the arms of a round 2 run. No frozen file is written: the sets are read, not made. */
+async function finishRound2({ query, spend, records, items, arms, sizes, catalog, prompts, totalCap, stopped, isSmoke, common, work, log }) {
+  const equivalence = await applyEquivalence({ query, spend, records, items, catalog, work, log });
+  const names = arms.map((a) => a.name);
+  const rows = {};
+  if (!isSmoke) for (const a of arms) if (a.name !== ROUND1_BASELINE) rows[a.name] = sizes.map((size) => compareRound1(records, size, ROUND1_BASELINE, a.name));
+  const decision = isSmoke ? { arms: [], passing: [] } : decideRound1(Object.fromEntries(Object.entries(rows).filter(([arm]) => ROUND2_TESTED.includes(arm))));
+  const splits = [];
+  for (const name of names) {
+    for (const size of sizes) {
+      const miss = records.filter((r) => r.size === size && r.arm === name && r.kind === 'pos' && !r.hit);
+      splits.push({ arm: name, size, ...missSplit(records, size, name), goldInNoteNotLoaded: miss.filter((r) => r.goldInNote).length });
+    }
+  }
+  const trade = [];
+  if (!isSmoke) for (const size of sizes) for (const name of names) trade.push({ arm: name, size, ...precisionLine(records, size, name) });
+  const armRows = armStats(records, names).map((a) => ({
+    ...a, acceptedHits: records.filter((r) => r.arm === a.arm && r.accepted).length,
+    hookFired: sumBy(records, a.arm, 'noteFired'), notesBuilt: sumBy(records, a.arm, 'noted'), noteSeen: sumBy(records, a.arm, 'noteSeen'), hookEvents: sumBy(records, a.arm, 'hookEvents'),
+  }));
+  const result = { ...common, smoke: isSmoke, rule: ROUND2_RULE, sizes, arms: armRows, rows, decision, missSplit: splits, trade, equivalence };
+  const summary = renderSummaryRound2({ result, catalog, prompts, spend, cap: totalCap, stopped, smoke: isSmoke });
+  return { summary, result };
+}
+
 // ---------- the whole run ----------
 
 /** The arms' share of what is left after the prompts: the equivalence judge's reserve stays untouched, so accepted gold can always be scored. */
@@ -1272,12 +1475,14 @@ export function armBudget(spend, totalCap) {
 
 /** One planned set of items: the interleaved order (position 0 of every size, then 1 ...; positives and negatives alternate in a size). */
 export function planItems(subsets, prompts, posCap, negCap, base, extra = {}) {
+  const fz = extra.frozen ?? null;
   const posOrder = sample(prompts.positives, prompts.positives.length, SEED);
   const negOrder = sample(prompts.negatives, prompts.negatives.length, SEED + 1);
   // One fixed pool of negatives, the same at every size: the easy ones in their own order, with the hard and ambiguous ones (round 1) mixed in.
-  const easy = negOrder.slice(0, negCap).map((prompt) => ({ prompt, bucket: 'easy' }));
-  const hardL = sample(extra.hard ?? [], (extra.hard ?? []).length, SEED + 2).slice(0, ROUND1_HARD_NEGATIVES).map((prompt) => ({ prompt, bucket: 'hard' }));
-  const ambL = sample(extra.amb ?? [], (extra.amb ?? []).length, SEED + 3).slice(0, ROUND1_AMBIGUOUS_MAX).map((prompt) => ({ prompt, bucket: 'ambiguous' }));
+  // Frozen sets (round 2) keep their stored order and are never reshuffled.
+  const easy = (fz ? fz.negatives.easy : negOrder).slice(0, negCap).map((prompt) => ({ prompt, bucket: 'easy' }));
+  const hardL = (fz ? fz.negatives.hard : sample(extra.hard ?? [], (extra.hard ?? []).length, SEED + 2)).slice(0, ROUND1_HARD_NEGATIVES).map((prompt) => ({ prompt, bucket: 'hard' }));
+  const ambL = (fz ? fz.negatives.ambiguous : sample(extra.amb ?? [], (extra.amb ?? []).length, SEED + 3)).slice(0, ROUND1_AMBIGUOUS_MAX).map((prompt) => ({ prompt, bucket: 'ambiguous' }));
   const pool = [];
   const span = Math.max(easy.length, hardL.length);
   for (let k = 0; k < span; k++) {
@@ -1292,7 +1497,7 @@ export function planItems(subsets, prompts, posCap, negCap, base, extra = {}) {
     const names = new Set(sub.items.map((s) => s.name));
     return {
       size: sub.size,
-      pos: posOrder.filter((p) => names.has(p.gold)).slice(0, posCap).map((p, i) => ({ size: sub.size, i, kind: 'pos', prompt: p.prompt, gold: p.gold })),
+      pos: (fz ? (fz.positives[sub.size] ?? []) : posOrder.filter((p) => names.has(p.gold))).slice(0, posCap).map((p, i) => ({ size: sub.size, i, kind: 'pos', prompt: p.prompt, gold: p.gold })),
       neg: pool.map((n, i) => ({ size: sub.size, i, kind: 'neg', prompt: n.prompt, gold: null, bucket: n.bucket })),
     };
   });
@@ -1312,49 +1517,54 @@ export function planItems(subsets, prompts, posCap, negCap, base, extra = {}) {
   return { items, homes };
 }
 
-/** mode: 'smoke' | 'full-11e' | 'accuracy-11f' | 'followup-11g' | 'round1' | 'smoke-round1'. The old `smoke: true` still means the smoke mode. */
-export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mode = smoke ? 'smoke' : 'full-11e', cap, root, log = console.log, sleep, armory }) {
+/** mode: 'smoke' | 'full-11e' | 'accuracy-11f' | 'followup-11g' | 'round1' | 'smoke-round1' | 'round2' | 'smoke-round2'. The old `smoke: true` still means the smoke mode. */
+export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mode = smoke ? 'smoke' : 'full-11e', cap, root, log = console.log, sleep, armory, frozen: frozenIn = null }) {
   if (!MODES.includes(mode)) throw Object.assign(new Error('mode'), { code: 'BAD_MODE' });
   const isR1 = mode === 'round1' || mode === 'smoke-round1';
-  const isSmoke = mode === 'smoke' || mode === 'smoke-round1';
+  const isR2 = mode === 'round2' || mode === 'smoke-round2';
+  const isSmoke = mode === 'smoke' || mode === 'smoke-round1' || mode === 'smoke-round2';
+  // Round 2 reads the frozen round 1 sets; without them it cannot run, and it must not make new ones.
+  if (isR2 && !frozenIn) throw Object.assign(new Error('frozen sets'), { code: 'NO_FROZEN' });
   const is11g = mode === 'followup-11g';
-  const is11f = mode === 'accuracy-11f' || is11g || isR1; // these use the multi-turn search arms, the 100/60 caps and concurrency 6
+  const is11f = mode === 'accuracy-11f' || is11g || isR1 || isR2; // these use the multi-turn search arms, the 100/60 caps and concurrency 6
   const totalCap = cap ?? (isSmoke ? 0.1 : is11f ? ACCURACY_CAP_USD : CAP_USD);
   const base = mkdtempSync(join(root ?? tmpdir(), 'finder-sweep-'));
   try {
     const spend = makeSpend(totalCap);
     const prep = makeSpend(totalCap * (isSmoke ? 0.7 : PREP_SHARE), spend);
-    const target = isSmoke ? 5 : CATALOG_TARGET;
+    const target = isSmoke && !isR2 ? 5 : CATALOG_TARGET; // round 2 picks its skills by name from the full catalog
     const catalog = await buildCatalog({ fetch: fetchFn, token, target, sleep, log });
     log(`catalog: ${catalog.skills.length} skills from ${catalog.source}`);
     if (catalog.skills.length < Math.min(target, 5)) throw Object.assign(new Error('catalog too small'), { code: 'CATALOG' });
     // The subsets nest over the whole 400, as in 11e, so a size holds the same skills as in that run.
-    const sizes = isSmoke ? [Math.min(5, catalog.skills.length)] : (isR1 ? ROUND1_SIZES : is11g ? FOLLOWUP_SIZES : is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
+    const fz = isR2 ? (isSmoke ? trimFrozen(frozenIn, frozenIn.sizes[0]) : frozenIn) : null;
+    const sizes = isR2 ? fz.sizes : isSmoke ? [Math.min(5, catalog.skills.length)] : (isR1 ? ROUND1_SIZES : is11g ? FOLLOWUP_SIZES : is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
     // A catalog a little short of 400 still gets its own top size, so the largest size is never silently dropped.
     if (mode === 'full-11e' && catalog.skills.length > sizes[sizes.length - 1]) sizes.push(catalog.skills.length);
     // A catalog smaller than the smallest size cannot be measured; say so instead of running on nothing.
     if (sizes.length === 0) throw Object.assign(new Error('catalog too small'), { code: 'CATALOG' });
-    const subsets = nestedSubsets(catalog.skills, sizes);
+    const subsets = isR2 ? selectFrozenSubsets(catalog.skills, fz, sizes) : nestedSubsets(catalog.skills, sizes);
     const work = join(base, 'work');
     mkdirSync(work, { recursive: true });
     // Prompts are needed only for the skills of the largest size, since every smaller size sits inside it.
     const promptSkills = is11f ? subsets[subsets.length - 1].items : catalog.skills;
-    const prompts = await makePrompts({ query, spend: prep, skills: promptSkills, perSkill: 2, negWanted: isSmoke ? 2 : NEGATIVES_WANTED, hard: isR1 && !isSmoke, cwd: work, log });
+    const prompts = isR2 ? { positives: [], negatives: [], stats: { frozen: true, positives: Object.fromEntries(sizes.map((z) => [z, fz.positives[z].length])), easy: fz.negatives.easy.length, hard: fz.negatives.hard.length, ambiguous: fz.negatives.ambiguous.length, negKept: fz.negatives.easy.length } } : await makePrompts({ query, spend: prep, skills: promptSkills, perSkill: 2, negWanted: isSmoke ? 2 : NEGATIVES_WANTED, hard: isR1 && !isSmoke, cwd: work, log });
     // The smoke run asks one positive prompt, so each of its three arms makes exactly one call.
-    const posCap = isSmoke ? 1 : is11f ? ACCURACY_POSITIVES : POSITIVES_PER_SIZE;
-    const negCap = isSmoke ? 0 : is11f ? ACCURACY_NEGATIVES : NEGATIVES_PER_SIZE;
-    const { items, homes } = planItems(subsets, prompts, posCap, negCap, base, isR1 ? { hard: prompts.hard, amb: prompts.ambiguous, proportional: true } : {});
+    const posCap = isSmoke && !isR2 ? 1 : is11f ? ACCURACY_POSITIVES : POSITIVES_PER_SIZE;
+    const negCap = isSmoke && !isR2 ? 0 : is11f ? ACCURACY_NEGATIVES : NEGATIVES_PER_SIZE;
+    const { items, homes } = planItems(subsets, prompts, posCap, negCap, base, isR2 ? { frozen: fz, proportional: true } : isR1 ? { hard: prompts.hard, amb: prompts.ambiguous, proportional: true } : {});
     log(`arms: ${items.length} items over sizes ${sizes.join(', ')}`);
 
-    const arms = isR1 ? (isSmoke ? ARMS_SMOKE_ROUND1 : ARMS_ROUND1) : mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : is11g ? ARMS_11G : ARMS_11F;
+    const arms = isR2 ? (isSmoke ? ARMS_SMOKE_ROUND2 : ARMS_ROUND2) : isR1 ? (isSmoke ? ARMS_SMOKE_ROUND1 : ARMS_ROUND1) : mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : is11g ? ARMS_11G : ARMS_11F;
     const search = arms.some((a) => a.search) ? makeSearch(armory ?? await loadArmory(), subsets) : null;
-    const armSpend = isR1 && !isSmoke ? armBudget(spend, totalCap) : spend;
+    const armSpend = (isR1 || isR2) && !isSmoke ? armBudget(spend, totalCap) : spend;
     const { records, stopped } = await runArms({ query, spend: armSpend, items, homes, arms, search, concurrency: is11f ? ACCURACY_CONCURRENCY : PROBE_CONCURRENCY, workDir: work, log });
     const common = {
       seed: SEED, mode, cap: totalCap, spentUsd: round(spend.spent), calls: spend.calls, stoppedAtCap: stopped,
       armCalls: records.length, armAnswered: records.filter((r) => r.error === null).length,
       catalog: { source: catalog.source, ...catalog.counts }, prompts: prompts.stats,
     };
+    if (isR2) return await finishRound2({ query, spend, records, items, arms, sizes, catalog, prompts, totalCap, stopped, isSmoke, common, work, log });
     if (isR1) return await finishRound1({ query, spend, records, items, arms, sizes, subsets, catalog, prompts, totalCap, stopped, isSmoke, common, work, log });
     if (mode === 'full-11e') {
       const rows = summarize(records, sizes);
@@ -1381,8 +1591,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--smoke') opts.mode = 'smoke';
+    else if (a === '--frozen-in' && argv[i + 1] !== undefined) opts.frozenIn = argv[++i];
     else if ((a === '--cap' || a === '--json' || a === '--mode' || a === '--mode-file' || a === '--frozen') && argv[i + 1] !== undefined) opts[a.slice(2).replace('-f', 'F')] = argv[++i];
-    else throw new Error('usage: skill-finder-sweep.mjs [--mode name | --mode-file path | --smoke] [--cap usd] [--json file] [--frozen file]');
+    else throw new Error('usage: skill-finder-sweep.mjs [--mode name | --mode-file path | --smoke] [--cap usd] [--json file] [--frozen file] [--frozen-in file]');
   }
   return opts;
 }
@@ -1401,7 +1612,10 @@ async function main() {
   const cap = opts.cap === undefined ? undefined : Number(opts.cap);
   if (cap !== undefined && !(cap > 0)) throw new Error('--cap must be a positive number');
   console.log(`mode: ${mode}`);
-  const { summary, result, frozen } = await runSweep({ query, fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, mode, ...(cap ? { cap } : {}) });
+  // Round 2 reads the frozen round 1 sets (from the repo unless --frozen-in names another file); --frozen is where round 1 writes them.
+  const frozenIn = mode === 'round2' || mode === 'smoke-round2'
+    ? loadFrozen(readFileSync(resolve(opts.frozenIn ?? fileURLToPath(new URL('../eval/round1-frozen.json', import.meta.url))), 'utf8')) : null;
+  const { summary, result, frozen } = await runSweep({ query, fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, mode, frozen: frozenIn, ...(cap ? { cap } : {}) });
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
   // A run that measured nothing must not look green.

@@ -96,13 +96,14 @@ export function largerUsage(a, b) {
 
 /**
  * One run with the Skill tool (one turn by default). A PreToolUse hook records every Skill call and denies it, so no skill text loads.
- * `opts.note` adds a UserPromptSubmit note; `opts.skills`, `opts.env`, `opts.settings`, `opts.settingSources` and `opts.append`
+ * `opts.note` adds a UserPromptSubmit note, `opts.noteFor(prompt)` one built per turn (null adds nothing); `opts.skills`, `opts.env`, `opts.settings`, `opts.settingSources` and `opts.append`
  * shape the run. `opts.maxTurns`, `opts.mcpServers` and `opts.allowedTools` let a run use more turns and a search tool. `called` is the
  * FIRST Skill call; calls to other tools before it do not change that. Tokens are counted over every turn. Returns
  * { called, calls, cost, tokens, subtype, init, error, ms, fired } and never the prompt.
  */
 export async function runSkillCall(query, opts) {
-  const rec = { called: null, calls: 0, cost: 0, fired: 0, init: null, subtype: null, ms: 0 };
+  const rec = { called: null, calls: 0, cost: 0, fired: 0, noted: 0, hookEvents: 0, noteSeen: 0, init: null, subtype: null, ms: 0 };
+  let sent = null; // the note text as it appears inside JSON, to find it in the message stream
   const turns = new Map(); // assistant message id -> usage; one entry per turn, since a message repeats its usage on every block
   const t0 = performance.now();
   const hooks = {
@@ -113,10 +114,15 @@ export async function runSkillCall(query, opts) {
       }
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Recorded by an eval; the skill is not loaded.' } };
     }] }],
-    ...(opts.note ? { UserPromptSubmit: [{ hooks: [async (input) => {
+    ...(opts.note || opts.noteFor ? { UserPromptSubmit: [{ hooks: [async (input) => {
       if (input.hook_event_name !== 'UserPromptSubmit') return { continue: true };
       rec.fired++;
-      return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: opts.note } };
+      // noteFor(prompt) builds the note for this turn (a harness shortlist); a static `note` is the older form. No text, no context.
+      const text = opts.noteFor ? await opts.noteFor(typeof input.prompt === 'string' ? input.prompt : String(opts.prompt ?? '')) : opts.note;
+      if (!text) return { continue: true };
+      rec.noted++;
+      sent = JSON.stringify(String(text)).slice(1, -1);
+      return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
     }] }] } : {}),
   };
   try {
@@ -131,9 +137,16 @@ export async function runSkillCall(query, opts) {
         // The hooks passed here still run.
         settings: { disableSkillShellExecution: true, disableAllHooks: true, ...(opts.settings ?? {}) },
         hooks, env: opts.env ?? { ...process.env },
+        // A run with a note also asks for hook events, so the stream can show that the prompt hook ran.
+        ...(opts.note || opts.noteFor ? { includeHookEvents: true } : {}),
       },
     });
     for await (const m of q) {
+      if (opts.note || opts.noteFor) {
+        if (m.type === 'system' && m.subtype === 'hook_response' && m.hook_event === 'UserPromptSubmit') rec.hookEvents++;
+        // The note counts as seen only in a message the model's side did not write: not an assistant turn, not the final result.
+        if (sent && m.type !== 'assistant' && m.type !== 'result' && JSON.stringify(m).includes(sent)) rec.noteSeen++;
+      }
       if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null, skillsDescribed: describedCount(m.skills) };
       if (m.type === 'assistant' && m.message?.usage) turns.set(m.message.id ?? `t${turns.size}`, m.message.usage);
       if (m.type === 'assistant' && rec.called === null) {
