@@ -754,10 +754,12 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .send.queue { background: var(--surface-3); color: var(--text); border: 1px solid var(--line-strong); padding: 0 10px; }
 .send.queue:disabled { color: var(--faint); }
 .composer-bar .send { flex: none; }
-.composer-bar .composer-hint { min-width: 0; overflow: hidden; }
-/* The bar stays on one row, send included. When space runs out the key hint shrinks with an ellipsis (never a clipped half word) and goes first, in steps (below),
-   and the "New task in" pill shortens its project name. The room composer keeps its own wrapping bar. */
-.composer-bar .hint-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The bar stays on one row, send included. The key hint is optional: it sits in a slot that takes the spare room, and when the whole hint does not fit it drops out whole
+   (it wraps onto a second line of the slot, which is clipped), never cut to half a word. The "New task in" pill shortens its project name before anything else is lost.
+   The room composer keeps its own wrapping bar. */
+.composer-bar .hint-slot { flex: 1 1 0; min-width: 0; height: 26px; overflow: hidden; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; }
+.composer-bar .hint-strut { flex: none; width: 1px; height: 26px; }
+.composer-bar .hint-slot .composer-hint { flex: none; overflow: visible; }
 .composer-bar .target-pill { flex: 0 1 auto; min-width: 0; }
 .rm-composer-wrap .composer-bar { flex-wrap: wrap; row-gap: 6px; }
 /* the key hint is optional: it goes first, in steps, as the composer narrows while Queue / Stop all / Stop are showing (widths are the composer's own, not the window's) */

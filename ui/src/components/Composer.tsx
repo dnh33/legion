@@ -185,12 +185,11 @@ export function Composer() {
           {target && <span className={`target-pill${target.why ? ' warn' : ''}`} role="status" title={target.why ?? `A new task starts in ${target.label === 'No project' ? 'no project' : `the project ${target.label}`}`}>
             {target.why && <Icon name="shield" size={11} />}New task in: <b>{target.label}</b></span>}
           {also && <span className="also-pill" role="status" title={also}>{also}</span>}
-          <span className="composer-hint"><span className="hint-text">
+          <span className="hint-slot"><span className="hint-strut" aria-hidden="true" /><span className="composer-hint">
             {busy
               ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> {joinable ? 'adds it to the run' : 'queues'} <kbd>Ctrl+Enter</kbd> interrupts </span>
               : <span className="hint-long"><kbd>Enter</kbd> send <kbd>Shift Enter</kbd> newline </span>}
             <kbd>/</kbd> commands</span></span>
-          <span className="spacer" />
           {busy && (joinable
             ? <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Add to the run"
                 title="Add this message to the run (Enter): Claude reads it after its current step. Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Add</button>

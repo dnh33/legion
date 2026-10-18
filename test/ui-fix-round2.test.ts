@@ -22,15 +22,19 @@ const rule = (css: string, sel: string): string => new RegExp(`(?:^|\\n)${sel.re
 
 // ---------------------------------------------------------------- 1: the new-task composer at UI scale 1.5
 
-test('1: the composer bar stays on one row (send never drops to a third row); the key hint shrinks with an ellipsis and the room composer keeps its own wrapping', () => {
+test('1: the composer bar stays on one row (send never drops to a third row); the key hint drops out whole when it does not fit, and the room composer keeps its own wrapping', () => {
   const css = src('ui/src/styles/app.css');
   assert.doesNotMatch(rule(css, '.composer-bar'), /flex-wrap/, 'no wrap in the bar');
-  assert.doesNotMatch(rule(css, '.composer-hint'), /flex:\s*none/, 'the hint may shrink');
-  assert.match(css, /\.composer-bar \.hint-text \{[^}]*overflow: hidden[^}]*text-overflow: ellipsis/);
+  assert.doesNotMatch(rule(css, '.composer-hint'), /flex:\s*none/, 'the base hint rule is as before the first fix round');
+  // the slot takes the spare room; the hint wraps to a clipped second line when it does not fit (never half a word)
+  assert.match(css, /\.composer-bar \.hint-slot \{[^}]*flex: 1 1 0[^}]*min-width: 0[^}]*overflow: hidden[^}]*flex-wrap: wrap/);
+  assert.match(css, /\.composer-bar \.hint-slot \.composer-hint \{[^}]*flex: none/);
   assert.match(css, /\.composer-bar \.target-pill \{[^}]*flex: 0 1 auto[^}]*min-width: 0/, 'the project pill gives way before the send button');
   assert.match(css, /\.rm-composer-wrap \.composer-bar \{ flex-wrap: wrap/, 'the room composer was fixed by the wrap and keeps it');
   assert.match(css, /\.composer-bar \.send \{ flex: none; \}/, 'send is never squeezed');
-  assert.match(src('ui/src/components/Composer.tsx'), /<span className="composer-hint"><span className="hint-text">/);
+  const tsx = src('ui/src/components/Composer.tsx');
+  assert.match(tsx, /<span className="hint-slot"><span className="hint-strut" aria-hidden="true" \/><span className="composer-hint">/);
+  assert.doesNotMatch(tsx, /className="spacer"/, 'the slot is the spacer: a second grower would share the room with it');
 });
 test('1: the new-task placeholder cuts a long agent name at 24 characters so it stays on one line', () => {
   const long = 'Long-Running Quarterly Release Readiness Reviewer Agent Two';
