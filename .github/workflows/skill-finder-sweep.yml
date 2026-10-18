@@ -31,7 +31,8 @@ jobs:
       - run: npm run build:ts
       - name: Run the sweep
         # The model token is scoped to this step only, so npm ci and the build never see it.
-        # A .sweep-mode file on the branch picks the job: smoke (5 skills, three arms, under $0.10), full-11e, accuracy-11f or followup-11g.
+        # A .sweep-mode file on the branch picks the job: smoke (5 skills, three arms, under $0.10), smoke-round1 (3 arms, under $0.10), full-11e,
+        # accuracy-11f, followup-11g or round1 (accuracy round 1: sizes 25 and 100, five arms, $15 cap).
         # With no file the default is accuracy-11f. A word that is not a mode fails the job before any model call.
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -40,11 +41,19 @@ jobs:
             echo "The repository secret CLAUDE_CODE_OAUTH_TOKEN is empty or missing. Add it under Settings, Secrets and variables, Actions, then push again."
             exit 1
           fi
-          node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode --json sweep-result.json
+          node scripts/skill-finder-sweep.mjs --mode-file .sweep-mode --json sweep-result.json --frozen round1-frozen.json
       - name: Upload the numbers
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sweep-result
           path: sweep-result.json
+          if-no-files-found: ignore
+      - name: Upload the frozen prompt sets
+        # Round 1 only: the generated prompts and gold ids (no skill text), to commit for later rounds. The prompts are synthetic.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: round1-frozen
+          path: round1-frozen.json
           if-no-files-found: ignore

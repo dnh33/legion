@@ -7,20 +7,23 @@
  * has the full listing, arm S has the short list with the settings Legion passes. A hook records and denies every Skill call, so no
  * skill text loads. The logs are public: only counts and metrics are printed, never env, tokens, prompts or skill text.
  *
- * Four modes (a .sweep-mode file on the branch picks one; the default is accuracy-11f):
+ * Six modes (a .sweep-mode file on the branch picks one; the default is accuracy-11f):
  *   smoke         5 skills, one short-list arm with the search tool, under $0.10. It proves the multi-turn path.
+ *   round1        accuracy round 1: sizes 25 and 100, arms C, CL, H2, D, LH2 against C, hard negatives, an equivalence re-score of
+ *                 the misses, a miss split, and the frozen prompt sets (round1-frozen.json).
+ *   smoke-round1  5 skills, arms C, D and LH2, one positive: proves the description wrapper of arm D and the logging, under $0.10.
  *   full-11e      the catalog-size sweep above (arms A and S, one turn, Skill tool only).
  *   followup-11g  size 10, 25, 40, 100; arms AF, AFH (full list + hint), SFH120, SFH120-TP (third-party search answers).
  *   accuracy-11f  the short list as Legion ships it: with the search tool (armory_find, Legion's own server and ranking),
  *                 up to 4 turns, a hint and a longer description cut tested against the full list plus search.
  *
- * usage: skill-finder-sweep.mjs [--mode name] [--mode-file path] [--smoke] [--cap usd] [--json file]
+ * usage: skill-finder-sweep.mjs [--mode name] [--mode-file path] [--smoke] [--cap usd] [--json file] [--frozen file]
  */
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { inputTokens, mcnemar, round, runSkillCall, sample, wilson } from './lib/finder-shared.mjs';
+import { inputTokens, mcnemar, round, runSkillCall, sample, wilson, writeFresh } from './lib/finder-shared.mjs';
 
 export const SEED = 20261018;
 export const SIZES = [10, 25, 40, 60, 100, 200, 400];
@@ -37,12 +40,22 @@ export const THRESHOLD_RULE = {
 /** The 11f rule, written before any result. The false-call test is paired and counted in calls: one call in 60 is 1.7 points, finer than a point. */
 export const ACCURACY_RULE = { minGoldDiff: -0.03, mcnemarAlpha: 0.05, maxExtraFalseCalls: 2, negativesPerSize: 60, minTokenSaving: 0.15 };
 const PROBE_SYSTEM = 'Use a skill only if one clearly fits; otherwise answer briefly.';
-/** The one-line hint of the SFH arms, word for word. */
-export const HINT = 'Your skill list shows short descriptions. If no listed skill clearly fits, call armory_find with what you want to do before answering.';
+const FIND_PHRASE = 'call armory_find with what you want to do';
+/**
+ * The hint Legion ships for a full listing. It is copied from the finder branch's defaults (src/core/armory/finder/defaults.ts), which
+ * this branch does not have; a test pins the literal.
+ */
+export const SEARCH_HINT = `If no listed skill clearly fits, ${FIND_PHRASE} before answering.`;
+/** The one-line hint of the SFH arms (the long measured hint of 11g), word for word. */
+export const HINT = `Your skill list shows short descriptions. ${SEARCH_HINT}`;
+/** The strong hint of round 1 without its last sentence: the hint of the arm with no search tool. */
+export const LH2_HINT = 'Before answering, check the skill list. If a skill fits even partly, load it with the Skill tool, even if you could do the task yourself. If you skip an obvious skill, say why in one line.';
+/** The strong hint of round 1 for arms that have the search tool. */
+export const STRONG_HINT = `${LH2_HINT} If none fit, ${FIND_PHRASE}.`;
 
 // ---------- modes and arms ----------
 
-export const MODES = ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g'];
+export const MODES = ['smoke', 'full-11e', 'accuracy-11f', 'followup-11g', 'round1', 'smoke-round1'];
 export const DEFAULT_MODE = 'accuracy-11f';
 export const ACCURACY_SIZES = [40, 60, 100, 200];
 export const ACCURACY_POSITIVES = 100;
@@ -83,6 +96,41 @@ export const ARMS_11G = [
 ];
 /** The smoke run uses the arms with the most parts: short list, hint and search; plus AFH and the third-party search. */
 export const ARMS_SMOKE = [ARMS_11F[2], ARMS_11G[1], ARMS_11G[3]];
+
+// ---------- round 1 ----------
+
+export const ROUND1_SIZES = [25, 100];
+export const ROUND1_CAP_USD = 15;
+export const ROUND1_POSITIVES = 100;
+export const ROUND1_EASY_NEGATIVES = 60;
+export const ROUND1_HARD_NEGATIVES = 60;
+export const ROUND1_AMBIGUOUS_MAX = 20;
+export const ROUND1_BASELINE = 'C';
+/** A search hit's description in arm D: the cap the slim listing uses. */
+export const HIT_DESCRIPTION_CHARS = 120;
+/** The share of the cap kept back for the equivalence judge, so the arms cannot spend it. */
+const JUDGE_RESERVE_SHARE = 0.1;
+/** The round 1 rule, written before any result. The arm is compared with C on accepted gold; false loads count Skill calls on negatives. */
+export const ROUND1_RULE = { minGoldDiff: 0.05, mcnemarAlpha: 0.05, maxItemsLowerAtSmall: 1, maxExtraFalseLoads: 2, bigSize: 100, smallSize: 25 };
+/**
+ * Every round 1 arm keeps the probe line of 11e to 11g in front of its hint, so the arms differ in the hint only. The line says "only if
+ * one clearly fits", which pulls against the strong hint's "even partly"; that may understate H2. Legion itself sends no such line.
+ */
+const R1_PREFIX = PROBE_SYSTEM;
+const r1Arm = (name, hint, extra = {}) => ({ name, settings: {}, append: `${R1_PREFIX} ${hint}`, search: true, thirdParty: true, ...extra });
+/**
+ * C is the control: the full listing, armory_find, the shipped hint. Search hits show every skill as third-party (id only), the case with
+ * many plugin skills. CL is C with the long hint measured in 11g. H2 has the strong hint. D is C where a hit also shows its description.
+ * LH2 has the strong hint without its last sentence and no search tool.
+ */
+export const ARMS_ROUND1 = [
+  r1Arm('C', SEARCH_HINT),
+  r1Arm('CL', HINT),
+  r1Arm('H2', STRONG_HINT),
+  r1Arm('D', SEARCH_HINT, { describeHits: true }),
+  r1Arm('LH2', LH2_HINT, { search: false, thirdParty: false }),
+];
+export const ARMS_SMOKE_ROUND1 = [ARMS_ROUND1[0], ARMS_ROUND1[3], ARMS_ROUND1[4]];
 
 /** The mode named in a .sweep-mode file. Empty text gives the default; an unknown word throws, so a typo never runs the wrong job. */
 export function parseSweepMode(text) {
@@ -409,8 +457,8 @@ const chunked = (list, n) => Array.from({ length: Math.ceil(list.length / n) }, 
  * Haiku writes the requests, a Sonnet judge grades them, failures are dropped. Stops when the prep budget is used.
  * Returns { positives: [{prompt, gold}], negatives: [prompt], stats }.
  */
-export async function makePrompts({ query, spend, skills, perSkill = 2, negWanted = NEGATIVES_WANTED, cwd, log = () => {} }) {
-  const stats = { written: 0, kept: 0, negWritten: 0, negKept: 0, badBatches: 0, stoppedForBudget: false };
+export async function makePrompts({ query, spend, skills, perSkill = 2, negWanted = NEGATIVES_WANTED, hard = false, cwd, log = () => {} }) {
+  const stats = { written: 0, kept: 0, negWritten: 0, negKept: 0, badBatches: 0, stoppedForBudget: false, hardWritten: 0, hardKept: 0, hardAmbiguous: 0, hardApplies: 0, hardUnjudged: 0 };
   const withTokens = skills.map((s) => ({ ...s, tokens: tokensOf(`${s.name} ${s.description}`) }));
   const byName = new Map(withTokens.map((s) => [s.name, s]));
   const est = () => Math.max(0.03, spend.calls ? spend.spent / spend.calls : 0.03);
@@ -465,14 +513,51 @@ export async function makePrompts({ query, spend, skills, perSkill = 2, negWante
     for (const r of arr) if (Number(r?.applies) === 0 && batch[Number(r?.n) - 1]) negatives.push(batch[Number(r.n) - 1]);
   }
   stats.negKept = negatives.length;
-  log(`prompts: ${stats.written} positives written, ${stats.kept} kept; ${stats.negWritten} negatives written, ${stats.negKept} kept; ${stats.badBatches} unparsed batches`);
-  return { positives, negatives: negatives.slice(0, negWanted), stats };
+
+  // Hard negatives: one request per skill that uses its topic words but needs no specialist skill. A Sonnet judge sees the 12 closest
+  // skills (the source skill first) and gives none / ambiguous / applies.
+  let hardOut = { hard: [], ambiguous: [] };
+  if (hard) {
+    const cands = [];
+    const seen = new Set([...negWritten]);
+    for (const batch of chunked(withTokens, 10)) {
+      if (!spend.fits(est() * 2)) { stats.stoppedForBudget = true; break; }
+      const prompt = batch.map((s, i) => `Skill ${i + 1}: ${s.name}: ${oneLine(s.description, 300)}`).join('\n') + '\nWrite one request for each skill.';
+      const { text } = await ask(query, spend, { model: GEN_MODEL, system: HARD_GEN_SYSTEM, prompt, cwd });
+      const arr = parseJsonArray(text);
+      if (!arr) { stats.badBatches++; continue; }
+      for (const r of arr) {
+        const s = batch[Number(r?.n) - 1];
+        const q = typeof r?.request === 'string' ? r.request.trim() : '';
+        if (s && q.length > 5 && !seen.has(q)) { seen.add(q); cands.push({ prompt: q, source: s.name }); }
+      }
+    }
+    stats.hardWritten = cands.length;
+    const verdicts = new Array(cands.length).fill(undefined);
+    let at = 0;
+    for (const batch of chunked(cands, 8)) {
+      if (!spend.fits(est() * 2)) { stats.stoppedForBudget = true; break; }
+      const prompt = batch.map((c, i) => {
+        const others = [byName.get(c.source), ...closest(c.prompt, withTokens, 11, c.source)].map((o) => `- ${o.name}: ${oneLine(o.description, 120)}`).join('\n');
+        return `Item ${i + 1}\nRequest: ${c.prompt}\nSkills:\n${others}`;
+      }).join('\n\n');
+      const { text } = await ask(query, spend, { model: JUDGE_MODEL, system: HARD_JUDGE_SYSTEM, prompt, cwd });
+      parseHardVerdicts(text, batch.length).forEach((v, i) => { verdicts[at + i] = v; });
+      at += batch.length;
+    }
+    const b = bucketHardNegatives(cands, verdicts);
+    hardOut = { hard: b.hard, ambiguous: b.ambiguous };
+    Object.assign(stats, { hardKept: b.hard.length, hardAmbiguous: b.ambiguous.length, hardApplies: b.applies, hardUnjudged: b.unjudged });
+  }
+  log(`prompts: ${stats.written} positives written, ${stats.kept} kept; ${stats.negWritten} negatives written, ${stats.negKept} kept; ${stats.hardWritten} hard written, ${stats.hardKept} kept, ${stats.hardAmbiguous} ambiguous; ${stats.badBatches} unparsed batches`);
+  return { positives, negatives: negatives.slice(0, negWanted), hard: hardOut.hard, ambiguous: hardOut.ambiguous, stats };
 }
 
 // ---------- the arms ----------
 
 /** Does a Skill call name the gold skill? Plugin prefixes and a leading slash are ignored. */
-export const isGold = (called, gold) => called !== null && safeName(String(called).replace(/^\//, '').split(':').pop()) === safeName(gold);
+export const normalizeSkillName = (called) => (called === null || called === undefined ? null : safeName(String(called).replace(/^\//, '').split(':').pop()));
+export const isGold = (called, gold) => called !== null && normalizeSkillName(called) === safeName(gold);
 
 /**
  * Runs every arm for every item, interleaved across sizes (item 0 of every size, then item 1 ...), so a stop at the cap leaves
@@ -500,13 +585,17 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
       const turn = idx % arms.length;
       for (const arm of [...arms.slice(turn), ...arms.slice(0, turn)]) {
         const searched = [];
+        const queries = []; // in memory only, for the miss split: never serialised, logged or uploaded
+        let described = 0;
         const useSearch = arm.search ? search : null;
-        const find = useSearch?.forSize(it.size, arm.thirdParty === true);
+        const describe = arm.describeHits === true;
+        const find = useSearch?.forSize(it.size, arm.thirdParty === true, describe);
         const server = useSearch?.buildServer(async (q, limit) => {
+          queries.push(String(q));
           const hits = await find(q, limit);
           searched.push(hits.slice(0, 5).map((h) => h.id));
           return hits;
-        });
+        }, { describe, onDescribed: (n) => { described += n; } });
         const rec = await runSkillCall(query, {
           model, prompt: it.prompt, cwd: workDir, append: arm.append,
           settings: arm.settings,
@@ -515,11 +604,15 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
         });
         spend.add(rec.cost);
         if (rec.cost > 0) costs.push(rec.cost);
-        records.push({
-          size: it.size, i: it.i, kind: it.kind, arm: arm.name, called: rec.called !== null, hit: it.kind === 'pos' && isGold(rec.called, it.gold),
-          tokens: inputTokens(rec.tokens), cost: rec.cost, error: rec.error ?? null,
+        const hit = it.kind === 'pos' && isGold(rec.called, it.gold);
+        const out = {
+          size: it.size, i: it.i, kind: it.kind, bucket: it.bucket ?? null, arm: arm.name, called: rec.called !== null, calledName: normalizeSkillName(rec.called),
+          hit, accepted: hit, tokens: inputTokens(rec.tokens), cost: rec.cost, error: rec.error ?? null,
           searches: searched.length, goldInTop5: it.kind === 'pos' && searched.some((ids) => ids.some((id) => isGold(id, it.gold))),
-        });
+          listed: rec.init?.skills ?? null, listedDescribed: rec.init?.skillsDescribed ?? null, describedHits: described,
+        };
+        Object.defineProperty(out, 'queries', { value: queries, enumerable: false });
+        records.push(out);
       }
     }
   };
@@ -533,7 +626,7 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
  * The false-call test pairs the negatives: `more` is the prompts where the arm called a skill and the baseline did not, `fewer` the reverse.
  * Tokens count every turn of every prompt. Misses are the positives the arm did not get right.
  */
-export function compareArms(records, size, baseName, armName) {
+export function compareArms(records, size, baseName, armName, field = 'hit') {
   const mine = records.filter((r) => r.size === size);
   const key = (r) => `${r.kind}${r.i}`;
   const of = (arm) => new Map(mine.filter((r) => r.arm === arm).map((r) => [key(r), r]));
@@ -541,11 +634,11 @@ export function compareArms(records, size, baseName, armName) {
   const X = of(armName);
   const both = [...B.keys()].filter((k) => X.has(k));
   const pos = both.filter((k) => k.startsWith('pos'));
-  const neg = both.filter((k) => k.startsWith('neg'));
+  const neg = both.filter((k) => k.startsWith('neg') && B.get(k).bucket !== 'ambiguous');
   const table = { both: 0, aOnly: 0, sOnly: 0, neither: 0 };
   for (const k of pos) {
-    const a = B.get(k).hit;
-    const x = X.get(k).hit;
+    const a = B.get(k)[field];
+    const x = X.get(k)[field];
     if (a && x) table.both++; else if (a) table.aOnly++; else if (x) table.sOnly++; else table.neither++;
   }
   const n = pos.length;
@@ -561,7 +654,7 @@ export function compareArms(records, size, baseName, armName) {
   };
   const tokBase = mean(B);
   const tokArm = mean(X);
-  const misses = pos.filter((k) => !X.get(k).hit).map((k) => X.get(k));
+  const misses = pos.filter((k) => !X.get(k)[field]).map((k) => X.get(k));
   return {
     size, arm: armName, pairs: n, negatives: neg.length, table, goldBase, goldArm,
     rateBase: n ? round(goldBase / n) : null, rateArm: n ? round(goldArm / n) : null, ciBase: wilson(goldBase, n), ciArm: wilson(goldArm, n),
@@ -692,8 +785,8 @@ export async function loadArmory(distDir = new URL('../dist/src/core/', import.m
  */
 export function makeSearch(mods, subsets) {
   const finders = new Map();
-  const forSize = (size, thirdParty = false) => {
-    const key = `${size}:${thirdParty}`;
+  const forSize = (size, thirdParty = false, describe = false) => {
+    const key = `${size}:${thirdParty}:${describe}`;
     if (!finders.has(key)) {
       const items = subsets.find((s) => s.size === size)?.items ?? [];
       const docs = items.map((s) => ({ id: s.name, name: s.name, description: s.description, whenToUse: '', headings: '', source: 'yours', thirdParty: false }));
@@ -705,12 +798,64 @@ export function makeSearch(mods, subsets) {
         .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         .slice(0, limit)
         .map((h) => (thirdParty
-          ? { ...h, thirdParty: true }
+          ? { ...h, thirdParty: true, ...(describe ? { description: sanitizeHitDescription(byId.get(h.id).description, mods.oneLine) } : {}) }
           : { ...h, thirdParty: false, description: mods.oneLine(byId.get(h.id).description).slice(0, FIND_DESCRIPTION_CHARS).trimEnd() })));
     }
     return finders.get(key);
   };
-  return { forSize, buildServer: (find) => mods.buildFindServer(undefined, find) };
+  /**
+   * With `describe`, Legion's own server still formats the answer (it prints `- id (third-party)` for a third-party hit); showDescriptions
+   * then adds `: description` to those lines. `onDescribed(n)` is told how many lines got one.
+   */
+  const buildServer = (find, opts = {}) => {
+    if (!opts.describe) return mods.buildFindServer(undefined, find);
+    const shown = new Map();
+    const server = mods.buildFindServer(undefined, async (query, limit) => {
+      const hits = await find(query, limit);
+      shown.clear();
+      for (const h of hits) if (h.description) shown.set(h.id, h.description);
+      return hits;
+    });
+    return showDescriptions(server, shown, opts.onDescribed);
+  };
+  return { forSize, buildServer };
+}
+
+/**
+ * The description a search hit may show in arm D, as the security lens set it out: the same oneLine treatment, control and hidden
+ * characters stripped, capped at 120 characters. Hidden (format) characters go first, since JavaScript counts U+FEFF as white space and
+ * oneLine would turn it into a gap. Only skills in the delivered set get a description; in the eval that is every skill.
+ */
+export function sanitizeHitDescription(raw, oneLineFn = (s) => String(s).replace(/\s+/g, ' ').trim(), cap = HIT_DESCRIPTION_CHARS) {
+  const noHidden = String(raw ?? '').replace(/\p{Cf}/gu, '');
+  const flat = oneLineFn(oneLineFn(noHidden).replace(/\p{Cc}/gu, ''));
+  return Array.from(flat).slice(0, cap).join('').trimEnd();
+}
+
+/**
+ * Wraps the real armory_find handler so each `- id (third-party)` line gains `: description` (from `shown`, id to text). It throws when the
+ * handler cannot be found, so arm D can never run as a silent copy of C.
+ */
+export function showDescriptions(server, shown, onDescribed = () => {}) {
+  const tool = server?.instance?._registeredTools?.armory_find;
+  if (!tool || typeof tool.handler !== 'function') throw Object.assign(new Error('find handler'), { code: 'NO_FIND_HANDLER' });
+  const inner = tool.handler.bind(tool);
+  tool.handler = async (args, extra) => {
+    const res = await inner(args, extra);
+    let added = 0;
+    const content = (res?.content ?? []).map((c) => (c?.type !== 'text' ? c : {
+      ...c,
+      text: String(c.text).replace(/^- (\S+) \(third-party\)$/gm, (line, id) => {
+        const d = shown.get(id);
+        if (!d) return line;
+        added++;
+        return `${line}: ${d}`;
+      }),
+    }));
+    onDescribed(added);
+    return { ...res, content };
+  };
+  return server;
 }
 
 // ---------- the 11f rule and report ----------
@@ -782,12 +927,341 @@ export function armStats(records, armNames) {
   });
 }
 
+
+// ---------- round 1: hard negatives, the equivalence judge, the miss split, the rule ----------
+
+const HARD_GEN_SYSTEM = 'You write plain, everyday-sounding requests to an AI coding assistant. For each skill listed, write ONE request that uses the skill\'s topic words '
+  + 'but that a general assistant answers well without any specialist skill: a conceptual question, a definition, a one-line fix or a small chat task. '
+  + 'Do not ask for the skill\'s own specialist workflow and do not name the skill. Answer with a JSON array only: [{"n":1,"request":"..."}].';
+const HARD_JUDGE_SYSTEM = 'You grade test requests. Each item has a request and a list of skills. Give one verdict per item: "none" when none applies to the request, '
+  + '"applies" when a listed skill clearly applies, "ambiguous" when a careful reader could reasonably say either. Judge the request on its own words. '
+  + 'Answer with a JSON array only: [{"n":1,"verdict":"none"}].';
+const EQUIV_SYSTEM = 'You grade whether a skill would solve a request. Each item has a request and two skills, A and B. Both skills are candidates. Judge each skill on its own, '
+  + 'from its description only: give 1 if a user would be clearly well served by loading it for this request, else 0. Answer with a JSON array only: [{"n":1,"a":1,"b":0}].';
+const HARD_VERDICTS = new Set(['none', 'applies', 'ambiguous']);
+
+/** One verdict per item, in order: 'none' | 'applies' | 'ambiguous', or undefined when the answer lacks it or says something else. */
+export function parseHardVerdicts(text, count) {
+  const out = new Array(count).fill(undefined);
+  for (const r of parseJsonArray(text) ?? []) {
+    const idx = Number(r?.n) - 1;
+    const v = String(r?.verdict ?? '').toLowerCase();
+    if (Number.isInteger(idx) && idx >= 0 && idx < count && HARD_VERDICTS.has(v)) out[idx] = v;
+  }
+  return out;
+}
+
+/**
+ * Sorts judged hard-negative candidates. 'none' is a clean hard negative, 'ambiguous' goes to its own bucket (reported, never pooled),
+ * 'applies' is dropped, a missing verdict is unjudged. Each bucket is capped; what is cut is counted.
+ */
+export function bucketHardNegatives(cands, verdicts, { hardMax = ROUND1_HARD_NEGATIVES, ambMax = ROUND1_AMBIGUOUS_MAX } = {}) {
+  const hard = [];
+  const ambiguous = [];
+  let applies = 0;
+  let unjudged = 0;
+  const overflow = { hard: 0, ambiguous: 0 };
+  cands.forEach((c, i) => {
+    const v = verdicts[i];
+    if (v === 'none') { if (hard.length < hardMax) hard.push(c.prompt); else overflow.hard++; }
+    else if (v === 'ambiguous') { if (ambiguous.length < ambMax) ambiguous.push(c.prompt); else overflow.ambiguous++; }
+    else if (v === 'applies') applies++;
+    else unjudged++;
+  });
+  return { hard, ambiguous, applies, unjudged, overflow };
+}
+
+/** The flags of an equivalence answer, by item number: { a, b } with 1 when the judge says that skill clearly solves the request. */
+export function parseEquivalence(text) {
+  const out = new Map();
+  for (const r of parseJsonArray(text) ?? []) {
+    const n = Number(r?.n);
+    if (!Number.isInteger(n) || n < 1 || r?.a === undefined || r?.b === undefined) continue;
+    out.set(n, { a: Number(r.a) === 1 ? 1 : 0, b: Number(r.b) === 1 ? 1 : 0 });
+  }
+  return out;
+}
+
+/** run1 showed the gold skill as A and the called skill as B; run2 showed them the other way round. Accept only if both runs say the called skill solves it. */
+export const acceptEquivalent = (run1, run2) => run1?.b === 1 && run2?.a === 1;
+
+/**
+ * For each distinct { key, prompt, gold, called }: does the called skill also clearly solve the request? A Sonnet judge sees the request and
+ * both descriptions as A and B, nothing about the arm, and runs twice with the order swapped. A called skill with no description in the
+ * catalog (a built-in, or a name that does not exist) is 'unknown' and never accepted. Returns { verdicts: key -> 'yes' | 'no' | 'unknown'
+ * | 'unjudged', stats }. An answer that does not parse counts as 'no'; a pair the budget cannot cover is 'unjudged'.
+ */
+export async function judgeEquivalence({ query, spend, pairs, describe, cwd, log = () => {} }) {
+  const verdicts = new Map();
+  const stats = { pairs: pairs.length, accepted: 0, rejected: 0, unknown: 0, unjudged: 0 };
+  const known = [];
+  for (const p of pairs) {
+    if (describe(p.gold) && describe(p.called)) known.push(p);
+    else { verdicts.set(p.key, 'unknown'); stats.unknown++; }
+  }
+  const est = () => Math.max(0.03, spend.calls ? spend.spent / spend.calls : 0.03);
+  for (const batch of chunked(known, 10)) {
+    if (!spend.fits(est() * 2)) {
+      for (const p of batch) { verdicts.set(p.key, 'unjudged'); stats.unjudged++; }
+      continue;
+    }
+    const run = async (swap) => {
+      const prompt = batch.map((p, i) => {
+        const g = `${p.gold}: ${oneLine(describe(p.gold), 300)}`;
+        const c = `${p.called}: ${oneLine(describe(p.called), 300)}`;
+        return `Item ${i + 1}\nRequest: ${p.prompt}\nSkill A: ${swap ? c : g}\nSkill B: ${swap ? g : c}`;
+      }).join('\n\n');
+      return parseEquivalence((await ask(query, spend, { model: JUDGE_MODEL, system: EQUIV_SYSTEM, prompt, cwd })).text);
+    };
+    const first = await run(false);
+    const second = await run(true);
+    batch.forEach((p, i) => {
+      const yes = acceptEquivalent(first.get(i + 1), second.get(i + 1));
+      verdicts.set(p.key, yes ? 'yes' : 'no');
+      if (yes) stats.accepted++; else stats.rejected++;
+    });
+  }
+  log(`equivalence: ${stats.pairs} pairs, ${stats.accepted} accepted, ${stats.rejected} rejected, ${stats.unknown} unknown, ${stats.unjudged} unjudged`);
+  return { verdicts, stats };
+}
+
+/**
+ * Where an arm's misses go at one size. A miss is a positive whose first Skill call did not name the gold skill. The four parts do not
+ * overlap and add up to the misses. The last two counts overlay them: a search that never had the gold skill in its top five, and the gold
+ * skill in the top five but not loaded.
+ */
+export function missSplit(records, size, arm) {
+  const pos = records.filter((r) => r.size === size && r.arm === arm && r.kind === 'pos');
+  const misses = pos.filter((r) => !r.hit);
+  return {
+    positives: pos.length, misses: misses.length,
+    noCallNoSearch: misses.filter((r) => !r.called && !(r.searches > 0)).length,
+    noCallSearched: misses.filter((r) => !r.called && r.searches > 0).length,
+    acceptedAlternative: misses.filter((r) => r.called && r.accepted).length,
+    wrongSkill: misses.filter((r) => r.called && !r.accepted).length,
+    searchedGoldNotTop5: misses.filter((r) => r.searches > 0 && !r.goldInTop5).length,
+    goldTop5NotLoaded: misses.filter((r) => r.goldInTop5).length,
+  };
+}
+
+/** False loads (a Skill call) and false searches (armory_find used) on the negatives, per bucket and pooled (easy + hard; ambiguous is never pooled). */
+export function negativeBuckets(records, size, baseName, armName) {
+  const mine = records.filter((r) => r.size === size && r.kind === 'neg');
+  const key = (r) => `${r.kind}${r.i}`;
+  const of = (arm) => new Map(mine.filter((r) => r.arm === arm).map((r) => [key(r), r]));
+  const B = of(baseName);
+  const X = of(armName);
+  const one = (bucket) => {
+    const ks = [...B.keys()].filter((k) => X.has(k) && B.get(k).bucket === bucket);
+    return {
+      n: ks.length,
+      loadsBase: ks.filter((k) => B.get(k).called).length, loadsArm: ks.filter((k) => X.get(k).called).length,
+      searchesBase: ks.filter((k) => B.get(k).searches > 0).length, searchesArm: ks.filter((k) => X.get(k).searches > 0).length,
+    };
+  };
+  const easy = one('easy');
+  const hard = one('hard');
+  const pooled = Object.fromEntries(Object.keys(easy).map((f) => [f, easy[f] + hard[f]]));
+  return { easy, hard, ambiguous: one('ambiguous'), pooled };
+}
+
+/** One arm against the baseline at one size: accepted and strict gold side by side, plus the negatives. */
+export function compareRound1(records, size, baseName, armName) {
+  return {
+    size, arm: armName,
+    accepted: compareArms(records, size, baseName, armName, 'accepted'),
+    strict: compareArms(records, size, baseName, armName, 'hit'),
+    neg: negativeBuckets(records, size, baseName, armName),
+  };
+}
+
+/** The round 1 tests on one row. Returns { pass, reasons }. */
+export function round1RowChecks(row) {
+  const r = ROUND1_RULE;
+  const a = row?.accepted;
+  if (!a || !a.pairs) return { pass: false, reasons: [`no positives at ${row?.size ?? '?'} skills`] };
+  const reasons = [];
+  if (row.size === r.bigSize) {
+    if (!(a.diff >= r.minGoldDiff - 1e-9)) reasons.push(`accepted gold is ${a.diff === null ? 'n/a' : `${(a.diff * 100).toFixed(1)} points`} above C at ${r.bigSize}, need ${r.minGoldDiff * 100}`);
+    if (!(a.mcnemarP < r.mcnemarAlpha && a.table.sOnly > a.table.aOnly)) reasons.push(`McNemar p ${a.mcnemarP} at ${r.bigSize} is not a significant gain`);
+  }
+  if (row.size === r.smallSize && a.goldBase - a.goldArm > r.maxItemsLowerAtSmall) reasons.push(`${a.goldBase - a.goldArm} items lower than C at ${r.smallSize}`);
+  const p = row.neg.pooled;
+  if (!p.n) reasons.push(`no negatives at ${row.size}`);
+  else if (p.loadsArm - p.loadsBase > r.maxExtraFalseLoads) reasons.push(`${p.loadsArm - p.loadsBase} more false loads than C at ${row.size}, at most ${r.maxExtraFalseLoads}`);
+  return { pass: reasons.length === 0, reasons };
+}
+
+/** rowsByArm: arm -> rows (compareRound1, one per size). An arm passes only with a passing row at 100 and at 25. */
+export function decideRound1(rowsByArm) {
+  const r = ROUND1_RULE;
+  const arms = Object.entries(rowsByArm).map(([arm, rows]) => {
+    const reasons = [];
+    const sizes = [];
+    for (const size of [r.bigSize, r.smallSize]) {
+      const row = rows.find((x) => x.size === size);
+      if (!row) { reasons.push(`no row at ${size} skills`); continue; }
+      const c = round1RowChecks(row);
+      sizes.push({ size, pass: c.pass });
+      reasons.push(...c.reasons);
+    }
+    return { arm, pass: reasons.length === 0, reasons, sizes };
+  });
+  return { arms, passing: arms.filter((a) => a.pass).map((a) => a.arm) };
+}
+
+/** Report only: CL against C. A significant gain for CL means the shipped short hint gives up part of what the long hint gains. */
+export function clVerdict(rows) {
+  const win = rows.some((row) => row.accepted.mcnemarP < ROUND1_RULE.mcnemarAlpha && row.accepted.table.sOnly > row.accepted.table.aOnly);
+  return win
+    ? 'CL against C: CL is significantly better than C (p < 0.05) in accepted gold. The shipped short hint loses gain.'
+    : 'CL against C: CL is not significantly better than C in accepted gold. The shipped short hint keeps the gain.';
+}
+
+export function ruleTextRound1() {
+  const r = ROUND1_RULE;
+  return [
+    'Pre-registered rule (written before any result):',
+    `Each tested arm (H2, D, LH2) is compared with ${ROUND1_BASELINE} (the full listing plus armory_find plus the shipped hint) on the same prompts. Search hits show every skill as third-party (the id only), unless the arm says otherwise.`,
+    'Accepted gold counts the first Skill call as right when it names the gold skill, or another skill that a blind Sonnet judge accepts in both orders. Strict gold is printed beside it; the rule uses accepted gold.',
+    'An arm passes when all of these hold:',
+    `1. at ${r.bigSize} skills its accepted gold is at least ${r.minGoldDiff * 100} points above ${ROUND1_BASELINE}, with McNemar p < ${r.mcnemarAlpha} (two-sided exact test on the paired positives, the gain on the arm's side);`,
+    `2. it is not lower by more than one item at ${r.smallSize} skills: its accepted gold is at least ${ROUND1_BASELINE}'s minus ${r.maxItemsLowerAtSmall};`,
+    `3. at both sizes its false loads (a Skill call on a negative) on the pooled negatives, easy and hard, are at most ${ROUND1_BASELINE} + ${r.maxExtraFalseLoads}. False searches are reported apart. The ambiguous bucket is reported apart and is not pooled.`,
+    'CL against C: report only. If CL is significantly better than C (p < 0.05), the shipped short hint loses gain.',
+  ].join('\n');
+}
+
+const sumBy = (records, arm, field) => records.filter((r) => r.arm === arm).reduce((a, r) => a + (r[field] ?? 0), 0);
+
+export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stopped, smoke }) {
+  const out = [];
+  const { rows, decision, arms, missSplit: splits, equivalence: eq, listing } = result;
+  out.push('# Skill finder: accuracy round 1', '');
+  if (smoke) out.push('**Smoke run.** It proves the path end to end. These numbers are not a result.', '');
+  out.push('```', ruleTextRound1(), '```', '');
+  out.push('## Catalog', `- source: ${catalog.source}`, `- skills fetched: ${catalog.counts.fetched}; skipped: ${catalog.counts.noDescription} without a description, ${catalog.counts.duplicate} duplicate names, ${catalog.counts.notFound} not found in the repo, ${catalog.counts.fetchError} fetch errors, ${catalog.counts.nonGithub} on non-GitHub sources`, '');
+  const s = prompts.stats;
+  out.push('## Prompts', `- positives: ${s.written} written, ${s.kept} kept by the judge`, `- easy negatives: ${s.negWritten} written, ${s.negKept} kept`,
+    `- hard negatives: ${s.hardWritten} written; ${s.hardKept} kept (no skill applies); ${s.hardAmbiguous} ambiguous (own bucket); ${s.hardApplies} dropped (a skill applies); ${s.hardUnjudged} unjudged`,
+    `- fixed pool at every size: up to ${ROUND1_EASY_NEGATIVES} easy, ${ROUND1_HARD_NEGATIVES} hard, ${ROUND1_AMBIGUOUS_MAX} ambiguous; models: written by haiku, judged by sonnet`, '');
+  out.push('## Spend', `- $${round(spend.spent)} of the $${cap} cap over ${spend.calls} calls${stopped ? '; the run stopped at the cap, so later items did not run' : ''}`, '');
+  out.push('## Equivalence re-score', `- distinct (request, called skill) pairs: ${eq.pairs}; accepted ${eq.accepted}, rejected ${eq.rejected}, called skill not in the catalog ${eq.unknown}, not judged ${eq.unjudged}`, '- a Sonnet judge, blind to the arm, run twice with the order swapped; a pair is accepted only if both runs say yes', '');
+  out.push('## Arms', '', '| arm | calls | answered | skill called | search called | searches per call | strict gold hits | accepted gold hits | search lines with a description |', '|---|---|---|---|---|---|---|---|---|');
+  for (const a of arms) out.push(`| ${a.arm} | ${a.calls} | ${a.answered} | ${a.skillCalled} | ${a.searchCalled} | ${a.searchesPerCall ?? 'n/a'} | ${a.goldHits} | ${a.acceptedHits} | ${a.describedHits} |`);
+  out.push('');
+  if (result.describedHits.D !== undefined && result.describedHits.D === 0) out.push('**Check failed.** Arm D showed no description in any search answer, so its numbers are those of C.', '');
+  if (!smoke) {
+    const sizeNote = (r) => `${r.accepted.pairs} pos / ${r.neg.pooled.n} neg`;
+    out.push('## Results against ' + ROUND1_BASELINE, '', '| arm | size | pairs | strict gold C | strict gold arm | accepted gold C | accepted gold arm | accepted arm minus C | C only / arm only | McNemar p | false loads pooled C | false loads pooled arm | false searches pooled C | false searches pooled arm | tokens saved | passes |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const arm of Object.keys(rows)) {
+      for (const r of rows[arm]) {
+        const a = r.accepted;
+        const pass = decision.arms.find((d) => d.arm === arm)?.sizes.find((x) => x.size === r.size)?.pass;
+        const searches = arm === 'LH2' ? ['n/a', 'n/a'] : [r.neg.pooled.searchesBase, r.neg.pooled.searchesArm];
+        out.push(`| ${arm} | ${r.size} | ${sizeNote(r)} | ${pct(r.strict.rateBase)} | ${pct(r.strict.rateArm)} | ${pct(a.rateBase)} | ${pct(a.rateArm)} | ${a.diff === null ? 'n/a' : `${(a.diff * 100).toFixed(1)} pts`} | ${a.table.aOnly} / ${a.table.sOnly} | ${a.mcnemarP} | ${r.neg.pooled.loadsBase} | ${r.neg.pooled.loadsArm} | ${searches[0]} | ${searches[1]} | ${pct(a.tokenSaving)} | ${arm === 'CL' ? 'report only' : pass ? 'yes' : 'no'} |`);
+      }
+    }
+    out.push('', '## Misses (accepted gold)', '', '| arm | size | positives | strict misses | no call, no search | no call, searched | accepted alternative | wrong skill | searched but gold not in top 5 | gold in top 5 but not loaded |', '|---|---|---|---|---|---|---|---|---|---|');
+    for (const m of splits) out.push(`| ${m.arm} | ${m.size} | ${m.positives} | ${m.misses} | ${m.noCallNoSearch} | ${m.noCallSearched} | ${m.acceptedAlternative} | ${m.wrongSkill} | ${m.searchedGoldNotTop5} | ${m.goldTop5NotLoaded} |`);
+    out.push('', '## Hard negatives (false loads and false searches, of n)', '', '| arm | size | easy loads | easy searches | hard loads | hard searches | ambiguous loads (not pooled) | ambiguous searches |', '|---|---|---|---|---|---|---|---|');
+    const cell = (b, f) => `${b[f]} of ${b.n}`;
+    for (const size of result.sizes) {
+      const any = Object.values(rows)[0]?.find((x) => x.size === size);
+      if (any) {
+        const b = any.neg;
+        const base = (k) => ({ n: b[k].n, loads: b[k].loadsBase, searches: b[k].searchesBase });
+        out.push(`| ${ROUND1_BASELINE} | ${size} | ${cell(base('easy'), 'loads')} | ${cell(base('easy'), 'searches')} | ${cell(base('hard'), 'loads')} | ${cell(base('hard'), 'searches')} | ${cell(base('ambiguous'), 'loads')} | ${cell(base('ambiguous'), 'searches')} |`);
+      }
+      for (const arm of Object.keys(rows)) {
+        const r = rows[arm].find((x) => x.size === size);
+        if (!r) continue;
+        const a = (k) => ({ n: r.neg[k].n, loads: r.neg[k].loadsArm, searches: r.neg[k].searchesArm });
+        const sr = arm === 'LH2';
+        out.push(`| ${arm} | ${size} | ${cell(a('easy'), 'loads')} | ${sr ? 'n/a' : cell(a('easy'), 'searches')} | ${cell(a('hard'), 'loads')} | ${sr ? 'n/a' : cell(a('hard'), 'searches')} | ${cell(a('ambiguous'), 'loads')} | ${sr ? 'n/a' : cell(a('ambiguous'), 'searches')} |`);
+      }
+    }
+    out.push('', '## Decision');
+    for (const d of decision.arms) out.push(`- ${d.arm}: ${d.pass ? 'passes' : `does not pass (${d.reasons.join('; ')})`}`);
+    out.push(decision.passing.length ? `Passing arms: ${decision.passing.join(', ')}.` : 'No arm passes the rule.');
+    if (rows.CL) out.push('', clVerdict(rows.CL));
+  }
+  out.push('', '## Listing', `- skills named in the init message of a run: ${listing.meanListed ?? 'n/a'} on average`);
+  out.push(listing.describedObservable ? `- listed skills that carry a description: ${listing.meanDescribed} on average` : '- listed skills that carry a description: not observable. How it was checked: the SDK init message reports `skills` as a list of names (string[] in the SDK types) and the SDK does not report the system prompt or the skill listing Claude Code builds, so the count cannot be read from a run.');
+  out.push('', '## Limits', "- The positives are written by a model from each skill's description, then graded; the judge saw only the closest skills by word overlap, not all of them.", "- The skills are all personal skills in a temp HOME; the model also sees Claude Code's own built-in skills in every arm.", '- Search hits use Legion\'s keyword ranker over the size\'s skills only. Hits show the id and "(third-party)" in every arm; arm D adds a sanitised description of up to 120 characters.', '- Input tokens are the sum over all turns of fresh, cache-read and cache-write tokens.', "- The negatives are synthetic. The owner's own no-skill prompts are not part of this run (the repository is public): a gap.", `- Every arm keeps the line "${R1_PREFIX}" in front of its hint, as 11e to 11g did; it may understate H2.`);
+  return out.join('\n');
+}
+
+/** Everything after the arms of a round 1 run: the equivalence re-score, the comparison, the splits, the frozen sets. */
+async function finishRound1({ query, spend, records, items, arms, sizes, subsets, catalog, prompts, totalCap, stopped, isSmoke, common, work, log }) {
+  const itemOf = new Map(items.map((it) => [`${it.size}|${it.kind}${it.i}`, it]));
+  const descByName = new Map(catalog.skills.map((s) => [s.name, s.description]));
+  const altKey = (rec) => {
+    const it = itemOf.get(`${rec.size}|${rec.kind}${rec.i}`);
+    return `${it.gold}\u0000${rec.calledName}\u0000${it.prompt}`;
+  };
+  const needsJudge = (rec) => rec.kind === 'pos' && rec.called && !rec.hit && rec.calledName;
+  const pairs = new Map();
+  for (const rec of records) {
+    if (!needsJudge(rec)) continue;
+    const it = itemOf.get(`${rec.size}|${rec.kind}${rec.i}`);
+    const key = altKey(rec);
+    if (!pairs.has(key)) pairs.set(key, { key, prompt: it.prompt, gold: it.gold, called: rec.calledName });
+  }
+  const { verdicts, stats: equivalence } = await judgeEquivalence({ query, spend, pairs: [...pairs.values()], describe: (n) => descByName.get(n), cwd: work, log });
+  for (const rec of records) if (needsJudge(rec)) rec.accepted = verdicts.get(altKey(rec)) === 'yes';
+
+  const names = arms.map((a) => a.name);
+  const rows = {};
+  for (const a of arms) if (a.name !== ROUND1_BASELINE) rows[a.name] = sizes.map((size) => compareRound1(records, size, ROUND1_BASELINE, a.name));
+  // CL is report only, so it stays out of the rule.
+  const decision = decideRound1(Object.fromEntries(Object.entries(rows).filter(([arm]) => arm !== 'CL')));
+  const splits = [];
+  for (const name of names) for (const size of sizes) splits.push({ arm: name, size, ...missSplit(records, size, name) });
+  const armRows = armStats(records, names).map((a) => ({ ...a, acceptedHits: records.filter((r) => r.arm === a.arm && r.accepted).length, describedHits: sumBy(records, a.arm, 'describedHits') }));
+  const describedHits = Object.fromEntries(names.map((n) => [n, sumBy(records, n, 'describedHits')]));
+  const listed = records.map((r) => r.listed).filter((v) => typeof v === 'number');
+  const described = records.map((r) => r.listedDescribed).filter((v) => typeof v === 'number');
+  const listing = {
+    meanListed: listed.length ? Math.round(listed.reduce((a, b) => a + b, 0) / listed.length) : null,
+    describedObservable: described.length > 0, meanDescribed: described.length ? Math.round(described.reduce((a, b) => a + b, 0) / described.length) : null,
+  };
+  const result = { ...common, smoke: isSmoke, rule: ROUND1_RULE, sizes, arms: armRows, rows, decision, missSplit: splits, equivalence, describedHits, listing };
+  const summary = renderSummaryRound1({ result, catalog, prompts, spend, cap: totalCap, stopped, smoke: isSmoke });
+  const first = sizes[0];
+  const negs = (bucket) => items.filter((it) => it.kind === 'neg' && it.size === first && it.bucket === bucket).map((it) => it.prompt);
+  const frozen = {
+    version: 1, seed: SEED, sizes,
+    catalog: Object.fromEntries(subsets.map((s) => [s.size, s.items.map((x) => x.name)])),
+    positives: Object.fromEntries(sizes.map((size) => [size, items.filter((it) => it.kind === 'pos' && it.size === size).map((it) => ({ prompt: it.prompt, gold: it.gold }))])),
+    negatives: { easy: negs('easy'), hard: negs('hard'), ambiguous: negs('ambiguous') },
+  };
+  return { summary, result, frozen };
+}
+
 // ---------- the whole run ----------
 
+/** The arms' share of what is left after the prompts: the equivalence judge's reserve stays untouched, so accepted gold can always be scored. */
+export function armBudget(spend, totalCap) {
+  return makeSpend(Math.max(0, spend.left() - totalCap * JUDGE_RESERVE_SHARE), spend);
+}
+
 /** One planned set of items: the interleaved order (position 0 of every size, then 1 ...; positives and negatives alternate in a size). */
-function planItems(subsets, prompts, posCap, negCap, base) {
+export function planItems(subsets, prompts, posCap, negCap, base, extra = {}) {
   const posOrder = sample(prompts.positives, prompts.positives.length, SEED);
   const negOrder = sample(prompts.negatives, prompts.negatives.length, SEED + 1);
+  // One fixed pool of negatives, the same at every size: the easy ones in their own order, with the hard and ambiguous ones (round 1) mixed in.
+  const easy = negOrder.slice(0, negCap).map((prompt) => ({ prompt, bucket: 'easy' }));
+  const hardL = sample(extra.hard ?? [], (extra.hard ?? []).length, SEED + 2).slice(0, ROUND1_HARD_NEGATIVES).map((prompt) => ({ prompt, bucket: 'hard' }));
+  const ambL = sample(extra.amb ?? [], (extra.amb ?? []).length, SEED + 3).slice(0, ROUND1_AMBIGUOUS_MAX).map((prompt) => ({ prompt, bucket: 'ambiguous' }));
+  const pool = [];
+  const span = Math.max(easy.length, hardL.length);
+  for (let k = 0; k < span; k++) {
+    if (easy[k]) pool.push(easy[k]);
+    if (hardL[k]) pool.push(hardL[k]);
+    if (k % 3 === 0 && ambL[k / 3]) pool.push(ambL[k / 3]);
+  }
+  for (let a = Math.ceil(span / 3); a < ambL.length; a++) pool.push(ambL[a]);
   const homes = new Map();
   const perSize = subsets.map((sub) => {
     homes.set(sub.size, writeHome(join(base, `home-${sub.size}`), sub.items));
@@ -795,10 +1269,16 @@ function planItems(subsets, prompts, posCap, negCap, base) {
     return {
       size: sub.size,
       pos: posOrder.filter((p) => names.has(p.gold)).slice(0, posCap).map((p, i) => ({ size: sub.size, i, kind: 'pos', prompt: p.prompt, gold: p.gold })),
-      neg: negOrder.slice(0, negCap).map((prompt, i) => ({ size: sub.size, i, kind: 'neg', prompt, gold: null })),
+      neg: pool.map((n, i) => ({ size: sub.size, i, kind: 'neg', prompt: n.prompt, gold: null, bucket: n.bucket })),
     };
   });
   const seqs = perSize.map((sz) => {
+    // Round 1: positives and negatives spread evenly, so a run that stops at the cap holds the same share of both.
+    if (extra.proportional) {
+      const at = (list, k) => (k + 0.5) / list.length;
+      return [...sz.pos.map((x, k) => ({ x, key: at(sz.pos, k) })), ...sz.neg.map((x, k) => ({ x, key: at(sz.neg, k) }))]
+        .sort((a, b) => a.key - b.key || (a.x.kind === 'pos' ? -1 : 1)).map((e) => e.x);
+    }
     const seq = [];
     for (let k = 0; k < Math.max(sz.pos.length, sz.neg.length); k++) { if (sz.pos[k]) seq.push(sz.pos[k]); if (sz.neg[k]) seq.push(sz.neg[k]); }
     return seq;
@@ -808,12 +1288,13 @@ function planItems(subsets, prompts, posCap, negCap, base) {
   return { items, homes };
 }
 
-/** mode: 'smoke' | 'full-11e' | 'accuracy-11f' | 'followup-11g'. The old `smoke: true` still means the smoke mode. */
+/** mode: 'smoke' | 'full-11e' | 'accuracy-11f' | 'followup-11g' | 'round1' | 'smoke-round1'. The old `smoke: true` still means the smoke mode. */
 export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mode = smoke ? 'smoke' : 'full-11e', cap, root, log = console.log, sleep, armory }) {
   if (!MODES.includes(mode)) throw Object.assign(new Error('mode'), { code: 'BAD_MODE' });
-  const isSmoke = mode === 'smoke';
+  const isR1 = mode === 'round1' || mode === 'smoke-round1';
+  const isSmoke = mode === 'smoke' || mode === 'smoke-round1';
   const is11g = mode === 'followup-11g';
-  const is11f = mode === 'accuracy-11f' || is11g; // both use the multi-turn search arms, the 100/60 caps and concurrency 6
+  const is11f = mode === 'accuracy-11f' || is11g || isR1; // these use the multi-turn search arms, the 100/60 caps and concurrency 6
   const totalCap = cap ?? (isSmoke ? 0.1 : is11f ? ACCURACY_CAP_USD : CAP_USD);
   const base = mkdtempSync(join(root ?? tmpdir(), 'finder-sweep-'));
   try {
@@ -824,7 +1305,7 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     log(`catalog: ${catalog.skills.length} skills from ${catalog.source}`);
     if (catalog.skills.length < Math.min(target, 5)) throw Object.assign(new Error('catalog too small'), { code: 'CATALOG' });
     // The subsets nest over the whole 400, as in 11e, so a size holds the same skills as in that run.
-    const sizes = isSmoke ? [Math.min(5, catalog.skills.length)] : (is11g ? FOLLOWUP_SIZES : is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
+    const sizes = isSmoke ? [Math.min(5, catalog.skills.length)] : (isR1 ? ROUND1_SIZES : is11g ? FOLLOWUP_SIZES : is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
     // A catalog a little short of 400 still gets its own top size, so the largest size is never silently dropped.
     if (mode === 'full-11e' && catalog.skills.length > sizes[sizes.length - 1]) sizes.push(catalog.skills.length);
     // A catalog smaller than the smallest size cannot be measured; say so instead of running on nothing.
@@ -834,21 +1315,23 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     mkdirSync(work, { recursive: true });
     // Prompts are needed only for the skills of the largest size, since every smaller size sits inside it.
     const promptSkills = is11f ? subsets[subsets.length - 1].items : catalog.skills;
-    const prompts = await makePrompts({ query, spend: prep, skills: promptSkills, perSkill: 2, negWanted: isSmoke ? 2 : NEGATIVES_WANTED, cwd: work, log });
+    const prompts = await makePrompts({ query, spend: prep, skills: promptSkills, perSkill: 2, negWanted: isSmoke ? 2 : NEGATIVES_WANTED, hard: isR1 && !isSmoke, cwd: work, log });
     // The smoke run asks one positive prompt, so each of its three arms makes exactly one call.
     const posCap = isSmoke ? 1 : is11f ? ACCURACY_POSITIVES : POSITIVES_PER_SIZE;
     const negCap = isSmoke ? 0 : is11f ? ACCURACY_NEGATIVES : NEGATIVES_PER_SIZE;
-    const { items, homes } = planItems(subsets, prompts, posCap, negCap, base);
+    const { items, homes } = planItems(subsets, prompts, posCap, negCap, base, isR1 ? { hard: prompts.hard, amb: prompts.ambiguous, proportional: true } : {});
     log(`arms: ${items.length} items over sizes ${sizes.join(', ')}`);
 
-    const arms = mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : is11g ? ARMS_11G : ARMS_11F;
+    const arms = isR1 ? (isSmoke ? ARMS_SMOKE_ROUND1 : ARMS_ROUND1) : mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : is11g ? ARMS_11G : ARMS_11F;
     const search = arms.some((a) => a.search) ? makeSearch(armory ?? await loadArmory(), subsets) : null;
-    const { records, stopped } = await runArms({ query, spend, items, homes, arms, search, concurrency: is11f ? ACCURACY_CONCURRENCY : PROBE_CONCURRENCY, workDir: work, log });
+    const armSpend = isR1 && !isSmoke ? armBudget(spend, totalCap) : spend;
+    const { records, stopped } = await runArms({ query, spend: armSpend, items, homes, arms, search, concurrency: is11f ? ACCURACY_CONCURRENCY : PROBE_CONCURRENCY, workDir: work, log });
     const common = {
       seed: SEED, mode, cap: totalCap, spentUsd: round(spend.spent), calls: spend.calls, stoppedAtCap: stopped,
       armCalls: records.length, armAnswered: records.filter((r) => r.error === null).length,
       catalog: { source: catalog.source, ...catalog.counts }, prompts: prompts.stats,
     };
+    if (isR1) return await finishRound1({ query, spend, records, items, arms, sizes, subsets, catalog, prompts, totalCap, stopped, isSmoke, common, work, log });
     if (mode === 'full-11e') {
       const rows = summarize(records, sizes);
       const decision = decideThreshold(rows);
@@ -874,8 +1357,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--smoke') opts.mode = 'smoke';
-    else if ((a === '--cap' || a === '--json' || a === '--mode' || a === '--mode-file') && argv[i + 1] !== undefined) opts[a.slice(2).replace('-f', 'F')] = argv[++i];
-    else throw new Error('usage: skill-finder-sweep.mjs [--mode name | --mode-file path | --smoke] [--cap usd] [--json file]');
+    else if ((a === '--cap' || a === '--json' || a === '--mode' || a === '--mode-file' || a === '--frozen') && argv[i + 1] !== undefined) opts[a.slice(2).replace('-f', 'F')] = argv[++i];
+    else throw new Error('usage: skill-finder-sweep.mjs [--mode name | --mode-file path | --smoke] [--cap usd] [--json file] [--frozen file]');
   }
   return opts;
 }
@@ -894,13 +1377,15 @@ async function main() {
   const cap = opts.cap === undefined ? undefined : Number(opts.cap);
   if (cap !== undefined && !(cap > 0)) throw new Error('--cap must be a positive number');
   console.log(`mode: ${mode}`);
-  const { summary, result } = await runSweep({ query, fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, mode, ...(cap ? { cap } : {}) });
+  const { summary, result, frozen } = await runSweep({ query, fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, mode, ...(cap ? { cap } : {}) });
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
   // A run that measured nothing must not look green.
   if (result.armAnswered === 0) { process.stderr.write('skill-finder-sweep: no arm call was answered\n'); process.exitCode = 1; }
   else if (!result.smoke && result.prompts.negKept < MIN_NEGATIVES) { process.stderr.write(`skill-finder-sweep: only ${result.prompts.negKept} negatives kept, need ${MIN_NEGATIVES}\n`); process.exitCode = 1; }
   writeFileSync(resolve(opts.json ?? 'sweep-result.json'), `${JSON.stringify(result, null, 2)}\n`);
+  // The frozen prompt sets (round 1), written after the run's temp folder is gone. Prompts and gold ids only.
+  if (frozen) writeFresh(resolve(opts.frozen ?? 'round1-frozen.json'), `${JSON.stringify(frozen, null, 2)}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

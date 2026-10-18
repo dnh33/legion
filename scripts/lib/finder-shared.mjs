@@ -77,6 +77,15 @@ export function sumUsage(list) {
   return t;
 }
 
+/**
+ * How many entries of a skill list carry a description. The SDK's init message lists names only (strings), so this gives null
+ * ("not observable"); it counts only if a future SDK lists objects with a description field.
+ */
+export function describedCount(list) {
+  if (!Array.isArray(list) || !list.some((e) => e && typeof e === 'object')) return null;
+  return list.filter((e) => e && typeof e === 'object' && typeof e.description === 'string' && e.description.trim() !== '').length;
+}
+
 /** Input tokens of a run: fresh, cache-read and cache-write, all turns. */
 export const inputTokens = (t) => (t ? t.input + t.cacheRead + t.cacheWrite : null);
 
@@ -125,7 +134,7 @@ export async function runSkillCall(query, opts) {
       },
     });
     for await (const m of q) {
-      if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null };
+      if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null, skillsDescribed: describedCount(m.skills) };
       if (m.type === 'assistant' && m.message?.usage) turns.set(m.message.id ?? `t${turns.size}`, m.message.usage);
       if (m.type === 'assistant' && rec.called === null) {
         for (const b of m.message?.content ?? []) if (b?.type === 'tool_use' && b.name === 'Skill' && rec.called === null) rec.called = String(b.input?.skill ?? '');
