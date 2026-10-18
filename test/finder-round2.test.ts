@@ -249,7 +249,7 @@ const FROZEN = () => ({
   },
 });
 
-function fakeQueryR2(log: { probes: number; notes: string[]; arms: Map<string, number>; judges: number; systems: Set<string> }) {
+function fakeQueryR2(log: { echo?: boolean; probes: number; notes: string[]; arms: Map<string, number>; judges: number; systems: Set<string> }) {
   return ({ prompt, options }: any) => (async function* () {
     if (options.tools?.length === 0) {
       const sys = String(options.systemPrompt);
@@ -270,6 +270,8 @@ function fakeQueryR2(log: { probes: number; notes: string[]; arms: Map<string, n
       ctx = out?.hookSpecificOutput?.additionalContext ?? null;
       yield { type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', outcome: 'success', output: '' };
       if (ctx) { log.notes.push(ctx); yield { type: 'user', message: { content: [{ type: 'text', text: ctx }] } }; }
+      const mk = ctx ? /ORCHID-\d+/.exec(ctx)?.[0] : null;
+      if (mk && log.echo !== false) yield { type: 'assistant', message: { id: 'm3', content: [{ type: 'text', text: `all done ${mk}` }] } };
     }
     const dir = join(String(options.env.HOME), '.claude', 'skills');
     const names = existsSync(dir) ? readdirSync(dir) : [];
@@ -298,7 +300,7 @@ const fakeArmory = async () => {
   });
   return { ...real, buildFindServer };
 };
-const newLog = () => ({ probes: 0, notes: [] as string[], arms: new Map<string, number>(), judges: 0, systems: new Set<string>() });
+const newLog = (): { echo?: boolean; probes: number; notes: string[]; arms: Map<string, number>; judges: number; systems: Set<string> } => ({ probes: 0, notes: [] as string[], arms: new Map<string, number>(), judges: 0, systems: new Set<string>() });
 
 describe('round2: the whole job on fakes', () => {
   it('runs the five arms on the frozen items, builds the note per prompt from the real ranking, and prints the trade-off table', async () => {
@@ -409,8 +411,9 @@ describe('round2: a green smoke must mean the real run can start', () => {
   });
   it('turns the smoke red unless the note reached the model', () => {
     const row = (arm: string, o: any) => ({ arm, notesBuilt: 0, hookFired: 0, noteSeen: 0, hookEvents: 0, ...o });
-    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 2, hookEvents: 2 }), row('M', {})]), true);
-    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 0, hookEvents: 2 })]), false, 'not shown in the stream');
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 2, hookEvents: 2, markerSent: 2, markerEchoed: 1 }), row('M', {})]), true, 'one echoed marker is enough');
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 2, hookEvents: 2, markerSent: 2, markerEchoed: 0 })]), false, 'the stream alone no longer proves delivery');
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 0, hookEvents: 2, markerSent: 2, markerEchoed: 2 })]), true, 'a marker echo proves it even if the stream shows nothing');
     assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2 })]), false);
     assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 0, hookFired: 2 })]), false);
     assert.equal(sweep.smokeProvesNote([row('SL', {})]), false, 'the hook never fired');
@@ -420,5 +423,51 @@ describe('round2: a green smoke must mean the real run can start', () => {
   });
   it('reads a .sweep-mode with a comment', () => {
     assert.equal(sweep.parseSweepMode('smoke-round2 # round 2 smoke first\n'), 'smoke-round2');
+  });
+});
+
+describe('round2: the smoke proves delivery by a marker the model must echo', () => {
+  it('appends one marker line to the note, only when a marker is given', () => {
+    const plain = sweep.buildShortlistNote(['a-one']);
+    assert.equal(sweep.buildShortlistNote(['a-one'], 5, null), plain);
+    assert.equal(sweep.buildShortlistNote(['a-one'], 5, 'ORCHID-42'), `${plain}\nSmoke check: end your answer with the word ORCHID-42.`);
+    assert.equal(sweep.buildShortlistNote([], 5, 'ORCHID-42'), null, 'no candidates, no note, no marker');
+    assert.equal(sweep.smokeMarkerLine('ORCHID-7'), 'Smoke check: end your answer with the word ORCHID-7.');
+  });
+  it('runSkillCall sees the marker only in what the assistant said', async () => {
+    const run = async (msgs: any[]) => shared.runSkillCall(() => (async function* () { for (const m of msgs) yield m; })(), { model: 'haiku', prompt: 'p', cwd: process.cwd(), append: 'x', marker: 'ORCHID-7' });
+    const said = (text: string) => ({ type: 'assistant', message: { id: 'a', content: [{ type: 'text', text }] } });
+    const end = { type: 'result', total_cost_usd: 0, usage: {} };
+    assert.equal((await run([said('done ORCHID-7'), end])).markerEchoed, true);
+    assert.equal((await run([said('done ORCHID-8'), end])).markerEchoed, false);
+    assert.equal((await run([{ type: 'user', message: { content: [{ type: 'text', text: 'ORCHID-7' }] } }, end])).markerEchoed, false, 'the note itself does not count');
+    assert.equal((await run([end])).markerEchoed, false);
+  });
+  it('smoke-round2 sends a fresh marker per shortlist call, counts the echoes, and keeps the stream count beside them', async () => {
+    const log = newLog();
+    const { summary, result } = await sweep.runSweep({ query: fakeQueryR2(log), fetch: fakeFetch, mode: 'smoke-round2', frozen: FROZEN(), cap: 1, root: tempDir('sweep-r2-marker-'), armory: await fakeArmory(), log: () => {}, sleep: async () => {} });
+    const sl = result.arms.find((a: any) => a.arm === 'SL');
+    assert.ok(sl.markerSent >= 1 && sl.markerEchoed === sl.markerSent);
+    assert.equal(result.arms.find((a: any) => a.arm === 'M').markerSent, 0, 'M has no note, so no marker');
+    for (const n of log.notes) assert.match(n.split('\n').pop()!, /^Smoke check: end your answer with the word ORCHID-\d+\.$/);
+    assert.ok(summary.includes('note delivered (marker echoed)'));
+    assert.ok(summary.includes('The note reached the model'), 'the stream count is still reported');
+    assert.ok(!JSON.stringify(result).includes('ORCHID'), 'the marker value is not logged');
+    assert.equal(sweep.smokeProvesNote(result.arms), true);
+  });
+  it('is red when the model never echoes the marker, and says so', async () => {
+    const log = newLog();
+    log.echo = false;
+    const { summary, result } = await sweep.runSweep({ query: fakeQueryR2(log), fetch: fakeFetch, mode: 'smoke-round2', frozen: FROZEN(), cap: 1, root: tempDir('sweep-r2-noecho-'), armory: await fakeArmory(), log: () => {}, sleep: async () => {} });
+    assert.equal(sweep.smokeProvesNote(result.arms), false);
+    assert.match(summary, /Check failed\.\*\* .*marker/);
+  });
+  it('keeps the full round2 note exactly as the brief says: no marker, no marker line', async () => {
+    const log = newLog();
+    const { summary, result } = await sweep.runSweep({ query: fakeQueryR2(log), fetch: fakeFetch, mode: 'round2', frozen: FROZEN(), cap: 60, root: tempDir('sweep-r2-nomark-'), armory: await fakeArmory(), log: () => {}, sleep: async () => {} });
+    assert.ok(log.notes.length > 0);
+    for (const n of log.notes) assert.ok(n.endsWith(FOOT) && !n.includes('ORCHID') && !n.includes('Smoke check'));
+    assert.ok(result.arms.every((a: any) => a.markerSent === 0 && a.markerEchoed === 0));
+    assert.ok(!summary.includes('marker echoed'));
   });
 });

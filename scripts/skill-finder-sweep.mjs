@@ -147,10 +147,14 @@ export const SHORTLIST_SIZE = 5;
 export const SHORTLIST_HEAD = 'Skills that may fit this request:';
 export const SHORTLIST_FOOT = 'For each one, decide whether it clearly fits. If one does, load it with the Skill tool. If none does, answer without a skill.';
 /** The note text for a ranked list of skill ids (id only, as the third-party rule asks), or null when nothing ranked. */
-export function buildShortlistNote(ids, n = SHORTLIST_SIZE) {
+export function buildShortlistNote(ids, n = SHORTLIST_SIZE, marker = null) {
   const lines = ids.slice(0, n).map((id) => `- ${id}`);
-  return lines.length ? `${SHORTLIST_HEAD}\n${lines.join('\n')}\n${SHORTLIST_FOOT}` : null;
+  if (!lines.length) return null;
+  const note = `${SHORTLIST_HEAD}\n${lines.join('\n')}\n${SHORTLIST_FOOT}`;
+  return marker ? `${note}\n${smokeMarkerLine(marker)}` : note;
 }
+/** Smoke run only: the model must end its answer with this word, which proves the note reached it. The full run never adds it. */
+export const smokeMarkerLine = (marker) => `Smoke check: end your answer with the word ${marker}.`;
 /** The round 2 rule: the same three tests as round 1, now with M, SL and MSL as the tested arms. Written before any result. */
 export const ROUND2_RULE = ROUND1_RULE;
 /**
@@ -602,7 +606,7 @@ export const isGold = (called, gold) => called !== null && normalizeSkillName(ca
  * An arm with `search: true` gets Legion's own armory_find server. `search` is { forSize(size) -> find function, buildServer(find) ->
  * server config }; every search is recorded per call (how many, and the first five ids each returned).
  */
-export async function runArms({ query, spend, items, homes, arms = ARMS_11E, search = null, model = 'haiku', concurrency = PROBE_CONCURRENCY, workDir, log = () => {} }) {
+export async function runArms({ query, spend, items, homes, arms = ARMS_11E, search = null, model = 'haiku', concurrency = PROBE_CONCURRENCY, workDir, log = () => {}, markers = false }) {
   if (arms.some((a) => a.search) && !search) throw Object.assign(new Error('search'), { code: 'NO_SEARCH' });
   const records = [];
   const costs = [];
@@ -628,10 +632,12 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
         const find = useSearch?.forSize(it.size, arm.thirdParty === true, describe);
         // Shortlist arms: the note is built inside the prompt hook from Legion's own ranking of the prompt. This ranking is not a model search.
         let noteIds = null;
+        // Smoke run: a fresh marker per shortlist call, kept in memory only.
+        const marker = markers && arm.shortlist ? `ORCHID-${Math.floor(Math.random() * 1e9)}` : null;
         const rank = arm.shortlist ? useSearch.forSize(it.size, true, false) : null;
         const noteFor = rank ? async (p) => {
           noteIds = (await rank(String(p), SHORTLIST_SIZE)).slice(0, SHORTLIST_SIZE).map((h) => h.id);
-          return buildShortlistNote(noteIds);
+          return buildShortlistNote(noteIds, SHORTLIST_SIZE, marker);
         } : null;
         const server = useSearch?.buildServer(async (q, limit) => {
           queries.push(String(q));
@@ -642,7 +648,7 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
         const rec = await runSkillCall(query, {
           model, prompt: it.prompt, cwd: workDir, append: arm.append,
           settings: arm.settings,
-          ...(noteFor ? { noteFor } : {}),
+          ...(noteFor ? { noteFor, ...(marker ? { marker } : {}) } : {}),
           ...(server ? { maxTurns: MAX_TURNS, mcpServers: { legion_armory: server }, allowedTools: [FIND_TOOL] } : {}),
           env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, '.claude') },
         });
@@ -654,6 +660,7 @@ export async function runArms({ query, spend, items, homes, arms = ARMS_11E, sea
           hit, accepted: hit, tokens: inputTokens(rec.tokens), cost: rec.cost, error: rec.error ?? null,
           searches: searched.length, goldInTop5: it.kind === 'pos' && searched.some((ids) => ids.some((id) => isGold(id, it.gold))),
           listed: rec.init?.skills ?? null, listedDescribed: rec.init?.skillsDescribed ?? null, describedHits: described,
+          markerSent: marker && rec.noted > 0 ? 1 : 0, markerEchoed: rec.markerEchoed ? 1 : 0,
           noteFired: rec.fired, noted: rec.noted, hookEvents: rec.hookEvents, noteSeen: rec.noteSeen, noteSize: noteIds ? noteIds.length : null,
           goldInNote: it.kind === 'pos' && Boolean(noteIds?.some((id) => isGold(id, it.gold))),
         };
@@ -1393,8 +1400,20 @@ export function shortlistCheck(armRows) {
   return `The note reached the model: the hook fired ${fired} times, returned ${built} notes, and the message stream shows the note ${seen} times (${events} hook events).`;
 }
 
-/** The smoke run of round 2 passes only when the note reached the model (the hook fired, a note was built and the stream showed it). */
-export const smokeProvesNote = (armRows) => shortlistCheck(armRows).startsWith('The note reached the model');
+/**
+ * Smoke run delivery check. The stream does not echo hook context, so delivery is proven by its effect: the model ended its answer with the
+ * marker that only the note carried. Counted per shortlist call. '' when no marker was sent (the full run).
+ */
+export function markerCheck(armRows) {
+  const rows = armRows.filter((a) => a.arm === 'SL' || a.arm === 'MSL');
+  const sent = rows.reduce((t, a) => t + (a.markerSent ?? 0), 0);
+  const echoed = rows.reduce((t, a) => t + (a.markerEchoed ?? 0), 0);
+  if (!sent) return '';
+  if (!echoed) return `**Check failed.** The note was sent with a marker in ${sent} shortlist calls and the model never echoed the marker, so delivery is not proven.`;
+  return `Note delivered (marker echoed) in ${echoed} of ${sent} shortlist calls.`;
+}
+/** The smoke run of round 2 passes only when at least one shortlist call echoed its marker. */
+export const smokeProvesNote = (armRows) => markerCheck(armRows).startsWith('Note delivered');
 
 export function renderSummaryRound2({ result, catalog, prompts, spend, cap, stopped, smoke }) {
   const out = [];
@@ -1411,6 +1430,8 @@ export function renderSummaryRound2({ result, catalog, prompts, spend, cap, stop
   out.push('## Arms', '', '| arm | calls | answered | skill called | search called | searches per call | strict gold hits | accepted gold hits | hook fired | notes built | note seen in stream | hook events |', '|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const a of arms) out.push(`| ${a.arm} | ${a.calls} | ${a.answered} | ${a.skillCalled} | ${a.searchCalled} | ${a.searchesPerCall ?? 'n/a'} | ${a.goldHits} | ${a.acceptedHits} | ${a.hookFired} | ${a.notesBuilt} | ${a.noteSeen} | ${a.hookEvents} |`);
   out.push('');
+  const marked = markerCheck(arms);
+  if (marked) out.push(marked.replace('Note delivered', 'note delivered'), '');
   const check = shortlistCheck(arms);
   if (check) out.push(check, '');
   if (!smoke) {
@@ -1463,6 +1484,7 @@ async function finishRound2({ query, spend, records, items, arms, sizes, catalog
   const armRows = armStats(records, names).map((a) => ({
     ...a, acceptedHits: records.filter((r) => r.arm === a.arm && r.accepted).length,
     hookFired: sumBy(records, a.arm, 'noteFired'), notesBuilt: sumBy(records, a.arm, 'noted'), noteSeen: sumBy(records, a.arm, 'noteSeen'), hookEvents: sumBy(records, a.arm, 'hookEvents'),
+    markerSent: sumBy(records, a.arm, 'markerSent'), markerEchoed: sumBy(records, a.arm, 'markerEchoed'),
   }));
   const result = { ...common, smoke: isSmoke, rule: ROUND2_RULE, sizes, arms: armRows, rows, decision, missSplit: splits, trade, equivalence };
   const summary = renderSummaryRound2({ result, catalog, prompts, spend, cap: totalCap, stopped, smoke: isSmoke });
@@ -1563,7 +1585,7 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     const arms = isR2 ? (isSmoke ? ARMS_SMOKE_ROUND2 : ARMS_ROUND2) : isR1 ? (isSmoke ? ARMS_SMOKE_ROUND1 : ARMS_ROUND1) : mode === 'full-11e' ? ARMS_11E : isSmoke ? ARMS_SMOKE : is11g ? ARMS_11G : ARMS_11F;
     const search = arms.some((a) => a.search) ? makeSearch(armory ?? await loadArmory(), subsets) : null;
     const armSpend = (isR1 || isR2) && !isSmoke ? armBudget(spend, totalCap) : spend;
-    const { records, stopped } = await runArms({ query, spend: armSpend, items, homes, arms, search, concurrency: is11f ? ACCURACY_CONCURRENCY : PROBE_CONCURRENCY, workDir: work, log });
+    const { records, stopped } = await runArms({ query, spend: armSpend, items, homes, arms, search, concurrency: is11f ? ACCURACY_CONCURRENCY : PROBE_CONCURRENCY, workDir: work, log, markers: mode === 'smoke-round2' });
     const common = {
       seed: SEED, mode, cap: totalCap, spentUsd: round(spend.spent), calls: spend.calls, stoppedAtCap: stopped,
       armCalls: records.length, armAnswered: records.filter((r) => r.error === null).length,
@@ -1625,7 +1647,7 @@ async function main() {
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
   // A run that measured nothing must not look green. Nor may a round 2 smoke whose note was not shown to have reached the model.
-  if (mode === 'smoke-round2' && !smokeProvesNote(result.arms)) { process.stderr.write('skill-finder-sweep: the shortlist note was not shown to reach the model' + '\n'); process.exitCode = 1; }
+  if (mode === 'smoke-round2' && !smokeProvesNote(result.arms)) { process.stderr.write('skill-finder-sweep: the shortlist note was not proven to reach the model (no marker echoed)' + '\n'); process.exitCode = 1; }
   if (result.armAnswered === 0) { process.stderr.write('skill-finder-sweep: no arm call was answered\n'); process.exitCode = 1; }
   else if (!result.smoke && result.prompts.negKept < MIN_NEGATIVES) { process.stderr.write(`skill-finder-sweep: only ${result.prompts.negKept} negatives kept, need ${MIN_NEGATIVES}\n`); process.exitCode = 1; }
   writeFileSync(resolve(opts.json ?? 'sweep-result.json'), `${JSON.stringify(result, null, 2)}\n`);

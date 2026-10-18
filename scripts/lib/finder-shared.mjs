@@ -102,7 +102,8 @@ export function largerUsage(a, b) {
  * { called, calls, cost, tokens, subtype, init, error, ms, fired } and never the prompt.
  */
 export async function runSkillCall(query, opts) {
-  const rec = { called: null, calls: 0, cost: 0, fired: 0, noted: 0, hookEvents: 0, noteSeen: 0, init: null, subtype: null, ms: 0 };
+  const rec = { called: null, calls: 0, cost: 0, fired: 0, noted: 0, hookEvents: 0, noteSeen: 0, markerEchoed: false, init: null, subtype: null, ms: 0 };
+  let said = ''; // what the assistant wrote, kept only to look for opts.marker; never stored or logged
   let sent = null; // the note text as it appears inside JSON, to find it in the message stream
   const turns = new Map(); // assistant message id -> usage; one entry per turn, since a message repeats its usage on every block
   const t0 = performance.now();
@@ -148,6 +149,10 @@ export async function runSkillCall(query, opts) {
         if (sent && m.type !== 'assistant' && m.type !== 'result' && JSON.stringify(m).includes(sent)) rec.noteSeen++;
       }
       if (m.type === 'system' && m.subtype === 'init') rec.init = { tools: Array.isArray(m.tools) ? m.tools.length : null, toolNames: Array.isArray(m.tools) ? m.tools.slice(0, 6) : null, skills: Array.isArray(m.skills) ? m.skills.length : null, skillsDescribed: describedCount(m.skills) };
+      if (opts.marker) {
+        if (m.type === 'assistant') for (const b of m.message?.content ?? []) if (b?.type === 'text' && typeof b.text === 'string') said += `${b.text} `;
+        if (m.type === 'result' && typeof m.result === 'string') said += m.result;
+      }
       if (m.type === 'assistant' && m.message?.usage) turns.set(m.message.id ?? `t${turns.size}`, m.message.usage);
       if (m.type === 'assistant' && rec.called === null) {
         for (const b of m.message?.content ?? []) if (b?.type === 'tool_use' && b.name === 'Skill' && rec.called === null) rec.called = String(b.input?.skill ?? '');
@@ -158,6 +163,7 @@ export async function runSkillCall(query, opts) {
         rec.tokens = { input: m.usage?.input_tokens ?? 0, cacheRead: m.usage?.cache_read_input_tokens ?? 0, cacheWrite: m.usage?.cache_creation_input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
       }
     }
+    if (opts.marker) rec.markerEchoed = said.includes(opts.marker);
     if (rec.tokens) rec.tokens = largerUsage(rec.tokens, sumUsage([...turns.values()]));
   } catch (e) {
     // The turn limit ends the stream with an error after the result: expected, not a failure.
