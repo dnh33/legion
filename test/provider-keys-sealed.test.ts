@@ -186,7 +186,7 @@ test('K1 a keys.json written while keys.enc is unreadable (wrong key) is used to
   new ProviderKeys(plain, { dataKey: dk(), committed: () => false }); // sealed under a key that is then lost
   const k = new ProviderKeys(plain, { dataKey: dk(), committed: () => false });
   assert.equal(k.get('openai', O1), K1, 'recovered from the keep copy');
-  assert.deepEqual(k.status(), { mode: 'encrypted', locked: false });
+  assert.deepEqual(k.status(), { mode: 'encrypted', locked: false, keepCopy: true }, 'the keep copy is still there');
   assert.ok(readdirSync(join(dir, 'providers')).some((n) => n.startsWith('keys.enc.unreadable-')), 'the unreadable file is renamed, not deleted');
   assert.equal(existsSync(enc), true);
 });
@@ -382,3 +382,23 @@ test('committed: no update folder is a non-updater start; the journal and the li
   assert.equal(updateCommitted(dir), false, 'an unreadable journal is never counted as committed');
 });
 
+
+test('N2: while a plain copy stays next to keys.enc, the status says so and the Settings line says why it is there', () => {
+  const { plain } = setup();
+  writePlain(plain, { openai: { key: K1, origin: O1 } });
+  const k = new ProviderKeys(plain, { dataKey: dk() });
+  assert.equal(existsSync(plain), true, 'the migration keeps the plain copy');
+  const st = k.status();
+  assert.equal(st.mode, 'encrypted');
+  assert.equal(st.keepCopy, true);
+  const line = keyStoreLine(st);
+  assert.match(line, /Until this update is final, a plain copy stays next to them so you can go back to 0\.3\.4\./);
+  assert.doesNotMatch(line, /[—–]/);
+  assert.ok(line.length < 330, String(line.length));
+  // no plain copy: no sentence about one, and the status stays as it was
+  const fresh = setup();
+  const k2 = new ProviderKeys(fresh.plain, { dataKey: dk() });
+  k2.set('openai', K1, O1);
+  assert.deepEqual(k2.status(), { mode: 'encrypted', locked: false });
+  assert.doesNotMatch(keyStoreLine(k2.status()), /plain copy/);
+});

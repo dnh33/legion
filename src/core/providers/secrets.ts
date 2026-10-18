@@ -42,6 +42,8 @@ export interface KeyStoreStatus {
   reason?: PlainReason;
   /** The key store did not unlock (key.bin or keys.enc unreadable): saves are refused until the owner restarts or starts over. Present only when true. */
   blocked?: true;
+  /** keys.json still sits next to keys.enc (the keep window for a rollback to 0.3.4). Present only when true. */
+  keepCopy?: true;
 }
 export interface ProviderKeysOptions {
   /** The 256-bit data key Electron main unwrapped (handed over on the launch pipe). With it keys live in keys.enc. */
@@ -88,7 +90,7 @@ export class ProviderKeys {
   }
 
   status(): KeyStoreStatus {
-    return { mode: this.encrypted ? 'encrypted' : 'plain', locked: this.locked, ...(this.encrypted ? {} : { reason: this.reason ?? 'headless' }), ...(this.blocked ? { blocked: true as const } : {}) };
+    return { mode: this.encrypted ? 'encrypted' : 'plain', locked: this.locked, ...(this.encrypted ? {} : { reason: this.reason ?? 'headless' }), ...(this.blocked ? { blocked: true as const } : {}), ...(this.encrypted && this.keepCopy ? { keepCopy: true as const } : {}) };
   }
 
   // ---- reading
@@ -307,7 +309,7 @@ const THREAT = 'Encrypted keys stay unreadable to anyone who copies your Legion 
 export function keyStoreLine(s: KeyStoreStatus): string {
   if (s.blocked) return KEYS_BLOCKED_MESSAGE;
   if (s.locked) return UNLOCK_LINE;
-  if (s.mode === 'encrypted') return THREAT;
+  if (s.mode === 'encrypted') return s.keepCopy ? `${THREAT} Until this update is final, a plain copy stays next to them so you can go back to 0.3.4.` : THREAT;
   return `Your keys are stored in a file only you can read, not encrypted: ${PLAIN_WHY[s.reason ?? 'headless']}.`;
 }
 
