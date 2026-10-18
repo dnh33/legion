@@ -21,10 +21,10 @@
   .pg-snav button { flex: none; white-space: nowrap; }
   .pg-snavw .leg { flex: none; padding: 0 8px 0 0; white-space: nowrap; }
   /* the sign that the row scrolls: an arrow on the side that has more, on a solid patch that fades into the row. It is a pointer help only; Tab already moves along the buttons. */
-  .pg-snav-more { display: grid; place-items: center; position: absolute; top: 0; bottom: 0; width: 40px; padding: 0; border: 0; color: var(--text-2); cursor: pointer; }
+  .pg-snav-more { display: grid; place-items: center; position: absolute; top: 0; bottom: 0; width: 42px; padding: 0; border: 0; color: var(--text-2); cursor: pointer; }
   .pg-snav-more:hover { color: var(--text); }
-  .pg-snav-more.end { right: 0; justify-items: end; padding-right: 4px; background: linear-gradient(90deg, transparent, var(--bg) 50%); }
-  .pg-snav-more.start { left: 0; justify-items: start; padding-left: 4px; background: linear-gradient(270deg, transparent, var(--bg) 50%); }
+  .pg-snav-more.end { right: -2px; justify-items: end; padding-right: 6px; background: linear-gradient(90deg, transparent, var(--bg) 50%); }
+  .pg-snav-more.start { left: -2px; justify-items: start; padding-left: 6px; background: linear-gradient(270deg, transparent, var(--bg) 50%); }
   .pg-snav-more.end svg { transform: rotate(180deg); }
 }
 .pg-sbody { max-width: 720px; min-width: 0; }
