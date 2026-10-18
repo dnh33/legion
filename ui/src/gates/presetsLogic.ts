@@ -8,7 +8,7 @@ import type { ApprovalMode, RunMode } from '../../../src/shared/types.js';
 
 export interface GatesView { app: GateSettings; projects: Record<string, GateSettings>; unreadable: string[]; changedOutside: string[]; canSign: boolean }
 
-const PRESET_LABEL: Record<Preset, string> = { ask: 'Ask', 'accept-edits': 'Accept edits', smart: 'Smart', bypass: 'Bypass' };
+export const PRESET_LABEL: Record<Preset, string> = { ask: 'Ask', 'accept-edits': 'Accept edits', smart: 'Smart', bypass: 'Bypass' };
 
 export interface PresetChoice { id: Preset; label: string; line: string; looser: boolean }
 /** The four presets in order. Every one but Ask is looser than Ask. */
@@ -17,7 +17,7 @@ export function presetChoices(): PresetChoice[] {
 }
 
 /** What a mode is called to a person. A project preset of Bypass runs agents in `full`, so `full` reads Bypass here. */
-export const MODE_LABEL: Record<RunMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', smart: 'Smart', 'smart-edits': 'Smart and Accept edits', full: 'Bypass' };
+export const MODE_LABEL: Record<RunMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', smart: 'Smart', 'smart-edits': 'Smart, and file edits run', full: 'Bypass' };
 /** What an agent's own stored mode is called in the agent editor. */
 export const AGENT_MODE_LABEL: Record<ApprovalMode, string> = { ask: 'Ask', 'auto-edits': 'Accept edits', full: 'Full' };
 
@@ -67,7 +67,8 @@ export function runsAsChip(a: { effective: RunMode; agentMode: ApprovalMode; sou
   if (a.ceiling !== undefined && a.ceiling !== a.agentMode) return { text, reason: 'Started by an outside app: asks' };
   if (a.lease) return { text, reason: 'Goal lease: no cards for this goal' };
   const project = a.projectName ?? 'this project';
-  if (a.source === 'project' && a.projectName === undefined) return { text, reason: 'Following the app default' };
+  // a follower whose project has no preset follows the app default, not the project
+  if (a.source === 'project' && (a.projectName === undefined || a.projectPreset === undefined)) return { text, reason: 'Following the app default' };
   if (a.source === 'project') return { text, reason: `Following project ${project}${a.projectPreset ? ` (${PRESET_LABEL[a.projectPreset]})` : ''}` };
   if (a.limit && a.effective !== a.agentMode) return { text, reason: `Agent is ${AGENT_MODE_LABEL[a.agentMode]}, limited by project ${project}` };
   return { text };
@@ -82,19 +83,6 @@ export const KEYSTORE_LINE = 'Legion cannot sign settings on your computer, so o
 /** Why a preset cannot be picked: only Ask can be stored when Legion cannot sign. undefined = it can be picked. */
 export function disabledReason(view: GatesView, preset: Preset): string | undefined {
   return preset !== 'ask' && !view.canSign ? KEYSTORE_LINE : undefined;
-}
-
-/** The live line under a project's preset. `members` are the project's agent ids; an agent follows when its approvalSource is `project`. */
-export function agentsFollowLine(agents: ReadonlyArray<{ id: string; approvalSource?: 'own' | 'project' }>, members: readonly string[], limit: boolean): string {
-  const inProject = agents.filter((a) => members.includes(a.id));
-  if (inProject.length === 0) return 'This project has no agents yet';
-  const follow = inProject.filter((a) => a.approvalSource === 'project').length;
-  const own = inProject.length - follow;
-  const head = follow === 0 ? 'No agent follows this preset' : `${follow} ${follow === 1 ? 'agent follows' : 'agents follow'} this preset`;
-  if (own === 0) return head;
-  const tail = own === 1 ? 'has its own mode' : 'have their own mode';
-  const cap = limit ? (own === 1 ? ' and is limited to it' : ' and are limited to it') : '';
-  return `${head}; ${own} ${tail}${cap}`;
 }
 
 /** The whole overrides map for a scope with one gate set (or, with undefined, dropped so the preset decides again). The core replaces the map, so the page always sends all of it. */

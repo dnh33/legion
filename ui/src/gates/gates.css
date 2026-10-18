@@ -123,3 +123,6 @@ button.gate-chip:hover { color: var(--text); }
   .gates-log-line { flex-direction: column; gap: 0; }
 }
 .gates-banner-body > span > .btn-ghost { margin-left: -8px; }
+
+/* the "Comes with Legion" note in the agent editor: a small pill, then plain words */
+.seed-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

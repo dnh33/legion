@@ -62,7 +62,7 @@ test('the notice shows once for an install with projects and never for a fresh i
   assert.equal(shouldShowProjectNotice(view({ app: { version: 1, firstRunChoice: true } }), 3), false, 'a fresh install answered the first-run screen');
   assert.equal(shouldShowProjectNotice(view({ app: { version: 1, preset: 'ask' } }), 3), false, 'the owner already set something');
   assert.equal(shouldShowProjectNotice(view({ projects: { [P_SHOP]: { version: 1, preset: 'smart' } } }), 3), false);
-  assert.equal(PROJECT_NOTICE.text, 'Projects can now set how agents ask. Yours are set to Per agent, so nothing changed.');
+  assert.equal(PROJECT_NOTICE.text, 'Projects can now set how agents ask. Nothing changed: each of your agents keeps the setting it had. You can look at it in Settings, Gates.');
   assert.doesNotMatch(PROJECT_NOTICE.text + PROJECT_NOTICE.dismiss, /\u2014|this computer/i);
 });
 
@@ -70,12 +70,14 @@ test('the chip text on a run header uses runsAsChip with the start project, not 
   const v = view({ projects: { [P_SHOP]: { version: 1, preset: 'ask', limit: true }, [P_BLOG]: { version: 1, preset: 'bypass', limit: true } } });
   // the run started in Shop; the task has since moved to Blog
   const task = { runsAs: { mode: 'ask' as const, projectId: P_SHOP }, projectId: P_BLOG };
+  const bare = (r: { title?: string } | undefined) => { const { title: _t, ...rest } = r ?? {}; return rest; };
   const c = runChips(task, { approval: 'full', approvalSource: 'own' }, PROJECTS, v);
-  assert.deepEqual(c.runsAs, { text: 'Runs as Ask', reason: 'Agent is Full, limited by project Shop' });
+  assert.ok(c.runsAs?.title, 'the hover explains it');
+  assert.deepEqual(bare(c.runsAs), { text: 'Runs as Ask', reason: 'Agent is Full, limited by project Shop' });
   const follow = runChips({ runsAs: { mode: 'full', projectId: P_BLOG } }, { approval: 'ask', approvalSource: 'project' }, PROJECTS, v);
-  assert.deepEqual(follow.runsAs, { text: 'Runs as Bypass', reason: 'Following project Blog (Bypass)', full: true });
-  assert.deepEqual(runChips({ runsAs: { mode: 'full' } }, { approval: 'full' }, PROJECTS, v).runsAs, { text: 'Runs as Full', full: true }, 'Full on its own is Full, not Bypass');
-  assert.deepEqual(runChips({ runsAs: { mode: 'ask' } }, { approval: 'ask', approvalSource: 'project' }, PROJECTS, v).runsAs, { text: 'Runs as Ask', reason: 'Following the app default' });
+  assert.deepEqual(bare(follow.runsAs), { text: 'Runs as Bypass', reason: 'Following project Blog (Bypass)', full: true });
+  assert.deepEqual(bare(runChips({ runsAs: { mode: 'full' } }, { approval: 'full' }, PROJECTS, v).runsAs), { text: 'Runs as Full', full: true }, 'Full on its own is Full, not Bypass');
+  assert.deepEqual(bare(runChips({ runsAs: { mode: 'ask' } }, { approval: 'ask', approvalSource: 'project' }, PROJECTS, v).runsAs), { text: 'Runs as Ask', reason: 'Following the app default' });
   assert.equal(runChips({ runsAs: { mode: 'ask' }, origin: { roomId: 'r', fromAgentId: 'x', hop: 0, approvalCeiling: 'ask' } }, { approval: 'full' }, PROJECTS, v).runsAs?.reason, 'Started by an outside app: asks');
 });
 
@@ -184,7 +186,7 @@ const state = (agents: unknown[]) => ({ agents, projects: PROJECTS, tasks: [], c
 
 test('render: the editor offers Follow project first, new agents start on it, saved agents keep their own mode', async () => {
   const v = view({ projects: { [P_SHOP]: { version: 1, preset: 'ask', limit: true }, [P_BLOG]: { version: 1 } } });
-  const { r, cleanup } = await loadUi(state([AGENT('a1', { approval: 'full' }), AGENT('a2', { approval: 'ask', approvalSource: 'project' })]), v);
+  const { r, cleanup } = await loadUi(state([AGENT('a1', { approval: 'full', seedApproval: true }), AGENT('a2', { approval: 'ask', approvalSource: 'project' })]), v);
   try {
     const fresh = unesc(r.editor(null));
     const sel = /Approvals<select[^>]*>([\s\S]*?)<\/select>/.exec(fresh)?.[1] ?? '';
@@ -197,6 +199,9 @@ test('render: the editor offers Follow project first, new agents start on it, sa
     assert.match(saved, /<option value="full" selected="">Full<\/option>/, 'an existing agent keeps its own mode');
     assert.doesNotMatch(saved, /<option value="project" selected/);
     assert.match(saved, /In Shop: runs as Ask \(project limit\)\. In Blog: Full\./, 'one line per project, with the reason');
+    assert.match(saved, /data-testid="seed-note"><span class="chip-pill">Comes with Legion<\/span> You have not changed this agent's setting\./, 'a seeded agent nobody changed says so');
+    assert.doesNotMatch(unesc(r.editor('a2')), /Comes with Legion/, 'an agent without the mark says nothing');
+    assert.doesNotMatch(fresh, /Comes with Legion/, 'a new agent says nothing');
 
     const follower = unesc(r.editor('a2'));
     assert.match(follower, /<option value="project" selected="">Follow project<\/option>/);
@@ -211,7 +216,7 @@ test('render: the run chips draw Runs as with its reason and the web chip, and n
     const agent = AGENT('a1', { approval: 'full' });
     const html = unesc(r.chips({ id: 't', runsAs: { mode: 'ask', projectId: P_SHOP }, web: { pages: 3, newSites: 1 } }, agent, PROJECTS, v));
     assert.match(html, /Runs as Ask/);
-    assert.match(html, /title="Agent is Full, limited by project Shop"/);
+    assert.match(html, /title="A1's own setting is Full\. Project Shop is set to Ask and limits agents to it\. Result: this run asks before every command and file change\."/);
     assert.match(html, /web: 3 pages, 1 new site/);
     assert.equal(r.chips({ id: 't', runsAs: { mode: 'ask' } }, AGENT('a1'), PROJECTS, v).includes('web:'), false, 'no web chip without reads');
     assert.equal(r.chips({ id: 't' }, agent, PROJECTS, v), '', 'a task that has not run shows no chips');
@@ -230,7 +235,12 @@ test('render: project settings repeat the preset radio and the limit box for tha
     assert.match(html, /name="ask-preset-proj_00000000000a"[^>]*checked=""[^>]*\/><span>Smart</);
     assert.match(html, /Limit agents to this/);
     assert.match(html, /type="checkbox"[^>]*checked=""/);
-    assert.match(html, /1 agent follows this preset; 1 has its own mode and is limited to it/);
+    assert.match(html, /This limits 1 agent here: A2 \(Full\) runs as Smart in Shop\. 1 agent follows the preset\./);
+    // the limit switched off: the warning names who runs looser there, and the "limits" line is gone
+    const offView = view({ projects: { [P_SHOP]: { version: 1, preset: 'smart', limit: false } } });
+    const loose = unesc(r.ask({ project: project(P_SHOP, 'Shop', ['a1', 'a2']), agents, view: offView }));
+    assert.match(loose, /data-testid="limit-warn"[^>]*>With the limit off, A2 runs as Full in Shop and never asks\./);
+    assert.doesNotMatch(loose, /This limits/);
     const perAgent = unesc(r.ask({ project: project(P_BLOG, 'Blog', ['a1']), agents, view: view() }));
     assert.match(perAgent, /type="checkbox"[^>]*disabled=""/, 'no limit to set while there is no preset');
     const off = unesc(r.ask({ project: project(P_SHOP, 'Shop', []), agents, view: view({ canSign: false }), note: { tone: 'error', text: 'The change was not made.' } }));

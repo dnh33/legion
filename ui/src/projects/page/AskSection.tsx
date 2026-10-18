@@ -5,8 +5,8 @@
 import type { AgentProfile } from '../../../../src/shared/types';
 import type { Preset } from '../../../../src/shared/gates-registry';
 import type { Project } from '../../../../src/shared/projects';
-import { PROJECT_NOTICE, shouldShowProjectNotice } from '../../gates/agentFollowLogic';
-import { agentsFollowLine, disabledReason, presetChoices, scopeSummary, type GatesView } from '../../gates/presetsLogic';
+import { PROJECT_NOTICE, limitWords, shouldShowProjectNotice } from '../../gates/agentFollowLogic';
+import { disabledReason, presetChoices, scopeSummary, type GatesView } from '../../gates/presetsLogic';
 import { useGatesAction, useGatesView, type GatesChangeRequest, type GatesNote } from '../../gates/useGatesView';
 import { useStore } from '../../store';
 import { announce } from './announce';
@@ -23,6 +23,7 @@ function ResultLine({ note, pending }: { note: GatesNote | null; pending: boolea
 /** The drawn section. State comes in as props so a test can render every state. */
 export function AskSectionView({ project, agents, view, busy, note, run }: { project: Project; agents: readonly AgentProfile[]; view: GatesView; busy: boolean; note: GatesNote | null; run: Run }) {
   const sum = scopeSummary(view, project.id);
+  const words = limitWords(agents, project, view);
   const choices = presetChoices();
   const name = `ask-preset-${project.id}`;
   const change = (patch: Record<string, unknown>, done: string): void => { void run({ kind: 'project', id: project.id, patch }, done).then((ok) => { if (ok) announce(done); }); };
@@ -34,7 +35,7 @@ export function AskSectionView({ project, agents, view, busy, note, run }: { pro
       <div className="pg-opt" role="radiogroup" aria-labelledby="ask-preset-l">
         <div>
           <b id="ask-preset-l">Preset for {project.name}</b>
-          <span className="h">{sum.preset === 'per-agent' ? 'No preset is set for this project.' : agentsFollowLine(agents, project.members, sum.limit)}</span>
+          <span className="h">{sum.preset === 'per-agent' ? 'No preset is set for this project.' : choices.find((c) => c.id === sum.preset)?.line}</span>
         </div>
         <div className="ctl col">
           <div className="pg-ask-row">
@@ -55,7 +56,9 @@ export function AskSectionView({ project, agents, view, busy, note, run }: { pro
       <div className="pg-opt">
         <div>
           <b id="ask-limit-l">Limit agents to this</b>
-          <span className="h">Agents with their own mode cannot go beyond this.</span>
+          <span className="h">Agents with their own setting can be stricter here, never looser.</span>
+          {sum.preset !== 'per-agent' && sum.limit && words.on && <span className="h" role="status" data-testid="limit-line">{words.on}</span>}
+          {sum.preset !== 'per-agent' && !sum.limit && words.off && <span className="pg-limit-warn" role="status" data-testid="limit-warn">{words.off}</span>}
         </div>
         <div className="ctl">
           <label className="pg-radio"><input type="checkbox" aria-labelledby="ask-limit-l" checked={sum.limit} disabled={busy || sum.preset === 'per-agent'} onChange={(e) => change({ limit: e.target.checked }, e.target.checked ? 'Agents are limited to this preset.' : 'Agents may go beyond this preset.')} /></label>

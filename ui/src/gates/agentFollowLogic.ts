@@ -2,7 +2,8 @@
 import { effectiveMode, presetMode } from '../../../src/core/permission-mode.js';
 import type { AgentProfile, ApprovalMode, RunMode, Task } from '../../../src/shared/types.js';
 import type { Project } from '../../../src/shared/projects.js';
-import { AGENT_MODE_LABEL, MODE_LABEL, runsAsChip, webChip, type GatesView } from './presetsLogic.js';
+import type { Preset } from '../../../src/shared/gates-registry.js';
+import { AGENT_MODE_LABEL, MODE_LABEL, PRESET_LABEL, runsAsChip, webChip, type GatesView } from './presetsLogic.js';
 
 /** What the agent editor's Approvals field offers. `project` is "Follow project"; the rest are the agent's own mode. */
 export type ApprovalChoice = 'project' | ApprovalMode;
@@ -81,7 +82,7 @@ export function agentProjectLines(a: { id: string | null; approval: ApprovalMode
 // ---------------------------------------------------------------- the one-time notice in project settings
 
 export const PROJECT_NOTICE = {
-  text: 'Projects can now set how agents ask. Yours are set to Per agent, so nothing changed.',
+  text: 'Projects can now set how agents ask. Nothing changed: each of your agents keeps the setting it had. You can look at it in Settings, Gates.',
   dismiss: 'Got it',
 } as const;
 
@@ -97,25 +98,124 @@ export function shouldShowProjectNotice(view: GatesView, projectCount: number): 
 
 // ---------------------------------------------------------------- the chips on a run
 
+const RESULT_WORDS: Record<RunMode, string> = {
+  ask: 'asks before every command and file change',
+  'auto-edits': 'changes files without asking and asks before commands',
+  smart: 'asks only before risky actions',
+  'smart-edits': 'asks before risky actions, and file edits inside the project run',
+  full: 'never asks',
+};
+
+/**
+ * The hover of the run chip: the agent's own setting, the project preset (or the app default it follows) and the result, in that order.
+ * Built from the same inputs as the chip, so the words and the chip can never disagree.
+ */
+function explainRun(a: { name?: string; agentMode: ApprovalMode; source: 'own' | 'project'; effective: RunMode; projectName?: string; projectPreset?: Preset; appPreset: Preset; limit: boolean; ceiling?: RunMode }): string {
+  const who = a.name ?? 'This agent';
+  const parts: string[] = [];
+  if (a.source === 'own') {
+    parts.push(`${a.name ? `${who}'s` : 'Its'} own setting is ${AGENT_MODE_LABEL[a.agentMode]}.`);
+    if (a.projectPreset) parts.push(`Project ${a.projectName ?? 'this project'} is set to ${PRESET_LABEL[a.projectPreset]} and ${a.limit ? 'limits agents to it' : 'does not limit agents'}.`);
+  } else {
+    const where = a.projectPreset ? `project ${a.projectName ?? 'this project'}, which is set to ${PRESET_LABEL[a.projectPreset]}` : `the app default, which is ${PRESET_LABEL[a.appPreset]}`;
+    parts.push(`${who} follows ${where}.`, `Its own setting (${AGENT_MODE_LABEL[a.agentMode]}) is kept for when it stops following.`);
+  }
+  if (a.ceiling !== undefined && a.ceiling !== a.agentMode) parts.push('An outside app started this run, so it asks.');
+  parts.push(`Result: this run ${RESULT_WORDS[a.effective]}.`);
+  return parts.join(' ');
+}
+
+/** What a run from before the chip existed shows next to the agent: its own setting, in the same words as everywhere else. */
+export function legacyModeChip(agent: Pick<AgentProfile, 'approval' | 'approvalSource'>): string {
+  return agent.approvalSource === 'project' ? 'Follows the project or app default' : AGENT_MODE_LABEL[agent.approval];
+}
+
+/** What the agent editor says under the Approvals field about a seeded agent nobody has changed. Nothing for any other agent. */
+export const SEED_TAG = 'Comes with Legion';
+export function seedWords(agent: Pick<AgentProfile, 'seedApproval'> | undefined): string {
+  return agent?.seedApproval === true ? `${SEED_TAG}. You have not changed this agent's setting.` : '';
+}
+
+type RunsAs = { text: string; reason?: string; full?: true; title?: string };
 /** What the run header shows next to the agent: how the run asks, and how much of the web it read. Both hidden when the run has nothing to say. */
-export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefined, agent: Pick<AgentProfile, 'approval' | 'approvalSource'> | undefined, projects: readonly Project[], view: GatesView | null): { runsAs?: { text: string; reason?: string; full?: true }; web?: string } {
+export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefined, agent: (Pick<AgentProfile, 'approval' | 'approvalSource'> & { name?: string }) | undefined, projects: readonly Project[], view: GatesView | null): { runsAs?: RunsAs; web?: string } {
   if (!task) return {};
-  const out: { runsAs?: { text: string; reason?: string; full?: true }; web?: string } = {};
+  const out: { runsAs?: RunsAs; web?: string } = {};
   const ra = task.runsAs;
   if (ra && agent) {
     // the project the run STARTED in, never the one the task sits in now
     const set = ra.projectId ? view?.projects[ra.projectId] : undefined;
     const name = ra.projectId ? projects.find((p) => p.id === ra.projectId)?.name : undefined;
+    const source = agent.approvalSource === 'project' ? 'project' : 'own';
+    const limit = set?.preset !== undefined && set.limit !== false;
+    const ceiling = task.origin?.approvalCeiling;
     out.runsAs = runsAsChip({
-      effective: ra.mode, agentMode: agent.approval, source: agent.approvalSource === 'project' ? 'project' : 'own',
+      effective: ra.mode, agentMode: agent.approval, source,
       ...(name ? { projectName: name } : {}), ...(set?.preset ? { projectPreset: set.preset } : {}),
-      limit: set?.preset !== undefined && set.limit !== false,
-      ...(task.origin?.approvalCeiling ? { ceiling: task.origin.approvalCeiling } : {}),
+      limit,
+      ...(ceiling ? { ceiling } : {}),
+    });
+    out.runsAs.title = explainRun({
+      ...(agent.name ? { name: agent.name } : {}), agentMode: agent.approval, source, effective: ra.mode,
+      ...(name ? { projectName: name } : {}), ...(set?.preset ? { projectPreset: set.preset } : {}),
+      appPreset: view?.app.preset ?? 'ask', limit,
+      ...(ceiling ? { ceiling } : {}),
     });
     // A run that asks for nothing keeps the amber warning the old approval pill had.
     if (ra.mode === 'full') out.runsAs.full = true;
   }
   const web = task.web ? webChip(task.web) : undefined;
   if (web) out.web = web;
+  return out;
+}
+
+// ---------------------------------------------------------------- who a project limits
+
+const looseness = (m: ApprovalMode): number => (m === 'full' ? 0 : m === 'auto-edits' ? 1 : 2);
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+function nameList(items: readonly string[], shown = 4): string {
+  if (items.length <= 1) return items.join('');
+  if (items.length <= shown) return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+  return `${items.slice(0, shown).join(', ')} and ${items.length - shown} more`;
+}
+
+/**
+ * The live lines under a project's "Limit agents to this" switch, built from the real roster and the real engine rule: who the limit holds back
+ * (`on`), and what the project would let run looser if it were off (`off`). Nothing for a project with no preset. The page shows `on` while the
+ * limit is on and `off` while it is off.
+ */
+export function limitWords(agents: readonly AgentProfile[], project: Pick<Project, 'id' | 'name' | 'members'>, view: GatesView): { on?: string; off?: string } {
+  const set = view.projects[project.id];
+  if (!set?.preset) return {};
+  const inProject = agents.filter((a) => project.members.includes(a.id));
+  if (inProject.length === 0) return { on: 'This project has no agents yet.' };
+  const followers = inProject.filter((a) => a.approvalSource === 'project');
+  const own = inProject.filter((a) => a.approvalSource !== 'project');
+  const result = (a: AgentProfile): RunMode => effectiveMode({ agentMode: a.approval, source: 'own', appPreset: view.app.preset ?? 'ask', project: { preset: set.preset!, limit: true } });
+  const limited = own.filter((a) => result(a) !== a.approval).sort((a, b) => looseness(a.approval) - looseness(b.approval));
+  const rest = own.length - limited.length;
+  const tail: string[] = [];
+  if (rest > 0) tail.push(set.preset === 'ask' ? `${plural(rest, 'agent already asks', 'agents already ask')}.` : `${plural(rest, 'agent is', 'agents are')} not limited by it.`);
+  if (followers.length > 0) tail.push(`${plural(followers.length, 'agent follows', 'agents follow')} the preset.`);
+  const tag = (a: AgentProfile): string => `${a.name} (${AGENT_MODE_LABEL[a.approval]})`;
+  let head: string;
+  if (limited.length === 0) head = 'This limits no agent here.';
+  else {
+    const groups = new Map<RunMode, AgentProfile[]>();
+    for (const a of limited) groups.set(result(a), [...(groups.get(result(a)) ?? []), a]);
+    const clause = (m: RunMode, l: AgentProfile[]): string => `${nameList(l.map(tag))} ${l.length === 1 ? 'runs' : 'run'} as ${MODE_LABEL[m]}`;
+    const n = limited.length;
+    head = groups.size === 1
+      ? `This limits ${plural(n, 'agent', 'agents')} here: ${[...groups].map(([m, l]) => clause(m, l)).join('')} in ${project.name}.`
+      : `This limits ${plural(n, 'agent', 'agents')} here: in ${project.name}, ${[...groups].map(([m, l]) => clause(m, l)).join('; ')}.`;
+  }
+  const out: { on?: string; off?: string } = { on: [head, ...tail].join(' ') };
+  if (limited.length > 0) {
+    const runs = limited.map((a) => `${a.name} runs as ${AGENT_MODE_LABEL[a.approval]}`);
+    const fulls = limited.filter((a) => a.approval === 'full').map((a) => a.name);
+    const solo = limited.length === 1 && fulls.length === 1;
+    const list = runs.length <= 1 ? runs.join('') : `${runs.slice(0, -1).join(', ')} and ${runs[runs.length - 1]}`;
+    out.off = `With the limit off, ${list} in ${project.name}${solo ? ' and never asks' : ''}.${fulls.length > 0 && !solo ? ` ${nameList(fulls)} ${fulls.length === 1 ? 'never asks' : 'never ask'}.` : ''}`;
+  }
   return out;
 }

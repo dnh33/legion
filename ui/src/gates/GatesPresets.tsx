@@ -3,7 +3,8 @@ import type { AgentProfile } from '../../../src/shared/types';
 import type { Project } from '../../../src/shared/projects';
 import type { Preset } from '../../../src/shared/gates-registry';
 import { Icon } from '../components/icons';
-import { PAGE_NOTES, agentsFollowLine, disabledReason, presetChoices, scopeSummary, KEYSTORE_LINE, type GatesView } from './presetsLogic';
+import { PAGE_NOTES, disabledReason, presetChoices, scopeSummary, KEYSTORE_LINE, type GatesView } from './presetsLogic';
+import { limitWords } from './agentFollowLogic';
 import { PENDING_TEXT, reloadGatesFromDisk, type GatesChangeRequest, type GatesNote as Note } from './useGatesView';
 
 export const EVERYTHING = 'app';
@@ -115,9 +116,13 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
         <>
           <label className="gates-row gates-choice">
             <input type="checkbox" checked={sum.limit} disabled={busy || sum.preset === 'per-agent'} onChange={(e) => void change({ limit: e.target.checked }, e.target.checked ? 'Agents are limited to this preset.' : 'Agents may go beyond this preset.')} />
-            <span><b>Limit agents to this</b><span className="field-note">Agents with their own mode cannot go beyond this</span></span>
+            <span><b>Limit agents to this</b><span className="field-note">Agents with their own setting can be stricter here, never looser.</span></span>
           </label>
-          <p className="field-note" role="status">{sum.preset === 'per-agent' ? 'Each agent in this project uses its own setting.' : agentsFollowLine(agents, project?.members ?? [], sum.limit)}</p>
+          {sum.preset === 'per-agent' || !project
+            ? <p className="field-note" role="status">Each agent in this project uses its own setting.</p>
+            : sum.limit
+              ? <p className="field-note" role="status">{limitWords(agents, project, view).on}</p>
+              : limitWords(agents, project, view).off && <p className="gates-warn" role="status"><Icon name="warn" size={13} /> <span>{limitWords(agents, project, view).off}</span></p>}
         </>
       )}
       <GatesNote note={note} pending={busy} />

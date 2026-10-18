@@ -10,6 +10,7 @@ import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } 
 import type { WelcomeItem } from './welcomeLogic';
 import { PresetGate } from '../welcome/PresetChoice';
 import { RunChipsLive } from '../gates/RunChips';
+import { legacyModeChip } from '../gates/agentFollowLogic';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
@@ -254,7 +255,7 @@ export function Thread() {
         <div className="th-right">
           {agent && <ThreadRuns agentId={agent.id} />}
           {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
-          {task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="Approval mode">{agent.approvalSource === 'project' ? 'Follows project' : agent.approval === 'full' ? 'Full access' : agent.approval === 'ask' ? 'Asks first' : 'Auto-edits'}</span>}
+          {task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
           {task?.provider && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
           {task && <span className="th-cost" title="Cumulative cost and turns for this task">{task.costUsd != null ? money(task.costUsd) : ''}{task.costUsd != null && task.turns != null ? ' · ' : ''}{task.turns != null ? `${task.turns} turn${task.turns === 1 ? '' : 's'}` : ''}</span>}
           {taskId && <button className={`icon-btn${searchOpen ? ' on' : ''}`} onClick={() => setSearchOpen((v) => !v)} aria-pressed={searchOpen} aria-label="Search this conversation" title="Search this conversation"><Icon name="search" size={14} /></button>}

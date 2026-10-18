@@ -14,9 +14,9 @@ export function RunChips({ task, agent, projects, view }: { task?: Task; agent?:
   return (
     <>
       {c.runsAs && (
-        <span className={`chip-pill runs-as${c.runsAs.full ? ' ap-full' : ''}`} title={c.runsAs.reason ?? 'How this run asks'}>
+        <span className={`chip-pill runs-as${c.runsAs.full ? ' ap-full' : ''}`} title={c.runsAs.title ?? c.runsAs.reason ?? 'How this run asks'}>
           {c.runsAs.text}
-          {c.runsAs.reason && <span className="sr-only">. {c.runsAs.reason}</span>}
+          {c.runsAs.reason && <span className="sr-only">. {c.runsAs.title ?? c.runsAs.reason}</span>}
         </span>
       )}
       {c.web && <span className="chip-pill web-chip" title="Pages this run read on the web, and sites you approved for it. Only counts are kept.">{c.web}</span>}

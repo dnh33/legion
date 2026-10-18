@@ -14,7 +14,7 @@ import type { GithubLevel } from '../../../src/shared/github-area';
 import { accessPatch } from '../github/agentAccess';
 import { useArea } from '../github/useArea';
 import { GithubAccess } from '../github/GithubAccess';
-import { APPROVAL_CHOICES, CHOICE_HELP, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, type ApprovalChoice } from '../gates/agentFollowLogic';
+import { APPROVAL_CHOICES, CHOICE_HELP, SEED_TAG, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, seedWords, type ApprovalChoice } from '../gates/agentFollowLogic';
 import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
@@ -147,6 +147,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </select>
             <span className="field-note">{CHOICE_HELP[choice]}</span>
             {followLines && <span className="field-note" role="status">{followLines}</span>}
+            {choice === choiceOf(existing) && seedWords(existing) && <span className="field-note seed-note" data-testid="seed-note"><span className="chip-pill">{SEED_TAG}</span> {seedWords(existing).slice(SEED_TAG.length + 2)}</span>}
             {waiting && <span className="field-note" role="status">{PENDING_TEXT}</span>}
           </label>
         </div>

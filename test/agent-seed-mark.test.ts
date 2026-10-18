@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Store } from '../src/core/store.js';
 import { effectiveMode } from '../src/core/permission-mode.js';
 import { AUTH, makeFakes, start } from './helpers-c.js';
+import { isFreshInstall, shouldShowPresetChoice } from '../ui/src/welcome/presetChoiceLogic.js';
 import type { AgentProfile } from '../src/shared/types.js';
 
 const J = { 'Content-Type': 'application/json' };
@@ -58,6 +59,9 @@ test('upgrade from 0.3.4: every agent keeps the effective mode it had, and the m
     assert.equal(own(a), mode, `${id} runs as before`);
     assert.equal(a.seedApproval, undefined, `${id} carries no mark`);
   }
+  // so the first-run screen never shows: it is an existing install, whatever gates settings (none, in 0.3.4) say
+  assert.equal(isFreshInstall(s.listAgents()), false);
+  assert.equal(shouldShowPresetChoice({ app: { version: 1 }, projects: {}, unreadable: [], changedOutside: [], canSign: true }, true, s.listAgents()), false);
   // the seeds this folder lacked are added by the core as they always were, with their own shipped modes
   assert.equal(s.getAgent('sentinel')!.approval, 'ask');
 });

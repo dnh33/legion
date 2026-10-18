@@ -74,23 +74,11 @@ test('runsAsChip names the limit and the follow source', () => {
 // ---------------------------------------------------------------- Task 12: the page's own logic
 
 import { NO_SANDBOX_LINE } from '../src/shared/gates-registry.js';
-import { PAGE_NOTES, WEB_LINE, agentsFollowLine, disabledReason, overridesWith, siteGroups, staleHosts, staleHostsWhenLoaded, webChip, lastUsedByHost, KEYSTORE_LINE } from '../ui/src/gates/presetsLogic.js';
+import { PAGE_NOTES, WEB_LINE, disabledReason, overridesWith, siteGroups, staleHosts, staleHostsWhenLoaded, webChip, lastUsedByHost, KEYSTORE_LINE } from '../ui/src/gates/presetsLogic.js';
 
 test('permissionRows shows the attempt-caps limit per preset', () => {
   assert.deepEqual(permissionRows(view({ app: { version: 1, preset: 'ask' } })).find((r) => r.id === 'attempt-caps')!.value, { on: true, limit: 4 });
   assert.deepEqual(permissionRows(view({ app: { version: 1, preset: 'bypass' } })).find((r) => r.id === 'attempt-caps')!.value, { on: true, limit: 8 });
-});
-
-const mk = (id: string, src?: 'own' | 'project') => ({ id, ...(src ? { approvalSource: src } : {}) });
-test('agentsFollowLine: counts, singular forms and the limit', () => {
-  const ag = [mk('a', 'project'), mk('b', 'project'), mk('c', 'project'), mk('d', 'own'), mk('e', 'project'), mk('out', 'own')];
-  assert.equal(agentsFollowLine(ag, ['a', 'b', 'c', 'd'], true), '3 agents follow this preset; 1 has its own mode and is limited to it');
-  assert.equal(agentsFollowLine(ag, ['a', 'd'], true), '1 agent follows this preset; 1 has its own mode and is limited to it');
-  assert.equal(agentsFollowLine(ag, ['a', 'b', 'd'], false), '2 agents follow this preset; 1 has its own mode');
-  assert.equal(agentsFollowLine(ag, ['d'], true), 'No agent follows this preset; 1 has its own mode and is limited to it');
-  assert.equal(agentsFollowLine(ag, ['a', 'b'], true), '2 agents follow this preset');
-  assert.equal(agentsFollowLine(ag, [], true), 'This project has no agents yet');
-  assert.equal(agentsFollowLine([mk('x')], ['x'], true), 'No agent follows this preset; 1 has its own mode and is limited to it');
 });
 
 test('disabledReason: the keystore text for a looser preset when Legion cannot sign, nothing for Ask', () => {
