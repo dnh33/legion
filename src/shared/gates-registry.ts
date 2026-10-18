@@ -136,7 +136,7 @@ export const LIMIT_GATE_IDS: readonly string[] = GATES.filter((g) => g.family ==
 
 /** One line per preset: the single copy source for the confirm dialogs and the Gates page. */
 export const PRESET_LINES: Record<Preset, string> = {
-  ask: 'Every action asks, except what your own Claude Code allow rules allow.',
+  ask: 'Every action asks, except read-only commands and what your own Claude Code allow rules allow.',
   'accept-edits': 'File edits run. Everything else asks.',
   smart: "Asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify. Tests and builds run without asking, and the code they run can reach the web.",
   bypass: `No permission cards, except for a command that changes ${PROTECTED_FILES_TEXT}. Your deny rules and Legion's safety rails still apply. Everything is logged. ${BYPASS_KEYS_LINE}`,

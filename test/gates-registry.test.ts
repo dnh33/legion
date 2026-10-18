@@ -55,7 +55,7 @@ test('PRESET_LINES and NO_SANDBOX_LINE are plain: every preset has a line, no em
   for (const s of [...Object.values(PRESET_LINES), NO_SANDBOX_LINE]) { assert.ok(!s.includes('\u2014'), s); assert.doesNotMatch(s, /this computer|this machine/i); }
   assert.match(NO_SANDBOX_LINE, /^Legion has no sandbox for commands on your computer\./);
   // the owner's ruling: his own Claude Code allow rules still skip the plain Ask card, and the line says so
-  assert.equal(PRESET_LINES.ask, 'Every action asks, except what your own Claude Code allow rules allow.');
+  assert.equal(PRESET_LINES.ask, 'Every action asks, except read-only commands and what your own Claude Code allow rules allow.');
 });
 
 test('PERMISSION_GATE_IDS is exactly the permission family that ships', () => {
