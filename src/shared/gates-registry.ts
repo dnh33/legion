@@ -103,7 +103,7 @@ export const PRESET_LINES: Record<Preset, string> = {
   ask: 'Every action asks, as now.',
   'accept-edits': 'File edits run. Everything else asks.',
   smart: "Asks before anything that reaches the web, sends data out, deletes, spends, can't be undone, or that Legion can't classify.",
-  bypass: "No permission cards. Your deny rules and Legion's safety rails still apply. Everything is logged.",
+  bypass: "No permission cards, except for a command that changes your gate settings, config, state or projects. Your deny rules and Legion's safety rails still apply. Everything is logged.",
 };
 
 /** Said in every confirm that loosens a preset, and on the Gates page: Legion does not confine the commands it runs. */

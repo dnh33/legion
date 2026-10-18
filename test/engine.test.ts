@@ -112,7 +112,8 @@ test('happy path: streaming, messages, task fields, options', async () => {
   assert.ok(facts >= 0, 'capability block missing');
   assert.ok(persona > facts, 'capability block must come before the persona');
   const n = append.split('\n').length;
-  assert.ok(n <= 18, `append is ${n} lines`);
+  // 18 lines, and two more (a blank line and one line) when the env scrub held variables back from this machine's environment
+  assert.ok(n <= 20, `append is ${n} lines`);
 });
 
 test('startTask validation errors', () => {
