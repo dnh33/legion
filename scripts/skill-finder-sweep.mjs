@@ -128,6 +128,8 @@ export const ARMS_ROUND1 = [
   r1Arm('H2', STRONG_HINT),
   r1Arm('D', SEARCH_HINT, { describeHits: true }),
   r1Arm('LH2', LH2_HINT, { search: false, thirdParty: false }),
+  // N: C with no hint at all. Report only: does the shipped hint still help once no probe line pulls the other way?
+  r1Arm('N', ''),
 ];
 export const ARMS_SMOKE_ROUND1 = [ARMS_ROUND1[0], ARMS_ROUND1[3], ARMS_ROUND1[4]];
 
@@ -1109,6 +1111,14 @@ export function decideRound1(rowsByArm) {
   return { arms, passing: arms.filter((a) => a.pass).map((a) => a.arm) };
 }
 
+/** Report only: N (no hint) against C. Rows compare C (base) with N (arm): a significant loss for N means the hint helps. */
+export function nVerdict(rows) {
+  const helps = rows.some((row) => row.accepted.mcnemarP < ROUND1_RULE.mcnemarAlpha && row.accepted.table.aOnly > row.accepted.table.sOnly);
+  return helps
+    ? 'N against C: C (the shipped hint) is significantly better than no hint (p < 0.05) in accepted gold. The hint helps without the probe line.'
+    : 'N against C: no significant difference in accepted gold. The hint has no measured gain without the probe line.';
+}
+
 /** Report only: CL against C. A significant gain for CL means the shipped short hint gives up part of what the long hint gains. */
 export function clVerdict(rows) {
   const win = rows.some((row) => row.accepted.mcnemarP < ROUND1_RULE.mcnemarAlpha && row.accepted.table.sOnly > row.accepted.table.aOnly);
@@ -1128,6 +1138,7 @@ export function ruleTextRound1() {
     `2. it is not lower by more than one item at ${r.smallSize} skills: its accepted gold is at least ${ROUND1_BASELINE}'s minus ${r.maxItemsLowerAtSmall};`,
     `3. at both sizes its false loads (a Skill call on a negative) on the pooled negatives, easy and hard, are at most ${ROUND1_BASELINE} + ${r.maxExtraFalseLoads}. False searches are reported apart. The ambiguous bucket is reported apart and is not pooled.`,
     'CL against C: report only. If CL is significantly better than C (p < 0.05), the shipped short hint loses gain.',
+    'N against C: report only. N is C with no hint. If C is significantly better than N (p < 0.05), the hint helps without the probe line; if not, the hint has no measured gain.',
   ].join('\n');
 }
 
@@ -1171,7 +1182,7 @@ export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stop
         const a = r.accepted;
         const pass = decision.arms.find((d) => d.arm === arm)?.sizes.find((x) => x.size === r.size)?.pass;
         const searches = arm === 'LH2' ? ['n/a', 'n/a'] : [r.neg.pooled.searchesBase, r.neg.pooled.searchesArm];
-        out.push(`| ${arm} | ${r.size} | ${sizeNote(r)} | ${pct(r.strict.rateBase)} | ${pct(r.strict.rateArm)} | ${pct(a.rateBase)} | ${pct(a.rateArm)} | ${a.diff === null ? 'n/a' : `${(a.diff * 100).toFixed(1)} pts`} | ${a.table.aOnly} / ${a.table.sOnly} | ${a.mcnemarP} | ${r.neg.pooled.loadsBase} | ${r.neg.pooled.loadsArm} | ${searches[0]} | ${searches[1]} | ${pct(a.tokenSaving)} | ${arm === 'CL' ? 'report only' : pass ? 'yes' : 'no'} |`);
+        out.push(`| ${arm} | ${r.size} | ${sizeNote(r)} | ${pct(r.strict.rateBase)} | ${pct(r.strict.rateArm)} | ${pct(a.rateBase)} | ${pct(a.rateArm)} | ${a.diff === null ? 'n/a' : `${(a.diff * 100).toFixed(1)} pts`} | ${a.table.aOnly} / ${a.table.sOnly} | ${a.mcnemarP} | ${r.neg.pooled.loadsBase} | ${r.neg.pooled.loadsArm} | ${searches[0]} | ${searches[1]} | ${pct(a.tokenSaving)} | ${arm === 'CL' || arm === 'N' ? 'report only' : pass ? 'yes' : 'no'} |`);
       }
     }
     out.push('', '## Misses (accepted gold)', '', '| arm | size | positives | strict misses | no call, no search | no call, searched | accepted alternative | wrong skill | searched but gold not in top 5 | gold in top 5 but not loaded |', '|---|---|---|---|---|---|---|---|---|---|');
@@ -1197,6 +1208,7 @@ export function renderSummaryRound1({ result, catalog, prompts, spend, cap, stop
     for (const d of decision.arms) out.push(`- ${d.arm}: ${d.pass ? 'passes' : `does not pass (${d.reasons.join('; ')})`}`);
     out.push(decision.passing.length ? `Passing arms: ${decision.passing.join(', ')}.` : 'No arm passes the rule.');
     if (rows.CL) out.push('', clVerdict(rows.CL));
+    if (rows.N) out.push('', nVerdict(rows.N));
   }
   out.push('', '## Listing', `- skills named in the init message of a run: ${listing.meanListed ?? 'n/a'} on average`);
   out.push(listing.describedObservable ? `- listed skills that carry a description: ${listing.meanDescribed} on average` : '- listed skills that carry a description: not observable. How it was checked: the SDK init message reports `skills` as a list of names (string[] in the SDK types) and the SDK does not report the system prompt or the skill listing Claude Code builds, so the count cannot be read from a run.');
@@ -1227,7 +1239,7 @@ async function finishRound1({ query, spend, records, items, arms, sizes, subsets
   const rows = {};
   for (const a of arms) if (a.name !== ROUND1_BASELINE) rows[a.name] = sizes.map((size) => compareRound1(records, size, ROUND1_BASELINE, a.name));
   // CL is report only, so it stays out of the rule.
-  const decision = decideRound1(Object.fromEntries(Object.entries(rows).filter(([arm]) => arm !== 'CL')));
+  const decision = decideRound1(Object.fromEntries(Object.entries(rows).filter(([arm]) => arm !== 'CL' && arm !== 'N')));
   const splits = [];
   for (const name of names) for (const size of sizes) splits.push({ arm: name, size, ...missSplit(records, size, name) });
   const armRows = armStats(records, names).map((a) => ({ ...a, acceptedHits: records.filter((r) => r.arm === a.arm && r.accepted).length, describedHits: sumBy(records, a.arm, 'describedHits') }));

@@ -38,8 +38,8 @@ describe('round1: modes, arms and hint strings', () => {
     assert.equal(sweep.LH2_HINT, LH2);
     assert.equal(H2, `${LH2} If none fit, call armory_find with what you want to do.`, 'LH2 is the strong hint without its last sentence');
   });
-  it('has the five arms: C, CL, H2, D and LH2', () => {
-    assert.deepEqual(sweep.ARMS_ROUND1.map((a: any) => a.name), ['C', 'CL', 'H2', 'D', 'LH2']);
+  it('has the six arms: C, CL, H2, D, LH2 and N', () => {
+    assert.deepEqual(sweep.ARMS_ROUND1.map((a: any) => a.name), ['C', 'CL', 'H2', 'D', 'LH2', 'N']);
     assert.equal(sweep.ROUND1_BASELINE, 'C');
     const a = by();
     for (const x of sweep.ARMS_ROUND1) assert.deepEqual(x.settings, {}, `${x.name} keeps the full listing`);
@@ -426,14 +426,14 @@ const fakeArmory = async () => {
 };
 
 describe('round1: the whole job on fakes', () => {
-  it('runs five arms at 25 and 100, scores alternatives, splits the misses and freezes the sets without skill text', async () => {
+  it('runs six arms at 25 and 100, scores alternatives, splits the misses and freezes the sets without skill text', async () => {
     const log = { probes: 0, shown: [] as string[], judges: 0, systems: new Set<string>(), arms: new Map<string, number>() };
     const root = tempDir('sweep-r1-');
     const { summary, result, frozen } = await sweep.runSweep({ query: fakeQueryR1(log), fetch: fakeFetch, mode: 'round1', cap: 60, root, armory: await fakeArmory(), log: () => {}, sleep: async () => {} });
     assert.equal(result.mode, 'round1');
     assert.deepEqual(result.sizes, [25, 100]);
-    assert.deepEqual(result.arms.map((a: any) => a.arm), ['C', 'CL', 'H2', 'D', 'LH2']);
-    assert.deepEqual(Object.keys(result.rows), ['CL', 'H2', 'D', 'LH2']);
+    assert.deepEqual(result.arms.map((a: any) => a.arm), ['C', 'CL', 'H2', 'D', 'LH2', 'N']);
+    assert.deepEqual(Object.keys(result.rows), ['CL', 'H2', 'D', 'LH2', 'N']);
     for (const s of ['gen', 'easy', 'posjudge', 'negjudge', 'hardgen', 'hardjudge', 'equiv']) assert.ok(log.systems.has(s), `the ${s} step ran`);
     assert.ok(log.judges >= 2 && log.judges % 2 === 0, 'the equivalence judge runs in pairs of swapped orders');
     // D shows descriptions, the others do not.
@@ -599,5 +599,22 @@ describe('round1: the check on arm D', () => {
     assert.match(sweep.armDCheck([{ arm: 'D', searchCalled: 0, describedHits: 0 }]), /did not search.*not exercised/);
     assert.match(sweep.armDCheck([{ arm: 'D', searchCalled: 3, describedHits: 0 }]), /^\*\*Check failed\.\*\*/);
     assert.equal(sweep.armDCheck([{ arm: 'D', searchCalled: 3, describedHits: 7 }]), '');
+  });
+});
+
+describe('round 1 arm N (no hint)', () => {
+  it('is C with an empty append and stays out of the rule', async () => {
+    const n = sweep.ARMS_ROUND1.find((a: any) => a.name === 'N');
+    const c = sweep.ARMS_ROUND1.find((a: any) => a.name === 'C');
+    assert.ok(n, 'arm N exists');
+    assert.equal(n.append, '');
+    assert.equal(n.search, c.search);
+    assert.equal(n.thirdParty, c.thirdParty);
+  });
+  it('nVerdict says the hint helps only when C wins significantly', async () => {
+    const row = (aOnly: number, sOnly: number, p: number) => ({ accepted: { mcnemarP: p, table: { aOnly, sOnly } } });
+    assert.match(sweep.nVerdict([row(12, 2, 0.01)]), /hint helps/);
+    assert.match(sweep.nVerdict([row(5, 4, 1)]), /no measured gain/);
+    assert.match(sweep.nVerdict([row(2, 12, 0.01)]), /no measured gain/, 'N winning is not a hint gain');
   });
 });
