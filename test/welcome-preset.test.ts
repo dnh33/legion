@@ -12,7 +12,8 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { GatesError, GatesStore } from '../src/core/gates-settings/store.js';
 import { makeSigner } from '../src/core/gates-settings/sign.js';
-import { PRESET_STRINGS, presetSubmit, shouldShowPresetChoice } from '../ui/src/welcome/presetChoiceLogic.js';
+import { Store } from '../src/core/store.js';
+import { PRESET_STRINGS, presetSubmit } from '../ui/src/welcome/presetChoiceLogic.js';
 import { KEYSTORE_LINE, presetChoices } from '../ui/src/gates/presetsLogic.js';
 import type { GatesView } from '../ui/src/gates/presetsLogic.js';
 
@@ -20,15 +21,7 @@ const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const view = (o: Partial<GatesView> = {}): GatesView => ({ app: { version: 1 }, projects: {}, unreadable: [], changedOutside: [], canSign: true, ...o });
 const dir = () => join(cleanupTemp('legion-welcome-preset-'), 'gates');
 const KEY = makeSigner(Buffer.alloc(32, 7))!;
-
-test('shouldShowPresetChoice: a fresh install yes; an existing install with any preset or the flag no; before the welcome is done no', () => {
-  assert.equal(shouldShowPresetChoice(view(), true), true, 'fresh install, sign-in done');
-  assert.equal(shouldShowPresetChoice(view(), false), false, 'the sign-in step comes first');
-  assert.equal(shouldShowPresetChoice(view({ app: { version: 1, firstRunChoice: true } }), true), false, 'answered once');
-  assert.equal(shouldShowPresetChoice(view({ app: { version: 1, preset: 'smart' } }), true), false, 'the app already has a preset');
-  assert.equal(shouldShowPresetChoice(view({ projects: { proj_000000000001: { version: 1, preset: 'ask' } } }), true), false, 'a project already has a preset');
-  assert.equal(shouldShowPresetChoice(view({ projects: { proj_000000000001: { version: 1 } } }), true), true, 'a project with no preset changes nothing');
-});
+function seeds() { const d = cleanupTemp('legion-welcome-seeds-'); const st = new Store(join(d, 'data')); st.seedDefaults(join(d, 'ws')); return st.listAgents(); }
 
 test('Enter on the default keeps Ask and writes firstRunChoice', () => {
   const p = presetSubmit('ask');
@@ -48,7 +41,7 @@ test('the screen strings have no em dash and say "your computer" never "this com
   const all = [...Object.values(PRESET_STRINGS), ...presetChoices().map((c) => c.line), KEYSTORE_LINE].join('\n');
   assert.doesNotMatch(all, /—/);
   assert.doesNotMatch(all, /this computer/i);
-  assert.equal(PRESET_STRINGS.title, 'How should your agents ask?');
+  assert.equal(PRESET_STRINGS.title, 'How should agents ask by default?');
   assert.equal(PRESET_STRINGS.note, 'You can change this any time in Settings, Gates.');
   assert.equal(PRESET_STRINGS.continue, 'Continue');
 });
@@ -101,12 +94,14 @@ async function loadUi(): Promise<{ r: Render; cleanup: () => void }> {
       resolveDir: REPO, sourcefile: 'entry.ts', loader: 'ts',
       contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
         import { PresetChoiceView } from ${ui('ui/src/welcome/PresetChoice.tsx')};
-        export const screen = (view, state) => renderToStaticMarkup(createElement(PresetChoiceView, { view, ...state, onPick: () => {}, onContinue: () => {}, onLater: () => {} }));`,
+        export const screen = (view, state) => renderToStaticMarkup(createElement(PresetChoiceView, { view, ...state, onPick: () => {}, onFollow: () => {}, onContinue: () => {}, onLater: () => {} }));`,
     },
     bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', logLevel: 'silent', loader: { '.css': 'empty' },
     plugins: [{
       name: 'ui-stubs',
       setup(b) {
+        b.onResolve({ filter: /\/store$/ }, () => ({ path: 'app-store', namespace: 'stub' }));
+        b.onLoad({ filter: /^app-store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `export const toast = () => {}; export const useStore = () => [];` }));
         b.onResolve({ filter: /useGatesView$/ }, () => ({ path: 'use-gates-view', namespace: 'stub' }));
         b.onLoad({ filter: /^use-gates-view$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const useGatesView = () => ({ view: null, loadError: null, reload: async () => {}, apply: async () => ({ state: 'ok' }) });
@@ -124,8 +119,9 @@ async function loadUi(): Promise<{ r: Render; cleanup: () => void }> {
 test('render: four radio rows, Ask preselected, Continue, Decide later, the note', async () => {
   const { r, cleanup } = await loadUi();
   try {
-    const html = r.screen(view(), { selected: 'ask', busy: false, note: null }).replace(/&#x27;/g, "'");
-    assert.match(html, /How should your agents ask\?/);
+    const html = r.screen(view(), { agents: seeds(), follow: false, selected: 'ask', busy: false, note: null }).replace(/&#x27;/g, "'");
+    assert.match(html, /How should agents ask by default\?/);
+    assert.ok(html.includes('This is the app default. It is only for agents that follow it. Your agents keep their own settings unless you tick the box below.'));
     for (const c of presetChoices()) { assert.ok(html.includes(`>${c.label}<`), c.label); assert.ok(html.includes(c.line), `${c.label} line`); }
     assert.equal((html.match(/type="radio"/g) ?? []).length, 4);
     assert.match(html, /value="ask"[^>]*checked=""|checked=""[^>]*value="ask"/);
@@ -138,10 +134,32 @@ test('render: four radio rows, Ask preselected, Continue, Decide later, the note
 test('render: looser rows are off with the keystore reason when Legion cannot sign; a failure shows its message', async () => {
   const { r, cleanup } = await loadUi();
   try {
-    const html = r.screen(view({ canSign: false }), { selected: 'ask', busy: false, note: { tone: 'error', text: 'The change was not made.' } });
+    const html = r.screen(view({ canSign: false }), { agents: seeds(), follow: false, selected: 'ask', busy: false, note: { tone: 'error', text: 'The change was not made.' } });
     assert.equal((html.match(/disabled=""/g) ?? []).length >= 3, true, 'three looser rows disabled');
     assert.ok(html.includes(KEYSTORE_LINE));
     assert.match(html, /The change was not made\./);
     assert.match(html, /role="alert"/);
+  } finally { cleanup(); }
+});
+
+test('render: the live list comes from the roster, the box is unticked, and ticking changes the words', async () => {
+  const { r, cleanup } = await loadUi();
+  try {
+    const all = seeds();
+    const off = r.screen(view(), { agents: all, follow: false, selected: 'ask', busy: false, note: null });
+    assert.ok(off.includes('Your agents keep their own settings:'));
+    assert.ok(off.includes('Builder never asks (Full)'));
+    assert.ok(off.includes('Marshal and Scribe accept edits by themselves'));
+    assert.match(off, /Scout and \d+ others ask first/);
+    assert.ok(off.includes('Also make my agents follow this'));
+    assert.ok(off.includes('Each agent can still be set back to its own setting in the agent editor.'));
+    assert.match(off, /type="checkbox"(?![^>]*checked)/, 'the box is unticked');
+    assert.ok(!off.includes('gates-warn'), 'Ask needs no warning');
+    const on = r.screen(view(), { agents: all, follow: true, selected: 'smart', busy: false, note: null });
+    assert.ok(on.includes(`All ${all.length} agents will follow Smart.`));
+    assert.match(on, /type="checkbox"[^>]*checked=""/);
+    assert.match(on, /This makes Marshal, Scout, Inquisitor and \d+ others ask less than now\./);
+    assert.ok(on.includes('Builder will ask more often than now.'));
+    assert.doesNotMatch(on, /—/);
   } finally { cleanup(); }
 });

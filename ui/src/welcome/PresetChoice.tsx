@@ -1,20 +1,25 @@
-// The first-run screen "How should your agents ask?" (Task 13). One question, four radio rows, Ask preselected.
-// Choosing a looser preset runs the same native confirm as the Gates page (window.legion.gatesChange); cancelling returns here with Ask selected.
-// "Decide later" leaves today's behavior and remembers that the question was seen (firstRunChoice only, no preset), so the screen does not return.
+// The first-run screen "How should agents ask by default?". Four radio rows, Ask preselected, a live list of what each of the agents really does, and
+// an unticked box "Also make my agents follow this". Choosing a looser preset runs the same native confirm as the Gates page (window.legion.gatesChange);
+// following is one more native confirm for every agent made looser (window.legion.agentModeBatch). Cancelling returns here with Ask selected.
+// "Decide later" changes nothing and remembers that the question was seen (firstRunChoice only, no preset), so the screen does not return.
 import { useEffect, useRef, useState } from 'react';
 import type { Preset } from '../../../src/shared/gates-registry';
 import { GatesNote } from '../gates/GatesPresets';
 import { disabledReason, presetChoices, type GatesView } from '../gates/presetsLogic';
 import { useGatesAction, useGatesView, type GatesNote as Note } from '../gates/useGatesView';
-import { PRESET_STRINGS, continueFrom, laterFrom, shouldShowPresetChoice } from './presetChoiceLogic';
+import { PRESET_STRINGS, continueFrom, laterFrom, listWords, shouldShowPresetChoice, type Batch } from './presetChoiceLogic';
+import { Icon } from '../components/icons';
+import { toast, useStore } from '../store';
+import type { AgentProfile } from '../../../src/shared/types';
 import '../gates/gates.css';
 import './preset-choice.css';
 
 /** The drawn screen. All state comes in as props so a test can render every state. */
-export function PresetChoiceView({ view, selected, busy, note, onPick, onContinue, onLater }: {
-  view: GatesView; selected: Preset; busy: boolean; note: Note | null;
-  onPick: (p: Preset) => void; onContinue: () => void; onLater: () => void;
+export function PresetChoiceView({ view, agents, selected, follow, busy, note, onPick, onFollow, onContinue, onLater }: {
+  view: GatesView; agents: readonly AgentProfile[]; selected: Preset; follow: boolean; busy: boolean; note: Note | null;
+  onPick: (p: Preset) => void; onFollow: (on: boolean) => void; onContinue: () => void; onLater: () => void;
 }) {
+  const words = listWords(agents, selected, follow);
   const form = useRef<HTMLFormElement>(null);
   // Enter takes the choice on screen (Ask unless the owner picked another) with nothing focused, or on a radio. No control is focused for the owner: a script-focused
   // radio draws the browser's own ring, and this app draws none. A button or the message box keeps its own Enter.
@@ -43,13 +48,22 @@ export function PresetChoiceView({ view, selected, busy, note, onPick, onContinu
           );
         })}
       </fieldset>
+      <div className="preset-agents" role="status" aria-live="polite">
+        <span>{words.head}</span>
+        {words.lines.length > 0 && <ul>{words.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
+      </div>
+      <label className="gates-row gates-choice preset-follow">
+        <input type="checkbox" checked={follow} disabled={busy} onChange={(e) => onFollow(e.target.checked)} />
+        <span><b>{PRESET_STRINGS.followLabel}</b><span className="field-note">{PRESET_STRINGS.followNote}</span></span>
+      </label>
+      {words.warn && <p className="gates-warn" role="status"><Icon name="warn" size={13} /> <span>{words.warn}</span></p>}
+      {words.info && <p className="field-note" role="status">{words.info}</p>}
       <GatesNote note={note} pending={busy} />
       <div className="preset-choice-actions">
         <button type="submit" className="btn primary" disabled={busy}>{PRESET_STRINGS.continue}</button>
         <button type="button" className="btn-ghost" disabled={busy} onClick={onLater}>{PRESET_STRINGS.later}</button>
       </div>
-      <p className="field-note">{PRESET_STRINGS.note}</p>
-      <p className="field-note">{PRESET_STRINGS.laterNote}</p>
+      <p className="field-note">{PRESET_STRINGS.laterNote} {PRESET_STRINGS.note}</p>
     </form>
   );
 }
@@ -58,17 +72,27 @@ export function PresetChoiceView({ view, selected, busy, note, onPick, onContinu
 export function PresetChoice({ onDone }: { onDone: () => void }) {
   const { view, apply } = useGatesView();
   const { pending, note, run } = useGatesAction(apply);
+  const agents = useStore((s) => s.agents);
   const [selected, setSelected] = useState<Preset>('ask');
+  const [follow, setFollow] = useState(false);
+  const [working, setWorking] = useState(false);
   if (!view) return null;
+  const batch: Batch = window.legion?.agentModeBatch ? (b) => window.legion!.agentModeBatch!(b) as ReturnType<NonNullable<Batch>> : undefined;
   const onContinue = async (): Promise<void> => {
-    const r = await continueFrom(selected, run);
-    if (r.done) onDone();
-    else setSelected(r.selected);
+    setWorking(true);
+    try {
+      const r = await continueFrom(selected, follow, agents, run, batch);
+      if (r.done) {
+        // The screen goes away now, so what changed is said where it stays visible.
+        if (r.saved) toast(r.saved.text, r.saved.tone === 'error' ? 'error' : 'info');
+        onDone();
+      } else setSelected(r.selected);
+    } finally { setWorking(false); }
   };
   // Remembered in the app file like an answer, but with no preset: nothing gets looser, so there is no dialog. If it cannot be written the screen
   // still goes away for this launch and comes back next time.
   const onLater = async (): Promise<void> => { await laterFrom(run); onDone(); };
-  return <PresetChoiceView view={view} selected={selected} busy={pending} note={note} onPick={setSelected} onContinue={() => void onContinue()} onLater={() => void onLater()} />;
+  return <PresetChoiceView view={view} agents={agents} selected={selected} follow={follow} busy={pending || working} note={note} onPick={setSelected} onFollow={setFollow} onContinue={() => void onContinue()} onLater={() => void onLater()} />;
 }
 
 /**
@@ -77,7 +101,12 @@ export function PresetChoice({ onDone }: { onDone: () => void }) {
  */
 export function PresetGate({ signedIn, children }: { signedIn: boolean; children: React.ReactNode }) {
   const { view } = useGatesView();
-  const [later, setLater] = useState(false);
-  if (!later && view && shouldShowPresetChoice(view, signedIn)) return <PresetChoice onDone={() => setLater(true)} />;
+  const agents = useStore((s) => s.agents);
+  const [done, setDone] = useState(false);
+  // Once the screen has opened it stays until the owner is through: saving the answer changes the settings the check reads, and the screen must not
+  // vanish in the middle of the second question.
+  const opened = useRef(false);
+  if (!done && view && shouldShowPresetChoice(view, signedIn, agents)) opened.current = true;
+  if (!done && opened.current) return <PresetChoice onDone={() => setDone(true)} />;
   return <>{children}</>;
 }

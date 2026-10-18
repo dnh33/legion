@@ -10,13 +10,16 @@ import { CANCELLED_NEW_TEXT, CANCELLED_TEXT, saveWithMode } from '../ui/src/gate
 import type { AgentBody, ModeBridge, SaveDeps } from '../ui/src/gates/agentModeSave.js';
 import { mayRaiseMode, runChips } from '../ui/src/gates/agentFollowLogic.js';
 import { CANCELLED_NOTE, applyViaBridge, runAction } from '../ui/src/gates/gatesAction.js';
-import { PRESET_STRINGS, continueFrom, laterFrom, shouldShowPresetChoice } from '../ui/src/welcome/presetChoiceLogic.js';
+import { continueFrom, laterFrom, shouldShowPresetChoice } from '../ui/src/welcome/presetChoiceLogic.js';
 import type { GatesView } from '../ui/src/gates/presetsLogic.js';
 import { GatesStore } from '../src/core/gates-settings/store.js';
+import { Store } from '../src/core/store.js';
 import { makeSigner } from '../src/core/gates-settings/sign.js';
 import type { AgentProfile } from '../src/shared/types.js';
 
 const agent = (id: string, over: Record<string, unknown> = {}): AgentProfile => ({ id, name: id, emoji: 'x', description: '', systemPrompt: '', model: 'auto', approval: 'ask', mcpServers: ['*'], vm: { enabled: false, size: 'default', idleStopMinutes: 15 }, createdAt: '', updatedAt: '', ...over }) as AgentProfile;
+
+const SEEDS = (() => { const d = cleanupTemp('legion-ui-seeds-'); const st = new Store(join(d, 'data')); st.seedDefaults(join(d, 'ws')); return st.listAgents(); })();
 
 function rig(bridgeAnswer: Awaited<ReturnType<ModeBridge>> | null = { ok: true }) {
   const log: string[] = [];
@@ -131,20 +134,22 @@ const runWith = (bridge: (c: unknown) => Promise<{ ok: boolean; error?: string; 
 test('Continue cancelled: nothing is saved, Ask stays selected, and the note says so', async () => {
   const sent: unknown[] = [];
   const out: { note: Note | null } = { note: null };
-  const r = await continueFrom('bypass', runWith(async (c) => { sent.push(c); return { ok: false, cancelled: true }; }, out));
+  const r = await continueFrom('bypass', false, SEEDS, runWith(async (c) => { sent.push(c); return { ok: false, cancelled: true }; }, out), undefined);
   assert.deepEqual(r, { done: false, selected: 'ask' });
   assert.deepEqual(sent, [{ kind: 'app', patch: { preset: 'bypass', firstRunChoice: true } }]);
   assert.deepEqual(out.note, { tone: 'info', text: CANCELLED_NOTE });
   assert.equal(CANCELLED_NOTE, 'Cancelled. Nothing changed.');
   // a looser pick that is refused (not cancelled) also goes back to Ask and shows the reason
-  assert.deepEqual(await continueFrom('smart', runWith(async () => ({ ok: false, error: 'Only Ask can be used.' }), out)), { done: false, selected: 'ask' });
+  assert.deepEqual(await continueFrom('smart', false, SEEDS, runWith(async () => ({ ok: false, error: 'Only Ask can be used.' }), out), undefined), { done: false, selected: 'ask' });
   assert.deepEqual(out.note, { tone: 'error', text: 'Only Ask can be used.' });
 });
 
 test('Continue confirmed: the screen is done with the chosen preset and the saved words', async () => {
   const out: { note: Note | null } = { note: null };
-  assert.deepEqual(await continueFrom('smart', runWith(async () => ({ ok: true }), out)), { done: true, selected: 'smart' });
-  assert.deepEqual(out.note, { tone: 'ok', text: PRESET_STRINGS.saved });
+  const r = await continueFrom('smart', false, SEEDS, runWith(async () => ({ ok: true }), out), undefined);
+  assert.deepEqual([r.done, r.selected], [true, 'smart']);
+  assert.equal(r.saved?.text, 'Saved. The app default is Smart. Your agents keep their own settings.');
+  assert.deepEqual(out.note, { tone: 'ok', text: 'Saved. The app default is Smart.' });
 });
 
 test('Decide later is remembered: the app file gets firstRunChoice (no preset, no dialog), and the screen does not come back', async () => {
@@ -160,11 +165,11 @@ test('Decide later is remembered: the app file gets firstRunChoice (no preset, n
     return { ok: true };
   };
   const view = (s: GatesStore): GatesView => ({ app: s.app(), projects: {}, unreadable: [], changedOutside: [], canSign: true }) as unknown as GatesView;
-  assert.equal(shouldShowPresetChoice(view(store), true), true, 'before: a fresh install sees it');
+  assert.equal(shouldShowPresetChoice(view(store), true, SEEDS), true, 'before: a fresh install sees it');
   await laterFrom(runWith(bridge, { note: null }));
   assert.deepEqual(sent, [{ kind: 'app', patch: { firstRunChoice: true } }]);
   assert.equal(store.app().preset, undefined, 'the preset stays unset: today is behavior kept');
-  assert.equal(shouldShowPresetChoice(view(store), true), false, 'after: it does not return');
+  assert.equal(shouldShowPresetChoice(view(store), true, SEEDS), false, 'after: it does not return');
   await store.flush();
-  assert.equal(shouldShowPresetChoice(view(mk(store.folder)), true), false, 'a restart keeps it');
+  assert.equal(shouldShowPresetChoice(view(mk(store.folder)), true, SEEDS), false, 'a restart keeps it');
 });
