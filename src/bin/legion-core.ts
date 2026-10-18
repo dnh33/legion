@@ -120,7 +120,7 @@ async function main() {
   approvals.setPolicy(awayCore.service.policy());
   questions.setPolicy(awayCore.service.policy());
   // gate presets (spec 2026-10-14 goals and gates): signed files, a key of their own (gates-key.bin), no looser preset without the key
-  const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring });
+  const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring, inheritMcp: () => config.claude.inheritMcp === true });
   // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
   const activity = createActivityLog({ dataDir: dataDir() });
   const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });

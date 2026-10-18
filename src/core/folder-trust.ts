@@ -28,6 +28,8 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { scrubLine } from './activity/index.js';
+import { redact } from './log/redact.js';
 
 export interface TrustedFolder { folder: string; digest: string }
 export type SettingSourceName = 'user' | 'project' | 'local';
@@ -42,6 +44,8 @@ export interface FolderScan {
   lines: string[];
   /** Lines left out of `lines` because there were too many. */
   more: number;
+  /** A `.mcp.json` server is among what was found (only ever with `ScanOptions.mcp`). */
+  mcp: boolean;
 }
 
 /**
@@ -76,6 +80,21 @@ export function plain(v: unknown, max = 240): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
+/** `NAME=value` in front of a command, `export NAME=value`, and PowerShell `$name = value`: the value goes, the name stays. */
+const ASSIGN = /(^|[\s;&|(])((?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=)("[^"]*"|'[^']*'|[^\s;&|)]*)/g;
+const PS_ASSIGN = /(\$[A-Za-z_][\w:]*\s*=\s*)("[^"]*"|'[^']*'|[^\s;&|)]+)/g;
+/**
+ * A command, helper, address or rule from a repository, as shown to a person (the native dialog, the thread notice, the activity log). Legion's own
+ * scrubber for the activity log runs first (a web call's login, headers and body, an address's query and userinfo, an authorization value), then the
+ * variables set in front of a command, then the log redactor. The fingerprint is taken from the raw content, never from this.
+ */
+export function shown(v: unknown, max = 240): string {
+  let s = String(v ?? '').slice(0, 4000);
+  try { s = redact(scrubLine(s)); } catch { /* the plain pass below still drops control characters */ }
+  s = s.replace(ASSIGN, '$1$2<omitted>').replace(PS_ASSIGN, '$1<omitted>');
+  return plain(s, max);
+}
+
 function sortedJson(v: unknown): string {
   const s = (x: unknown): unknown => (isObj(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, y]) => [k, s(y)])) : Array.isArray(x) ? x.map(s) : x);
   return JSON.stringify(s(v));
@@ -96,6 +115,12 @@ export interface ScanOptions {
   home?: string;
   /** The user's Claude Code configuration folder (the `user` source). Default: CLAUDE_CONFIG_DIR, else ~/.claude. */
   configDir?: string;
+  /**
+   * Count `.mcp.json` servers as executable. On when "Also load MCP servers" (inheritMcp) is on: only strictMcpConfig stops an SDK run connecting them, and Legion
+   * sets that itself when the switch is off. Official source (opened 2026-10-18): code.claude.com/docs/en/permissions, "What runs before you trust a folder",
+   * the `.mcp.json` row: for the SDK a server is "Connected without asking, approved or not. The SDK loads them only when settingSources includes project settings."
+   */
+  mcp?: boolean;
 }
 function envOf(o: ScanOptions): { home: string; configDir: string } {
   const home = o.home ?? homedir();
@@ -115,11 +140,11 @@ function chainOf(dir: string, home: string): string[] {
   return h >= 0 ? up.slice(0, h) : up;
 }
 
-interface Source { path: string; kind: 'settings' | 'skill'; content: string; lines: string[] }
+interface Source { path: string; kind: 'settings' | 'skill' | 'mcp'; content: string; lines: string[] }
 
 function commandText(v: unknown): string {
-  if (typeof v === 'string') return plain(v);
-  if (isObj(v) && typeof v.command === 'string') return plain(v.command);
+  if (typeof v === 'string') return shown(v);
+  if (isObj(v) && typeof v.command === 'string') return shown(v.command);
   return '(not a command string)';
 }
 
@@ -137,7 +162,7 @@ function hookLines(where: string, hooks: unknown): string[] {
         if (!isObj(h)) { out.push(`Hook ${ev} in ${where} (a shape Legion does not recognise)`); continue; }
         const type = plain(h.type ?? 'command', 20);
         const what = typeof h.command === 'string' ? h.command : typeof h.url === 'string' ? h.url : typeof h.prompt === 'string' ? 'a prompt for a model' : typeof h.tool === 'string' ? `the MCP tool ${h.tool}` : typeof h.server === 'string' ? `the MCP server ${h.server}` : '(unknown)';
-        out.push(`Hook ${ev} (${type}) in ${where} runs: ${plain(what)}`);
+        out.push(`Hook ${ev} (${type}) in ${where} runs: ${shown(what)}`);
       }
     }
   }
@@ -166,7 +191,7 @@ function settingsSource(path: string, label: string): Source | undefined {
       for (const [pk, pv] of Object.entries(val)) {
         if (INERT_PERMISSION_KEYS.has(pk)) continue;
         widen[pk] = pv;
-        if (pk === 'allow') lines.push(`Permission rules in ${label} allow tools without asking: ${Array.isArray(pv) ? pv.slice(0, 6).map((r) => plain(r, 80)).join(', ') + (pv.length > 6 ? ` and ${pv.length - 6} more` : '') : '(not a list)'}`);
+        if (pk === 'allow') lines.push(`Permission rules in ${label} allow tools without asking: ${Array.isArray(pv) ? pv.slice(0, 6).map((r) => shown(r, 80)).join(', ') + (pv.length > 6 ? ` and ${pv.length - 6} more` : '') : '(not a list)'}`);
         else if (pk === 'additionalDirectories') lines.push(`Permissions in ${label} add folders: ${Array.isArray(pv) ? pv.slice(0, 6).map((r) => plain(r, 80)).join(', ') : '(not a list)'}`);
         else lines.push(`Permission setting ${plain(pk, 60)} in ${label}`);
       }
@@ -181,6 +206,34 @@ function settingsSource(path: string, label: string): Source | undefined {
   }
   if (!Object.keys(exec).length) return undefined;
   return { path, kind: 'settings', content: sortedJson(exec), lines };
+}
+
+/** One `.mcp.json`: a line per server saying what it starts or connects to. Variable and header NAMES only; an address is cut to host and path. Never throws. */
+function mcpSource(path: string, label: string): Source | undefined {
+  if (!existsSync(path)) return undefined;
+  const unreadable = (why: string): Source => ({ path, kind: 'mcp', content: `unreadable:${why}`, lines: [`Legion could not read ${label} (${why}), so it treats it as able to start programs`] });
+  let raw: unknown;
+  try {
+    if (statSync(path).size > MAX_FILE) return unreadable('too big');
+    raw = JSON.parse(readFileSync(path, 'utf8').replace(/^﻿/, ''));
+  } catch (e) { return unreadable(e instanceof SyntaxError ? 'not valid JSON' : 'not readable'); }
+  if (!isObj(raw)) return unreadable('not an object');
+  const servers = raw.mcpServers;
+  if (servers === undefined || (isObj(servers) && Object.keys(servers).length === 0)) return undefined;
+  if (!isObj(servers)) return unreadable('mcpServers is not an object');
+  const lines: string[] = [];
+  for (const [name, cfg] of Object.entries(servers)) {
+    const at = `MCP server ${plain(name, 60)} in ${label}`;
+    if (!isObj(cfg)) { lines.push(`${at} (a shape Legion does not recognise)`); continue; }
+    let known = false;
+    if (typeof cfg.command === 'string') { known = true; lines.push(`${at} starts: ${shown([cfg.command, ...(Array.isArray(cfg.args) ? cfg.args.filter((a): a is string => typeof a === 'string') : [])].join(' '))}`); }
+    if (typeof cfg.url === 'string') { known = true; lines.push(`${at} connects to: ${shown(cfg.url)}`); }
+    if (typeof cfg.headersHelper === 'string') { known = true; lines.push(`${at} header helper runs: ${shown(cfg.headersHelper)}`); }
+    if (isObj(cfg.env) && Object.keys(cfg.env).length) lines.push(`${at} gets variables: ${Object.keys(cfg.env).slice(0, 30).map((k) => plain(k, 60)).join(', ')} (values are not shown)`);
+    if (isObj(cfg.headers) && Object.keys(cfg.headers).length) lines.push(`${at} sends headers: ${Object.keys(cfg.headers).slice(0, 30).map((k) => plain(k, 60)).join(', ')} (values are not shown)`);
+    if (!known) lines.push(`${at} (a shape Legion does not recognise)`);
+  }
+  return { path, kind: 'mcp', content: sortedJson(raw), lines };
 }
 
 type Front = { kind: 'none' } | { kind: 'odd' } | { kind: 'block'; block: string };
@@ -216,7 +269,7 @@ function skillSource(path: string, label: string): Source | undefined {
     return { path, kind: 'skill', content: `odd:${createHash('sha256').update(text).digest('hex')}`, lines: [`${label} has a header Legion cannot read safely, so it treats it as able to run commands`] };
   }
   if (!RISKY_FRONT.test(f.block)) return undefined;
-  const risky = f.block.split('\n').filter((l) => RISKY_FRONT.test(l) || /\bcommand\s*:/i.test(l)).slice(0, 4).map((l) => plain(l, 140));
+  const risky = f.block.split('\n').filter((l) => RISKY_FRONT.test(l) || /\bcommand\s*:/i.test(l)).slice(0, 4).map((l) => shown(l, 140));
   const extra = f.block.split('\n').filter((l) => /\bcommand\s*:/i.test(l)).length;
   return { path, kind: 'skill', content: f.block, lines: [`Skill file ${label} carries hooks or allowed tools: ${risky.join(' | ')}${extra > 4 ? ' | …' : ''}`] };
 }
@@ -256,6 +309,8 @@ export function scanFolder(folderIn: string, opts: ScanOptions = {}): FolderScan
     }
     let seen = 0;
     for (const dir of chainOf(folder, home)) {
+      // the CLI looks for .mcp.json in the folder and upward, so the same chain as the skills (fail closed)
+      if (opts.mcp) { const file = join(dir, '.mcp.json'); const m = mcpSource(file, shortPath(file, folder)); if (m) sources.push(m); }
       if (isUserConfig(dir, configDir)) continue;
       for (const sub of ['skills', 'commands', 'agents']) {
         const root = join(dir, '.claude', sub);
@@ -273,10 +328,10 @@ export function scanFolder(folderIn: string, opts: ScanOptions = {}): FolderScan
     sources.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const all = sources.flatMap((s) => s.lines);
     const digest = createHash('sha256').update(JSON.stringify(sources.map((s) => [fwd(s.path), s.kind, s.content]))).digest('hex');
-    return { folder, executable: sources.length > 0, digest, lines: all.slice(0, MAX_LINES), more: Math.max(0, all.length - MAX_LINES) };
+    return { folder, executable: sources.length > 0, digest, lines: all.slice(0, MAX_LINES), more: Math.max(0, all.length - MAX_LINES), mcp: sources.some((x) => x.kind === 'mcp') };
   } catch (e) {
     // anything unforeseen: held back, and the fingerprint changes with the message so nothing was ever trusted for it
-    return { folder, executable: true, digest: createHash('sha256').update(`scan-failed:${String(e)}`).digest('hex'), lines: ['Legion could not finish checking this folder, so it treats it as able to run commands'], more: 0 };
+    return { folder, executable: true, digest: createHash('sha256').update(`scan-failed:${String(e)}`).digest('hex'), lines: ['Legion could not finish checking this folder, so it treats it as able to run commands'], more: 0, mcp: false };
   }
 }
 

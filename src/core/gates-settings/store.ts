@@ -26,6 +26,7 @@ import { dirname, join } from 'node:path';
 import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
 import { plain, realFolder, sameFolder, scanFolder } from '../folder-trust.js';
+import type { FolderScan } from '../folder-trust.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
 import { hasSignedGatesFile, keyUnconfirmed, unconfirmedMarkerPath } from '../../shared/gates-signed.js';
 import { canonicalize } from './sign.js';
@@ -128,10 +129,10 @@ function parseTrusted(v: unknown): TrustedFolderRecord[] {
 }
 
 /** The sentences for a folder the owner is about to trust. With `detail`, the folder is scanned now and its exact commands, helpers and variable names follow (never a value). */
-function trustLines(e: TrustedFolderRecord, detail: boolean): string[] {
+function trustLines(e: TrustedFolderRecord, scanner: ((folder: string) => FolderScan) | undefined): string[] {
   const head = `Let ${plain(e.folder, 200)} run its own commands whenever an agent works there. Its settings and skills are trusted only as they are now: any change asks you again.`;
-  if (!detail) return [head];
-  const scan = scanFolder(e.folder);
+  if (!scanner) return [head];
+  const scan = scanner(e.folder);
   if (scan.digest !== e.digest) return [head, 'What the folder holds has changed since this was written, so this record would not match it.'];
   return [head, ...scan.lines, ...(scan.more > 0 ? [`and ${scan.more} more`] : [])];
 }
@@ -162,7 +163,7 @@ export interface ChangeLines { loosen: string[]; tighten: string[]; /** True whe
  * preview, so a change can never loosen anything the dialog did not say. Compared: the preset, the limit, the cap an agent works under,
  * what every permission gate would be (an override dropped from the list counts), and approved sites and kept variables.
  */
-function describeChange(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, detail = false): ChangeLines {
+function describeChange(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, scanner?: (folder: string) => FolderScan): ChangeLines {
   const out: ChangeLines = { loosen: [], tighten: [], sandbox: false };
   let presetLoosened = false;
   if (rank(next.preset) > rank(before.preset) || unordered(before.preset, next.preset)) {
@@ -198,7 +199,7 @@ function describeChange(before: GateSettings, next: GateSettings, isApp: boolean
   for (const v of added(next.envKeep, before.envKeep)) out.tighten.push(`The variable ${v} is hidden from commands again.`);
   // a trusted folder is new when its folder and its fingerprint pair is not on the old list (new content for a known folder counts)
   const hasRec = (list: TrustedFolderRecord[] | undefined, e: TrustedFolderRecord): boolean => (list ?? []).some((x) => sameFolder(x.folder, e.folder) && x.digest === e.digest);
-  for (const e of next.trustedFolders ?? []) if (!hasRec(before.trustedFolders, e)) { out.loosen.push(...trustLines(e, detail)); out.sandbox = true; }
+  for (const e of next.trustedFolders ?? []) if (!hasRec(before.trustedFolders, e)) { out.loosen.push(...trustLines(e, scanner)); out.sandbox = true; }
   for (const e of before.trustedFolders ?? []) if (!(next.trustedFolders ?? []).some((x) => sameFolder(x.folder, e.folder))) out.tighten.push(`Agents working in ${plain(e.folder, 200)} no longer run its own commands without your say.`);
   return out;
 }
@@ -209,8 +210,8 @@ export interface GatePreview { lines: string[]; /** The loosening lines only: wh
 const digestOf = (name: string, before: GateSettings, next: GateSettings, appCtx: GateSettings | undefined): string =>
   createHash('sha256').update(`${name}\n${canonicalize(before)}\n${canonicalize(next)}\n${appCtx ? canonicalize(appCtx) : '-'}`).digest('hex');
 
-function previewOf(name: string, before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, always: boolean): GatePreview {
-  const d = describeChange(before, next, isApp, appCtx, true);
+function previewOf(name: string, before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, always: boolean, scanner: (folder: string) => FolderScan): GatePreview {
+  const d = describeChange(before, next, isApp, appCtx, scanner);
   const loosening = d.loosen.length ? [...d.loosen, DENY_LINE, ...(d.sandbox ? [NO_SANDBOX_LINE] : [])] : [];
   return { lines: [...loosening, ...d.tighten], loosening, loosens: always || d.loosen.length > 0, digest: digestOf(name, before, next, isApp ? undefined : appCtx) };
 }
@@ -242,8 +243,12 @@ export class GatesStore {
   private readonly signer: Signer | undefined;
   private readonly keyState: GatesKeyState;
 
-  constructor(dir: string, opts: { allowed?: readonly Preset[]; signer?: Signer; keyState?: GatesKeyState } = {}) {
+  /** Whether `.mcp.json` servers count as executable content (the owner's "Also load MCP servers" switch, read at each scan). */
+  private readonly mcpOn: () => boolean;
+
+  constructor(dir: string, opts: { allowed?: readonly Preset[]; signer?: Signer; keyState?: GatesKeyState; inheritMcp?: () => boolean } = {}) {
     this.folder = dir;
+    this.mcpOn = opts.inheritMcp ?? (() => false);
     this.allowed = opts.allowed ?? ASK_ONLY;
     this.signer = opts.signer;
     // `lost` means "gates/ holds a signed file and the key file is gone". Electron's word is only a hint: a data folder from 0.3.4 or 0.3.0
@@ -258,6 +263,9 @@ export class GatesStore {
     // leave the next start (key state `old`) a folder with no signed file, which reads as lost. A failed write stays queued and is retried.
     if (this.signer && this.keyState === 'new') this.writeDirty();
   }
+
+  /** A folder scanned the way a run scans it (the fingerprint the engine will compute), so what the owner trusts is what a run will find. */
+  scan(folder: string): FolderScan { return scanFolder(folder, { mcp: this.mcpOn() }); }
 
   /** Whether this core holds a key to sign with. Without one only Ask can be stored. */
   canSign(): boolean { return this.signer !== undefined; }
@@ -293,14 +301,14 @@ export class GatesStore {
     if (!isApp && !PROJECT_ID_RE.test(name)) throw new GatesError(400, 'That is not a project id.');
     if (isApp && this.lost) throw new GatesError(409, this.keyState === 'unreadable' ? UNREADABLE_MESSAGE : LOST_MESSAGE);
     const cur = isApp ? this.appS : this.project(name);
-    return previewOf(name, cur, this.build(cur, body, isApp), isApp, this.appS, false);
+    return previewOf(name, cur, this.build(cur, body, isApp), isApp, this.appS, false, (f) => this.scan(f));
   }
 
   /** What Accept would apply: the file's settings against what the core holds now. Accept always needs the app's confirm. */
   previewAccept(name: string): GatePreview {
     const p = this.acceptable(name);
     const isApp = name === 'app';
-    return previewOf(name, isApp ? this.appS : this.project(name), p, isApp, this.appS, true);
+    return previewOf(name, isApp ? this.appS : this.project(name), p, isApp, this.appS, true, (f) => this.scan(f));
   }
 
   /** The pending file content for a name Accept may apply, or the error Accept would give. */
@@ -470,7 +478,7 @@ export class GatesStore {
       let isDir = false; try { isDir = statSync(p).isDirectory(); } catch { /* not there */ }
       if (!isDir) throw new GatesError(400, 'Legion could not find that folder.');
       // the core works the fingerprint out itself, here, from the folder as it is now: a name from the window is only ever a path
-      const scan = scanFolder(p);
+      const scan = this.scan(p);
       if (!scan.executable) throw new GatesError(400, 'Nothing in that folder needs your trust: it carries no settings or skills that can run a command.');
       if (scan.more > 0) throw new GatesError(400, 'That folder carries too many commands to list in the confirmation, so Legion will not trust it. Remove some, or work in it with the setting off.');
       const rec: TrustedFolderRecord = { folder: scan.folder, digest: scan.digest };

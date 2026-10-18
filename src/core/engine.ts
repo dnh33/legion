@@ -1483,14 +1483,15 @@ export class Engine {
    * the content found now: all sources, as before. Otherwise the user source only, the repository's CLAUDE.md and rules go into the prompt as plain text,
    * and the thread and the activity log say which commands, helpers and variable NAMES were held back (never a value). Inherit off: no sources, no notice.
    */
-  private folderTrustFor(job: Job, agent: AgentProfile, act: Active, cwd: string, addDirs: string[]): { sources: NonNullable<Options['settingSources']>; text: string } {
+  private folderTrustFor(job: Job, agent: AgentProfile, act: Active, cwd: string, addDirs: string[]): { sources: NonNullable<Options['settingSources']>; text: string; mcpHeld: boolean } {
     const inherit = this.config.claude.inheritClaudeCodeSettings === true;
-    const r = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit });
-    if (!r.held.length) return { sources: r.sources, text: '' };
+    // .mcp.json counts only when the owner let Claude Code's MCP servers in: with the switch off, strictMcpConfig below already blocks it
+    const r = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit, mcp: this.config.claude.inheritMcp === true });
+    if (!r.held.length) return { sources: r.sources, text: '', mcpHeld: false };
     try { this.noteFolderHeld(job, agent, act, r.held); } catch { /* the notice is advisory; the run is held back either way */ }
     let text = '';
     try { text = readInstructions(cwd).text; } catch { /* no instructions text this run */ }
-    return { sources: r.sources, text };
+    return { sources: r.sources, text, mcpHeld: r.held.some((h) => h.mcp) };
   }
 
   private noteFolderHeld(job: Job, agent: AgentProfile, act: Active, held: FolderScan[]): void {
@@ -1498,8 +1499,10 @@ export class Engine {
     const key = JSON.stringify(folders);
     const already = this.store.listMessages(job.taskId).some((m) => m.folderTrust && JSON.stringify(m.folderTrust.folders) === key);
     if (!already) {
+      const extra = (held.some((h) => h.mcp) ? ' MCP servers from your Claude Code setup were off for this run too, because a .mcp.json here would start programs.' : '')
+        + (held.some((h) => h.lines.some((l) => l.startsWith('Skill file '))) ? ' A skill whose header only mentions hooks or allowed tools is counted too.' : '');
       const body = folders.map((f) => `${f.folder}\n${f.lines.map((l) => `- ${l}`).join('\n')}${f.more ? `\n- and ${f.more} more` : ''}`).join('\n\n');
-      this.addMessage(job.taskId, 'system', `This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead. What was held back:\n${body}\nTo let them run, choose Trust this folder on this notice. Settings, Gates, Fine tuning, "${TRUSTED_FOLDERS_LABEL}" lists the folders you trusted and removes them.`, undefined, undefined, { folderTrust: { folders } });
+      this.addMessage(job.taskId, 'system', `This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead. What was held back:\n${body}\n${extra ? `${extra.trim()}\n` : ''}To let them run, choose Trust this folder on this notice. Settings, Gates, Fine tuning, "${TRUSTED_FOLDERS_LABEL}" lists the folders you trusted and removes them.`, undefined, undefined, { folderTrust: { folders } });
     }
     if (!act.folderTrustNoted) {
       act.folderTrustNoted = true;
@@ -2275,8 +2278,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       skills: skillSet.skills,
       ...(skillSet.plugins.length ? { plugins: skillSet.plugins.map((path) => ({ type: 'local' as const, path })) } : {}),
       mcpServers: servers,
+      // A folder held back for its .mcp.json (folder trust, inheritMcp on) gets this too: dropping the project source already stops the SDK connecting it
+      // (code.claude.com/docs/en/permissions, "What runs before you trust a folder", the .mcp.json row), and this makes sure.
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
-      ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
+      ...(this.config.claude.inheritMcp === true && !trust.mcpHeld ? {} : { strictMcpConfig: true }),
       // Claude Code's own task list: 5.x models have it only when asked for. Naming the tools in allowedTools turns them on
       // (Claude Code CLI behaviour, verified live 2026-10-12; sdk.d.ts documents allowedTools only as auto-approval) and
       // auto-approves them, so a Gates rule for them does not apply — harmless: they are notes (READ_ONLY), never carded.

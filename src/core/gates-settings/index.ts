@@ -20,7 +20,7 @@ import { DENY_LINE, GATES, NO_SANDBOX_LINE, PRESETS, gateValue } from '../../sha
 import type { GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
 import { DOCS_HOSTS } from '../../shared/docs-hosts.js';
 import { createWebLastUsed } from '../web-hosts.js';
-import { plain, scanFolder } from '../folder-trust.js';
+import { plain } from '../folder-trust.js';
 import type { WebLastUsed } from '../web-hosts.js';
 import { createBuildEdited } from './build-edited.js';
 import type { BuildEdited } from './build-edited.js';
@@ -76,7 +76,7 @@ export interface GatesCore {
  * `state()` says whether Electron made the key now (`new`) or it was there before (`old`, `lost`); see the store. A cap file or list
  * entry for a project missing from projects.json is kept: a damaged or edited projects.json must not remove a cap.
  */
-export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: { get(): Buffer | undefined; state?(): GatesKeyState } }): GatesCore {
+export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; keyring?: { get(): Buffer | undefined; state?(): GatesKeyState }; /** The owner's "Also load MCP servers" switch: with it on, a repository's .mcp.json counts as executable content for folder trust. Default: off. */ inheritMcp?: () => boolean }): GatesCore {
   const signer = makeSigner(o.keyring?.get());
   // `unreadable` means a key file that is there and does not open. Electron also sends it when there is no usable key store at all (Linux with
   // no keyring): then no key file was ever made. With no key file and no signed gates file that is a 0.3.4 folder on a system that cannot sign,
@@ -84,7 +84,7 @@ export function createGatesCore(o: { dataDir: string; projects?: ProjectStore; k
   const gatesDir = join(o.dataDir, 'gates');
   let state = o.keyring?.state?.();
   if (state === 'unreadable' && !existsSync(join(o.dataDir, 'gates-key.bin')) && !hasSignedGatesFile(gatesDir)) state = 'new';
-  const store = new GatesStore(gatesDir, { allowed: PRESETS, ...(signer ? { signer } : {}), ...(state ? { keyState: state } : {}) });
+  const store = new GatesStore(gatesDir, { allowed: PRESETS, ...(signer ? { signer } : {}), ...(state ? { keyState: state } : {}), ...(o.inheritMcp ? { inheritMcp: o.inheritMcp } : {}) });
   // A source that is neither 'own' nor 'project' (a damaged agent record) fails closed to Ask, before any preset is read.
   const sourceOf = (source: unknown): 'own' | 'project' | undefined => (source === undefined || source === 'own' ? 'own' : source === 'project' ? 'project' : undefined);
   const resolver: ModeResolver = {
@@ -195,7 +195,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
       });
       // The trusted folders with whether each still fits what it holds today (a changed folder asks again) and a short summary of what it carries. Read-only.
       add('GET', '/api/gates/trusted-folders', () => (store.app().trustedFolders ?? []).map((e) => {
-        const scan = scanFolder(e.folder);
+        const scan = store.scan(e.folder);
         return { folder: e.folder, current: scan.digest === e.digest, summary: scan.lines.map((l) => plain(l, 300)), more: scan.more };
       }));
       add('PATCH', '/api/gates/app', (c) => {

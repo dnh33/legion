@@ -68,7 +68,7 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
     budgetRollsAt: (pid) => awayState.rollsAt.get(pid),
     recordSpend: (e) => { awayState.spends.push(e as unknown as Record<string, unknown>); },
   };
-  const core = opts.gatesCore ? createGatesCore({ dataDir: join(root, 'data'), projects, keyring: { get: () => Buffer.alloc(32, 7) } as never }) : undefined;
+  const core = opts.gatesCore ? createGatesCore({ dataDir: join(root, 'data'), projects, keyring: { get: () => Buffer.alloc(32, 7) } as never, inheritMcp: () => config.claude.inheritMcp === true }) : undefined;
   const activity = opts.activity ? createActivityLog({ dataDir: join(root, 'data') }) : undefined;
   const activityModule = activity ? createActivityModule({ bus } as never, activity) : undefined;
   const engine = new Engine({
