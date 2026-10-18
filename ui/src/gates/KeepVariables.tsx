@@ -39,7 +39,7 @@ export function KeepVariables({ view, busy, pending, note, run }: { view: GatesV
           {kept.map((n) => (
             <li key={n}>
               <code>{n}</code>
-              <span className="muted-s">{n.endsWith('*') ? `is a prefix: every name that starts with ${n.slice(0, -1)}` : ''}</span>
+              <span className="muted-s">{n.endsWith('*') ? `Prefix: every name that starts with ${n.slice(0, -1)}` : ''}</span>
               <button type="button" className="btn-ghost sm" disabled={busy} aria-label={`Remove ${n}`} onClick={() => void run(keepRemoveChange(kept, n), `Removed ${n} from the list.`)}>Remove</button>
             </li>
           ))}

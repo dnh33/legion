@@ -327,7 +327,7 @@ test('render: the kept names are listed with a Remove button each, and the empty
     assert.match(html, /<code>MYAPP_\*<\/code>/);
     assert.match(html, /aria-label="Remove NPM_TOKEN"/);
     assert.match(html, /aria-label="Remove MYAPP_\*"/);
-    assert.match(html, /is a prefix: every name that starts with MYAPP_/);
+    assert.match(html, /Prefix: every name that starts with MYAPP_/);
     assert.ok(!/None are kept/.test(html));
   } finally { cleanup(); }
 });

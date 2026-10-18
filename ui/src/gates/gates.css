@@ -134,5 +134,7 @@ button.gate-chip:hover { color: var(--text); }
 .gates-keep-add input:disabled { opacity: .6; }
 .gates-keep-error { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--danger); }
 .gates-keep-error > .icon { flex: none; margin-top: 3px; }
+.gates-keep p { margin: 0; }
 .gates-keep .gates-hosts { margin-top: 0; }
+.gates-keep .gates-hosts code { min-width: 0; }
 .gates-keep-shared { margin: 2px 0 8px 10px; max-width: 70ch; }
