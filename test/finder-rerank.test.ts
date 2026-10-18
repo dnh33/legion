@@ -506,7 +506,7 @@ describe('rerank: the spend cap fails closed', () => {
     const { s } = sessionOf(dir, f);
     for (let i = 0; i < 3; i++) assert.equal(await s.pick(ask({ monthlyUsd: 100 })), undefined);
     assert.equal(f.made.length, 0);
-    assert.equal(existsSync(spendFilePath(dir)), false, 'the damaged file moved aside');
+    assert.ok(near(readSpend(dir)[thisMonth()], 100), 'a fresh ledger took its place, with the month at the cap');
     assert.ok(readdirSync(join(dir, SPENT)).some((n) => n.startsWith('spend.json.bad-')), 'and is kept as spend.json.bad-<time>');
   });
 
@@ -545,7 +545,8 @@ describe('rerank: the spend cap fails closed', () => {
     it(`${name}: 30 messages against a small cap never take the month past it`, async () => {
       const dir = tempDir('legion-rerank-');
       const cap = 0.05;
-      const cost = 0.004;
+      // Per-turn totals that never fall cannot be told from a cumulative zero-cost turn; they are covered by the reservation, which is above a real cost.
+      const cost = perTurn ? 0.0015 : 0.004;
       const f = fakeSessions(() => ({ text: '["a"]', cost }), perTurn);
       const { s } = sessionOf(dir, f);
       let calls = 0;
@@ -564,20 +565,57 @@ describe('rerank: the spend cap fails closed', () => {
     });
   }
 
-  it('per-turn totals: a total that is not above the last one is booked as that request own cost, and the session is recycled', async () => {
+  it('per-turn totals: a total below the last one is booked as that request own cost, and the session is recycled', async () => {
     const dir = tempDir('legion-rerank-');
-    const f = fakeSessions(() => ({ text: '["a"]', cost: 0.004 }), true);
+    const f = fakeSessions((n) => ({ text: '["a"]', cost: n === 0 ? 0.004 : 0.003 }), true);
     const { s, logs } = sessionOf(dir, f);
     await warmUp(s);
     assert.deepEqual(await s.pick(ask()), ['a']);
-    assert.ok(near(readSpend(dir)[thisMonth()], 0.008), 'warm-up 0.004 plus the request 0.004, not 0.004 plus a refund');
+    assert.ok(near(readSpend(dir)[thisMonth()], 0.007), 'warm-up 0.004 plus the request 0.003 (a total below the last one), not 0.004 plus a refund');
     assert.equal(s.state(), 'none', 'recycled');
     assert.ok(logs.some((l) => /backwards/.test(l)));
   });
 
+  it('a cumulative session with a zero-cost turn is not recycled and books nothing beyond its reservation', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions((n) => ({ text: '["a"]', cost: n === 1 ? 0 : 0.001 }));
+    const { s } = sessionOf(dir, f);
+    await warmUp(s);
+    assert.deepEqual(await s.pick(ask()), ['a']);
+    assert.equal(s.state(), 'ready', 'an equal total is not a backwards total: the session is kept');
+    assert.ok(near(readSpend(dir)[thisMonth()], 0.001 + 0.002), 'the reservation only');
+    assert.deepEqual(await s.pick(ask()), ['a'], 'and it keeps serving');
+    s.close();
+  });
+
+  it('a corrupt ledger leaves a fresh one at the cap, so a second session (a restart) sends no call this month', async () => {
+    const dir = tempDir('legion-rerank-');
+    mkdirSync(join(dir, SPENT), { recursive: true });
+    writeFileSync(spendFilePath(dir), 'not json');
+    const first = fakeSessions();
+    assert.equal(await sessionOf(dir, first).s.pick(ask({ monthlyUsd: 1 })), undefined);
+    assert.ok(near(readSpend(dir)[thisMonth()], 1), 'the month sits at the cap');
+    const second = fakeSessions();
+    const again = sessionOf(dir, second);
+    for (let i = 0; i < 3; i++) assert.equal(await again.s.pick(ask({ monthlyUsd: 1 })), undefined);
+    assert.equal(second.made.length, 0);
+    assert.equal(first.made.length, 0);
+  });
+
+  it('a read error that is not "file missing" refuses; nothing is created', async () => {
+    const dir = tempDir('legion-rerank-');
+    const f = fakeSessions();
+    const { s } = sessionOf(dir, f, { readText: () => { throw Object.assign(new Error('locked'), { code: 'EACCES' }); } });
+    for (let i = 0; i < 3; i++) assert.equal(await s.pick(ask()), undefined);
+    assert.equal(f.made.length, 0);
+    assert.equal(existsSync(spendFilePath(dir)), false, 'no ledger was written over a file that could not be read');
+    assert.equal(s.paused(), true);
+  });
+
   it('a result with no cost does not refund the reservation', async () => {
     const dir = tempDir('legion-rerank-');
-    const f = fakeSessions((n) => ({ text: '["a"]', cost: n === 0 ? 0.001 : 0, noTotal: n > 0 }));
+    // The total stays at 0.001: a real zero-cost turn (delta 0). Without the guard the 0.002 reservation would be refunded.
+    const f = fakeSessions((n) => ({ text: '["a"]', cost: n === 0 ? 0.001 : 0 }));
     const { s } = sessionOf(dir, f);
     await warmUp(s);
     assert.deepEqual(await s.pick(ask()), ['a']);

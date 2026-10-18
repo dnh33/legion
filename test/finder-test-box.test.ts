@@ -114,6 +114,30 @@ describe('the rerank spend line', () => {
   });
 });
 
+describe('the rerank spend line when the ledger is unusable', () => {
+  it('says paused, with a reason, while the file is damaged; a clean or missing file is not paused', async () => {
+    const rig = armoryRig();
+    const month = monthKey(new Date());
+    assert.equal((await rig.call('GET', '/api/armory/finder/rerank-spend')).paused, undefined, 'missing file: not paused');
+    mkdirSync(dirname(spendFilePath(rig.dataDir)), { recursive: true });
+    writeFileSync(spendFilePath(rig.dataDir), '{ damaged');
+    const out = await rig.call('GET', '/api/armory/finder/rerank-spend');
+    assert.equal(out.paused, true);
+    assert.match(out.pausedReason, /could not read its spend record/);
+    assert.equal(out.month, month);
+    writeFileSync(spendFilePath(rig.dataDir), JSON.stringify({ [month]: 1 }));
+    const fixed = await rig.call('GET', '/api/armory/finder/rerank-spend');
+    assert.equal(fixed.paused, undefined, 'a clean file at the cap is the normal closed state: $1.00 of $1.00, not paused');
+    assert.equal(fixed.spentUsd, 1);
+  });
+
+  it('the Armory line reads as agreed', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../../ui/src/armory/SkillFinder.tsx', import.meta.url), 'utf8');
+    assert.ok(src.includes('Reranking is paused: Legion could not read its spend record. It resumes next month or after you fix the file.'));
+  });
+});
+
 describe('the finder settings read route', () => {
   it('is admin-only like the write route, and answers the same block the Armory shows', async () => {
     assert.equal(isClientRoute('GET', '/api/armory/finder'), false);

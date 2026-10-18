@@ -47,7 +47,7 @@ import type { FinderDoc } from './finder/doc.js';
 import { buildNote, buildProviderNote } from './finder/note.js';
 import { rank, rankFused } from './finder/rank.js';
 import type { Ranked } from './finder/rank.js';
-import { isCloseMatch, monthKey, readSpend, RerankSession, rerankScores } from './finder/rerank.js';
+import { isCloseMatch, ledgerUsable, monthKey, readSpend, RerankSession, rerankScores } from './finder/rerank.js';
 import type { RerankLaunch, RerankQuery, RerankSessionOpts } from './finder/rerank.js';
 import { createUsageStore, skillIdOfLoad } from './finder/usage.js';
 import { oneLine } from '../kg/text.js';
@@ -706,7 +706,8 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
       // This month's rerank spend and the cap, from the file the rerank keeps its ledger in.
       add('GET', '/api/armory/finder/rerank-spend', () => {
         const month = monthKey(new Date());
-        return { month, spentUsd: readSpend(deps.dataDir)[month] ?? 0, capUsd: finderFor(readArmoryFile(deps.dataDir)).rerankMonthlyUsd };
+        const paused = rerank.paused() || !ledgerUsable(deps.dataDir);
+        return { month, spentUsd: readSpend(deps.dataDir)[month] ?? 0, capUsd: finderFor(readArmoryFile(deps.dataDir)).rerankMonthlyUsd, ...(paused ? { paused: true, pausedReason: 'Legion could not read its spend record.' } : {}) };
       });
 
       // {seen:false} brings the notice back (Undo of "Turn all on" from the notice). No body, or seen:true, marks it seen.

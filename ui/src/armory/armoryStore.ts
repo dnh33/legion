@@ -60,7 +60,7 @@ export interface PromotedNote { id: string; name: string; path: string; /** What
 export interface EffectiveSlot { status: 'loading' | 'ready' | 'error'; data: EffectiveCounts | null; error: string | null }
 export interface ImportDone { id: string; name: string; kept: string[]; dropped: { path: string; reason: string }[]; stripped: string[] }
 
-export interface RerankSpend { month: string; spentUsd: number; capUsd: number }
+export interface RerankSpend { month: string; spentUsd: number; capUsd: number; paused?: boolean; pausedReason?: string }
 export interface FinderTestRow { id: string; score: number; bm25: number; cosine?: number; boost: number; matched: string[]; thirdParty: boolean }
 export interface FinderTestResult { query: string; scope: 'agent' | 'on'; candidates: number; rows: FinderTestRow[] }
 

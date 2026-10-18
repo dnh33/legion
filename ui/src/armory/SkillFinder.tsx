@@ -276,6 +276,7 @@ function ModelCard({ show }: { show: boolean }) {
 function Spend() {
   const s = useArmory((x) => x.spend);
   if (!s) return null;
+  if (s.paused) return <p className="arm-spend">Reranking is paused: Legion could not read its spend record. It resumes next month or after you fix the file.</p>;
   return <p className="arm-spend">This month: {money(s.spentUsd)} of {money(s.capUsd)}</p>;
 }
 

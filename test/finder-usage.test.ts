@@ -185,6 +185,17 @@ describe('usage follows the switches', () => {
     assert.throws(() => statSync(usagePath(rig.dataDir)));
   });
 
+  it('a task that began with the finder on and ended with it off records no ignores', async () => {
+    const rig = armoryRig();
+    const s = await own(rig, { name: 'pdf-tool', description: 'Make PDF files', body: 'b' });
+    const beta = rig.agents.get('beta')!;
+    rig.mod.noteShown!('beta', 't1', [s.id]);
+    assert.equal(record(rig.dataDir, 'beta', s.id)?.suggested, 1, 'recorded while on');
+    beta.skillFinder = 'off';
+    rig.mod.onTaskEnd!(stub('t1'), beta, DONE);
+    assert.equal(record(rig.dataDir, 'beta', s.id)?.ignored, 0, 'the end of the task, with the finder off, adds nothing');
+  });
+
   it('with three suggested and one loaded, the other two are not ignored; with none loaded, all three are', async () => {
     const rig = armoryRig();
     const ids = [] as string[];

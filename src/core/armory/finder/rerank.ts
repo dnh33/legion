@@ -111,10 +111,10 @@ type Ledger = { ok: true; spent: Record<string, number> } | { ok: false };
  * "no spend": a file that cannot be read, or that is damaged, gives { ok: false }, and the rerank stops. A damaged file is renamed to
  * spend.json.bad-<time> so it can be looked at and is not read again.
  */
-function loadLedger(dataDir: string, at: Date): Ledger {
+function loadLedger(dataDir: string, at: Date, capUsd: number, readText: (path: string) => string = (p) => readFileSync(p, 'utf8')): Ledger {
   const path = spendFilePath(dataDir);
   let text: string;
-  try { text = readFileSync(path, 'utf8'); } catch (e) {
+  try { text = readText(path); } catch (e) {
     return (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? { ok: true, spent: {} } : { ok: false };
   }
   let raw: unknown;
@@ -127,8 +127,22 @@ function loadLedger(dataDir: string, at: Date): Ledger {
     }
   }
   if (clean) return { ok: true, spent };
-  try { renameSync(path, `${path}.bad-${at.getTime()}`); } catch { /* it stays; the rerank is stopped either way */ }
+  try {
+    renameSync(path, `${path}.bad-${at.getTime()}`);
+    // A fresh ledger that already sits at the cap for this month, so a restart stays closed instead of starting from zero.
+    if (Number.isFinite(capUsd)) writeFileSync(path, JSON.stringify({ [monthKey(at)]: Math.max(0, capUsd) }, null, 2), 'utf8');
+  } catch { /* it stays; the rerank is stopped either way */ }
   return { ok: false };
+}
+
+/** Whether the spend file is a clean ledger (or missing). Reads only; nothing is renamed. */
+export function ledgerUsable(dataDir: string): boolean {
+  let text: string;
+  try { text = readFileSync(spendFilePath(dataDir), 'utf8'); } catch (e) { return (e as NodeJS.ErrnoException)?.code === 'ENOENT'; }
+  try {
+    const raw: unknown = JSON.parse(text);
+    return !!raw && typeof raw === 'object' && !Array.isArray(raw) && Object.values(raw as Record<string, unknown>).every((v) => typeof v === 'number' && Number.isFinite(v) && v >= 0);
+  } catch { return false; }
 }
 
 /** The local month as YYYY-MM. */
@@ -153,6 +167,8 @@ export interface RerankSessionOpts {
   backoffMs?: number;
   failsBeforeBackoff?: number;
   reserveUsd?: number;
+  /** Reads the spend file. Tests pass one that fails. */
+  readText?: (path: string) => string;
 }
 
 export interface RerankAsk {
@@ -207,6 +223,8 @@ export class RerankSession {
   private disposed = false;
   /** Set when the spend file cannot be read or written. The rerank then stays off until the process restarts. */
   private ledgerBroken = false;
+  /** The cap of the latest request, for the fresh ledger written after a damaged one is moved aside. */
+  private cap = 0;
   /** The highest total this process has booked for a month. The file can never take the month below it. */
   private floor: { month: string; usd: number } | undefined;
 
@@ -219,6 +237,9 @@ export class RerankSession {
     try { this.o.log?.(`finder: rerank skipped (${reason})`); } catch { /* a log failure is not a rerank failure */ }
   }
 
+  /** True when the spend file could not be read or written: the rerank is off until Legion restarts. */
+  paused(): boolean { return this.ledgerBroken; }
+
   /** 'none' (no session), 'warming' (started, not yet answered) or 'ready'. For tests. */
   state(): 'none' | 'warming' | 'ready' {
     return !this.live ? 'none' : this.live.ready ? 'ready' : 'warming';
@@ -228,6 +249,7 @@ export class RerankSession {
   async pick(a: RerankAsk): Promise<string[] | undefined> {
     try {
       if (this.disposed || a.candidates.length === 0) return undefined;
+      this.cap = a.monthlyUsd;
       if (this.now().getTime() < this.backoffUntil) return undefined;
       const live = this.live;
       if (!live) { this.start(a.monthlyUsd); return undefined; }
@@ -262,7 +284,7 @@ export class RerankSession {
    * false and the rerank stays off for the rest of the process (one log line), because a cap that cannot be kept must not be spent.
    */
   private book(month: string, usd: number): boolean {
-    const led = loadLedger(this.o.dataDir, this.now());
+    const led = loadLedger(this.o.dataDir, this.now(), this.cap, this.o.readText);
     const path = spendFilePath(this.o.dataDir);
     const tmp = `${path}.${process.pid}.tmp`;
     if (led.ok) {
@@ -287,7 +309,7 @@ export class RerankSession {
   private reserve(monthlyUsd: number): string | undefined {
     if (this.ledgerBroken) return undefined;
     const month = monthKey(this.now());
-    const led = loadLedger(this.o.dataDir, this.now());
+    const led = loadLedger(this.o.dataDir, this.now(), this.cap, this.o.readText);
     if (!led.ok) {
       this.ledgerBroken = true;
       this.note('the spend file cannot be used; reranking is off until Legion restarts');
@@ -385,9 +407,9 @@ export class RerankSession {
     const total = typeof m.total_cost_usd === 'number' && Number.isFinite(m.total_cost_usd) ? m.total_cost_usd : undefined;
     // On a streaming session total_cost_usd has been CUMULATIVE for the session (measured on the installed SDK: each result's total rose
     // by that result's own usage). A request books the difference since the previous result, hidden background calls included: that is real
-    // spend. If the SDK ever reports each result's own cost instead, a total that is not above the last one cannot be a running total: it is
+    // spend. If the SDK ever reports each result's own cost instead, a total below the last one cannot be a running total (an equal total is a normal zero-cost turn): it is
     // booked as this request's own cost, and the session is recycled so the next one starts from zero.
-    const wentBack = total !== undefined && live.lastTotal > 0 && total <= live.lastTotal;
+    const wentBack = total !== undefined && live.lastTotal > 0 && total < live.lastTotal;
     const delta = total === undefined ? undefined : wentBack ? total : Math.max(0, total - live.lastTotal);
     if (total !== undefined && !wentBack) live.lastTotal = total;
     const p = live.pending;
