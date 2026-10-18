@@ -339,7 +339,8 @@ describe('round2: the whole job on fakes', () => {
     // Summary: the rule first, then the trade-off table with precision.
     assert.ok(summary.indexOf('Pre-registered rule') < summary.indexOf('## Results'));
     for (const h of ['## Results against C', '## Trade-off', 'right loads / all loads on positives', 'loads on negatives / negatives', '## Decision', 'reached the model']) assert.ok(summary.includes(h), h);
-    for (const a of ['C', 'M', 'SL', 'MSL', 'H2']) assert.ok(new RegExp(`\\| ${a} \\| 100 \\|`).test(summary), `trade-off row for ${a}`);
+    const trade = summary.slice(summary.indexOf('## Trade-off'), summary.indexOf('## Misses'));
+    for (const a of ['C', 'M', 'SL', 'MSL', 'H2']) assert.ok(new RegExp(`\\| ${a} \\| 100 \\|`).test(trade), `trade-off row for ${a}`);
     // Privacy.
     const pub = JSON.stringify(result) + summary;
     for (const bad of ['SECRETDESC', 'please handle', 'fix the loop', 'what does recursion', 'tidy my notes', 'Skills that may fit']) assert.ok(!pub.includes(bad), bad);
@@ -387,5 +388,37 @@ describe('round2: the workflow and the mode file', () => {
     const src = readFileSync(new URL('scripts/skill-finder-sweep.mjs', REPO), 'utf8');
     assert.ok(src.includes('--frozen-in'));
     assert.ok(src.includes("eval/round1-frozen.json"));
+  });
+});
+
+describe('round2: a green smoke must mean the real run can start', () => {
+  it('fails the smoke when a size-100 frozen skill is gone, although the 25 set is fine, before any model call', async () => {
+    const log = newLog();
+    const f = FROZEN();
+    f.catalog[100][60] = 'skill-gone';
+    await assert.rejects(
+      sweep.runSweep({ query: fakeQueryR2(log), fetch: fakeFetch, mode: 'smoke-round2', frozen: f, cap: 1, root: tempDir('sweep-r2-smoke-miss-'), armory: await fakeArmory(), log: () => {}, sleep: async () => {} }),
+      (e: any) => e.code === 'FROZEN_MISSING' && /^1 /.test(e.message),
+    );
+    assert.equal(log.probes, 0);
+  });
+  it('reports how many frozen skills (all sizes) it found, as a count', async () => {
+    const { summary, result } = await sweep.runSweep({ query: fakeQueryR2(newLog()), fetch: fakeFetch, mode: 'smoke-round2', frozen: FROZEN(), cap: 1, root: tempDir('sweep-r2-smoke-n-'), armory: await fakeArmory(), log: () => {}, sleep: async () => {} });
+    assert.equal(result.frozenSkillsChecked, 100);
+    assert.ok(summary.includes('frozen skills found in the catalog: 100 of 100'));
+  });
+  it('turns the smoke red unless the note reached the model', () => {
+    const row = (arm: string, o: any) => ({ arm, notesBuilt: 0, hookFired: 0, noteSeen: 0, hookEvents: 0, ...o });
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 2, hookEvents: 2 }), row('M', {})]), true);
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2, noteSeen: 0, hookEvents: 2 })]), false, 'not shown in the stream');
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 2, hookFired: 2 })]), false);
+    assert.equal(sweep.smokeProvesNote([row('SL', { notesBuilt: 0, hookFired: 2 })]), false);
+    assert.equal(sweep.smokeProvesNote([row('SL', {})]), false, 'the hook never fired');
+    assert.equal(sweep.smokeProvesNote([row('M', {})]), false, 'no shortlist arm, nothing proven');
+    const src = readFileSync(new URL('scripts/skill-finder-sweep.mjs', REPO), 'utf8');
+    assert.match(src, /mode === 'smoke-round2' && !smokeProvesNote/);
+  });
+  it('reads a .sweep-mode with a comment', () => {
+    assert.equal(sweep.parseSweepMode('smoke-round2 # round 2 smoke first\n'), 'smoke-round2');
   });
 });

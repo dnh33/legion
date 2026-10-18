@@ -1393,6 +1393,9 @@ export function shortlistCheck(armRows) {
   return `The note reached the model: the hook fired ${fired} times, returned ${built} notes, and the message stream shows the note ${seen} times (${events} hook events).`;
 }
 
+/** The smoke run of round 2 passes only when the note reached the model (the hook fired, a note was built and the stream showed it). */
+export const smokeProvesNote = (armRows) => shortlistCheck(armRows).startsWith('The note reached the model');
+
 export function renderSummaryRound2({ result, catalog, prompts, spend, cap, stopped, smoke }) {
   const out = [];
   const { rows, decision, arms, missSplit: splits, equivalence: eq, trade, sizes } = result;
@@ -1400,7 +1403,7 @@ export function renderSummaryRound2({ result, catalog, prompts, spend, cap, stop
   out.push('# Skill finder: accuracy round 2', '');
   if (smoke) out.push('**Smoke run.** It proves the note path end to end. These numbers are not a result.', '');
   out.push('```', ruleTextRound2(), '```', '');
-  out.push('## Catalog', `- source: ${catalog.source}`, `- skills fetched: ${catalog.counts.fetched}`, '');
+  out.push('## Catalog', `- source: ${catalog.source}`, `- skills fetched: ${catalog.counts.fetched}`, `- frozen skills found in the catalog: ${result.frozenSkillsChecked} of ${result.frozenSkillsChecked} (all sizes; a missing one stops the job before any model call)`, '');
   const s = prompts.stats;
   out.push('## Prompts', `- the frozen sets of round 1, not regenerated: positives ${Object.entries(s.positives).map(([k, v]) => `${v} at ${k} skills`).join(', ')}`, `- negatives: ${s.easy} easy, ${s.hard} hard, ${s.ambiguous} ambiguous (reported apart)`, '');
   out.push('## Spend', `- $${round(spend.spent)} of the $${cap} cap over ${spend.calls} calls${stopped ? '; the run stopped at the cap, so later items did not run' : ''}`, '');
@@ -1537,6 +1540,8 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
     log(`catalog: ${catalog.skills.length} skills from ${catalog.source}`);
     if (catalog.skills.length < Math.min(target, 5)) throw Object.assign(new Error('catalog too small'), { code: 'CATALOG' });
     // The subsets nest over the whole 400, as in 11e, so a size holds the same skills as in that run.
+    // Every frozen size must be in today's catalog, even in the smoke run, so a green smoke means the real run can start. A count only.
+    const frozenChecked = isR2 ? selectFrozenSubsets(catalog.skills, frozenIn, frozenIn.sizes) : null;
     const fz = isR2 ? (isSmoke ? trimFrozen(frozenIn, frozenIn.sizes[0]) : frozenIn) : null;
     const sizes = isR2 ? fz.sizes : isSmoke ? [Math.min(5, catalog.skills.length)] : (isR1 ? ROUND1_SIZES : is11g ? FOLLOWUP_SIZES : is11f ? ACCURACY_SIZES : SIZES).filter((s) => s <= catalog.skills.length);
     // A catalog a little short of 400 still gets its own top size, so the largest size is never silently dropped.
@@ -1563,6 +1568,7 @@ export async function runSweep({ query, fetch: fetchFn, token, smoke = false, mo
       seed: SEED, mode, cap: totalCap, spentUsd: round(spend.spent), calls: spend.calls, stoppedAtCap: stopped,
       armCalls: records.length, armAnswered: records.filter((r) => r.error === null).length,
       catalog: { source: catalog.source, ...catalog.counts }, prompts: prompts.stats,
+      ...(isR2 ? { frozenSkillsChecked: new Set(frozenChecked.flatMap((x) => x.items.map((k) => k.name))).size } : {}),
     };
     if (isR2) return await finishRound2({ query, spend, records, items, arms, sizes, catalog, prompts, totalCap, stopped, isSmoke, common, work, log });
     if (isR1) return await finishRound1({ query, spend, records, items, arms, sizes, subsets, catalog, prompts, totalCap, stopped, isSmoke, common, work, log });
@@ -1618,7 +1624,8 @@ async function main() {
   const { summary, result, frozen } = await runSweep({ query, fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, mode, frozen: frozenIn, ...(cap ? { cap } : {}) });
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
-  // A run that measured nothing must not look green.
+  // A run that measured nothing must not look green. Nor may a round 2 smoke whose note was not shown to have reached the model.
+  if (mode === 'smoke-round2' && !smokeProvesNote(result.arms)) { process.stderr.write('skill-finder-sweep: the shortlist note was not shown to reach the model' + '\n'); process.exitCode = 1; }
   if (result.armAnswered === 0) { process.stderr.write('skill-finder-sweep: no arm call was answered\n'); process.exitCode = 1; }
   else if (!result.smoke && result.prompts.negKept < MIN_NEGATIVES) { process.stderr.write(`skill-finder-sweep: only ${result.prompts.negKept} negatives kept, need ${MIN_NEGATIVES}\n`); process.exitCode = 1; }
   writeFileSync(resolve(opts.json ?? 'sweep-result.json'), `${JSON.stringify(result, null, 2)}\n`);
