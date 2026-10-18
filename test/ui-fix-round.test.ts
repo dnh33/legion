@@ -142,7 +142,7 @@ test('P1: the key store notice comes before the long explainer on Providers, and
 test('P1: the Doctor row for the key store shows its fix as a sentence with a button to Providers, not a command to copy', () => {
   const s = src('ui/src/components/DoctorModal.tsx');
   assert.match(s, /SETTINGS_FIX: Record<string, SettingsSection> = \{ 'provider-keys': 'providers' \}/);
-  assert.match(s, /c\.id in SETTINGS_FIX/);
+  assert.match(s, /!c\.ok && c\.fix && c\.id in SETTINGS_FIX &&/, 'the sentence and the button are shown for it');
   assert.match(s, /!\(c\.id in SETTINGS_FIX\)/, 'the Copy row is skipped for it');
   assert.match(s, /Open Providers settings/);
 });
