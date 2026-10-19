@@ -1,6 +1,7 @@
 /** Config schema, defaults and data-dir paths. */
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { renameWithRetry } from './rename-retry.js';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defaultBlenderConfig, normalizeBlender } from './blender.js';
@@ -9,9 +10,12 @@ import { MAX_ROOM_BUDGET_USD } from './comms.js';
 import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, GatesConfig, LegionConfig } from './types.js';
 import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
 import type { ProvidersConfig } from '../core/providers/types.js';
+import { canonicalHost } from './web-verdict.js';
+import { defaultWebSearch, normalizeWebSearch } from './web-search-config.js';
+import type { WebSearchConfig } from './web-search-config.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.3.4';
+export const VERSION = '0.3.5';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
@@ -55,7 +59,7 @@ export function normalizeFeatures(v: unknown): FeaturesConfig {
   return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
 }
 
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** Optional web search and page read providers (task 28): off by default. */ webSearch: WebSearchConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
 
 /**
  * Turns one Claude run may take before it stops. Claude Code itself has no cap; this is a safety net, and a run that hits it
@@ -170,6 +174,32 @@ function gateList(v: unknown): string[] | undefined {
   return out;
 }
 
+/** Most sites one rule may name. */
+export const GATE_MAX_HOSTS = 200;
+/** A host in its plain form: lower case letters, digits, dots and hyphens, or a bracketed IPv6 address. */
+const GATE_HOST_FORM = /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:.]+\])$/;
+/**
+ * The `when.hosts` list of a deny or ask rule, or the plain sentence saying why it is refused. An allow rule never takes sites
+ * (approved sites live in the signed site list), and each entry must be its own canonical form: no case, no trailing dot, no
+ * wildcard, no scheme or path. Matching is exact, so a form that differs from what the call's host reduces to could never match.
+ */
+function gateHosts(v: unknown, isAllow: boolean, strict: boolean): string[] | string {
+  if (isAllow) return 'Approved sites go in the site list, not in an allow rule.';
+  if (!Array.isArray(v)) return 'A rule\'s hosts must be a list of site names.';
+  if (v.length > GATE_MAX_HOSTS && strict) return `A rule may name at most ${GATE_MAX_HOSTS} sites.`;
+  if (!v.length) return 'A rule\'s hosts list must name at least one site.';
+  const out: string[] = [];
+  for (const raw of v.slice(0, GATE_MAX_HOSTS)) {
+    const plain = typeof raw === 'string' && GATE_HOST_FORM.test(raw) && !raw.includes('..') && canonicalHost(`https://${raw}`) === raw;
+    if (plain) { if (!out.includes(raw)) out.push(raw); continue; }
+    if (strict) return `"${String(raw).slice(0, 60)}" is not a site name in its plain form. Use lower case and the name only, like docs.python.org.`;
+    // On load a hand-edited entry is put into its plain form when that is possible, so a deny rule keeps what it can still name.
+    const fixed = typeof raw === 'string' && !/[\s/@\\*]/.test(raw.trim()) ? canonicalHost(`https://${raw.trim()}`) : undefined;
+    if (fixed && GATE_HOST_FORM.test(fixed) && !fixed.includes('..') && !out.includes(fixed)) out.push(fixed);
+  }
+  return out.length ? out : 'None of the rule\'s sites could be read.';
+}
+
 /**
  * Whatever a config file or a PATCH held under "gates", reduced to rules that are safe to match against.
  *
@@ -177,7 +207,7 @@ function gateList(v: unknown): string[] | undefined {
  * reads as "no rules", exactly like an older release). `strict` is the Settings PATCH path: anything malformed
  * throws with a message naming the rule, so a bad rule is a 400, never a surprise at run time.
  */
-export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): GatesConfig {
+export function normalizeGates(v: unknown, opts: { strict?: boolean; onDropped?: (line: string) => void } = {}): GatesConfig {
   const strict = opts.strict === true;
   const bad = (msg: string): never => { throw new Error(msg); };
   if (v === undefined || v === null) return { rules: [], presetsVersion: DEFAULT_GATES.presetsVersion };
@@ -198,7 +228,7 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
     if (r.when !== undefined && !gateObj(r.when)) { if (strict) bad(`${at}.when must be an object`); continue; }
     const w = gateObj(r.when) ? r.when : {};
     for (const k of Object.keys(w)) {
-      if (!(GATE_LIST_FIELDS as readonly string[]).includes(k) && k !== 'contexts' && strict) bad(`${at}.when.${k} is not a gate field`);
+      if (!(GATE_LIST_FIELDS as readonly string[]).includes(k) && k !== 'contexts' && k !== 'hosts' && strict) bad(`${at}.when.${k} is not a gate field`);
     }
     const when: GateWhen = {};
     for (const f of GATE_LIST_FIELDS) {
@@ -211,6 +241,16 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
     const contexts = ctx?.filter((c) => GATE_CONTEXTS.has(c));
     if (contexts?.length) when.contexts = contexts as GateContext[];
     else if (strict && ctx?.length) bad(`${at}.when.contexts may only hold capped, room-hop, tainted or connector-data`);
+    if (w.hosts !== undefined) {
+      const hosts = gateHosts(w.hosts, r.then === 'allow', strict);
+      if (typeof hosts === 'string') {
+        if (strict) bad(hosts);
+        // A hand-edited rule whose sites cannot be read is dropped whole (unchanged). Say so once, naming the rule by id only.
+        opts.onDropped?.(`gates: left out the ${r.then} rule ${r.id.slice(0, 40)}: ${hosts} Fix its sites in config.json, or remove the rule.`);
+        continue;
+      }
+      when.hosts = hosts;
+    }
     rules.push({
       id: r.id, then: r.then as GateVerdict, when,
       enabled: r.enabled !== false,
@@ -288,6 +328,7 @@ export function defaultConfig(): CoreConfig {
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
     experimental: {},
     features: { projectBoard: true, providers: true },
+    webSearch: defaultWebSearch(),
     // No gate rules: until the owner writes one, needsApproval alone decides, exactly as before.
     gates: { rules: [], presetsVersion: DEFAULT_GATES.presetsVersion },
     // a fresh config already has every migration's result
@@ -331,7 +372,7 @@ function merge<T>(base: T, over: unknown): T {
 }
 
 /** Load config, creating it (with a fresh auth token) on first run. Env overrides: LEGION_PORT, BOAT_API_KEY, ANTHROPIC_API_KEY (only used when auth='api-key'). */
-export function loadConfig(): CoreConfig {
+export function loadConfig(opts: { log?: (line: string) => void } = {}): CoreConfig {
   const p = configPath();
   let cfg = defaultConfig();
   if (existsSync(p)) {
@@ -347,8 +388,9 @@ export function loadConfig(): CoreConfig {
   cfg.compaction = normalizeCompaction(cfg.compaction);
   cfg.experimental = normalizeExperimental(cfg.experimental);
   cfg.features = normalizeFeatures(cfg.features);
+  cfg.webSearch = normalizeWebSearch(cfg.webSearch);
   // Tolerant: a rule the file cannot parse is dropped on load, never handed to a matcher at run time.
-  cfg.gates = normalizeGates(cfg.gates);
+  cfg.gates = normalizeGates(cfg.gates, opts.log ? { onDropped: opts.log } : {});
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {
@@ -375,13 +417,8 @@ export function writeConfigFile(file: string, json: string): void {
   try { unlinkSync(tmp); } catch { /* none left over */ }
   writeFileSync(tmp, json, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   tightenConfigMode(tmp);
-  try {
-    renameSync(tmp, file);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'EPERM' || code === 'EEXIST') { try { unlinkSync(file); } catch { /* ignore */ } renameSync(tmp, file); }
-    else { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
-  }
+  // a locked target (antivirus, sync client) is waited for, never deleted first: a crash between a delete and the rename would lose the file
+  try { renameWithRetry(tmp, file); } catch (e) { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
   tightenConfigMode(file);
 }
 

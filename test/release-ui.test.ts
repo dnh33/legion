@@ -51,7 +51,7 @@ async function loadUi(): Promise<Record<string, (...a: any[]) => string>> {
           export const useProviders = (sel) => sel(globalThis.__prov);
           export const getProviders = () => globalThis.__prov; export const loadProviders = async () => {};
           export const refreshModels = async () => {}; export const removeKey = async () => {}; export const removeProvider = async () => {};
-          export const saveEntry = async () => true; export const saveKey = async () => {}; export const saveLimits = async () => {}; export const testProvider = async () => {};`);
+          export const saveEntry = async () => true; export const saveKey = async () => {}; export const saveLimits = async () => {}; export const testProvider = async () => {}; export const startOverKeys = async () => false;`);
         stub(/armory\/AgentSkills$/, 'agent-skills', `export const AgentSkills = () => null; export const settingOf = (v) => v ?? 'inherit'; export const valueOf = () => ({ mode: 'inherit' });`);
         stub(/armory\/armoryStore$/, 'armory-store', `export const revealSkill = () => {};`);
         stub(/rooms\/roomsStore$/, 'rooms-store', `export const openRoom = () => {}; export const useRoomName = () => 'a room';`);

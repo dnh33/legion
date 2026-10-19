@@ -16,12 +16,13 @@ import type { AgentProfile } from '../../shared/types.js';
 import type { WorkItem } from '../../shared/board.js';
 import type { ProjectRef } from '../projects/board/store.js';
 import { BoardStore } from '../projects/board/store.js';
-import { AttemptLedger, MAX_ATTEMPTS_PER_BOT } from './ledger.js';
+import { AttemptLedger, type AttemptLimits } from './ledger.js';
 import { catalogOfAll, eligible, irreversibleVerbsIn, verbFit } from './catalog.js';
 import type { BotCatalogEntry, IrreversibleVerb } from './catalog.js';
 import { assignItem, untrustedRefusal } from './match.js';
 import type { AssignmentResult, ProseMatcher } from './match.js';
 import { dispatchable, dispatchPrompt } from './dispatch.js';
+import { GATES } from '../../shared/gates-registry.js';
 import type { DispatchCandidate } from './dispatch.js';
 
 /** Items one pass may dispatch: a wave, wide enough to parallelise and narrow enough to stay accountable. */
@@ -75,7 +76,16 @@ export interface BlockedItem { itemId: string; title: string; reason: string }
 /** An item that waits for its bot to be free: it stays in the backlog and the next pass tries again (not Blocked). */
 export interface WaitingItem { itemId: string; title: string; reason: string }
 export interface StepReport { dispatched: DispatchedItem[]; blocked: BlockedItem[]; waiting: WaitingItem[]; candidates: number }
-export interface MonitorReport { finished: string[]; failed: string[]; stalled: string[]; escalated: string[] }
+/** `stallsKept`: runs that passed the stall limit and were left running because the `stall-ladder` gate is off for this project. */
+export interface MonitorReport { finished: string[]; failed: string[]; stalled: string[]; escalated: string[]; stallsKept: string[] }
+
+/** A stalled run the ladder did not stop (the `stall-ladder` gate is off): what the activity line is built from. */
+export interface StallKept { itemId: string; title: string; taskId: string; botId: string; minutes: number }
+/** The activity line for it, in plain words. */
+export function stallKeptText(a: StallKept): string {
+  const label = GATES.find((g) => g.id === 'stall-ladder')?.label ?? 'Stop runs that stall';
+  return `The run on "${a.title}" has made no progress for ${a.minutes} minutes. It was not stopped, because ${label} is off.`;
+}
 
 /** The picture the owner reads: what runs and why, what is blocked and why, what comes next and why. */
 export interface MarshalStatus {
@@ -84,7 +94,7 @@ export interface MarshalStatus {
   next: Array<{ itemId: string; title: string; score: number; why: string }>;
 }
 
-interface Live { itemId: string; taskId: string; botId: string; startedAt: number; dispatch: DispatchedItem }
+interface Live { itemId: string; taskId: string; botId: string; startedAt: number; dispatch: DispatchedItem; /** The "not stopped" line for this run has been written. */ stallNoted?: boolean }
 
 export class Marshal {
   readonly ledger: AttemptLedger;
@@ -94,11 +104,25 @@ export class Marshal {
   /** Items the last wave held back for their busy bot, with why: shown in the status text (review #6). */
   private waiting: WaitingItem[] = [];
 
-  constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: { ledger?: AttemptLedger; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
-    this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project);
+  constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: {
+    ledger?: AttemptLedger; limits?: (projectId: string) => AttemptLimits; waveSize?: number; stallMs?: number; escalateAfterStalls?: number;
+    /** The `stall-ladder` gate for a project, read on every pass. False: a stalled run is left running and one line says so. Absent: on. */
+    stallLadder?: (projectId: string) => boolean;
+    /** Told once per run when the ladder is off and the run passed the stall limit. */
+    onStallKept?: (a: StallKept) => void;
+  } = {}) {
+    this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project, options.limits);
     this.waveSize = Math.max(1, options.waveSize ?? WAVE_SIZE);
     this.stallMs = Math.max(1, options.stallMs ?? STALL_MS);
     this.escalateAfterStalls = Math.max(1, options.escalateAfterStalls ?? ESCALATE_AFTER_STALLS);
+    this.stallLadder = options.stallLadder;
+    this.onStallKept = options.onStallKept;
+  }
+  private readonly stallLadder?: (projectId: string) => boolean;
+  private readonly onStallKept?: (a: StallKept) => void;
+  /** The gate is read with this project on every pass. A gate that cannot be read is on. */
+  private ladderOn(): boolean {
+    try { return this.stallLadder?.(this.project.id) !== false; } catch { return true; }
   }
   waveSize: number;
   stallMs: number;
@@ -116,13 +140,18 @@ export class Marshal {
   }
 
   /** The ledger as the board holds it: every item's sidecar, read once at construction. */
-  private static loadLedger(board: BoardStore, project: ProjectRef): AttemptLedger {
+  private static loadLedger(board: BoardStore, project: ProjectRef, limits?: (projectId: string) => AttemptLimits): AttemptLedger {
     const snapshot: Record<string, never> = {};
     for (const item of board.view(project).items) {
       const side = board.sidecar(project.id, item.id);
       if (side && side.dispatch) (snapshot as Record<string, unknown>)[item.id] = side.dispatch;
     }
-    return AttemptLedger.from(snapshot);
+    return AttemptLedger.from(snapshot, { projectId: project.id, ...(limits ? { limits } : {}) });
+  }
+  /** The note on an item the Marshal puts back in the backlog after a failed run. */
+  private retryNote(itemId: string, botId: string): string {
+    const left = this.ledger.triesLeft(itemId, botId);
+    return Number.isFinite(left) ? `The run failed. The Marshal will try again (the ledger allows ${left} more ${left === 1 ? 'try' : 'tries'} on this bot).` : 'The run failed. The Marshal will try again.';
   }
   /** One item's ledger state, written back to its sidecar the moment anything about it changes. */
   private persist(itemId: string): void {
@@ -261,7 +290,7 @@ export class Marshal {
    * ends the ladder: it goes to the owner, who decides what changes.
    */
   monitor(now: number): MonitorReport {
-    const report: MonitorReport = { finished: [], failed: [], stalled: [], escalated: [] };
+    const report: MonitorReport = { finished: [], failed: [], stalled: [], escalated: [], stallsKept: [] };
     for (const [itemId, live] of [...this.live]) {
       const state = this.ports.runState(live.taskId);
       if (state.status === 'running' || state.status === 'queued') {
@@ -269,6 +298,15 @@ export class Marshal {
         if (state.status === 'queued' || state.waitingOnOwner) continue;
         const progressAt = state.progressAt ?? live.startedAt;
         if (now - progressAt < this.stallMs) continue;
+        if (!this.ladderOn()) {
+          // the owner switched "Stop runs that stall" off for this project: the run keeps going, and one line says it passed the limit
+          report.stallsKept.push(itemId);
+          if (!live.stallNoted) {
+            live.stallNoted = true;
+            try { this.onStallKept?.({ itemId, title: live.dispatch.title, taskId: live.taskId, botId: live.botId, minutes: Math.round(this.stallMs / 60_000) }); } catch { /* advisory */ }
+          }
+          continue;
+        }
         this.ports.cancelRun(live.taskId);
         // the item's run is over: end it on the board too (the same call the module makes when the engine
         // reports the cancel), so the stale activeRun never keeps it out of the next wave
@@ -294,7 +332,7 @@ export class Marshal {
         report.failed.push(itemId);
         // a failed run the board put in Blocked gets one more pass if the ledger still allows it
         if (state.status !== 'cancelled' && this.ledger.mayDispatch(itemId, live.botId).ok) {
-          try { this.ports.board.systemMove(this.project, itemId, 'backlog', `The run failed. The Marshal will try again (the ledger allows ${MAX_ATTEMPTS_PER_BOT - this.ledger.attempts(itemId, live.botId)} more try on this bot).`); } catch { /* status still shows it */ }
+          try { this.ports.board.systemMove(this.project, itemId, 'backlog', this.retryNote(itemId, live.botId)); } catch { /* status still shows it */ }
         }
       }
       this.persist(itemId);

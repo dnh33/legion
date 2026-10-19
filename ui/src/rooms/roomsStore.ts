@@ -6,7 +6,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { CommsState, Room, RoomGuards, RoomMessage, RoomStrategy } from '../../../src/shared/comms';
 import type { LegionEvent } from '../../../src/shared/types';
-import { adminRefusal, ApiError, authHeaders, base, request, subscribe, type ConnStatus } from '../api';
+import { adminRefusal, ApiError, authHeaders, base, CORE_UNREACHABLE, request, subscribe, type ConnStatus } from '../api';
 import { setView, toast } from '../store';
 import './rooms.css';
 
@@ -315,7 +315,7 @@ export async function exportRoom(roomId: string, format: 'md' | 'json'): Promise
   let res: Response;
   try {
     res = await fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/export?format=${format}`, { headers: authHeaders() });
-  } catch { throw new Error('Cannot reach Legion core'); }
+  } catch { throw new Error(CORE_UNREACHABLE); }
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try { msg = (JSON.parse(await res.text()) as { error?: string }).error ?? msg; } catch { /* keep */ }

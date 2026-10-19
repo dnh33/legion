@@ -12,7 +12,8 @@ import type { KeyState } from '../hold';
 import { loadSpend, markSeen, projectAway, useAway } from '../awayStore';
 import { AgentBust } from './AgentBust';
 import { announce } from './announce';
-import { buildAskRows, reconcileShown } from './askLogic';
+import { armAnnouncement, buildAskRows, reconcileShown } from './askLogic';
+import { useHoldOff } from './holdOff';
 import type { AskRow } from './askLogic';
 import { dismissAnswer, holdFocus, holdPointer, resolveOffer, sendNowAnswer, setVisibleRows, startAnswer, undoAnswer, useAnswers } from './answerStore';
 import { grantReads } from './readsGrant';
@@ -30,6 +31,7 @@ const LINGER_MS = 6000;
 
 export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: Ask[]; agentLens: boolean; openBoard: () => void }) {
   const pid = f.project.id;
+  const holdOff = useHoldOff(pid);
   const looked = useAway((s) => s.view?.looked[pid]);
   const away = useAway((s) => projectAway(s, pid));
   const quiet = useAway((s) => s.view?.app.quiet);
@@ -107,20 +109,20 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
     e.preventDefault();
     if (r.action.kind === 'arm') {
       setArmed(row.key);
-      announce(`This cannot be undone once sent. Press A again within 2 seconds to start a ${row.hold / 1000} second hold.`);
+      announce(armAnnouncement(row.hold, holdOff));
       window.setTimeout(() => setArmed((a) => (a === row.key ? null : a)), 2100);
       return;
     }
     setArmed(null);
     const b = row.buttons.find((x) => x.act === (r.action!.kind === 'allow' ? 'allow' : 'deny'));
-    if (b) startAnswer({ row, b, projectId: pid, height: li?.offsetHeight ?? 0 });
+    if (b) startAnswer({ row, b, projectId: pid, holdOff, height: li?.offsetHeight ?? 0 });
   };
 
   const act = (row: AskRow, actName: string, b: AskRow['buttons'][number], li: HTMLElement | null): void => {
     if (actName === 'open' || actName === 'review') { if (row.taskId) openTask(row.taskId); else { if (row.kind === 'proposal') requestInbox(pid, row.key); openBoard(); } return; }
     if (actName === 'read') { if (row.kind === 'proposal') requestInbox(pid, row.key); openBoard(); return; }
     const suggested = row.kind === 'proposal' ? f.board?.inbox.find((i) => i.id === row.key)?.proposal?.suggestedAssignee : undefined;
-    startAnswer({ row, b, projectId: pid, ...(suggested ? { suggestedAssignee: suggested } : {}), height: li?.offsetHeight ?? 0 });
+    startAnswer({ row, b, projectId: pid, holdOff, ...(suggested ? { suggestedAssignee: suggested } : {}), height: li?.offsetHeight ?? 0 });
   };
 
   const head = digestHeader({ needYou: asks.length, hasNew: state.hasNew, since, spendUsd: events.spendUsd });

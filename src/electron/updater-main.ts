@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { VERSION } from '../shared/config.js';
 import { cleanStaleApplyCopies, cleanupRuntimeCopy, confirmWhenHealthy, readOutcome, recoverAfterLiveSwap, UPDATE_DIR } from '../core/updater/apply.js';
-import { buildJob, commitMatches, restartNowText, windowSwitches } from '../core/updater/main-logic.js';
+import { buildJob, commitMatches, restartNowText, windowShown, windowSwitches } from '../core/updater/main-logic.js';
 import { planApplySpawn, prepareRuntimeCopy, shouldPrepare } from '../core/updater/runtime-copy.js';
 import { holdStartForUpdate } from '../core/updater/start-gate.js';
 import { isUpdateInProgress, MARKER_FILE_NAME } from '../core/updater/update-marker.js';
@@ -197,13 +197,13 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
     } else if (!st.json.readyToApply) return { ok: false, error: 'Legion is not idle yet.' };
     const c = await h.ownCoreCall('POST', '/api/update/commit', { force }, true);
     if (!c || c.status !== 200) return { ok: false, error: typeof c?.json?.error === 'string' ? c.json.error : 'The core refused to start the update.' };
-    if (!commitMatches(c.json, h.installDir)) { await h.ownCoreCall('POST', '/api/update/abort-commit', {}, true); return { ok: false, error: 'The update did not match this install.' }; }
+    if (!commitMatches(c.json, h.installDir, process.platform)) { await h.ownCoreCall('POST', '/api/update/abort-commit', {}, true); return { ok: false, error: 'The update did not match this install.' }; }
     try {
       const run = join(h.installDir, UPDATE_DIR, 'run');
       mkdirSync(run, { recursive: true });
       copyFileSync(helperSource, join(run, 'apply.mjs'));
       // The "Updating Legion" window runs from files outside the install, so they are copied out now, before this app quits and the swap begins.
-      const showWindow = st.json.settings?.updateWindow !== false;
+      const showWindow = windowShown(process.platform, st.json.settings?.updateWindow); // win32 only: a Linux clone would start a second Electron
       let windowCopied = false;
       if (showWindow) {
         const wc = copyWindowFiles(h.installDir);
@@ -211,7 +211,7 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
         if (!wc.ok) { try { appendFileSync(join(h.installDir, UPDATE_DIR, 'apply.log'), `[${new Date().toISOString()}] the update window files could not be copied (${wc.missing.join(', ')}): updating without the window\n`); } catch { /* ignore */ } }
       }
       const jobFile = join(run, 'job.json');
-      writeFileSync(jobFile, JSON.stringify(buildJob(c.json, { parentPid: process.pid, port: h.pinnedPort(), execPath: process.execPath, dataDir: h.dataDir, window: { enabled: windowCopied, userData: app.getPath('userData'), args: windowSwitches(process.argv) } })));
+      writeFileSync(jobFile, JSON.stringify(buildJob(c.json, { parentPid: process.pid, port: h.pinnedPort(), execPath: process.execPath, platform: process.platform, argv: process.argv, dataDir: h.dataDir, window: { enabled: windowCopied, userData: app.getPath('userData'), args: windowSwitches(process.argv) } })));
       // A full package swap renames the runtime this process runs from. When a verified copy of it was made ahead of time, start the helper from
       // that copy (no 36 s copy while the app is gone); otherwise the helper re-runs itself from a fresh copy, as before.
       const full = process.platform === 'win32' && !!c.json.names?.includes('node_modules');

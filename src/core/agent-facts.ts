@@ -7,6 +7,7 @@
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentProfile, ApprovalMode } from '../shared/types.js';
 import { stricterMode } from './approvals.js';
+import type { RunMode } from './permission-mode.js';
 
 export const FACTS_HEADER = 'What you can do right now:';
 
@@ -38,7 +39,9 @@ export interface FactsContext {
   /** The servers this run really gets (the engine's buildMcpServers result). */
   servers: Record<string, McpServerConfig>;
   /** A ceiling from whoever woke this run (an MCP client, or a bot). */
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
+  /** The mode this run is judged by now (the resolver's answer: agent mode, project preset, ceiling). Absent: the agent's own mode under the ceiling. */
+  runMode?: RunMode;
   /** Whether this run's agent has VM tools registered is read from `servers`; this only explains a missing one. */
   vmEnabledForAgent: boolean;
 }
@@ -71,7 +74,7 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
   }
   if (names.has('legion_browser') && names.get('legion_browser')!.length > 0) {
     // the mode in force, computed once below and reused for the approvals line
-    const m = ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval;
+    const m = ctx.runMode ?? (ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval);
     lines.push(draftOnly
       ? '- Notes you write after browsing wait in the owner\'s Inbox.'
       : `- Typing, clicking and scripts in a page need an approval card${m === 'full' ? ' in any mode but full — yours is full, so you will not be asked' : ' unless your mode is full'}. Notes you write after browsing wait in the owner\'s Inbox.`);
@@ -91,7 +94,9 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
   if (agent.id === 'quartermaster') {
     lines.push('- Scheduling: the supply watch runs only when the owner or another bot asks; scheduled runs are planned, not available yet.');
   }
-  const mode = ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval;
-  lines.push(`- Approvals: your mode is ${mode}${mode !== agent.approval ? ` (capped from ${agent.approval} by whoever woke you)` : ''}. A denied action stays denied; do not reroute it.`);
+  const mode: RunMode = ctx.runMode ?? (ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval);
+  const smartNote = mode === 'smart' ? " (asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify; tests and builds run without asking, and the code they run can reach the web)"
+    : mode === 'smart-edits' ? " (file edits inside your project run; edits outside it, every command and every tool Legion can't classify ask)" : '';
+  lines.push(`- Approvals: your mode is ${mode === 'smart-edits' ? 'Accept edits with Smart checks' : mode}${smartNote}${mode !== agent.approval && mode !== 'smart' ? (ctx.ceiling && stricterMode(agent.approval, ctx.ceiling) === mode ? ` (capped from ${agent.approval} by whoever woke you)` : ` (set by your project, not ${agent.approval})`) : ''}. A denied action stays denied; do not reroute it.`);
   return `${FACTS_HEADER}\n${lines.join('\n')}`;
 }

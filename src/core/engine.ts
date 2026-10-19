@@ -1,15 +1,22 @@
 /** Runs agent tasks via the Claude Agent SDK. */
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
+import type { HookInput, McpServerConfig, Options, Query, Settings, SyncHookJSONOutput, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
+  AgentProfile, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { API_BILLING_BLOCKED, PLAN_CHECK_FAILED, PLAN_CHECK_FAILED_TEXT, apiBillingBlockedText, explainClaudeError } from '../shared/claude-errors.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { heldBackNames, scrubSecretEnv, type ScrubOpts } from './env-scrub.js';
+import { TRUSTED_FOLDERS_LABEL } from '../shared/gates-registry.js';
+import { assessRun, plain as trustPlain, readInstructions } from './folder-trust.js';
+import type { FolderScan } from './folder-trust.js';
 import { classifySafe } from '../shared/consequence.js';
+import { AWAY_COPY } from '../shared/away-copy.js';
+import type { BuildSnapshot } from './gates-settings/build-edited.js';
+import { isBuildFile } from '../shared/build-files.js';
 import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
@@ -17,13 +24,27 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { describeWaited, isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
+import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
+import { WebSession } from './web-session.js';
+import { globMatchesAny, secretFileNames, secretReadDetail, secretReadHit, type SecretLocation } from './secret-paths.js';
+import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit, startsAtLogin } from './protected-paths.js';
+import { webVerdict } from '../shared/web-verdict.js';
+import type { WebVerdict } from '../shared/web-verdict.js';
+import { loadDocsHosts } from '../shared/docs-hosts.js';
+import { webCardSummary, WEB_CARD, WEB_MANY_BODY } from '../shared/web-copy.js';
+import { ENV_KEEP_LABEL, ENV_NEVER_PASSED, GATES } from '../shared/gates-registry.js';
+import type { GateValue } from '../shared/gates-registry.js';
+import type { ActivityLog } from './activity/index.js';
+import type { WebSearchService } from './web-search/index.js';
+import type { RunMode } from './permission-mode.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
-import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { MAX_READABLE, criticalDeleteRead, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { dataFolderRead } from './exec/data-folder-guard.js';
+import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
 /** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
@@ -57,7 +78,7 @@ import { projectSection } from './projects/prompt.js';
 import { renderCapabilities } from './agent-facts.js';
 import { renderTeamwork } from './teamwork.js';
 import type { ProjectStore } from './projects/store.js';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { CARDED_CONNECTOR_WRITES } from './connectors/gateway.js';
 
 /** On Windows the agent shell and Git Bash read `/tmp` as the user's temp folder: gates check both spellings there. */
@@ -102,6 +123,12 @@ export interface EngineDeps {
   projects?: ProjectStore;
   /** The gate presets' mode resolver (spec 4.2). Absent: the agent's own mode, as before. */
   modes?: import('./gates-settings/index.js').ModeResolver;
+  /** The gate values (spec 4): the permission gates the engine owns are read per call, for the project the run started in. Absent: every gate is on, as before. */
+  gates?: GatesRead;
+  /** The activity log: what a gate that is off let through is written here as a "would have asked" line. Absent: no lines. */
+  activity?: ActivityLog;
+  /** The web search and page read providers: when the owner picked one, the run gets web_search / web_read and the built-in tool it replaces is forbidden. Absent: today's behaviour. */
+  webSearch?: WebSearchService;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
   /** How long a plan-only run waits for the account check before it fails closed. Default 20 s. */
   accountCheckMs?: number;
@@ -181,13 +208,15 @@ const CLEAN_BUILTINS = new Set([
   'ScheduleWakeup', // schedules the agent's own next turn; returns only a confirmation
   'PushNotification', // notice to the owner's device; nothing comes back into the run
 ]);
-/** File tools that put a run's content on disk, and the input field that names the file. */
-const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
+/** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS, which the taint checks share). */
+const BUILD_EDIT_EXTRA_FILE_TOOLS = OWN_WRITE_FILE_TOOLS;
 const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
 const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 /** Legion's own in-process tools that still return outside content: a VM's output. */
 const TAINTING_LEGION_TOOLS = new Set([
   'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop',
+  // the owner's web search and page read providers hand back outside text, as WebFetch and WebSearch do
+  'mcp__legion__web_search', 'mcp__legion__web_read',
 ]);
 /** True when calling this tool taints the run: unless it is a Legion in-process tool (not a VM-output one) or on the clean built-in list, it does. */
 export function taintsRun(toolName: string): boolean {
@@ -197,12 +226,32 @@ export function taintsRun(toolName: string): boolean {
 }
 
 /** A PreToolUse hook answer that blocks the tool and tells the agent why. */
+/** The one start-project value every mode reader uses for a run: the project it started in, else the project it helps from outside. Never the live membership. */
+const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
+/** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
+const GUARD_MEMO_MS = 5000;
+/** How long a hook's answer for one call waits for canUseTool (which, when it is asked at all, is asked right after the hooks). */
+const HOOK_DECIDED_MS = 60_000;
+/** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
+const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
+/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
+const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json']);
+/** New sites raised by one run within this long go out as one card (the first call opens the window). */
+const WEB_BATCH_MS = 10;
+type Decision = { allow: boolean; message?: string };
+interface WebBatchEntry { toolName: string; input: Record<string, unknown>; v: Extract<WebVerdict, { kind: 'ask' }>; resolve: (d: Decision) => void }
+interface WebBatch { entries: WebBatchEntry[] }
+/** The same text for the same input whatever the order of its keys: the key of a shared guard card. */
+const canonicalJson = (v: unknown): string => {
+  try { return JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x)) ?? ''; } catch { return newId('unkeyed'); } // an input that cannot be written out never shares a card with another call
+};
+
 function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
 /** The owner already decided this call (on a floor card): skip the ordinary permission check for it. */
-function preToolAllow(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string } } {
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason } };
+function preToolAllow(reason: string, updatedInput?: Record<string, unknown>): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string; updatedInput?: Record<string, unknown> } } {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, ...(updatedInput ? { updatedInput } : {}) } };
 }
 
 /** The path with symlinks and junctions resolved as far as it exists (the rest of the name is appended as written). */
@@ -272,12 +321,24 @@ export function planOnlySettings(config: LegionConfig, base: Settings = {}): Set
   return isPlanOnly(config) ? { ...base, env: { ...base.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' }, apiKeyHelper: '' } : { ...base };
 }
 
-export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
+export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; scrub?: false | ScrubOpts }): Record<string, string | undefined> {
+  const raw = scrubHostSessionEnv({ ...process.env });
+  const scrubbing = opts?.scrub !== false;
+  // Default ON, also for probes and callers that pass nothing. The cloud logins stay when the CLI is told to use Bedrock, Vertex or Foundry.
+  const providerAuth = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]);
+  const env: Record<string, string | undefined> = scrubbing ? scrubSecretEnv(raw, { ...(opts?.scrub ?? {}), providerAuth }) : raw;
+  // The CLI keeps its own credentials for its API calls and strips them from the subprocesses it starts (Bash, hooks, stdio MCP servers), so in api-key mode
+  // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.296). Documented side effect: on Linux, Bash then runs in its own PID namespace.
+  // https://code.claude.com/docs/en/env-vars (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
+  // Only where the CLI holds a credential Legion put in the environment (the api-key, or the cloud logins). In a Claude-login run that credential
+  // lives outside the environment, so Legion's scrub and the owner's keep list decide alone: the CLI's own scrub would override the keep list.
+  if (scrubbing && (config.claude.auth === 'api-key' || providerAuth)) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {
     env.ANTHROPIC_API_KEY = config.claude.apiKey;
+    // an inherited bearer token outranks the key, so the run could sign in with the wrong credential
+    if (!providerAuth) delete env.ANTHROPIC_AUTH_TOKEN;
   } else if (isPlanOnly(config)) {
     // empty counts as unset for Claude Code, and keeps a settings-file value from filling the gap
     env.ANTHROPIC_API_KEY = '';
@@ -293,25 +354,27 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }):
 }
 
 /** Environment variables that hold Legion's own credentials. */
-const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY']);
+const LEGION_CREDENTIAL_ENV: ReadonlySet<string> = new Set(ENV_NEVER_PASSED);
 
 /**
  * The environment the agent shell (host tools) starts from. Legion's own credentials are not the agent's: the Anthropic
  * key and token, the boat key, and any variable whose value holds the bearer token or a configured key are left out, so a
  * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Legion's own control
  * variables (the LEGION_ namespace) are left out too. Everything else is kept,
- * including credentials the owner set up for the work itself (a GITHUB_TOKEN for git push): the approval card is the
- * check on those.
+ * except names that look like keys, tokens or passwords (src/core/env-scrub.ts): those are dropped unless the owner keeps them
+ * (`keep`, from the signed envKeep list) or switched the `env-scrub` gate off (`scrub: false`). A GITHUB_TOKEN for git push is
+ * then the owner's choice to add.
  *
  * Known limit, stated rather than hidden: the shell runs as the user, so it can still READ Legion's own files
  * (`~/.legion/config.json`, or LEGION_HOME) where those keys are kept. Only a sandboxed backend closes that.
  */
-export function buildHostShellEnv(config: LegionConfig): Record<string, string> {
+export function buildHostShellEnv(config: LegionConfig, opts?: ScrubOpts & { scrub?: boolean }): Record<string, string> {
   // a section that is not there has no key in it: the named variables are still dropped
   const secrets = [config.authToken, config.claude?.apiKey, config.boat?.apiKey]
     .filter((s): s is string => typeof s === 'string' && s.length >= 8).map((s) => s.toLowerCase());
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...process.env }))) {
+  const host = scrubHostSessionEnv({ ...process.env });
+  for (const [k, v] of Object.entries(opts?.scrub === false ? host : scrubSecretEnv(host, { ...(opts?.keep ? { keep: opts.keep } : {}), ...(opts?.providerAuth ? { providerAuth: true } : {}) }))) {
     if (v === undefined || LEGION_CREDENTIAL_ENV.has(k.toUpperCase())) continue;
     // LEGION_* steers the core itself (LEGION_PORT, LEGION_HOME, LEGION_TEST_MODE, ...): a Legion or a test the agent starts must not inherit it
     if (/^LEGION_/i.test(k)) continue;
@@ -343,12 +406,29 @@ interface Job {
   /** "Queue after it": the agent's other live tasks in this project at enqueue time. The job waits until none of them is live. */
   after?: string[];
 }
+/** What the engine reads of the gates core: the gate values, and (optional, so a bare stub still works) the per-project build-file flag. */
+type GatesRead = Pick<import('./gates-settings/index.js').GatesCore, 'gate' | 'switchedOff'> & Partial<Pick<import('./gates-settings/index.js').GatesCore, 'buildEdited' | 'envKeep' | 'trustedFolders' | 'store' | 'webLastUsed' | 'canAllowHosts' | 'allowHost'>>;
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
+  /** What the run did on the web: paths read per site (the budget), a secret file read, sites allowed for this goal. */
+  web: WebSession;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
+  /** A build or script file was changed in this run. Used only when the run has no project (with a project the flag lives in the gates core, per project). */
+  buildEdited?: boolean;
+  /** Claude Code's shell keeps its folder between calls: set once a call ran a `cd` the data-folder guard could not prove stays outside the protected set. */
+  shellMoved?: boolean;
+  /** The folder(s) the run's Claude shell may be in after its last call, when the guard could follow them. */
+  shellCwds?: string[];
+  /**
+   * Every folder Claude's shell may be in after its earlier calls, as the project-folder delete check followed them (null: not known;
+   * absent: still where the run started). The folders before a `cd` stay in: the call may have been refused or denied, or the cd may have failed.
+   */
+  critCwds?: string[] | null;
   /** The project this run started in (absent: none); only such a run is told later that its project changed. */
   projectAtStart?: string;
+  /** For an outside helper's run: the project it helps (its cap and deny rules bind the run although the run is not in it). */
+  outsideOf?: string;
   /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
   toolUses: Set<string>;
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
@@ -369,6 +449,10 @@ interface Active {
   handoverFrom?: TaskList;
   /** The run ended done (set just before that status is saved). */
   finishedOk?: boolean;
+  /** The names of the variables held back from this run's commands were written to the activity log (once per run). */
+  heldBackNoted?: boolean;
+  /** The held-back folder settings were written to the activity log (once per run). */
+  folderTrustNoted?: boolean;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -392,6 +476,10 @@ export class Engine {
   private readonly projects?: ProjectStore;
   private readonly away?: AwayHooks;
   private readonly modes?: import('./gates-settings/index.js').ModeResolver;
+  private readonly gates?: GatesRead;
+  private readonly activity?: ActivityLog;
+  /** The owner's optional web search and page read providers (src/core/web-search). Absent: every web call is the built-in tool's. */
+  private readonly webSearch?: WebSearchService;
   private readonly queue: Job[] = [];
   /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
   private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
@@ -425,14 +513,17 @@ export class Engine {
     this.projects = deps.projects;
     this.away = deps.away;
     this.modes = deps.modes;
+    this.gates = deps.gates;
+    this.activity = deps.activity;
+    this.webSearch = deps.webSearch;
     this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
     // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
     this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
     this.bus.on((e) => { if (e.type === 'project.updated') { try { this.onProjectUpdated(e.project); } catch { /* the note is advisory */ } } });
-    // a pause was lifted or a budget changed: what was held can start now
-    this.bus.on((e) => { if (e.type === 'away.updated') this.pump(); });
+    // a pause was lifted, a budget changed, or "Stop at the budget" was switched off: what was held can start now
+    this.bus.on((e) => { if (e.type === 'away.updated' || e.type === 'gates.updated') this.pump(); });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -681,9 +772,9 @@ export class Engine {
   /** Origin (approval ceiling) for a task started by `ask`/`tell`. Replies go back to the caller's own task and add none. */
   private bridgeOrigin(p: BridgeStartParams): TaskOrigin | undefined {
     if (!p.bridge || p.bridge.reply) return undefined;
-    const callerAgent = this.store.getAgent(p.bridge.fromAgentId);
     const callerTask = p.bridge.parentTaskId ? this.store.getTask(p.bridge.parentTaskId) : undefined;
-    let ceiling: ApprovalMode = callerAgent?.approval ?? 'ask';
+    // the caller's RESOLVED mode for that task (agent mode, preset, project cap), never its stored mode: a caller the resolver holds at Ask hands out Ask
+    let ceiling: RunMode = this.runModeOf(p.bridge.fromAgentId, p.bridge.parentTaskId) ?? 'ask';
     if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
     const tainted = !!callerTask?.origin?.tainted || (!!p.bridge.parentTaskId && this.isTainted(p.bridge.parentTaskId));
     // the client flag travels down the chain: MCP client -> A -> (ask/tell) -> B is still a client-started chain (strictest wins, never cleared)
@@ -916,9 +1007,11 @@ export class Engine {
   private startJob(job: Job): void {
     // the agent may have been switched off while the job waited in the queue
     if (this.isHiddenAgent(job.agentId)) { this.dropHiddenJob(job); return; }
-    const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set() };
+    const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set(), web: new WebSession() };
     act.tainted = !!(job.origin?.tainted || this.store.getTask(job.taskId)?.tainted);
-    act.projectAtStart = this.projectOf(job.taskId, job.agentId)?.id;
+    // one value for the start project: the one the job was queued with, the same one modeNow reads (membership at start time could differ)
+    if (job.projectAtStart) act.projectAtStart = job.projectAtStart;
+    if (job.outsideOf) act.outsideOf = job.outsideOf;
     this.active.set(job.taskId, act);
     void this.runJob(job, act);
   }
@@ -934,11 +1027,21 @@ export class Engine {
     return ids;
   }
 
+  /**
+   * The project's budget holds starts: it is reached with no override in force, and the owner has not switched "Stop at the budget" off
+   * for the project the run started in. The budget itself (what the page shows, the notice) is the away module's and is not touched by the switch.
+   * A gate that cannot be read is on.
+   */
+  private budgetHolds(pid: string): boolean {
+    if (!this.away?.budgetBlocked(pid)) return false;
+    try { return this.gates?.gate('budget-stop', pid) !== false; } catch { return true; }
+  }
+
   /** Held by the owner's pause or budget (not by a slot or another run). */
   private heldByPolicy(job: Job): boolean {
     const pid = job.projectAtStart;
     if (!this.away || !pid) return false;
-    try { return this.away.budgetBlocked(pid) || ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)); } catch { return false; }
+    try { return this.budgetHolds(pid) || ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)); } catch { return false; }
   }
 
   /**
@@ -950,7 +1053,7 @@ export class Engine {
     const pid = job.projectAtStart;
     if (this.away && pid) {
       try {
-        if (this.away.budgetBlocked(pid)) return 'budget';
+        if (this.budgetHolds(pid)) return 'budget';
         if ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)) return 'paused';
       } catch { /* a failing hook holds nothing */ }
     }
@@ -1001,7 +1104,7 @@ export class Engine {
         const pid = j.projectAtStart;
         if (!pid || this.active.has(j.taskId)) continue;
         try {
-          if (!this.away.budgetBlocked(pid)) continue;
+          if (!this.budgetHolds(pid)) continue;
           const r = this.away.budgetRollsAt(pid);
           if (r !== undefined && Number.isFinite(r) && (at === undefined || r < at)) at = r;
         } catch { /* no timer for this one */ }
@@ -1096,7 +1199,7 @@ export class Engine {
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
     }
     let model = decision.model;
-    const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined, resumable: undefined });
+    const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined, resumable: undefined, runsAs: this.runsAsOf(job, agent), web: undefined });
     if (!first) throw new Error('Task disappeared');
     const from = job.header && job.fromAgentId ? this.store.getAgent(job.fromAgentId) : undefined;
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
@@ -1205,6 +1308,8 @@ export class Engine {
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
       // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
       // a provider change is handed over to the next Claude run of this conversation (its own list is behind)
+      // the owner's web providers: tools exist only for a capability that has a provider picked; the call log carries this run's task
+      ...(this.webSearch ? { webSearch: this.webSearch.withLog((e) => this.noteWebCall(taskId, agent.id, pid, e)) } : {}),
       ...(runtime === 'provider' ? { taskList: { load: () => this.taskLists.load(taskId), save: (l: TaskList) => { l.handoverPending = true; this.taskLists.save(taskId, l); this.showTaskList(taskId, act, l); } } } : {}),
     });
     // The agent shell: host shell/file tools, only for an agent that opted in. The names are `mcp__host__*` (NOT
@@ -1218,9 +1323,9 @@ export class Engine {
         rootDir: this.hostRootOf(agent),
         // a project run's shell also reaches the project folder (decision B6); paths there are given in full
         ...(project ? { extraRoots: [project.folder] } : {}),
-        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
+        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config, this.scrubFor(job)) }),
         // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
-        redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),
+        redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? []), ...(this.webSearch?.secretValues() ?? [])]),
         envFiles: agent.host.envFiles ?? 'masked',
       });
     }
@@ -1289,11 +1394,7 @@ export class Engine {
 
   /** The folders Claude file tools may not change (the Armory's own files). */
   private protectedDirs(): string[] {
-    const out: string[] = [];
-    for (const m of this.modules) {
-      try { out.push(...(m.protectedPaths?.() ?? [])); } catch { /* none */ }
-    }
-    return out;
+    return protectedTargets(undefined, this.modules);
   }
 
   /** The `skills` list and plugin folders for a Claude run. Always an array: an omitted list would mean "every skill Claude Code can find". */
@@ -1342,10 +1443,164 @@ export class Engine {
     }
     if (toolName === 'Skill') { if (this.skillLoadTaints(input)) act.tainted = true; }
     else if (taintsRun(toolName)) act.tainted = true;
+    // a read of a password or key file makes every web call in this run ask; set when the call is seen, whatever the owner answers
+    const agent = this.store.getAgent(job.agentId);
+    const tin = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    const secret = secretReadHit(toolName, tin, agent ? this.dataSecretLocation(agent, toolName, tin) : undefined);
+    if (secret) act.web.noteSecretRead();
     this.trackWorkspaceTaint(job, act, toolName, input);
+    this.trackBuildEdit(job, act, toolName, input);
     for (const m of this.modules) {
       try { m.onToolUse?.(job.agentId, job.taskId, toolName); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Smart asks for build and test commands once an agent changed a build or script file (Task 27). A file tool whose target is one, or a shell
+   * command that may write (level 2 or more) and names one, flags the run's start project; with no project the run itself carries the flag.
+   * A command that only reads such a file is level 1 and sets nothing. Stricter by design: a command that names the file and writes elsewhere also sets it.
+   */
+  private trackBuildEdit(job: Job, act: Active, toolName: string, input: unknown): void {
+    const o = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    let hit = false;
+    const field = WRITE_FILE_TOOLS[toolName] ?? BUILD_EDIT_EXTRA_FILE_TOOLS[toolName];
+    const projectFolder = this.projectOf(job.taskId, job.agentId)?.folder;
+    if (field) {
+      const given = o[field];
+      if (typeof given === 'string' && given !== '') {
+        const root = toolName.startsWith('mcp__host__') ? this.hostRootOf(this.store.getAgent(job.agentId) ?? { id: job.agentId } as AgentProfile) : this.agentCwd(job.agentId);
+        const target = TaintedPaths.resolvePath(root, given);
+        // `scripts/` means the project's scripts folder: a project that lives under a folder called scripts must not flag on every edit
+        const rel = projectFolder ? relative(projectFolder, target) : '';
+        hit = isBuildFile(rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : target);
+      }
+    } else if (SHELL_TOOLS.has(toolName) && typeof o.command === 'string') {
+      const folder = projectFolder ?? this.agentCwd(job.agentId);
+      hit = o.command.split(/[\s;&|<>()"'`=,:]+/).some((t) => t !== '' && isBuildFile(t)) && classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [], home: homedir() }).level >= 2;
+    }
+    if (!hit) return;
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) this.gates.buildEdited.set(pid); else act.buildEdited = true;
+  }
+
+  /** What the run's commands may inherit: keys, tokens and passwords are scrubbed unless the owner switched `env-scrub` off for the project the run started in (then everything passes), else the signed keep list applies. */
+  private scrubFor(job: Job): ScrubOpts & { scrub?: boolean } {
+    if (this.gates?.gate('env-scrub', startProjectOf(job)) === false) return { scrub: false };
+    return { keep: this.gates?.envKeep?.() ?? [] };
+  }
+  /**
+   * Folder trust (security finding H1). A repository's own Claude Code settings and skills can run commands (hooks, env, helpers, a skill's hooks and
+   * allowed tools) and a Claude Code SDK run never asks whether to trust the folder (code.claude.com/docs/en/permissions, "What runs before you trust a
+   * folder"). So at every start the run's folder and each added directory are scanned. Nothing executable there, or every such folder trusted at exactly
+   * the content found now: all sources, as before. Otherwise the user source only, the repository's CLAUDE.md and rules go into the prompt as plain text,
+   * and the thread and the activity log say which commands, helpers and variable NAMES were held back (never a value). Inherit off: no sources, no notice.
+   */
+  private folderTrustFor(job: Job, agent: AgentProfile, act: Active, cwd: string, addDirs: string[]): { sources: NonNullable<Options['settingSources']>; text: string; mcpHeld: boolean } {
+    const inherit = this.config.claude.inheritClaudeCodeSettings === true;
+    // .mcp.json counts only when the owner let Claude Code's MCP servers in: with the switch off, strictMcpConfig below already blocks it
+    const r = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit, mcp: this.config.claude.inheritMcp === true });
+    if (!r.held.length) return { sources: r.sources, text: '', mcpHeld: false };
+    try { this.noteFolderHeld(job, agent, act, r.held); } catch { /* the notice is advisory; the run is held back either way */ }
+    let text = '';
+    try { text = readInstructions(cwd).text; } catch { /* no instructions text this run */ }
+    return { sources: r.sources, text, mcpHeld: r.held.some((h) => h.mcp) };
+  }
+
+  /**
+   * A settings or skill file changed while the run works (security finding A-H2). Claude Code loads such a change in the same session
+   * (code.claude.com/docs/en/hooks, ConfigChange: "Runs when a configuration file changes during a session"), so a `git checkout` or a clone
+   * into the working folder could bring in a hook nobody trusted. For the project and local settings and the skills, the folders are scanned
+   * again exactly as at run start; anything executable that is not trusted at exactly the content found now blocks the change, with the
+   * folder-trust notice in the thread. A run that was held back at start does not load these sources anyway; blocking there is harmless.
+   * The user and managed settings go on.
+   */
+  private configChangeAnswer(job: Job, agent: AgentProfile, act: Active, cwd: string, addDirs: string[], input: HookInput): SyncHookJSONOutput {
+    if (input.hook_event_name !== 'ConfigChange') return { continue: true };
+    if (input.source !== 'project_settings' && input.source !== 'local_settings' && input.source !== 'skills') return { continue: true };
+    const block = 'This folder\'s Claude Code settings or skills changed during the run, and the folder is not trusted with the new content, so Legion did not load the change.';
+    let held: FolderScan[];
+    try {
+      // the trusted list is read now: the owner may have trusted the folder while the run works
+      held = assessRun({ cwd, addDirs, trusted: this.gates?.trustedFolders?.() ?? [], inherit: this.config.claude.inheritClaudeCodeSettings === true, mcp: this.config.claude.inheritMcp === true }).held;
+    } catch { return { decision: 'block', reason: block }; }
+    if (!held.length) return { continue: true };
+    try { this.noteFolderHeld(job, agent, act, held, true); } catch { /* the notice is advisory; the change is blocked either way */ }
+    return { decision: 'block', reason: block };
+  }
+
+  /** `midRun`: the scan was made because a settings or skills file changed while the run works, so the run already loaded what it had at its start. */
+  private noteFolderHeld(job: Job, agent: AgentProfile, act: Active, held: FolderScan[], midRun = false): void {
+    const folders = held.map((h) => ({ folder: h.folder, lines: h.lines, more: h.more }));
+    const key = JSON.stringify(folders);
+    const already = this.store.listMessages(job.taskId).some((m) => m.folderTrust && JSON.stringify(m.folderTrust.folders) === key);
+    if (!already) {
+      const extra = (!midRun && held.some((h) => h.mcp) ? ' MCP servers from your Claude Code setup were off for this run too, because a .mcp.json here would start programs.' : '')
+        + (held.some((h) => h.lines.some((l) => l.startsWith('Skill file '))) ? ' A skill whose header only mentions hooks or allowed tools is counted too.' : '');
+      const body = folders.map((f) => `${f.folder}\n${f.lines.map((l) => `- ${l}`).join('\n')}${f.more ? `\n- and ${f.more} more` : ''}`).join('\n\n');
+      const lead = midRun
+        ? 'A settings change in this folder during the run was held back: it carries commands you have not trusted.'
+        : "This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only. Its CLAUDE.md and rules were read as text instead.";
+      const trust = midRun ? 'To let them run in your next run, choose Trust this folder on this notice.' : 'To let them run, choose Trust this folder on this notice.';
+      this.addMessage(job.taskId, 'system', `${lead} What was held back:\n${body}\n${extra ? `${extra.trim()}\n` : ''}${trust} Settings, Gates, Fine tuning, "${TRUSTED_FOLDERS_LABEL}" lists the folders you trusted and removes them.`, undefined, undefined, { folderTrust: { folders } });
+    }
+    if (!act.folderTrustNoted) {
+      act.folderTrustNoted = true;
+      const n = held.reduce((a, h) => a + h.lines.length, 0);
+      this.activity?.append({ kind: 'note', text: `Folder not trusted, its Claude Code settings were held back (${n} item${n === 1 ? '' : 's'}): ${held.map((h) => trustPlain(h.folder, 120)).join(', ')}`, taskId: job.taskId, agentId: agent.id });
+    }
+  }
+
+  /**
+   * The one line that tells a run which environment variables Legion held back from its commands: NAMES only, never a value, and where the
+   * owner can keep one. Empty when nothing was held back or the scrub is off. The names also go to the activity log, once per run.
+   */
+  private heldBackNote(job: Job, agent: AgentProfile, act: Active, consumers: { child: boolean; host: boolean }): string {
+    try {
+      const s = this.scrubFor(job);
+      if (s.scrub === false) return '';
+      const raw = scrubHostSessionEnv({ ...process.env });
+      const keep = s.keep ?? [];
+      // Worked out for each place a command can start: the Claude child keeps the cloud logins when the CLI is set up for them (buildChildEnv), the
+      // agent's host shell never does (buildHostShellEnv). The line lists the names either of them lacks, so it never says less than what happened.
+      const providerAuth = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]);
+      const all = new Set<string>([
+        ...(consumers.child ? heldBackNames(raw, { keep, providerAuth }) : []),
+        ...(consumers.host ? heldBackNames(raw, { keep }) : []),
+      ]);
+      const names = [...all].sort((x, y) => x.localeCompare(y));
+      if (!names.length) return '';
+      const shown = names.slice(0, 30).join(', ') + (names.length > 30 ? ` and ${names.length - 30} more` : '');
+      if (!act.heldBackNoted) {
+        act.heldBackNoted = true;
+        this.activity?.append({ kind: 'note', text: `Held back from commands: ${shown}`, taskId: job.taskId, agentId: agent.id });
+      }
+      const inProject = startProjectOf(job) !== undefined;
+      return `Legion held back these environment variables from your commands: ${shown}. They look like keys, tokens or passwords, or they make a program load other code. If a command needs one, tell the user which one and why, and say they can keep that one variable in Settings, Gates, Fine tuning, "${ENV_KEEP_LABEL}".${inProject ? ' To pass every held-back variable at once, they can turn off "Keep keys and passwords out of commands" for this project in Settings, Gates. That passes all of them, not only one.' : ''}`;
+    } catch { return ''; }
+  }
+  private childScrubFor(job: Job): { scrub: false | ScrubOpts } {
+    const s = this.scrubFor(job);
+    return { scrub: s.scrub === false ? false : { keep: s.keep ?? [] } };
+  }
+
+  /** The folder of the project this run started in: where its build files are fingerprinted. */
+  private startFolderOf(job: Job): string | undefined {
+    const pid = startProjectOf(job);
+    return pid ? this.projects?.get(pid)?.folder : undefined;
+  }
+
+  /** Whether an agent changed a build or script file in the project this run started in, and no build or test command was allowed since; the snapshot goes with the card. */
+  private buildCheck(job: Job): { flagged: boolean; snap?: BuildSnapshot } {
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) return this.gates.buildEdited.check(pid, this.startFolderOf(job));
+    return { flagged: this.active.get(job.taskId)?.buildEdited === true };
+  }
+
+  /** The owner allowed the card the flag caused: the flag goes (for the project, or for a run with no project), unless a build file changed while the card was open. */
+  private clearBuildEdited(job: Job, snap?: BuildSnapshot): void {
+    const pid = startProjectOf(job);
+    if (pid && this.gates?.buildEdited) this.gates.buildEdited.clear(pid, snap, this.startFolderOf(job));
+    else { const act = this.active.get(job.taskId); if (act) act.buildEdited = false; }
   }
 
   /**
@@ -1401,7 +1656,30 @@ export class Engine {
     const projectId = this.store.getTask(job.taskId)?.projectId;
     // "inside" means inside the project's folder, else inside the agent's own working folder: with neither there is nothing to check against
     const folder = this.projectOf(job.taskId, agent.id)?.folder ?? this.agentCwd(agent.id);
-    return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }) };
+    return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [], home: homedir() }) };
+  }
+
+  /**
+   * The built-in web tools the owner's providers replace, per capability: a picked search provider forbids WebSearch, a picked read provider
+   * forbids WebFetch. One path means one gate and one place the text goes; a provider that only searches leaves page reads with the built-in tool.
+   */
+  private webToolsReplaced(): string[] {
+    return [...(this.webSearch?.searchOn() ? ['WebSearch'] : []), ...(this.webSearch?.readOn() ? ['WebFetch'] : [])];
+  }
+
+  /** One line in the activity log for a provider call: provider, tool, the host of a read target and the charge. Never the query or the address. */
+  private noteWebCall(taskId: string, agentId: string, projectId: string | undefined, e: { provider: string; tool: string; host?: string; micro?: number }): void {
+    try {
+      this.activity?.append({
+        kind: 'web-call', text: `Web: ${e.provider} ${e.tool}${e.host ? ` ${e.host}` : ''}`, taskId, agentId, ...(projectId ? { projectId } : {}),
+        data: { provider: e.provider, tool: e.tool, ...(e.host ? { host: e.host } : {}), ...(e.micro !== undefined ? { micro: e.micro } : {}) },
+      });
+    } catch { /* advisory */ }
+    // A paid call that reports its charge (micro-dollars) goes to the same spend ledger as the model's cost, with the task, agent and project,
+    // so the owner's optional project budget and Show costs include it. No limit and no card of its own (owner ruling 2026-10-18). A call that
+    // reports no charge records nothing.
+    // noteSpend takes the agent and project from the task, the same as the model's own cost does, so the two always land on the same project.
+    if (typeof e.micro === 'number' && e.micro > 0) this.noteSpend(taskId, e.micro / 1_000_000);
   }
 
   /**
@@ -1411,19 +1689,327 @@ export class Engine {
    * canUseTool does not exist, by a PreToolUse hook.
    */
   private webEgressCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }> | undefined {
-    if (toolName !== 'WebFetch' && toolName !== 'WebSearch') return undefined;
+    const kind = webKind(toolName);
+    if (!kind) return undefined;
     const used = this.store.getTask(job.taskId)?.usedConnectors === true;
     const tainted = this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true;
     if (!used || !tainted) return undefined;
-    const target = String(toolName === 'WebFetch' ? input?.url ?? '' : input?.query ?? '').slice(0, 1000);
+    const wi = webInput(toolName, input);
+    const target = String(kind === 'WebFetch' ? wi.url ?? '' : wi.query ?? '').slice(0, 1000);
     const o = job.origin;
     let timedOut = false; let waited: number | undefined;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
       onTimeout: (ms) => { timedOut = true; waited = ms; },
       ...this.askExtras(job, agent, toolName, input),
-      summary: `${toolName}: ${target}
+      summary: `${toolName.replace(/^mcp__legion__/, "")}: ${target}
 This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
     }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` : 'The user denied this web request.' });
+  }
+
+  private readonly docsHosts: ReadonlySet<string> = loadDocsHosts();
+  /** Guard cards in flight or just answered, by (task, tool, input): the PreToolUse hook and canUseTool both ask, and the owner sees one card. */
+  private readonly guardMemo = new Map<string, { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number }>();
+
+  /** What the run did on the web (a run that is not live gets a throwaway session: nothing is remembered for it). */
+  private webSessionOf(job: Job): WebSession { return this.active.get(job.taskId)?.web ?? new WebSession(); }
+
+  /**
+   * Whether a site opens with no card: the built-in docs list (while the web-reads gate is on), a site the owner approved in the signed site list,
+   * or a site the owner allowed for this goal. The host is canonical (lower case, no trailing dot) and the match is exact: a sub-domain is another site.
+   * A relay host is never trusted here (webVerdict asks for it whatever this says).
+   */
+  private siteTrusted(job: Job, host: string): boolean {
+    if (this.gates?.gate('web-reads', startProjectOf(job)) !== false && this.docsHosts.has(host)) return true;
+    if ((this.gates?.store?.app().allowedHosts ?? []).includes(host)) return true;
+    return this.webSessionOf(job).goalTrusts(host);
+  }
+
+  /**
+   * The guards that raise their own card ahead of every allow: a gate rule, Claude Code's own allow rules or a mode that waves the call through
+   * cannot skip one. Called by toolDecider (canUseTool and the provider path) and by a PreToolUse hook, after a gate deny and the shell floor.
+   * Order: (1) the web check, (2) protected path (Task 23), (3) secret-file read (Task 24). The first that returns a card wins and its answer is final
+   * for that call. Every card carries `noRemember`. An identical call (same task, tool and input) shares the card for 5 seconds after it opens or is answered,
+   * so the hook and canUseTool raise one card. Returns undefined when no guard has anything to say.
+   */
+  private askGuards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    const key = `${job.taskId}\u0000${toolName}\u0000${canonicalJson(input)}`;
+    const hit = this.guardMemo.get(key);
+    if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
+    if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
+    const card = this.webGuard(job, agent, toolName, input, mode)
+      ?? this.protectedPathGuard(job, agent, toolName, input, mode)
+      ?? this.secretReadGuard(job, agent, toolName, input, mode);
+    if (!card) return undefined;
+    const entry: { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number } = { p: card };
+    const done = (): void => { entry.doneAt = Date.now(); };
+    card.then(done, done);
+    this.guardMemo.set(key, entry);
+    return card;
+  }
+
+  /**
+   * The ask-mode hook's cards after the gate deny and the floor: the guards first, then Legion's own cards (`own`, toolDecider with ownOnly).
+   * The owner's own Claude Code allow rules may skip the plain card (owner ruling 2026-10-18); Legion's own cards may not. So a call none of
+   * them is due for goes on as before (continue): the plain card of the preset stays in canUseTool, and nothing new cards (an `ls` or an
+   * in-folder read the SDK approves itself stays free). Every answer is kept for canUseTool by the call's id, so the call gets one card.
+   */
+  private async hookCards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode, toolUseId: string | undefined, own: (t: string, i: Record<string, unknown>) => Promise<Decision | undefined>): Promise<{ continue: true } | ReturnType<typeof preToolDeny> | ReturnType<typeof preToolAllow>> {
+    const card = this.askGuards(job, agent, toolName, input, mode);
+    if (card) {
+      const d = await card;
+      if (!d.allow) { this.noteHookDecided(job, toolUseId, d); return preToolDeny(d.message ?? 'The user denied this web request.'); }
+      // allowing here skips canUseTool, which is where the web-egress card is raised: raise it now
+      const egress = this.webEgressCard(job, agent, toolName, input);
+      if (egress) { const e = await egress; if (!e.allow) { this.noteHookDecided(job, toolUseId, e); return preToolDeny(e.message ?? 'The user denied this web request.'); } }
+      this.noteHookDecided(job, toolUseId, { allow: true });
+      return preToolAllow('The owner approved this site on its card.');
+    }
+    const d = await own(toolName, input);
+    if (!d) return { continue: true };
+    this.noteHookDecided(job, toolUseId, d);
+    if (!d.allow) return preToolDeny(d.message ?? 'The user denied this action.');
+    // the input goes back unchanged, as canUseTool's allow does: a tool such as ExitPlanMode needs it with a hook allow (hooks doc, "allow with updatedInput")
+    return preToolAllow('The owner approved this call on its card.', input);
+  }
+
+  /** Calls a PreToolUse hook decided on a card, by (task, tool use id), until canUseTool reads them or a minute passes. */
+  private readonly hookDecided = new Map<string, { d: Decision; at: number }>();
+  private noteHookDecided(job: Job, toolUseId: string | undefined, d: Decision): void {
+    if (!toolUseId) return;
+    if (this.hookDecided.size > 200) for (const [k, e] of this.hookDecided) if (Date.now() - e.at >= HOOK_DECIDED_MS) this.hookDecided.delete(k);
+    this.hookDecided.set(`${job.taskId}\u0000${toolUseId}`, { d, at: Date.now() });
+  }
+  private takeHookDecided(job: Job, toolUseId: string | undefined): Decision | undefined {
+    if (!toolUseId) return undefined;
+    const key = `${job.taskId}\u0000${toolUseId}`;
+    const e = this.hookDecided.get(key);
+    this.hookDecided.delete(key);
+    return e && Date.now() - e.at < HOOK_DECIDED_MS ? e.d : undefined;
+  }
+
+  /**
+   * Guard (2): a change to Git internals and hooks, editor and agent settings, shell startup files or package manager settings asks, in every mode
+   * but Full. The switch is the `protected-path-cards` gate. A file target is resolved against the agent's folder; inside the project folder (or the
+   * agent's own) it is tested relative to that folder, so a project that lives under a folder with a protected name is not carded on every write.
+   */
+  private protectedPathGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (mode === 'full' || this.gates?.gate('protected-path-cards', startProjectOf(job)) === false) return undefined;
+    const folder = this.projectOf(job.taskId, agent.id)?.folder ?? this.agentCwd(agent.id);
+    const cwd = this.gateCwd(agent, toolName, input);
+    const resolveTarget = (t: string): string => {
+      const abs = resolve(cwd, nativePath(t));
+      const rel = folder ? relative(resolve(folder), abs) : undefined;
+      return rel !== undefined && rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : abs;
+    };
+    const hit = protectedWriteHit(toolName, input, this.askExtras(job, agent, toolName, input).consequence.level, resolveTarget);
+    if (!hit) return undefined;
+    return this.guardCard(job, agent, toolName, input, `Legion wants to change ${hit}. A change there can run code ${startsAtLogin(hit) ? 'when you log in or open a shell' : 'the next time you use Git'}, or change what an agent may do.`);
+  }
+
+  /**
+   * Legion's own key files count as secret files by where they are: the providers and connectors folders (API keys, tokens, their data keys),
+   * the gates folder and the gates key, taken from the same protected set the file tools use for writes. A path is resolved against the call's
+   * folder (a leading `~` or `$HOME` means the home folder). The rest of the data folder (config, state, projects, workspaces) is not secret.
+   * A search that starts at the data folder, a folder above it or a folder between it and a key folder also counts (it reaches the key files),
+   * as long as its glob can match a key file name. A `cd` earlier in the same command changes the folder its words mean (see secret-paths.ts).
+   * Gap: a `cd` in an earlier call of the run, or a path built when the command runs, is not seen.
+   */
+  private dataSecretLocation(agent: AgentProfile, toolName: string, input: Record<string, unknown>): SecretLocation | undefined {
+    const roots = this.protectedDirs().filter((t) => SECRET_DATA_NAMES.has(basename(t).toLowerCase()));
+    if (!roots.length) return undefined;
+    const base = this.gateCwd(agent, toolName, input);
+    let canon: string[] | undefined; // worked out on the first path that is asked about: most tool calls never ask
+    let names: string[] | undefined; // the file names under the key folders, read on the first glob that is asked about
+    // PowerShell reads `\` as a folder separator on Linux and macOS too, so there a `\` counts as one (a name that really holds a `\` asks, never the other way)
+    const own = (p: string): string => (process.platform === 'win32' ? nativePath(p) : p.replace(/\\/g, '/'));
+    const at = (p: string, cwd?: string): string => canonicalLocal(own(p), { cwd: cwd === undefined ? base : own(cwd) });
+    const inside = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon); } catch { return false; } };
+    const reaches = (p: string, cwd?: string): boolean => { try { canon ??= canonicalSet(roots); return hitsCanonical(at(p, cwd), canon, true); } catch { return false; } };
+    const globReaches = (glob: string): boolean => { names ??= secretFileNames(roots); return globMatchesAny(glob, names); };
+    return { cwd: base, dataFolder: dirname(roots[0]!), inside, reaches, globReaches };
+  }
+
+  /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */
+  private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
+    const where = this.dataSecretLocation(agent, toolName, input);
+    const found = secretReadDetail(toolName, input, where);
+    if (!found) return undefined;
+    // always the full path; a search folder that only CONTAINS Legion's key folders says so, so the owner sees why a plain search asks
+    const summary = found.search && where
+      ? `An agent wants to search ${found.path}. Legion's key files are inside it (${where.dataFolder}), so the search can read your passwords and keys.`
+      : `Legion wants to read ${found.path}. It may hold passwords or keys.`;
+    return this.guardCard(job, agent, toolName, input, summary);
+  }
+
+  /** The card every guard raises: no Remember (no tool-wide rule can pass a guard), and the answer is final for this call. */
+  private guardCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, summary: string): Promise<{ allow: boolean; message?: string }> {
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what you needed it for, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this was not done. ${stop}` : `The user has not approved this. ${stop}` };
+    });
+  }
+
+  /** Guard (1): a new site asks, a built-in docs or approved site opens. Notes an allowed read (host only, never the address) and counts its path. */
+  private webGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (!webChecksApply(mode, toolName) || this.gates?.gate('web-reads', startProjectOf(job)) === false) return undefined;
+    const sess = this.webSessionOf(job);
+    const v = webVerdict({ tool: webKind(toolName)!, input: webInput(toolName, input) }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => sess.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: sess.secretRead });
+    if (v.kind === 'ask') return this.askWeb(job, agent, toolName, input, v);
+    this.noteWebRead(job, agent, toolName, input, v.host);
+    return undefined;
+  }
+
+  /** A web read went through (allowed by the check or by the owner's answer): count its path for the budget, date the site, and log the host. */
+  private noteWebRead(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, host: string | undefined): void {
+    if (host) {
+      let path = '/'; try { path = new URL(String(webInput(toolName, input).url)).pathname; } catch { /* the check already read it */ }
+      this.webSessionOf(job).noteFetch(host, path);
+      this.publishWeb(job.taskId);
+      try { this.gates?.webLastUsed?.touch(host); } catch { /* advisory */ }
+    }
+    try { this.activity?.append({ kind: 'note', text: `Web: ${toolName.replace(/^mcp__legion__/, '')} ${host ?? ''}`.trim(), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+  }
+
+  /** The mode the run starts with and the project it starts in, for the "Runs as" chip. A resolver that throws reads as Ask. */
+  private runsAsOf(job: Job, agent: AgentProfile): NonNullable<Task['runsAs']> {
+    let mode: RunMode = 'ask';
+    try { mode = this.modeNow(job, agent); } catch { /* fails closed */ }
+    const projectId = startProjectOf(job);
+    return { mode, ...(projectId ? { projectId } : {}) };
+  }
+
+  /** Puts what the live run has read on the web onto its task (counts only), when the counts changed. A run that read nothing keeps no summary. */
+  private publishWeb(taskId: string): void {
+    try {
+      const s = this.active.get(taskId)?.web.summary();
+      if (!s || s.pages <= 0) return;
+      const cur = this.store.getTask(taskId);
+      if (!cur || (cur.web?.pages === s.pages && cur.web?.newSites === s.newSites)) return;
+      this.patchTask(taskId, { web: s });
+    } catch { /* advisory: a chip never changes a run */ }
+  }
+
+  /** New sites raised together by one run, waiting to go out as one card (see `askWeb`). */
+  private readonly webBatches = new Map<string, WebBatch>();
+
+  /**
+   * The card for a web call the check did not let through; its answer decides this call. Calls to new sites raised together (a model asks for
+   * several pages in one turn) go out as ONE card listing the sites, and one answer covers all of them. The window is short: the first
+   * call opens it, and the card goes out a moment later with every new site that arrived by then.
+   */
+  private askWeb(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, v: Extract<WebVerdict, { kind: 'ask' }>): Promise<Decision> {
+    return new Promise<Decision>((resolveCall) => {
+      const entry: WebBatchEntry = { toolName, input, v, resolve: resolveCall };
+      // only a plain new site is batched: a card with its own reason (a query, a port, a long search) says so on its own
+      if (!(v.why === 'new-host' && v.host && webKind(toolName) === 'WebFetch')) { void this.raiseWebCard(job, agent, [entry]); return; }
+      let batch = this.webBatches.get(job.taskId);
+      if (!batch) {
+        const b: WebBatch = { entries: [] };
+        batch = b; this.webBatches.set(job.taskId, b);
+        setTimeout(() => { this.webBatches.delete(job.taskId); void this.raiseWebCard(job, agent, b.entries); }, WEB_BATCH_MS);
+      }
+      batch.entries.push(entry);
+    });
+  }
+
+  /** Raises the one card for these calls and applies the owner's answer to each: Always allow (the site list), Allow for this goal, Allow once, or No. */
+  private async raiseWebCard(job: Job, agent: AgentProfile, entries: WebBatchEntry[]): Promise<void> {
+    const decide = (d: Decision): void => { for (const e of entries) e.resolve(d); };
+    try {
+      // a run that ended while the card waited to go out has nobody to answer for
+      if (!this.active.has(job.taskId)) { decide({ allow: false, message: 'The run ended before this web request could be asked.' }); return; }
+      const first = entries[0]!;
+      const hosts = [...new Set(entries.map((e) => e.v.host ?? '').filter((h) => h !== ''))];
+      const many = hosts.length > 1;
+      const host = hosts[0] ?? '';
+      let path = '', search: string | undefined;
+      // the summary is also written to the activity log: it holds the host and path only (`?...` when a query existed); the card shows the full address from the call's input
+      if (webKind(first.toolName) === 'WebSearch') search = '';
+      else { try { const u = new URL(String(webInput(first.toolName, first.input).url)); path = (u.pathname + (u.search ? '?...' : '')).slice(0, 160); } catch { path = ''; } }
+      const signer = this.gates?.canAllowHosts?.() === true;
+      const canAlways = signer && entries.every((e) => e.v.canAlways);
+      const summary = many
+        ? `${WEB_CARD.many(hosts.length, hosts)}\n${WEB_MANY_BODY}`
+        : webCardSummary({ why: first.v.why, host: host || 'this address', path, ...(search !== undefined ? { search } : {}) });
+      const o = job.origin;
+      let timedOut = false; let waited: number | undefined; let id: string | undefined;
+      const allowed = await this.approvals.request(job.taskId, agent.id, first.toolName, first.input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+        onTimeout: (ms) => { timedOut = true; waited = ms; },
+        ...this.askExtras(job, agent, first.toolName, first.input),
+        noRemember: true,
+        summary: summary.slice(0, 390),
+        site: { host, canAlways, ...(many ? { hosts } : {}) },
+        ...(signer ? {} : { alwaysRefusal: "Always allow needs a key from your computer's keystore to sign the site list, and none is available. Use Allow for this goal or Allow once." }),
+        onOpen: (req) => { id = req.id; },
+      });
+      const site = id ? this.approvals.takeSite?.(id) : undefined;
+      if (!allowed) {
+        if (timedOut) {
+          try { this.activity?.append({ kind: 'note', text: `Waited for you on ${hosts.join(', ') || 'a web address'}`, taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+          decide({ allow: false, message: `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` });
+        } else decide({ allow: false, message: 'The user denied this web request.' });
+        return;
+      }
+      if (site === 'goal') for (const h of hosts) this.trustHostForGoal(job.taskId, h);
+      if (site === 'always') this.allowHostsFromCard(job, agent, hosts);
+      for (const h of hosts) this.webSessionOf(job).noteNewSite(h);
+      for (const e of entries) { this.noteWebRead(job, agent, e.toolName, e.input, e.v.host); e.resolve({ allow: true }); }
+    } catch (err) {
+      // a failure here must never turn into a silent allow
+      decide({ allow: false, message: 'Legion could not ask about this web request, so it was not run.' });
+      try { this.activity?.append({ kind: 'note', text: `Web card failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), taskId: job.taskId, agentId: agent.id }); } catch { /* advisory */ }
+    }
+  }
+
+  /**
+   * The owner answered Always allow on a card: the sites join the signed site list (the same store path as a Settings edit, which signs it) with no native
+   * confirm, because the card the owner answered is the confirmation. The change is logged like other gate changes. If the list cannot be written the
+   * call still runs once (the owner said yes to it) and the log says the site was not saved.
+   */
+  private allowHostsFromCard(job: Job, agent: AgentProfile, hosts: string[]): void {
+    void job; void agent;
+    const log = (text: string): void => { try { this.activity?.append({ kind: 'gate-changed', text, data: { scope: 'app' } }); } catch { /* advisory */ } };
+    const saved: string[] = [];
+    for (const h of hosts) {
+      try { this.gates?.allowHost?.(h); saved.push(h); } catch (err) { log(`Could not save ${h} to the site list: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300)); }
+    }
+    if (!saved.length) return;
+    log('Site list changed for all projects (from a web card)');
+    for (const h of saved) log(`Agents may read ${h} without asking.`);
+    try { this.bus.emit({ type: 'gates.updated' }); } catch { /* advisory */ }
+  }
+
+  /** The owner allowed a site for this goal: it opens with no card for the rest of the run. (PR 2 keeps it for the run; the goal record will persist it.) */
+  trustHostForGoal(taskId: string, host: string): void {
+    const h = host.trim().toLowerCase().replace(/\.$/, '');
+    if (h) this.active.get(taskId)?.web.trustForGoal(h);
+  }
+
+  /**
+   * Whether the browser tool may open this address in Smart with no first-page card: the web check lets it through (a built-in docs site, an approved
+   * site, or one allowed for this goal). False for anything that would ask, for a run that is not live, and when the web-reads gate is off for the run.
+   */
+  webReadAllows(taskId: string | undefined, _agentId: string, rawUrl: string): boolean {
+    const act = taskId ? this.active.get(taskId) : undefined;
+    if (!taskId || !act) return false;
+    const job = { taskId, projectAtStart: act.projectAtStart, outsideOf: act.outsideOf } as unknown as Job;
+    if (this.gates?.gate('web-reads', startProjectOf(job)) === false) return false;
+    const v = webVerdict({ tool: 'browser_open', input: { url: rawUrl } }, { trusted: (h) => this.siteTrusted(job, h), pathsSeen: (h) => act.web.pathsSeen(h), builtIn: (h) => this.docsHosts.has(h), secretRead: act.web.secretRead });
+    if (v.kind !== 'allow') return false;
+    if (v.host) {
+      try { this.gates?.webLastUsed?.touch(v.host); } catch { /* advisory */ }
+      try { act.web.noteFetch(v.host, new URL(rawUrl).pathname); this.publishWeb(taskId); } catch { /* the check already read it */ }
+    }
+    return true;
   }
 
   /**
@@ -1448,6 +2034,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
       if (opts.card === false) return undefined;
+      // the project folder or a folder above it: a card in every mode but Full, a refusal in Full (read from the folder the shell is in)
+      const critical = this.criticalDeleteTarget(job, agent, toolName, input, command, kind);
+      if (critical) return this.criticalDeleteDecision(job, agent, toolName, input, command, critical);
+      // Legion's own data folder: a command that changes it (or may, by a path built at run time) needs the owner's card in every mode
+      // (in Full only when it names the gate settings, gates key, config, state or project list; Task 17 folds this into the askGuards pipeline)
+      const folderCard = this.dataFolderCard(job, agent, toolName, input, command, kind);
+      if (folderCard) return folderCard;
       why = unjudgeableCommand(command, kind);
     } catch {
       // fail closed: a floor that could not read the command asks the owner
@@ -1474,14 +2067,185 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     });
   }
 
+  /**
+   * What a command deletes that holds the run's project: the project folder, the working folder, a folder above either, a glob
+   * directly under one, or the home folder (Claude Code's critical paths). Read from the folder the shell is in: Claude's shell
+   * keeps its folder between calls, so the folder a `cd` moved to is where the NEXT command is read; Legion's host shell takes one per call.
+   */
+  private criticalDeleteTarget(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): string | undefined {
+    const keeps = !toolName.startsWith('mcp__host__');
+    const act = this.active.get(job.taskId);
+    const start = this.gateCwd(agent, toolName, input);
+    const folder = this.projectOf(job.taskId, agent.id)?.folder;
+    const carried = keeps && act ? act.critCwds : undefined;
+    // a command too long to read is carded anyway; it may hold a cd, so the folder is not known after it
+    if (command.length > MAX_READABLE) { if (keeps && act) act.critCwds = null; return undefined; }
+    let r: ReturnType<typeof criticalDeleteRead>;
+    try {
+      // the run's start folder is shown as written; folders a cd reached are kept in the reader's plain form
+      r = criticalDeleteRead(command, kind, { ...(carried === undefined ? { cwd: start } : carried ? { cwd: start, cwds: carried } : {}), roots: folder ? [folder] : [], home: homedir() });
+    } catch (e) { if (keeps && act) act.critCwds = null; throw e; }
+    // kept whether or not this call runs: the reader's list holds the folders before every cd as well as after
+    if (keeps && act) act.critCwds = r.cwds?.length ? r.cwds : null;
+    return r.reason ? (r.target ?? 'the project folder') : undefined;
+  }
+
+  /** The card (every mode but Full) or the refusal (Full, or a ceiling that lifts nothing) for a delete of what holds the project. A ceiling never loosens it. */
+  private criticalDeleteDecision(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, target: string): Promise<{ allow: boolean; message?: string }> {
+    const mode = this.modeNow(job, agent);
+    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
+      return Promise.resolve({ allow: false, message: `Not run: this command deletes ${target}, which holds the project. With full access such a command is refused rather than asked about. If it really must go, tell the user and let them delete it.` });
+    }
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary: `This command deletes ${target}, which holds your project.\n${shown}\nYou are asked in every approval mode. Allow it only if you mean to delete it.`,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (it deletes ${target}). ${stop}` : `The user has not approved this command (it deletes ${target}). ${stop}` };
+    });
+  }
+
+  /**
+   * Agents may not change Legion's own protected files (gate settings, the gates key, projects, config, state, connectors, providers, armory, away:
+   * the same set the file tools use). Default deny: a shell command that names one of them, a path inside one or a folder above one
+   * (read from the run's working folder, following `cd` and `git -C`, hidden commands included), or whose path is built when it runs,
+   * gets a card in Ask, Auto-edits and Smart with no Remember (no remembered rule may skip it), unless every part of it only reads.
+   * Reading stays free, and so do agents' workspaces. Full (Bypass) can change the rest of the data folder, but a write or delete that names
+   * the gate settings, the gates key, config, state or the project list still gets the card. Undefined when nothing is due.
+   */
+  private dataFolderCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): Promise<{ allow: boolean; message?: string }> | undefined {
+    const all = this.protectedDirs();
+    if (!all.length) return undefined;
+    const mode = this.modeNow(job, agent);
+    // Full keeps one narrow card: a write or delete that NAMES the gate settings, the gates key, config, state or the project list (normal work
+    // never writes them). A path built when the command runs is not carded in Full, and the rest of the data folder keeps Full's freedom.
+    const full = (job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full';
+    const folders = full ? all.filter((t) => FULL_CARD_NAMES.has(basename(t).toLowerCase())) : all;
+    if (!folders.length) return undefined;
+    let hit: 'none' | 'names' | 'hidden';
+    // Legion's own host shell takes a folder per call; Claude's Bash and PowerShell keep theirs from call to call
+    const keeps = !toolName.startsWith('mcp__host__');
+    const act = this.active.get(job.taskId);
+    try {
+      const r = dataFolderRead(command, kind, folders, { cwd: this.gateCwd(agent, toolName, input), cwdUnknown: keeps && act?.shellMoved === true, ...(keeps && act?.shellCwds?.length ? { cwds: act.shellCwds } : {}) });
+      hit = r.hit;
+      if (keeps && r.moved && act) act.shellMoved = true;
+      if (keeps && act) act.shellCwds = r.cwds.length ? r.cwds : undefined;
+    } catch { hit = 'hidden'; if (keeps && act) act.shellMoved = true; }
+    if (hit === 'none' || (full && hit !== 'names')) return undefined;
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
+    const what = hit === 'names' ? "works on Legion's own settings folder" : "has a path that is built when it runs and could point at Legion's own settings folder";
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      noRemember: true,
+      summary: `This command ${what}.\n${shown}\nThat folder holds your gate settings, keys and projects. An agent may not change it without you, so you are asked in every approval mode. Allow it only if you asked for this.`,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (it works on Legion's own settings folder). ${stop}` : `The user has not approved this command (it works on Legion's own settings folder). ${stop}` };
+    });
+  }
+
+  /**
+   * A tool call went through with no card because a gate is off (the preset or an owner override), and the agent's own setting, with no preset at all,
+   * would have asked: one "would have asked" line in the activity log. Called only where a call is decided, never per stream event; a call that
+   * needed no card anyway (a plain Read, an agent that is Full on its own, Ask with the gate on) writes nothing.
+   */
+  private noteWouldAsk(job: Job, agent: AgentProfile, gateId: string, toolName: string, input: Record<string, unknown>): void {
+    try {
+      if (!this.activity || !this.modes?.baseline || this.gates?.gate(gateId, startProjectOf(job)) !== false) return;
+      const live = this.store.getAgent(agent.id);
+      const base = this.modes.baseline({ agentMode: live?.approval ?? agent.approval, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}) });
+      if (!needsApproval(base, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return;
+      const projectId = startProjectOf(job);
+      this.activity.wouldHaveAsked({ gateId, label: GATES.find((g) => g.id === gateId)?.label ?? gateId, action: `${toolName} ${summarizeToolInput(toolName, input)}`, taskId: job.taskId, ...(projectId ? { projectId } : {}), agentId: agent.id });
+    } catch { /* advisory: a log line never changes a decision */ }
+  }
+
+  /** The owner switched "Your ask rules" off (an explicit override only: a preset alone never does), and the run carries no outside ceiling. */
+  private asksSkipped(job: Job): boolean {
+    return !job.origin?.approvalCeiling && this.gates?.switchedOff('gate-rules-ask', startProjectOf(job)) === true;
+  }
+
   /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
-  private modeNow(job: Job, agent: AgentProfile): ApprovalMode {
+  private modeNow(job: Job, agent: AgentProfile): RunMode {
     const live = this.store.getAgent(agent.id);
     const own = live?.approval ?? agent.approval;
     const ceiling = job.origin?.approvalCeiling;
     if (!this.modes) return ceiling ? stricterMode(own, ceiling) : own;
-    // the cap comes from the project the run STARTED in (job.projectAtStart, set when the run began): a project archived or left mid-run keeps its cap
-    return this.modes.mode({ agentMode: own, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(job.projectAtStart ? { startProjectId: job.projectAtStart } : {}), ...(ceiling ? { ceiling } : {}) });
+    // the cap comes from the project the run STARTED in (job.projectAtStart, set when the run began), or for an outside helper the project it helps
+    // (job.outsideOf, the same value decideGate gets): a project archived or left mid-run keeps its cap
+    const startProjectId = startProjectOf(job);
+    return this.modes.mode({ agentMode: own, source: live?.approvalSource ?? agent.approvalSource ?? 'own', ...(startProjectId ? { startProjectId } : {}), ...(ceiling ? { ceiling } : {}) });
+  }
+
+  /**
+   * The mode an agent's run is judged by right now, for modules that only know the agent and the task (the browser, Blender and board
+   * guards, the comms hub). The project cap comes from the live run's start project (or the project an outside helper helps), else from the
+   * task's own project; with no task there is no start project, so no cap. Undefined when the agent is gone.
+   */
+  runModeOf(agentId: string, taskId?: string): RunMode | undefined {
+    const agent = this.store.getAgent(agentId);
+    if (!agent) return undefined;
+    // the run's own start project (running, else queued); only a task the engine does not know falls back to its live project
+    const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
+    const startProjectId = src ? startProjectOf(src) : taskId ? this.projectOf(taskId, agentId)?.id : undefined;
+    if (!this.modes) return agent.approval;
+    return this.modes.mode({ agentMode: agent.approval, source: agent.approvalSource ?? 'own', ...(startProjectId ? { startProjectId } : {}) });
+  }
+
+  /**
+   * One gate's value for a run, read with the project the run STARTED in (never the stored agent mode), for modules that only know the task:
+   * the GitHub write card, the board delete card, the module cards and the proposals Inbox. A task the engine does not know (or no task) reads
+   * as ON: a lookup that cannot find the run's start project must never fall back to a looser app setting. Without a gates core every gate is on.
+   */
+  gateFor(taskId: string | undefined, id: string): GateValue {
+    if (!this.gates) return true;
+    const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
+    if (!src) return true;
+    return this.gates.gate(id, startProjectOf(src));
+  }
+
+  /**
+   * Whether a module that raises its own card may skip it, by the same rule as tool cards (see GatesCore.switchedOff): only an explicit owner override
+   * removes a card below what the agent's own setting asks. A preset alone (Bypass) silences the agents that follow it, that is, a run whose
+   * mode resolves to full; an agent the owner set to Ask keeps its card. The caller handles ceilings (a ceiling always keeps the card).
+   */
+  cardOffFor(taskId: string | undefined, id: string, agentId: string): boolean {
+    if (!this.gates || this.gateFor(taskId, id) !== false) return false;
+    const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
+    if (!src) return false;
+    if (this.gates.switchedOff(id, startProjectOf(src))) return true;
+    return this.runModeOf(agentId, taskId) === 'full';
+  }
+
+  /**
+   * A module let something through with no card because a gate is off. One "would have asked" line when the owner's own setting, with no preset
+   * at all, would have asked (`always`: it asks in every setting, like a GitHub write). Advisory: it never changes a decision.
+   */
+  noteGateOff(a: { gateId: string; taskId: string; agentId: string; action: string; always?: boolean }): void {
+    try {
+      if (!this.activity || this.gateFor(a.taskId, a.gateId) !== false) return;
+      const src = this.active.get(a.taskId) ?? this.queue.find((j) => j.taskId === a.taskId);
+      if (!a.always) {
+        const agent = this.store.getAgent(a.agentId);
+        if (!agent || !this.modes?.baseline) return;
+        const ceiling = this.store.getTask(a.taskId)?.origin?.approvalCeiling;
+        const base = this.modes.baseline({ agentMode: agent.approval, source: agent.approvalSource ?? 'own', ...(ceiling ? { ceiling } : {}) });
+        if (!decideGuard(base).needsCard) return;
+      }
+      const projectId = src ? startProjectOf(src) : undefined;
+      this.activity.wouldHaveAsked({ gateId: a.gateId, label: GATES.find((g) => g.id === a.gateId)?.label ?? a.gateId, action: a.action.slice(0, 300), taskId: a.taskId, ...(projectId ? { projectId } : {}), agentId: a.agentId });
+    } catch { /* advisory */ }
   }
 
   /**
@@ -1489,32 +2253,66 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
   private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; /** false: the floor's card is raised by a hook for this path; only its refusals apply here. */ floorCard?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
-    const effective = (): ApprovalMode => this.modeNow(job, agent);
+    const decide = this.callDecider(job, agent, opts);
+    return (toolName, input) => decide(toolName, input) as Promise<Decision>;
+  }
+
+  /**
+   * The body of toolDecider. With `ownOnly` it decides only a call one of Legion's own cards is due for (the outside-run ceiling, a gate ask rule,
+   * the web-egress card after connector data, Smart's changed-build-file card) and answers undefined for every other call, without a card or a
+   * log line: the ask-mode PreToolUse hook uses it, so those cards fire even where an allow rule means canUseTool is never asked.
+   */
+  private callDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; floorCard?: boolean; /** false: the hook already ran the guards for this call. */ guards?: boolean; ownOnly?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<Decision | undefined> {
+    const effective = (): RunMode => this.modeNow(job, agent);
     return async (toolName, input) => {
-      // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
-      // (no await when no card is due: the card of a normal tool must still be raised synchronously)
-      const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
-      if (egress) return egress;
       const mode = effective();
+      const capped = job.origin?.approvalCeiling === 'ask';
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
-      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart ?? job.outsideOf, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      // With "Your ask rules" off, an ask rule is skipped by judging as full (deny still wins there).
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName, input), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, this.asksSkipped(job) ? 'full' : mode, capped);
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
+      // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
+      // (no await when no card is due: the card of a normal tool must still be raised synchronously)
+      // It comes after the deny rules, so a yes on it never passes a call they refuse (the hook path has the same order).
+      const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
+      if (egress) return egress;
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
       if (floor) return floor;
-      if (gate.verdict === 'allow') return { allow: true };
+      // the guards (the web check first) raise their own card ahead of every allow, the owner's tool-cards switch and the baseline
+      const guard = opts.guards === false ? undefined : this.askGuards(job, agent, toolName, input, mode);
+      if (guard) return guard;
+      // a call that goes through with no card: with ownOnly it is left to the normal permission flow (canUseTool notes it there)
+      const pass = (): Decision | undefined => { if (opts.ownOnly) return undefined; this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; };
+      // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
+      // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
+      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return pass();
+      if (gate.verdict === 'allow') return opts.ownOnly ? undefined : { allow: true };
       // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
-      if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return { allow: true };
-      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
+      if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return opts.ownOnly ? undefined : { allow: true };
+      // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
+      const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
+      // Smart: a project seen for the first time gets its build-file baseline now, before any command of this run can change a file
+      if (mode === 'smart') { const pid = startProjectOf(job), dir = this.startFolderOf(job); if (pid && dir) this.gates?.buildEdited?.ensureBaseline(pid, dir); }
+      // a local build or test run is judged again once an agent changed a build or script file in the project (the fingerprint is taken only here)
+      const build = mode === 'smart' && consequence?.tags.includes('runs-code') ? this.buildCheck(job) : undefined;
+      const askOpts = { capped, ...(consequence ? { consequence } : {}) };
+      const baseAsk = needsApproval(mode, toolName, askOpts);
+      const asks = build?.flagged ? needsApproval(mode, toolName, { ...askOpts, buildEdited: true }) : baseAsk;
+      if (gate.verdict !== 'ask' && !asks) return pass();
+      // the flag is what made this card (Smart would have run it): say why, and let only the owner's allow clear the flag. No Remember: a standing rule would skip the flag for good.
+      const flagCard = gate.verdict !== 'ask' && asks && !baseAsk;
+      // only the plain card of the preset is left: an allow rule may skip that one, so the hook leaves it to canUseTool
+      if (opts.ownOnly && gate.verdict !== 'ask' && !capped && !flagCard) return undefined;
       const o = job.origin;
       let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(
         job.taskId, agent.id, toolName, input,
         o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-        { onTimeout: (ms) => { timedOut = true; waited = ms; }, ...this.askExtras(job, agent, toolName, input) },
+        { onTimeout: (ms) => { timedOut = true; waited = ms; }, ...this.askExtras(job, agent, toolName, input), ...(flagCard ? { noRemember: true, summary: `${AWAY_COPY.card.buildEdited}\n${summarizeToolInput(toolName, input)}` } : {}) },
       );
-      if (allowed) return { allow: true };
+      if (allowed) { if (flagCard) this.clearBuildEdited(job, build?.snap); return { allow: true }; }
       // The tool_use already set the mood to 'hacking'; after a deny nothing else would move it until the run ends, so the Relic
       // would read "Executing" for a call that never ran. Skip it once the run is cancelled or over (cancel denies open cards too).
       const live = this.active.get(job.taskId);
@@ -1544,6 +2342,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
+    // the protected files' identities, read once per run (only when a target has more than one link)
+    const linkIds: { ids?: Set<string> } = {};
     // the project (if any) adds text AFTER everything else and one extra folder: its own, and only its own
     const project = this.projectOf(job.taskId, agent.id);
     // in the project when it was queued, not any more when it starts (archived, deleted, member removed meanwhile)
@@ -1555,6 +2355,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const skillSet = this.moduleSkills(agent);
     const allowSkillShell = this.skillShellAllowed();
     const maxBudgetUsd = this.perRunBudget(job);
+    const trust = this.folderTrustFor(job, agent, act, cwd, projectFolder ? [projectFolder] : []);
     const options: Options = {
       model,
       cwd,
@@ -1563,33 +2364,38 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
           + '\n\n' + renderTeamwork(servers)
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
-          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
+          + (() => { const t = this.heldBackNote(job, agent, act, { child: true, host: agent.host?.enabled === true }); return t ? '\n\n' + t : ''; })()
+          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
+          // the folder's own instructions, read as text, when its settings were held back (folder trust)
+          + (trust.text ? '\n\n' + trust.text : '')
           // the lead's role comes last, after the persona and the project, so no edit or wording above can drop it
           + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       },
       ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
-      settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
+      settingSources: trust.sources,
       // Always an explicit list: omitted means "everything Claude Code can find" (338 skills on the owner's machine). [] = none.
       skills: skillSet.skills,
       ...(skillSet.plugins.length ? { plugins: skillSet.plugins.map((path) => ({ type: 'local' as const, path })) } : {}),
       mcpServers: servers,
+      // A folder held back for its .mcp.json (folder trust, inheritMcp on) gets this too: dropping the project source already stops the SDK connecting it
+      // (code.claude.com/docs/en/permissions, "What runs before you trust a folder", the .mcp.json row), and this makes sure.
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
-      ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
+      ...(this.config.claude.inheritMcp === true && !trust.mcpHeld ? {} : { strictMcpConfig: true }),
       // Claude Code's own task list: 5.x models have it only when asked for. Naming the tools in allowedTools turns them on
       // (Claude Code CLI behaviour, verified live 2026-10-12; sdk.d.ts documents allowedTools only as auto-approval) and
       // auto-approves them, so a Gates rule for them does not apply — harmless: they are notes (READ_ONLY), never carded.
       // Off, the old TodoWrite goes too.
       ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
       // Claude Code's own AskUserQuestion is off: in an ask-mode run it surfaced as an approval card with raw JSON. Legion's ask_user_question (mcp__legion__) raises the question card.
-      disallowedTools: ['SendMessage', 'ListAgents', 'AskUserQuestion', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
+      disallowedTools: ['SendMessage', 'ListAgents', 'AskUserQuestion', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.webToolsReplaced(), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
       includePartialMessages: true,
       abortController: act.ac,
-      env: buildChildEnv(this.config),
+      env: buildChildEnv(this.config, this.childScrubFor(job)),
       // SDK Settings.disableSkillShellExecution (sdk.d.ts:7156): inline shell in skills and slash commands runs before the model sees the text and never
       // reaches canUseTool, so it is replaced by a placeholder unless the owner allowed it in the Armory. Merged into the same flag layer as the connector switch.
       settings: planOnlySettings(this.config, { ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell }),
@@ -1614,8 +2420,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
             const field = WRITE_FILE_TOOLS[input.tool_name];
             const target = field && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)[field] : undefined;
             if (typeof target !== 'string' || !target) return { continue: true };
-            const abs = resolve(cwd, target);
-            return this.protectedDirs().some((d) => pathInside(d, abs)) ? preToolDeny('The Armory\'s files can only be changed by the owner in Settings \u2192 Armory, not by an agent.') : { continue: true };
+            // canonical path: admin-share (also through this computer's own addresses), `\\?\`, short-name, junction and trailing-dot
+            // spellings reach the same file; a hardlink to a protected file is that file
+            const set = this.protectedDirs();
+            return isProtected(target, set, cwd) || isHardlinkToProtected(target, set, cwd, linkIds) ? preToolDeny("Legion's own settings files (the Armory, gates, keys, projects) can only be changed by the owner in Legion, not by an agent.") : { continue: true };
           }] },
         ],
       },
@@ -1624,14 +2432,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (this.config.claude.executablePath) options.pathToClaudeCodeExecutable = this.config.claude.executablePath;
     // A task woken by another bot can never be more permissive than the strictest sender on the chain
     // (confused-deputy guard): it never runs in bypass mode and its cards name who asked.
-    const effective = (): ApprovalMode => this.modeNow(job, agent);
+    const effective = (): RunMode => this.modeNow(job, agent);
     // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
     const cardHookSeconds = this.approvals.timeoutSeconds + 60;
     if (this.modeNow(job, agent) === 'full') {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
-      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', timeout: cardHookSeconds, hooks: [async (input) => {
+      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch|mcp__legion__web_read|mcp__legion__web_search', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
@@ -1647,35 +2455,58 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
         }
-        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, input.tool_input as Record<string, unknown> | undefined), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart ?? job.outsideOf, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, input.tool_input as Record<string, unknown> | undefined), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
         const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
-        if (floor) { const d = await floor; return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.'); }
+        if (floor) { const d = await floor; if (!d.allow) return preToolDeny(d.message ?? 'The user denied this action.'); }
+        // the run goes through with no card: when the owner's own setting would have asked, the activity log says so
+        this.noteWouldAsk(job, agent, 'tool-cards', input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return { continue: true };
       }] });
     } else {
       options.permissionMode = 'default';
+      // Legion's own cards on the hook path (A-H1): the ceiling, a gate ask rule, the web-egress card and Smart's build card. The guards run just before.
+      // the owner's own Claude Code allow rules may skip the plain card (owner ruling 2026-10-18); Legion's own cards may not
+      const own = this.callDecider(job, agent, { floorCard: false, guards: false, ownOnly: true });
       // The shell floor as a hook too: Claude Code's own allow rules (inherited settings, `Bash(rm:*)`) decide a call before
       // canUseTool is asked, which would step around the floor. A Block gate still wins first; an approved floor card is
-      // final for that call (no second, ordinary card).
+      // final for that call (no second, ordinary card). Hooks run in parallel, so this hook decides the whole of a shell call
+      // (floor, then guards, then Legion's own cards) and the '.*' hook below leaves shell calls alone: one card per call.
       options.hooks?.PreToolUse?.push({ matcher: 'Bash|PowerShell|Monitor|mcp__host__shell', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const tin = (input.tool_input ?? {}) as Record<string, unknown>;
-        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart ?? job.outsideOf, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
+        const mode = effective();
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         const floor = this.shellFloor(job, agent, input.tool_name, tin);
-        if (!floor) return { continue: true };
+        if (!floor) return this.hookCards(job, agent, input.tool_name, tin, mode, input.tool_use_id, own);
         const d = await floor;
+        this.noteHookDecided(job, input.tool_use_id, d);
         return d.allow ? preToolAllow('The owner approved this command on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+      }] });
+      // The guards and Legion's own cards as a hook too, for the same reason: Claude Code's own allow rules decide a call before canUseTool is
+      // asked. A gate deny wins first; an approved card is final for that call (canUseTool reads the hook's answer, so it is one card).
+      options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const tin = (input.tool_input ?? {}) as Record<string, unknown>;
+        const mode = effective();
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        // the shell hook above decides a shell call from start to end
+        if (SHELL_TOOLS.has(input.tool_name)) return { continue: true };
+        return this.hookCards(job, agent, input.tool_name, tin, mode, input.tool_use_id, own);
       }] });
       // the hook above owns the floor's card for Claude's shell tools, so it is not asked a second time here
       const decide = this.toolDecider(job, agent, { floorCard: false });
-      options.canUseTool = async (toolName, input) => {
-        const d = await decide(toolName, input);
+      options.canUseTool = async (toolName, input, o) => {
+        // a call a hook already decided on a card keeps that answer: Claude Code can still ask here after a hook allow (an ask rule, or an action no mode approves by itself)
+        const d = this.takeHookDecided(job, o?.toolUseID) ?? await decide(toolName, input);
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
     }
+    // Folder trust again when the run's settings change under it (A-H2), in every mode: folder trust is not a permission card.
+    options.hooks!.ConfigChange = [{ hooks: [async (input) => this.configChangeAnswer(job, agent, act, cwd, projectFolder ? [projectFolder] : [], input)] }];
     // The task list reaches Claude's own list through the documented SessionStart hook only: shown again after Claude
     // compacts, and handed over when a provider run changed it or the session is new. An agent without the tools gets neither.
     if (nativeTaskListOn(agent)) {
@@ -1787,10 +2618,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
         + '\n\n' + renderTeamwork(allServers)
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(projectHere ? { projectId: projectHere.id } : {}) })
-        + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
+        // only the agent shell runs commands on a provider run, so only an agent with it has variables held back from anything
+        + (() => { const t = agent.host?.enabled ? this.heldBackNote(job, agent, act, { child: false, host: true }) : ''; return t ? '\n\n' + t : ''; })()
+        + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
-        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
+        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; ${this.webSearch?.searchOn() || this.webSearch?.readOn() ? 'you have no file or shell tools of your own, and your web tools are the ones listed (web_search and web_read, where listed).' : 'you have no file, shell or web tools of your own.'}`
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : '')
         // the project's own rules and folder, last, as on the Claude path (council A5: provider runs had none)
         + (projectHere ? '\n\n' + projectSection({ name: projectHere.name, instructions: projectHere.instructions, folder: projectHere.folder }, { files: agent.host?.enabled === true }) : ''),

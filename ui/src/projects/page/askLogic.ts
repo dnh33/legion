@@ -57,6 +57,10 @@ export function verbFor(toolName: string): string {
 const dirName = (dir: string): string => dir.split('/').filter(Boolean).pop() ?? dir;
 const ms = (iso: string): number => { const n = Date.parse(iso); return Number.isFinite(n) ? n : 0; };
 
+/** What is spoken after the first A on an irreversible ask. With the hold off there is no hold to promise. */
+export const armAnnouncement = (holdMs: number, holdOff: boolean): string =>
+  `This cannot be undone once sent. Press A again within 2 seconds to ${holdOff ? 'allow' : `start a ${holdMs / 1000} second hold`}.`;
+
 export function buildAskRows(f: PageFacts, policy: WaitPolicy): AskRow[] {
   const pid = f.project.id;
   const projectOf = (taskId: string, own?: string): string | undefined => own ?? f.tasks.find((t) => t.id === taskId)?.projectId;

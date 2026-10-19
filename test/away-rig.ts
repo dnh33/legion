@@ -10,6 +10,8 @@ import { ProjectStore } from '../src/core/projects/store.js';
 import { TaintedPaths } from '../src/core/tainted-paths.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { AgentProfile, ChatMessage, LegionEvent, Task } from '../src/shared/types.js';
+import { createActivityLog, createActivityModule } from '../src/core/activity/index.js';
+import { createGatesCore } from '../src/core/gates-settings/index.js';
 import type { ModeResolver } from '../src/core/gates-settings/index.js';
 
 export class FakeStore {
@@ -32,7 +34,7 @@ export const ok = (text = 'done') => ({ type: 'result', subtype: 'success', is_e
 
 export interface AwayState { paused: Set<string>; budget: Set<string>; spends: Array<Record<string, unknown>>; rollsAt: Map<string, number> }
 
-export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; modes?: ModeResolver; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
+export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approval?: AgentProfile['approval']; approvalTimeoutMs?: number; modes?: ModeResolver; /** a real gates core (store + resolver) over the rig's project store, signing with a fixed test key; it replaces `modes` */ gatesCore?: boolean; /** the real away core (or any hooks) in place of the stub, built over the rig's bus, store, project store and data folder */ awayFactory?: (c: { bus: EventBus; store: FakeStore; projects: ProjectStore; dataDir: string }) => AwayHooks; /** a real activity log (and its bus lines) in the rig's data folder, handed to the engine */ activity?: boolean; /** the web search provider service (task 28) */ webSearch?: import('../src/core/web-search/index.js').WebSearchService; script?: (params: { prompt: unknown; options: Record<string, unknown> }) => AsyncGenerator<unknown, void> } = {}) {
   const root = cleanupTemp('legion-queue-');
   const store = new FakeStore();
   for (const id of ['a1', 'a2', 'a3']) store.agents.set(id, mkAgent(id, opts.approval ?? 'full'));
@@ -66,11 +68,16 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
     budgetRollsAt: (pid) => awayState.rollsAt.get(pid),
     recordSpend: (e) => { awayState.spends.push(e as unknown as Record<string, unknown>); },
   };
+  const core = opts.gatesCore ? createGatesCore({ dataDir: join(root, 'data'), projects, keyring: { get: () => Buffer.alloc(32, 7) } as never, inheritMcp: () => config.claude.inheritMcp === true }) : undefined;
+  const activity = opts.activity ? createActivityLog({ dataDir: join(root, 'data') }) : undefined;
+  const activityModule = activity ? createActivityModule({ bus } as never, activity) : undefined;
   const engine = new Engine({
     store: store as never, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as never, approvals, questions, config, queryFn,
     boatConfigured: () => false, projects, taintedPaths: new TaintedPaths(join(root, 'tp.json')), maxConcurrent: opts.maxConcurrent,
-    ...(opts.withAway === false ? {} : { away }),
-    ...(opts.modes ? { modes: opts.modes } : {}),
+    ...(opts.withAway === false ? {} : { away: opts.awayFactory ? opts.awayFactory({ bus, store, projects, dataDir: join(root, 'data') }) : away }),
+    ...(activity ? { activity } : {}),
+    ...(opts.webSearch ? { webSearch: opts.webSearch } : {}),
+    ...(core ? { modes: core.resolver, gates: core } : opts.modes ? { modes: opts.modes } : {}),
   });
   const project = projects.setMembers(projects.create({ name: 'Shop', instructions: '' }).id, ['a1', 'a2', 'a3']);
   const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
@@ -78,6 +85,6 @@ export function setup(opts: { maxConcurrent?: number; withAway?: boolean; approv
   const start = (agentId: string, prompt: string, extra: Record<string, unknown> = {}) =>
     engine.startTask({ agentId, prompt, source: 'ui', projectId: project.id, ...extra } as never);
   const queueEvents = () => events.filter((e): e is Extract<LegionEvent, { type: 'queue.updated' }> => e.type === 'queue.updated');
-  return { engine, bus, events, away: awayState, approvals, questions, calls, config, project, tick, release, start, started, queueEvents, store };
+  return { engine, bus, events, activity, activityModule, away: awayState, approvals, questions, calls, config, project, projects, core, tick, release, start, started, queueEvents, store };
 }
 

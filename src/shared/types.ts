@@ -19,6 +19,13 @@ export type ConcreteModel = string;
 
 export type ApprovalMode = 'ask' | 'auto-edits' | 'full';
 
+/**
+ * A mode a run is judged by: the three stored agent modes plus Smart, which only a preset can give, plus `smart-edits`, which is never stored
+ * and never a preset: it is what a run held by both Smart and Accept edits is judged by (a card whenever EITHER would card). An approval
+ * ceiling is a RunMode, so a Smart cap stays Smart.
+ */
+export type RunMode = ApprovalMode | 'smart' | 'smart-edits';
+
 /** What a gate rule says happens to a matching tool call. */
 export type GateVerdict = 'allow' | 'ask' | 'deny';
 
@@ -45,6 +52,12 @@ export interface GateWhen {
   projects?: string[];
   /** Run contexts. Absent = any; several = any one of them. */
   contexts?: GateContext[];
+  /**
+   * Sites, for DENY and ASK rules only (an allow rule with hosts is refused: approved sites live in the signed site list).
+   * Canonical hosts (lower case, no trailing dot, no wildcard), matched exactly against the host of the call's `url`.
+   * A call with no url, or a host not in the list, does not match. At most 200 per rule.
+   */
+  hosts?: string[];
 }
 
 /**
@@ -118,6 +131,12 @@ export interface AgentProfile {
   approval: ApprovalMode;
   /** Where this agent's mode comes from (spec 4.2): its own `approval` ('own', and absent) or its project's preset ('project', "Follow project"). */
   approvalSource?: 'own' | 'project';
+  /**
+   * Set by the core only, on a seeded agent whose approval setting has never been changed by the owner: it still comes with Legion.
+   * ABSENT means "your choice" (an install from before this mark has none, so it shows no tags). The first change of approval or
+   * approvalSource clears it. Wording only: the engine never reads it and it never changes a run.
+   */
+  seedApproval?: true;
   /** Names of entries in LegionConfig.mcpServers this agent gets. ['*'] = all. */
   mcpServers: string[];
   /**
@@ -271,6 +290,10 @@ export interface Task {
   sessionCostUsd?: number;
   costSessionId?: string;
   turns?: number;             // cumulative
+  /** How the latest run asks, written when the run starts: the mode it was judged by then, and the project it started in (never the live one). Feeds the "Runs as" chip. */
+  runsAs?: { mode: RunMode; projectId?: string };
+  /** What the latest run read on the web: distinct pages, and sites the owner approved on a card during the run. Counts only, never addresses or queries. Absent until the run reads something. */
+  web?: { pages: number; newSites: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -291,6 +314,8 @@ export interface ChatMessage {
   at: string;                 // ISO
   /** For role 'user' messages sent by another agent through the bridge. */
   fromAgentId?: string;
+  /** For a system notice that a folder's own Claude Code settings or skills were held back because the owner has not trusted the folder (folder trust). Names only: never an environment value. */
+  folderTrust?: { folders: Array<{ folder: string; lines: string[]; more: number }> };
 }
 
 export type MascotMood = 'idle' | 'thinking' | 'hacking' | 'success' | 'error' | 'sleeping';
@@ -346,8 +371,8 @@ export type LegionEvent =
   | { type: 'away.updated' }
   /** The gates settings changed (a preset, a limit, or a reload from disk). */
   | { type: 'gates.updated' }
-  /** A project's budget was reached; sent once per period. */
-  | { type: 'budget.reached'; projectId: string; period: 'day' | 'week' | 'month' };
+  /** A project's budget was reached; sent once per period. `stops` is false when "Stop at the budget" is off for that project (runs keep going); absent reads as on. */
+  | { type: 'budget.reached'; projectId: string; period: 'day' | 'week' | 'month'; stops?: boolean };
 
 /** Why a task waits in the queue (spec 4.3). Order of precedence: budget, paused, after, slot. */
 export type QueueReason = 'slot' | 'paused' | 'budget' | 'after';
@@ -407,6 +432,10 @@ export interface PendingQuestion {
 /** A learned gate suggestion (GET /api/gates/suggestions): the rule a Remember would make, earned by `count` allows. */
 export interface GateSuggestion { key: string; when: GateWhen; count: number; agentId: string; toolName: string; input: Record<string, unknown> }
 
+/** How far a yes on a web card reaches: this site for good (the owner's site list), this goal, or this one call. */
+export type SiteAnswer = 'always' | 'goal' | 'once';
+export const SITE_ANSWERS: readonly SiteAnswer[] = ['always', 'goal', 'once'];
+
 export interface ApprovalRequest {
   id: string;
   taskId: string;
@@ -420,6 +449,8 @@ export interface ApprovalRequest {
   origin?: { roomId: string; fromAgentId: string; hop: number };
   /** The card offers no "Remember": the core cannot read what the command will run, so no rule could be scoped safely. */
   noRemember?: boolean;
+  /** A web card: the site it is about, and whether "Always allow" may be offered for it. The card then offers the four answers (see `SiteAnswer`). */
+  site?: { host: string; canAlways: boolean; /** Several new sites raised together on one card (`host` is the first). */ hosts?: string[] };
   /** The project the run belongs to, set by the core so every client counts the ask in the same project (0.3.0). */
   projectId?: string;
   /** What saying yes would do, set by the core (src/shared/consequence.ts). Absent on a card from an older core. */

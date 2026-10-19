@@ -19,6 +19,10 @@ name: Full-install rehearsal
 #   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 #             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
+#   unix (separate job, macOS and Linux runners, scripts/rehearsal/run-unix.mjs): Mac and Linux self-update of a clone made by install.sh. update: a baseline 0.98.0 installed with this
+#             checkout's install.sh from a local bare repo, then a click-installed code-only 0.99.0, a rolled-back 0.99.1 and the installer run again on the swapped tree.
+#             frozen: the REAL v0.3.4 with its own installer only gets a notice; this checkout's installer converts it and the update then works. refuse: the installer's
+#             dirty-tree rule. notify: dependency releases, a tampered signature, a downgrade and an unmarked folder are notices with zero Windows-package requests.
 #   reopen (separate job): the REAL published 0.3.0 is updated to the full candidate and Legion is reopened while its frozen helper prepares the swap
 #             (scripts/rehearsal/run-reopen.mjs: clicked path at +2/+10/+30 s, auto-install at +5/+20/+40/+70 s and never); the results table is in the job summary
 # How the installed app is steered without any production switch: it is started with NODE_OPTIONS="--import scripts/rehearsal/preload.mjs"
@@ -47,6 +51,9 @@ on:
       - scripts/lib/frozen-parser.mjs
       - scripts/stepping-stones.json
       - scripts/rehearsal/**
+      - scripts/install/**
+      - src/electron/**
+      - .gitignore
       - .github/workflows/full-install-rehearsal.yml
 
 permissions:
@@ -94,6 +101,22 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+      # What the macOS and Linux jobs download: code-only candidates, the layouts they are offered as notices, the public key. No 285 MB Windows packages.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rehearsal-unix-candidates
+          path: |
+            ${{ runner.temp }}/rehearsal/served/unix-good
+            ${{ runner.temp }}/rehearsal/served/unix-bad
+            ${{ runner.temp }}/rehearsal/served/unix-old
+            ${{ runner.temp }}/rehearsal/served/unix-badsig
+            ${{ runner.temp }}/rehearsal/served/stone
+            ${{ runner.temp }}/rehearsal/served/stone-stranded
+            !${{ runner.temp }}/rehearsal/served/**/*-win-x64.zip
+            ${{ runner.temp }}/rehearsal/prepared.json
+            ${{ runner.temp }}/rehearsal/legion-update-k1.pub.pem
+          if-no-files-found: error
+          retention-days: 1
 
   scenario:
     name: ${{ matrix.scenario == 'vanished-live' && 'vanished-live (informational, the known old-helper case)' || matrix.scenario }}
@@ -183,6 +206,61 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rehearsal-logs-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/work/artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Mac and Linux self-update (scripts/rehearsal/run-unix.mjs, header). Every job installs with THIS checkout's scripts/install/install.sh into a fresh HOME, runs the
+  # app headless (Xvfb on Linux, --use-mock-keychain on macOS) and drives the update through the app window's own admin key over a DevTools port. The release server,
+  # the throwaway key and the preload are the Windows rehearsal's. The baseline is a local bare repo tagged v0.98.0 (LEGION_INSTALL_BASE=file://); the frozen job
+  # fetches the real v0.3.4 and its installer from github.com.
+  unix:
+    name: unix ${{ matrix.scenario }} (${{ matrix.os }})
+    needs: prepare
+    if: github.repository == 'dnh33/legion'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15-intel, ubuntu-24.04-arm]
+        scenario: [update, frozen, refuse, notify]
+    env:
+      # scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set; install.sh must do what a user's install does.
+      CI: ""
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0 # the baseline repo is made from this checkout's history
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22 # latest 22.x: the preload needs module.registerHooks
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rehearsal-unix-candidates
+          path: ${{ runner.temp }}/prepared
+      - name: Run the scenario
+        run: |
+          set -u
+          if [ "$RUNNER_OS" = Linux ]; then
+            command -v Xvfb >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y xvfb; }
+            # One display for the whole run: the relaunch after an update must find it still there (xvfb-run would take it down with the first app).
+            Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
+            export DISPLAY=:99
+            sleep 2
+          fi
+          rc=0
+          node scripts/rehearsal/run-unix.mjs --scenario "${{ matrix.scenario }}" --prepared "$RUNNER_TEMP/prepared" --work "$RUNNER_TEMP/work" || rc=$?
+          pkill Xvfb || true
+          exit "$rc"
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unix-logs-${{ matrix.scenario }}-${{ matrix.os }}
           path: ${{ runner.temp }}/work/artifacts
           if-no-files-found: ignore
           retention-days: 7

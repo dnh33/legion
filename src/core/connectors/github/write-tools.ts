@@ -23,6 +23,8 @@ export interface WriteCtx extends ToolCtx {
   tainted?: boolean;
   /** Raises the owner's card. Absent: there is no way to ask, so nothing is sent. */
   ask?: (card: WriteCard) => Promise<boolean>;
+  /** False when the owner turned the card off for this run: the write then goes without one (every other check still applies). Absent: a card is required. Asked once per write, after the arguments passed their checks. */
+  cardRequired?: (w: { tool: string; repo: string }) => boolean;
   /** Runs the gateway's checks again (master switch, repo, agent grant, write app). Returns the refusal in plain words, or undefined when the write may still go. Absent: nothing is sent. */
   recheck?: () => Promise<string | undefined>;
 }
@@ -142,11 +144,16 @@ function handler(name: string): Run {
     try { size = JSON.stringify(rest).length; } catch { throw bad('The arguments could not be read.'); }
     if (size > MAX_ARGS) throw bad('The arguments are too long to show on one card.');
     const p = plan(rest);
-    if (!c.ask) throw new WriteStopped(WRITE_NO_ASK_TEXT);
-    const summary = cardText(name, repo, c.agent?.name ?? 'An agent', p.lines, c.tainted !== false);
-    const input: Record<string, unknown> = { repo, ...rest };
-    const allowed = await c.ask({ tool: name, repo, summary, input }).catch(() => false);
-    if (allowed !== true) throw new WriteStopped(WRITE_DENIED_TEXT);
+    // a card, unless the owner turned it off. A failed lookup keeps the card.
+    let needCard = true;
+    if (c.cardRequired) { try { needCard = c.cardRequired({ tool: name, repo }) !== false; } catch { needCard = true; } }
+    if (needCard) {
+      if (!c.ask) throw new WriteStopped(WRITE_NO_ASK_TEXT);
+      const summary = cardText(name, repo, c.agent?.name ?? 'An agent', p.lines, c.tainted !== false);
+      const input: Record<string, unknown> = { repo, ...rest };
+      const allowed = await c.ask({ tool: name, repo, summary, input }).catch(() => false);
+      if (allowed !== true) throw new WriteStopped(WRITE_DENIED_TEXT);
+    }
     // the card may have been open for minutes: the owner's yes counts only if everything that allowed the card still holds
     if (!c.recheck) throw new WriteStopped(WRITE_NO_ASK_TEXT);
     const refusal = await c.recheck().catch(() => WRITE_NO_ASK_TEXT);

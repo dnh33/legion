@@ -4,10 +4,16 @@ import type { Project } from '../../../src/shared/projects';
 import { dismissGateSuggestion, errText, loadGateSuggestions, rememberGate, saveSettings, useStore } from '../store';
 import { Icon } from '../components/icons';
 import {
-  CONTEXT_CHIPS, GATE_PRESETS, GATE_RAILS, GATES_EMPTY, MODE_TEXT, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
+  CONTEXT_CHIPS, GATE_PRESETS, GATES_EMPTY, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
   consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
   type GateTestResult,
 } from './gatesLogic';
+import { GatesBanner, GatesPresets, EVERYTHING } from './GatesPresets';
+import { PermissionGates } from './PermissionGates';
+import { QaGates, RailsList } from './RailsList';
+import { ActivityView } from './ActivityView';
+import { useGatesAction, useGatesView } from './useGatesView';
+import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from './presetsLogic';
 import './gates.css';
 
 const THEN_BADGE: Record<GateVerdict, { text: string }> = {
@@ -63,7 +69,7 @@ function Chips({ label, hint, items, onAdd, onRemove, placeholder }: {
   );
 }
 
-/** Who / What / Where / Then, with the live sentence at the top — the same string that becomes the stored label. */
+/** Who / What / Where / Then, with the live sentence at the top, the same string that becomes the stored label. */
 export function GateBuilder({ draft, setDraft, agents, projects, projectOf, mode, onCancel, onSave, saveLabel }: {
   draft: Draft; setDraft: (d: Draft) => void;
   agents: readonly AgentProfile[]; projects: readonly Project[]; projectOf: (id: string) => string; mode: ApprovalMode;
@@ -175,7 +181,7 @@ const TEST_TOOLS = [
 ] as const;
 
 /**
- * "Try it": type a command, pick an agent, see the verdict the SAME decideGate would return — the rules exactly
+ * "Try it": type a command, pick an agent, see the verdict the SAME decideGate would return, the rules exactly
  * as stored, nothing executed (a dry run of the real decision).
  */
 export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agents: readonly AgentProfile[] }) {
@@ -211,7 +217,7 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
           disabled={tool.kind === 'none'} onChange={(e) => { setText(e.target.value); setResult(null); }} />
         <button type="button" className="btn" onClick={run} disabled={tool.kind !== 'none' && !text.trim()}>Test</button>
       </div>
-      <span className="set-hint">This agent{'\u2019'}s mode: <b>{MODE_TEXT[mode]}</b>{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
+      <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
       {result && <GateTestOut result={result} />}
     </div>
   );
@@ -233,17 +239,9 @@ export function GateTestOut({ result }: { result: GateTestResult }) {
   );
 }
 
-/** The locked rails, with the reason each exists — so a rule never looks like it failed silently. */
+/** The rails, always on. Kept as the page's one rails block. */
 export function GateRails() {
-  return (
-    <div className="set-card gate-rails" aria-label="Rails (locked)">
-      <h4><Icon name="shield" size={13} /> Locked rails</h4>
-      <p className="muted-s">These are decided before rules and cannot be changed here. Every one of them is stricter than any rule could make it.</p>
-      <ul>
-        {GATE_RAILS.map((r) => <li key={r.title}><b>{r.title}</b><span className="muted-s">{r.why}</span></li>)}
-      </ul>
-    </div>
-  );
+  return <RailsList />;
 }
 
 /**
@@ -282,11 +280,19 @@ export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
 /**
  * Settings -> Gates: sentence rule cards, the Who/What/Where/Then builder, the dry-run tester and the locked
  * rails. Every action saves straight away (the same pattern as Settings -> MCP): the next tool call picks the
- * change up — no restart.
+ * change up, no restart.
  */
 export function GatesSection({ s }: { s: SettingsView }) {
   const agents = useStore((st) => st.agents);
   const projects = useStore((st) => st.projects);
+  const tasks = useStore((st) => st.tasks);
+  const { view, loadError, reload, apply } = useGatesView();
+  const [scope, setScope] = useState(EVERYTHING);
+  const presetsAct = useGatesAction(apply);
+  const fineAct = useGatesAction(apply);
+  const gatesBusy = presetsAct.pending || fineAct.pending;
+  // A project that was removed while it was chosen: back to the app default.
+  const scopeNow = scope === EVERYTHING || projects.some((p) => p.id === scope) ? scope : EVERYTHING;
   const gates: GatesConfig = s.gates ?? { rules: [], presetsVersion: 0 };
   const rules = gates.rules;
   const [busy, setBusy] = useState(false);
@@ -348,7 +354,17 @@ export function GatesSection({ s }: { s: SettingsView }) {
 
   return (
     <div className="set-section">
-      <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent{'\u2019'}s approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full access; Ask rules never fire there.</div>
+      {loadError && !view && <div className="set-error" role="alert"><Icon name="x" size={13} /> <span>{loadError}</span></div>}
+      {view && (
+        <>
+          <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={reload} />
+          <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} />
+          <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
+        </>
+      )}
+      <QaGates />
+      <RailsList />
+      <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent's approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full; Ask rules never fire there.</div>
       <div className="set-card gate-list-card">
         <h3>Gates</h3>
         {rules.length === 0 && !adding && !editing && <div className="set-empty"><b>No gates yet.</b><span>{GATES_EMPTY}</span></div>}
@@ -392,7 +408,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       </label>
       <GateSuggestions items={learn ? suggested : []} nameOf={nameOf} busy={busy} onAdd={(x) => void addSuggested(x)} onDismiss={dismissSuggested} />
       <GateTester rules={rules} agents={agents} />
-      <GateRails />
+      <ActivityView projects={projects} tasks={tasks} />
     </div>
   );
 }

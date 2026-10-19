@@ -125,10 +125,12 @@ test('H2 helper: the real window dependency exists only when the job turns it on
   const on = { enabled: true, userData: 'u' };
   assert.equal(realDeps(f.install, { port: 1 } as never).window, undefined, 'a job from an older app');
   assert.equal(realDeps(f.install, { port: 1, window: { ...on, enabled: false } } as never).window, undefined, 'turned off in Settings');
-  assert.ok(realDeps(f.install, { port: 1, window: on } as never).window, 'a code-only update: the install runtime is not swapped');
   assert.equal(realDeps(f.install, { port: 1, names: FULL_PACKAGE_SET, window: on } as never).window, undefined, 'a full update from the install runtime: it would block the swap');
+  // the "Updating Legion" window is win32 only (windowShown, realDeps): on Linux and macOS a job never gets one, even when it asks
+  const win = process.platform === 'win32';
+  assert.equal(!!realDeps(f.install, { port: 1, window: on } as never).window, win, 'a code-only update: the install runtime is not swapped (a window on Windows only)');
   process.env.LEGION_APPLY_REEXEC = '1';
-  try { assert.ok(realDeps(f.install, { port: 1, names: FULL_PACKAGE_SET, window: on } as never).window, 'a full update from the runtime copy outside the install'); } finally { delete process.env.LEGION_APPLY_REEXEC; }
+  try { assert.equal(!!realDeps(f.install, { port: 1, names: FULL_PACKAGE_SET, window: on } as never).window, win, 'a full update from the runtime copy outside the install (a window on Windows only)'); } finally { delete process.env.LEGION_APPLY_REEXEC; }
 });
 
 test('H2 helper: the helper\'s own step list is the shared table (the helper cannot import it, so this pins the copy), and its lines read back with the shared parser', () => {

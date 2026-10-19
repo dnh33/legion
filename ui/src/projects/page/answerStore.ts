@@ -67,7 +67,11 @@ function settle(key: string, patch: Partial<Answer>): void {
   emit();
 }
 
-export interface StartArgs { row: AskRow; b: RowButton; projectId: string; suggestedAssignee?: string; height: number }
+export interface StartArgs {
+  row: AskRow; b: RowButton; projectId: string; suggestedAssignee?: string; height: number;
+  /** The project's `digest-hold` gate is off: an Allow goes out at once, with no Undo window and no wait asked of the core. */
+  holdOff?: boolean;
+}
 export function startAnswer(o: StartArgs): void {
   const { row, b } = o;
   const key = row.key;
@@ -81,8 +85,9 @@ export function startAnswer(o: StartArgs): void {
     return;
   }
   const total = row.hold;
+  const holdOff = o.holdOff === true;
   const hold = createHold({
-    totalMs: total, send,
+    totalMs: total, holdOff, send,
     onChange: (v) => {
       const cur = answers.get(key);
       if (!cur || cur.hold !== hold) return;
@@ -96,9 +101,9 @@ export function startAnswer(o: StartArgs): void {
   holds.set(key, hold);
   answers.set(key, { key, row, b, projectId: o.projectId, kind: 'holding', text: '', view: hold.view(), height: o.height, hold });
   emit();
-  announce(`${row.ing} in ${Math.ceil(total / 1000)} seconds. Undo or Send now.`);
-  // an approval in the last seconds of its wait: ask the core to hold off its own deny (it never answers, it only delays)
-  if (row.kind === 'command' || row.kind === 'reads') for (const id of row.ids) void api.holdApproval(id, Math.min(15_000, total + 3000)).catch(() => undefined);
+  if (!holdOff) announce(`${row.ing} in ${Math.ceil(total / 1000)} seconds. Undo or Send now.`);
+  // an approval in the last seconds of its wait: ask the core to hold off its own deny (it never answers, it only delays). No hold, no wait to ask for.
+  if (!holdOff && (row.kind === 'command' || row.kind === 'reads')) for (const id of row.ids) void api.holdApproval(id, Math.min(15_000, total + 3000)).catch(() => undefined);
   ensureTicker();
 }
 

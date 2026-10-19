@@ -9,14 +9,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
+import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
-import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
+import { ensureConnectorKey, ensureGatesKey, gatesKeyFilePath, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
+import { gatesChange } from './gates-ipc.js';
+import { agentModeBatch, agentModeChange } from './agent-mode-ipc.js';
 import { projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
@@ -59,6 +62,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let signals: Signals | undefined;
+/** This session made the gates key file. A respawn in the same session (a failed start, Restart core) then still reads as a first keyed start while gates/ has no signed file. */
+let gatesKeyMadeThisSession = false;
 let coreProc: ChildProcess | null = null;
 let quitting = false;
 let booting = true;
@@ -172,6 +177,17 @@ async function spawnCore(port: number): Promise<string | null> {
     const native = randomBytes(32).toString('hex');
     // Connectors data key: only read when key.bin already exists (no safeStorage call otherwise); created on the first Connect, not here.
     const connectorKey = await loadConnectorKey(dataDir(), safeStorage);
+    // The gates key signs the gate settings files. It has its own keystore file and launch line, so signing never waits for a GitHub Connect.
+    // new / old / lost is decided before the key file is made: a lost key in a used folder must not look like a fresh install
+    const gatesState = gatesKeyState(dataDir(), { madeThisSession: gatesKeyMadeThisSession });
+    const gatesKeyExisted = existsSync(gatesKeyFilePath(dataDir()));
+    const gatesKey = await ensureGatesKey(dataDir(), safeStorage);
+    if (gatesKey && !gatesKeyExisted) gatesKeyMadeThisSession = true;
+    // no usable key (a key file that does not open, or no key file and none could be made) is its own state: the core reads every
+    // project as Ask, never as "no key"
+    const gatesLine = gatesKey ? gatesKeyLine(gatesKey, gatesState) : gatesKeyLine(undefined, 'unreadable');
+    // The provider keys' data key (seals providers/keys.enc). Always one line: PKEY <hex>, or PKEY - unavailable / unreadable. Stdin only.
+    const providerLine = await providerKeyLaunchLine(dataDir(), safeStorage);
     const child = spawn(launch.cmd, [...heapArgv(), coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
@@ -186,9 +202,9 @@ async function spawnCore(port: number): Promise<string | null> {
     nativeSecret = native;
     rendererAdmin = undefined;
     child.stdin?.on('error', () => undefined);
-    // Without a connectors key this is exactly the old launch line. With one, the key is a third line (the core accepts only KEY <hex>).
-    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + keyLine(connectorKey));
-    else child.stdin?.end(secret + '\n' + native + '\n');
+    // The two secrets, the gates line and the provider line. With a connectors key, KEY <hex> follows (each keyring accepts only its own form).
+    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + gatesLine + providerLine + keyLine(connectorKey));
+    else child.stdin?.end(secret + '\n' + native + '\n' + gatesLine + providerLine);
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT' || (launch.mode === 'package' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(err.code ?? ''))
@@ -295,11 +311,12 @@ function ownCore(): { port: number; headers: Record<string, string> } | undefine
   return { port: pinned.port, headers: { 'X-Legion-Admin': adminSecret } };
 }
 
-async function ownCoreCall(method: 'GET' | 'POST' | 'PUT', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
+async function ownCoreCall(method: 'GET' | 'POST' | 'PUT' | 'PATCH', route: string, body?: unknown, native = false, extraHeaders?: Record<string, string>): Promise<{ status: number; json: any } | undefined> {
   const live = !!coreProc && coreProc.exitCode === null;
   if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined; // only a core that proved it holds our secret ever sees it
   const headers: Record<string, string> = { 'X-Legion-Admin': adminSecret };
   if (native) { if (!nativeSecret) return undefined; headers['X-Legion-Native'] = nativeSecret; }
+  if (extraHeaders) Object.assign(headers, extraHeaders);
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   try {
     const r = await fetch(`http://127.0.0.1:${pinned.port}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
@@ -605,6 +622,9 @@ if (instance.quit) {
   }
 
   ipcMain.on('legion:bootstrap', (e) => {
+    // Only our own window page gets the port, token and admin secret. Anything else gets nothing: the preload then keeps its defaults.
+    const bootFrame = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(bootFrame, uiUrl)) { e.returnValue = null; return; }
     // Port and token are the ones pinned when the core was started or adopted (config.json is not re-read: a bot can edit it).
     const { port, token } = pinned ?? readConfig();
     // `admin` is the per-launch secret, only while our own child is alive and has proved (HMAC challenge) that it holds it.
@@ -620,7 +640,12 @@ if (instance.quit) {
   ipcMain.handle('legion:provider-change', async (e, raw: unknown): Promise<ProviderChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), unlocks: () => providerKeyUnlocks(dataDir(), safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:web-search-change', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await webSearchChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
@@ -630,6 +655,21 @@ if (instance.quit) {
       return r.canceled ? undefined : r.filePaths[0];
     };
     try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await gatesChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:agent-mode-change', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await agentModeChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:agent-mode-batch', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.', applied: [] };
+    try { return await agentModeBatch(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.', applied: [] }; }
   });
   ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
@@ -649,7 +689,9 @@ if (instance.quit) {
       });
     } catch { return { ok: false, error: 'The connect failed.' }; }
   });
-  ipcMain.handle('legion:open-external', (_e, url: unknown) => {
+  ipcMain.handle('legion:open-external', (e, url: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return false;
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }
     return false;
   });

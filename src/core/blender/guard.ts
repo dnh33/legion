@@ -25,6 +25,7 @@ import { scrubSecrets } from '../comms/scrub.js';
 import type { ApprovalBroker } from '../approvals.js';
 import { guardAsk } from '../approvals.js';
 import type { ModeOf } from '../approvals.js';
+import type { GateOff } from '../permission-mode.js';
 import type { ModuleJob } from '../modules.js';
 import { AuditLog } from './audit.js';
 import type { AuditEntry } from './audit.js';
@@ -111,6 +112,8 @@ export interface GuardDeps {
    * (Same seam the browser module has had since it was written.)
    */
   modeOf?: ModeOf;
+  /** Whether the module-cards gate is off for this run (read with the run's start project; also writes the would-have-asked line). Absent: it is on. */
+  gateOff?: GateOff;
   /** Connects (when needed) and returns the live backend; throws a plain-language error when Blender is not reachable. */
   getBackend: () => Promise<BlenderBackend>;
   sandbox?: SandboxPort;
@@ -280,6 +283,11 @@ export class BlenderGuard {
   private localRoot(): string { const b = this.d.config().baseDir; return b ? join(b, 'local') : join(this.d.dataDir, 'blender', 'local'); }
   private localExportDir(taskId: string): string { return this.d.localExportDir ? this.d.localExportDir(taskId) : join(this.localRoot(), safeSegment(taskId), 'exports'); }
 
+  /** True when the module cards are off for this run (the gate is read with the run's start project; a ceiling keeps the card). */
+  private cardsOff(agent: AgentProfile, job: ModuleJob | undefined, taskId: string, action: string): boolean {
+    return !!this.d.gateOff?.('module-cards', { agentId: agent.id, taskId, action: action.slice(0, 280), ...(job?.ceiling ? { ceiling: job.ceiling } : {}) });
+  }
+
   /** blender_exec. Never throws. */
   async exec(agent: AgentProfile, job: ModuleJob | undefined, args: { script: string; purpose?: string; mode?: RequestedMode }): Promise<ToolResult> {
     const cfg = this.d.config();
@@ -332,10 +340,11 @@ export class BlenderGuard {
     // the audit record below is written either way, so no-record-no-run still holds.
     const o = job?.origin;
     let timedOut = false;
-    const allowed = await guardAsk({
+    const allowed = this.cardsOff(agent, job, taskId, `blender_exec ${cleanedPurpose || 'a script'}`) ? true : await guardAsk({
       ...(job?.ceiling ? { ceiling: job.ceiling } : {}),
       ...(this.d.modeOf ? { modeOf: this.d.modeOf } : {}),
       agentId: agent.id,
+      taskId,
       fallbackMode: agent.approval,
       ask: () => this.d.approvals.request(
         taskId, agent.id, BLENDER_EXEC_TOOL,
@@ -590,10 +599,11 @@ export class BlenderGuard {
     const o = job?.origin;
     let timedOut = false;
     // same one rule as every other guard: no card in `full` (the record below is written either way)
-    const allowed = await guardAsk({
+    const allowed = this.cardsOff(agent, job, taskId, `blender_asset_get ${a.source} ${a.id}`) ? true : await guardAsk({
       ...(job?.ceiling ? { ceiling: job.ceiling } : {}),
       ...(this.d.modeOf ? { modeOf: this.d.modeOf } : {}),
       agentId: agent.id,
+      taskId,
       fallbackMode: agent.approval,
       ask: () => this.d.approvals.request(
         taskId, agent.id, BLENDER_ASSET_TOOL,

@@ -46,4 +46,9 @@ test('eventSignals: keeps ids and kinds only, from the core events', () => {
   assert.deepEqual(upd('t11', 'cancelled'), {});
   const b = eventSignals({ type: 'budget.reached', projectId: 'p', period: 'week' } as never, open, names, new Map());
   assert.equal(b.budget?.[0]?.projectName, 'Shop');
+  assert.equal(b.budget?.[0]?.stops, undefined, 'no flag from the core reads as on');
+  const off = eventSignals({ type: 'budget.reached', projectId: 'p', period: 'week', stops: false } as never, open, names, new Map());
+  assert.equal(off.budget?.[0]?.stops, false, 'Stop at the budget off for that project is carried through');
+  const on = eventSignals({ type: 'budget.reached', projectId: 'p', period: 'week', stops: true } as never, open, names, new Map());
+  assert.equal(on.budget?.[0]?.stops, undefined);
 });

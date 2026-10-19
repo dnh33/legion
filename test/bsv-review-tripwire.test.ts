@@ -59,6 +59,11 @@ const CASES: Array<{ name: string; file: string; text: string; mode?: 'create'; 
   // evasions inside src/core/bsv
   { name: "globalThis['fe'+'tch']", file: 'src/core/bsv/state.ts', text: "const f = globalThis['fe' + 'tch'];", expect: /network|global|fetch/i },
   { name: 'an alias: const f = fetch', file: 'src/core/bsv/state.ts', text: 'const f = fetch; void f;', expect: /network/i },
+  // an object key named fetch is allowed (git's subcommand table); these still reach the global
+  { name: 'fetch as an object value', file: 'src/core/notes-x.ts', mode: 'create', text: 'export const t = { get: fetch };\n', expect: /network/i },
+  { name: 'fetch as shorthand', file: 'src/core/notes-x.ts', mode: 'create', text: 'export const t = { fetch };\n', expect: /network/i },
+  { name: 'fetch in a ternary', file: 'src/core/notes-x.ts', mode: 'create', text: 'export const t = (a: boolean) => (a ? fetch : undefined);\n', expect: /network/i },
+  { name: 'key and value both fetch', file: 'src/core/notes-x.ts', mode: 'create', text: 'export const t = { fetch: fetch };\n', expect: /network/i },
   { name: "dynamic import of node:https", file: 'src/core/bsv/state.ts', text: "async function g() { return (await import('node:https')).get; }", expect: /network|import/i },
   { name: "'Wallet' + 'Client'", file: 'src/core/bsv/state.ts', text: "const n = 'Wallet' + 'Client';", expect: /WalletClient/i },
   { name: "['Wallet','Client'].join('')", file: 'src/core/bsv/state.ts', text: "const n = ['Wallet', 'Client'].join('');", expect: /WalletClient/i },

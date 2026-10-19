@@ -6,7 +6,7 @@ test('explainClaudeError: empty credit balance, Claude login', () => {
   const t = explainClaudeError('Credit balance is too low', 'claude-login')!;
   assert.match(t, /^Claude Code is billing this run to Anthropic API credits, and the balance is empty\./);
   assert.match(t, /type \/logout, then \/login/);
-  assert.match(t, /Help -> Doctor/);
+  assert.match(t, /The Doctor button in the title bar shows which login/);
   assert.doesNotMatch(t, /\u2014/);
 });
 

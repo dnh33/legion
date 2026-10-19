@@ -25,7 +25,7 @@ const entry = (baseUrl: string, over: Record<string, unknown> = {}) => ({
 const keysWith = (has: boolean) => {
   const keys: any = {
     has: () => has, get: () => (has ? 'sk-test' : undefined), hint: () => 'sk-…', all: () => [],
-    set: () => undefined, remove: () => undefined, dropIfOriginDiffers: () => undefined,
+    status: () => ({ mode: 'plain', locked: false, reason: 'headless' }), set: () => undefined, remove: () => undefined, dropIfOriginDiffers: () => undefined,
   };
   return keys;
 };

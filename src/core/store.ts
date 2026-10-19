@@ -265,7 +265,8 @@ export class Store {
     let changed = false;
     for (const d of defs) {
       if (this.agents.has(d.id)) continue;
-      this.agents.set(d.id, { ...d, cwd: join(workspaceDir, d.id), createdAt: ts, updatedAt: ts });
+      // only an agent created here comes with Legion; one that already exists (an install from before the mark) stays unmarked
+      this.agents.set(d.id, { ...d, seedApproval: true, cwd: join(workspaceDir, d.id), createdAt: ts, updatedAt: ts });
       changed = true;
     }
     if (changed) this.markDirty();

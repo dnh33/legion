@@ -44,6 +44,7 @@ export const SETTINGS_NAV: ReadonlyArray<{ id: string; label: string; changed?: 
   { id: 'general', label: 'General' },
   { id: 'folders', label: 'Folders' },
   { id: 'members', label: 'Members' },
+  { id: 'ask', label: 'How agents ask' },
   { id: 'away', label: 'While you are away', changed: 'away' },
   { id: 'safety', label: 'Safety' },
   { id: 'budget', label: 'Budget', changed: 'budget' },
@@ -87,4 +88,14 @@ export function findReadsGrant(rules: readonly GateRule[], project: { id: string
 export function staleReadsGrants(rules: readonly GateRule[], project: { id: string; folder: string }): GateRule[] {
   const want = folderGlob(project.folder);
   return rules.filter((r) => { const p = isGrantShape(r, project.id); return p !== undefined && p !== want; });
+}
+
+/**
+ * The section the side menu marks: the last one whose top has reached `line`, the first one before any has, and the last one at the very bottom.
+ * `secs` are the sections on the page right now, in page order.
+ */
+export function pickSection(secs: ReadonlyArray<{ id: string; top: number }>, line: number, atBottom: boolean): string {
+  let cur = secs[0]!.id;
+  for (const s of secs) if (s.top <= line) cur = s.id;
+  return atBottom ? secs[secs.length - 1]!.id : cur;
 }

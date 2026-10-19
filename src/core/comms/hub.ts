@@ -6,11 +6,13 @@ import { DEFAULT_GUARDS, ROOM_STRATEGIES, wrapBotMessage } from '../../shared/co
 import type {
   Room, RoomGuards, RoomKind, RoomMessage, RoomMessageKind, RoomPauseReason, RoomSender, RoomStrategy, TaskOrigin, CommsState,
 } from '../../shared/comms.js';
-import type { AgentProfile, ApprovalMode, ApprovalRequest, LegionEvent, ModelChoice, Task, TaskSource } from '../../shared/types.js';
+import type { AgentProfile, ApprovalRequest, LegionEvent, ModelChoice, Task, TaskSource } from '../../shared/types.js';
 import { DEFAULT_COMMS, MAX_ROOM_BUDGET_USD, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { stricterMode, decideGuard } from '../approvals.js';
+import type { GateOff } from '../permission-mode.js';
+import type { RunMode } from '../permission-mode.js';
 import { OVERRIDE_MODELS } from '../bridge.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
@@ -46,7 +48,7 @@ export interface RoomRequest {
 /** Resolves true only when the user allowed it. Awaited inside the tool handler, never through canUseTool. */
 export type RoomApprover = (req: RoomRequest) => Promise<boolean>;
 /** Where a bot's room tool runs: the engine's view of the task using the tool. */
-export interface BotToolContext { taskId?: string; tainted?: boolean; origin?: TaskOrigin; /** The run's approval ceiling, when it has one. `full` here still cards for an agent set to ask. */ ceiling?: ApprovalMode }
+export interface BotToolContext { taskId?: string; tainted?: boolean; origin?: TaskOrigin; /** The run's approval ceiling, when it has one. `full` here still cards for an agent set to ask. */ ceiling?: RunMode }
 
 export interface HubOptions {
   engine: HubEngine;
@@ -65,6 +67,10 @@ export interface HubOptions {
   approve?: RoomApprover;
   /** Projects (read only): lets a room belong to one, and keeps its members inside the project's. Absent: rooms have no project. */
   projects?: { get(id: string): { name: string; status: string; members: string[] } | undefined };
+  /** The mode an agent's run is judged by now (the engine's resolver: agent mode, project preset, ceiling). Absent: the agent's own stored mode. */
+  runModeOf?: (agentId: string, taskId?: string) => RunMode | undefined;
+  /** Whether the module-cards gate is off for this run (read with the run's start project; also writes the would-have-asked line). Absent: it is on. */
+  gateOff?: GateOff;
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
@@ -107,10 +113,10 @@ const NO_REPLY = /^\W*no[_ -]?reply\W*$/i;
 
 // ------------------------------------------------------------------ internals
 
-interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolean; tainted?: boolean; viaMcpClient?: boolean }
+interface Delivery { msg: RoomMessage; ceiling: RunMode; humanChain: boolean; tainted?: boolean; viaMcpClient?: boolean }
 /** What a sender may pick for the woken bot's turn: a model, for that turn only. */
 export interface PostOpts { model?: string }
-interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tainted?: boolean; viaMcpClient?: boolean }
+interface Meta { ceiling: RunMode; humanChain: boolean; auto: boolean; tainted?: boolean; viaMcpClient?: boolean }
 
 /** The model alias a bot asked for, checked (the rooms path takes aliases only; ask and tell also take a catalog model id). */
 function cleanModel(v: unknown): string | undefined {
@@ -123,15 +129,17 @@ function cleanModel(v: unknown): string | undefined {
 export interface SenderRun {
   tainted?: boolean;
   /** The approval ceiling of the sender's own run (an MCP-started run is capped at `ask`). Whatever the sender's agent is set to, a message it sends never wakes a peer above this. */
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
   /** The sender's run was started by (or woken down a chain from) an MCP client: the flag follows every message it sends. */
   viaMcpClient?: boolean;
+  /** The sender's own task, so its start project's cap reaches the messages it sends (the engine's resolver answers by task). */
+  taskId?: string;
 }
 interface Plan { explicit: string[]; wake: string[]; everyone: boolean; rrUsed: boolean }
 interface Wake {
   key: string; roomId: string; botId: string; taskId: string;
   /** Highest hop among the delivered messages. */
-  hop: number; triggerId: string; ceiling: ApprovalMode; humanChain: boolean;
+  hop: number; triggerId: string; ceiling: RunMode; humanChain: boolean;
   /** True when the task was already live before this wake (409): only its completion matters. */
   external: boolean; cancelled: boolean; speaking: boolean; lastCost: number;
   /** The bot called `handoff` during this wake: the thread belongs to someone else now, so its final answer wakes nobody. */
@@ -151,8 +159,8 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 const EVERYONE_RE = /(?<![\w@.-])@everyone(?![\w-])/i;
 
-function strictest(modes: ApprovalMode[]): ApprovalMode {
-  return modes.reduce<ApprovalMode>((a, b) => stricterMode(a, b), 'full');
+function strictest(modes: RunMode[]): RunMode {
+  return modes.reduce<RunMode>((a, b) => stricterMode(a, b), 'full');
 }
 
 export function mergeGuards(base: RoomGuards, patch: Partial<RoomGuards> | undefined): RoomGuards {
@@ -202,6 +210,8 @@ export class CommsHub {
   private readonly off: () => void;
 
   private readonly visible: (a: AgentProfile) => boolean;
+  private readonly runModeOf?: (agentId: string, taskId?: string) => RunMode | undefined;
+  private readonly gateOff?: GateOff;
 
   constructor(o: HubOptions) {
     this.visible = o.isVisible ?? (() => true);
@@ -212,6 +222,8 @@ export class CommsHub {
     this.comms = { ...DEFAULT_COMMS, ...(o.comms ?? {}) };
     this.approve = o.approve;
     this.projects = o.projects;
+    this.runModeOf = o.runModeOf;
+    this.gateOff = o.gateOff;
     const floor = o.turnCostFloorUsd ?? o.comms?.turnCostFloorUsd;
     this.turnFloor = typeof floor === 'number' && floor >= 0 ? floor : DEFAULT_TURN_FLOOR_USD;
     this.rooms = new RoomStore(o.dataDir);
@@ -450,7 +462,7 @@ export class CommsHub {
       this.commit(room);
     }
     this.mustHaveMessage(room, replyTo);
-    const ctx = this.senderContext(sender.id);
+    const ctx = this.senderContext(sender.id, run.taskId);
     const from: RoomSender = { kind: 'bot', agentId: sender.id };
     const plan = this.plan(room, from, t, { auto: false });
     const again = this.repeatOf(room, sender.id, t, plan.explicit, 'chat');
@@ -470,7 +482,7 @@ export class CommsHub {
     if (room.paused) throw new CommsError(409, `The room is paused (${room.paused.reason}); a human must resume it.`);
     const t = this.cleanText(text);
     const extra = this.resolveMentionList(room, fromId, mention);
-    const ctx = this.senderContext(fromId);
+    const ctx = this.senderContext(fromId, run.taskId);
     const from: RoomSender = { kind: 'bot', agentId: fromId };
     const plan = this.plan(room, from, t, { auto: false, extra });
     const missing = extra.filter((id) => !new RegExp(`(?<![\\w@.-])@${escapeRe(this.nameOf(id))}(?![\\w-])`, 'i').test(t));
@@ -496,7 +508,7 @@ export class CommsHub {
     // A handoff names its receiver explicitly: the stored message always opens with @Receiver, so the wake is an explicit mention (never implied by the room's strategy or lead).
     const named = new RegExp(`(?<![\\w@.-])@${escapeRe(this.nameOf(target))}(?![\\w-])`, 'i').test(said) || this.mentionsIn(room, said).includes(target);
     const t = named ? said : `@${this.nameOf(target)} ${said}`;
-    const ctx = this.senderContext(fromId);
+    const ctx = this.senderContext(fromId, run.taskId);
     // the same handoff again while it is still in effect (the target already leads) is one handoff
     const again = room.lead === target ? this.repeatOf(room, fromId, t, [target], 'handoff') : undefined;
     if (again) return { ...clone(again), duplicate: true };
@@ -710,8 +722,13 @@ export class CommsHub {
    */
   private async askUser(sender: AgentProfile, tool: RoomRequest['tool'], summary: string, input: Record<string, unknown>, ctx: BotToolContext): Promise<void> {
       const ceiling = ctx.ceiling ?? ctx.origin?.approvalCeiling;
-      const mode = ceiling ? stricterMode(this.agentMode(sender.id), ceiling) : this.agentMode(sender.id);
+      const own = this.agentMode(sender.id, ctx.taskId);
+      const mode = ceiling ? stricterMode(own, ceiling) : own;
+      // module-cards off (an owner choice, or Bypass for a run in full): no room card. A ceiling keeps it (gateOff ignores the gate then).
+      // Asked BEFORE the full-mode return so Bypass writes its would-have-asked line too.
+      const cardsOff = !!ctx.taskId && !!this.gateOff?.('module-cards', { taskId: ctx.taskId, agentId: sender.id, action: `${tool} ${clip(summary, 200)}`, ...(ceiling ? { ceiling } : {}) });
       if (!decideGuard(mode).needsCard) return;
+      if (cardsOff) return;
       if (!this.approve || !ctx.taskId) throw new CommsError(409, 'There is no way to ask the user for approval from here, so nothing was changed.');
     const now = this.now();
     const recent = (this.roomRequests.get(sender.id) ?? []).filter((t) => now - t < ROOM_REQUESTS_WINDOW_MS);
@@ -1008,7 +1025,7 @@ export class CommsHub {
         ...(task.tainted ? { tainted: true } : {}),
       });
     } else if (task.status === 'done' && result && !NO_REPLY.test(result)) {
-      const ceiling = stricterMode(this.agentMode(w.botId), w.ceiling);
+      const ceiling = stricterMode(this.ceilingMode(w.botId, w.taskId), w.ceiling);
       const from: RoomSender = { kind: 'bot', agentId: w.botId };
       const plan = this.plan(room, from, result, { auto: true });
       // the same words again (a tool call already posted them, or this bot just said them): nothing new to store or to wake
@@ -1350,14 +1367,22 @@ export class CommsHub {
   }
 
   private nameOf(id: string): string { return this.agents.getAgent(id)?.name ?? id; }
-  private agentMode(id: string): ApprovalMode { return this.agents.getAgent(id)?.approval ?? 'ask'; }
+  /** The mode the agent's run is judged by now. Without a resolver (a hub built on its own) it is the stored mode, as in 0.3.0. */
+  private agentMode(id: string, taskId?: string): RunMode {
+    const live = this.runModeOf?.(id, taskId);
+    if (live) return live;
+    const a = this.agents.getAgent(id);
+    return a ? a.approval : 'ask';
+  }
+  /** The same mode as a message or wake ceiling: a woken bot may never do more than its sender may. Smart stays Smart. */
+  private ceilingMode(id: string, taskId?: string): RunMode { return this.agentMode(id, taskId); }
 
   /**
    * Hop, ceiling and human-presence for a message an agent sends right now. If the agent is running woken
    * tasks, it inherits the strictest of them (a bot cannot launder a chain through a second room).
    */
-  private senderContext(agentId: string): { hop: number; ceiling: ApprovalMode; humanChain: boolean } {
-    const mode = this.agentMode(agentId);
+  private senderContext(agentId: string, taskId?: string): { hop: number; ceiling: RunMode; humanChain: boolean } {
+    const mode = this.ceilingMode(agentId, taskId);
     const active = [...this.busy.values()].filter((w) => w.botId === agentId && !w.external && !w.cancelled);
     if (active.length === 0) return { hop: 0, ceiling: mode, humanChain: false };
     return {
@@ -1368,7 +1393,7 @@ export class CommsHub {
   }
 
   /** The ceiling a message carries: the strictest of the sender's agent mode, the woken tasks it is running, and its own run's ceiling. */
-  private sendCeiling(ctx: { ceiling: ApprovalMode }, run: SenderRun): ApprovalMode {
+  private sendCeiling(ctx: { ceiling: RunMode }, run: SenderRun): RunMode {
     return run.ceiling ? stricterMode(ctx.ceiling, run.ceiling) : ctx.ceiling;
   }
 

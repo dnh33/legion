@@ -23,3 +23,9 @@ export function journeySummary(v: JourneyViewLike): string {
   if (v.result === 'failed' || v.result === 'rolled-back') return `The update from ${v.from} to ${v.to} did not finish.${v.message ? ` ${v.message}` : ''}`;
   return `Updating from ${v.from} to ${v.to}.`;
 }
+
+/** Whether the step list is worth showing: the journey has ended, or a step after Checking has begun. A found update that nobody started shows no list. */
+export function journeyStarted(v: JourneyViewLike): boolean {
+  if (v.result !== 'running') return true;
+  return v.steps.some((s) => s.id !== 'checking' && (s.state === 'active' || s.state === 'done' || s.state === 'failed'));
+}

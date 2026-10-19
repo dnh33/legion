@@ -120,13 +120,15 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 /* ---------- center ---------- */
 .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); position: relative; }
 .thread { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.thread-head { height: 52px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 16px 0 20px; gap: 16px; }
-.th-agent { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.thread-head { min-height: 52px; box-sizing: border-box; flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 6px 16px 6px 20px; gap: 6px 16px; }
+/* the title keeps at least 170px; when the chips do not fit beside it they drop to their own row instead of squeezing the name to a few letters */
+.th-agent { display: flex; align-items: center; gap: 10px; min-width: min(170px, 100%); flex: 1 1 170px; }
 .th-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
 .th-text b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th-agent .avatar { flex: none; }
 .th-text span { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.th-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.th-right { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 8px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.th-right > .chip-pill { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .th-cost { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .chip-pill { white-space: nowrap; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--muted); }
 .chip-pill.ap-full { color: var(--warn); border-color: rgba(255, 204, 102, .3); }
@@ -431,7 +433,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .checks { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .check { display: flex; gap: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); }
 .check.skeleton { height: 120px; animation: shimmer 1.4s infinite linear; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; }
-.check p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.check p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; } .check p.fix-prose { margin: 6px 0 8px; }
 .check > div { min-width: 0; flex: 1; }
 .check-ic { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 50%; margin-top: 1px; }
 .check.ok .check-ic { background: var(--accent-soft); color: var(--accent-text); }
@@ -613,6 +615,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-group-h { margin: 6px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .set-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; scroll-padding-block: 16px 96px; }
 .set-body { max-width: 640px; margin: 0 auto; padding: 22px 28px 40px; }
+.set-offline { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-radius: var(--r); background: var(--danger-soft); border: 1px solid rgba(255, 107, 107, .3); color: var(--text-2); font-size: 13px; line-height: 1.45; max-width: 70ch; }
+.set-offline .icon { color: var(--danger); flex: none; margin-top: 3px; }
 .set-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 40px 0; }
 .set-section { display: flex; flex-direction: column; gap: 14px; animation: msg-in 160ms var(--ease) both; }
 .set-head h3 { margin: 0 0 4px; font-size: 18px; } .set-head p { margin: 0; color: var(--muted); }
@@ -629,7 +633,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-inline { display: flex; align-items: center; gap: 8px; } .set-inline input { flex: 1; min-width: 0; }
 .set-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .set-check input { margin-top: 3px; width: 15px; height: 15px; accent-color: var(--accent-text); flex: none; }
-.set-check span { display: flex; flex-direction: column; } .set-check b { font-weight: 500; } .set-check em { font-style: normal; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.set-check span { display: flex; flex-direction: column; } .set-check b { font-weight: 500; } .set-check em { font-style: normal; color: var(--muted); font-size: 12.5px; line-height: 1.45; } .set-check em + em { margin-top: 4px; }
 .seg { display: inline-flex; align-self: flex-start; padding: 2px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); }
 .seg button { height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 12.5px; }
 .seg button:hover { color: var(--text); } .seg button.on { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
@@ -679,7 +683,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @media (max-width: 1100px) {
   .settings { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .set-nav { flex-direction: row; align-items: center; gap: 4px; padding: 8px 10px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; }
-  .set-nav h2, .set-group-h { display: none; } .set-group, .set-group.bare { flex-direction: row; gap: 4px; margin: 0; } .set-group + .set-group { margin: 0; } .set-link { flex: none; padding: 5px 10px; } .set-link span { display: none; }
+  .set-nav h2, .set-group-h { display: none; } .set-group, .set-group.bare { flex: none; flex-direction: row; gap: 4px; margin: 0; } .set-group + .set-group { margin: 0; } .set-link { flex: none; padding: 5px 10px; } .set-link span { display: none; }
   .set-back { flex: none; margin-right: 6px; padding: 0 6px; } .set-back span { display: none; }
   .set-body { padding: 16px 18px 32px; }
 }
@@ -750,7 +754,14 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .send.queue { background: var(--surface-3); color: var(--text); border: 1px solid var(--line-strong); padding: 0 10px; }
 .send.queue:disabled { color: var(--faint); }
 .composer-bar .send { flex: none; }
-.composer-bar .composer-hint { min-width: 0; overflow: hidden; }
+/* The bar stays on one row, send included. The key hint is optional: it sits in a slot that takes the spare room, and when the whole hint does not fit it drops out whole
+   (it wraps onto a second line of the slot, which is clipped), never cut to half a word. The "New task in" pill shortens its project name before anything else is lost.
+   The room composer keeps its own wrapping bar. */
+.composer-bar .hint-slot { flex: 1 1 0; min-width: 0; height: 26px; overflow: hidden; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; }
+.composer-bar .hint-strut { flex: none; width: 1px; height: 26px; }
+.composer-bar .hint-slot .composer-hint { flex: none; overflow: visible; }
+.composer-bar .target-pill { flex: 0 1 auto; min-width: 0; }
+.rm-composer-wrap .composer-bar { flex-wrap: wrap; row-gap: 6px; }
 /* the key hint is optional: it goes first, in steps, as the composer narrows while Queue / Stop all / Stop are showing (widths are the composer's own, not the window's) */
 .composer-wrap { container: composer / inline-size; }
 @container composer (max-width: 600px) { .composer-bar.busy .hint-long { display: none; } }
@@ -771,7 +782,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 
 /* long conversations: windowed rows, the older-messages row, search inside a thread */
 .vrow { display: flow-root; }
-.vrow.hit > * { outline: 2px solid var(--accent, #7aa2ff); outline-offset: 4px; border-radius: var(--r-sm); }
+.vrow.hit > * { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); border-radius: var(--r-sm); }
 .older-row { display: flex; justify-content: center; color: var(--muted); font-size: 12px; padding: 4px 0; }
 .banner.detached { display: flex; align-items: center; gap: 10px; justify-content: center; }
 .thread-search { display: flex; align-items: center; gap: 6px; padding: 6px 16px; border-bottom: 1px solid var(--line); }
@@ -787,7 +798,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .chip-pill.project-pill.none { opacity: .7; }
 .from-chip.project-chip { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 /* where a new task goes (council A8): said before it is sent; a warning colour when the project in view cannot take it */
-.target-pill { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.target-pill { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); white-space: nowrap; max-width: min(240px, 100%); overflow: hidden; text-overflow: ellipsis; }
 .target-pill b { font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .target-pill.warn, .target-pill.warn b { color: var(--warn); }
 .also-pill { flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--muted); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
@@ -817,3 +828,15 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .mp-quiet { opacity: 0.75; flex-basis: 100%; }
 /* The highlighted row is a tint, never a ring: the same background as hover, with or without keyboard navigation. */
 .mp-head.hl { background: var(--surface-3); border-radius: var(--r-sm); }
+
+/* Folder trust: the notice a run leaves when it held back a folder's own settings. A plain surface with one hairline border, left-aligned, no accent edge. */
+.msg.system.ft-card { text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ft-head { display: flex; align-items: center; gap: 6px; color: var(--text); }
+.ft-head .icon { color: var(--warn); flex: none; } .ft-card.trusted .ft-head .icon { color: var(--accent-text); }
+.ft-why { margin: 0; max-width: 70ch; }
+.ft-folder { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ft-path { align-self: flex-start; max-width: 100%; font-size: 12px; color: var(--text); }
+.ft-lead { margin: 0; color: var(--text-2); }
+.ft-lines { margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 2px; }
+.ft-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ft-msg { color: var(--danger); font-size: 12.5px; }

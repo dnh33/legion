@@ -15,8 +15,11 @@ export const HOLD_IRREVERSIBLE_MS = 10_000;
 /** The second A on an irreversible ask must follow the first within this long. */
 export const SECOND_A_MS = 2000;
 
-/** 10 s for a certain level 3 ask (leaves your computer, deletes, spends); 5 s for everything else. */
-export const holdMs = (c: { level: number; certain: boolean } | undefined): number => (c && c.level === 3 && c.certain ? HOLD_IRREVERSIBLE_MS : HOLD_MS);
+/**
+ * 10 s for a certain level 3 ask (leaves your computer, deletes, spends); 5 s for everything else. `holdOff` is the `digest-hold` gate
+ * switched off (the page reads it from the settings view): no wait, the Allow is sent at once.
+ */
+export const holdMs = (c: { level: number; certain: boolean } | undefined, holdOff = false): number => (holdOff ? 0 : c && c.level === 3 && c.certain ? HOLD_IRREVERSIBLE_MS : HOLD_MS);
 
 export type HoldPhase = 'counting' | 'sent' | 'undone' | 'refused' | 'disposed';
 export interface HoldView { phase: HoldPhase; totalMs: number; leftMs: number; paused: boolean; reason?: string }
@@ -36,7 +39,7 @@ export interface Hold {
   dispose(): void;
 }
 
-export function createHold(o: { totalMs: number; send: () => Promise<SendResult>; onChange?: (v: HoldView) => void }): Hold {
+export function createHold(o: { totalMs: number; /** The digest-hold gate is off: send at once. A total of 0 or less without this counts down as it always did. */ holdOff?: boolean; send: () => Promise<SendResult>; onChange?: (v: HoldView) => void }): Hold {
   let phase: HoldPhase = 'counting';
   let left = Math.max(0, o.totalMs);
   let reason: string | undefined;
@@ -57,7 +60,7 @@ export function createHold(o: { totalMs: number; send: () => Promise<SendResult>
       if (!r.ok) { phase = 'refused'; reason = r.reason; emit(); }
     }, () => { if (phase !== 'disposed') { phase = 'refused'; reason = undefined; emit(); } });
   };
-  return {
+  const hold: Hold = {
     view,
     tick(dt) {
       if (phase !== 'counting' || paused() || !(dt > 0)) return;
@@ -71,6 +74,9 @@ export function createHold(o: { totalMs: number; send: () => Promise<SendResult>
     sendNow() { fire(); },
     dispose() { if (phase === 'sent' || phase === 'refused') return; phase = 'disposed'; },
   };
+  // no hold (`digest-hold` off): the Allow goes out right after the row is made (a microtask, so the caller has the hold in hand when the first change comes)
+  if (o.holdOff) queueMicrotask(fire);
+  return hold;
 }
 
 /* ---------- keys in the digest ---------- */

@@ -7,19 +7,21 @@ import type { MarshalDraft } from './marshalLogic';
 import './board.css';
 
 /**
- * The Marshal's own view: what runs and why that bot, what is blocked and why, what is next — plus the
+ * The Marshal's own view: what runs and why that bot, what is blocked and why, what is next, plus the
  * switch that starts it and the two bounds it works to. Presentational: the store loads the status and the
  * panel hands a whole config back through `onSave`, so this component decides nothing and fetches nothing.
  */
-export function MarshalPanel({ view, busy, readOnly, onSave }: {
+export function MarshalPanel({ view, busy, readOnly, stallLadderOff, onSave }: {
   view?: BoardMarshalStatus;
   busy: boolean;
   readOnly: boolean;
+  /** The project's "Stop runs that stall" gate is off: a silent run is noted and left running, so the copy must not say it is cancelled. */
+  stallLadderOff?: boolean;
   onSave: (cfg: MarshalConfig) => void;
 }) {
   const cfg = view?.marshal;
   const [draft, setDraft] = useState<MarshalDraft>(() => draftOf(cfg));
-  // re-seed from what the CORE says whenever the stored config changes (a save, or another window) — never while typing
+  // re-seed from what the CORE says whenever the stored config changes (a save, or another window), never while typing
   const stored = `${cfg?.enabled}|${cfg?.waveSize}|${cfg?.stallMinutes}`;
   useEffect(() => { setDraft(draftOf(cfg)); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
   const errors = draftErrors(draft);
@@ -58,6 +60,7 @@ export function MarshalPanel({ view, busy, readOnly, onSave }: {
         Wave size is how many items one pass starts (1&ndash;10). A run that reports nothing for the stop-after
         time is cancelled and its item tried again on another bot; a second stall hands the item back to you (1&ndash;240 minutes).
       </p>
+      {stallLadderOff && <p className="field-note" role="note">Stop runs that stall is off for this project, so a silent run is not stopped. Legion writes one line about it to the activity log and the run keeps going.</p>}
       {errors.length > 0 && (
         <ul className="bd-marshal-errors" id="bd-marshal-errors">
           {errors.map((e) => <li key={e}>{e}</li>)}

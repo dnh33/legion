@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { readLaunchSecrets, readSecretsFromStream } from '../src/core/admin.js';
 import { ConnectorKeyring } from '../src/core/connectors/keyring.js';
-import { ensureConnectorKey, keyFilePath, keyLine, loadConnectorKey, type SafeStorageLike } from '../src/electron/connector-key.js';
+import { ensureConnectorKey, ensureProviderKey, keyFilePath, keyLine, loadConnectorKey, loadProviderKey, providerKeyFilePath, providerKeyLaunchLine, type SafeStorageLike } from '../src/electron/connector-key.js';
 import { repoRoot } from './ps-helpers.js';
 import { tempDir } from './tmp-cleanup.js';
 
@@ -48,9 +48,9 @@ test('the key line is accepted in the same chunk, split across chunks, or later 
     const s = new PassThrough();
     const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, s, (l) => { kr.installLine(l); });
     s.write(chunks[0]!);
-    const got = await p;
     for (const c of chunks.slice(1)) { await tick(); s.write(c); }
-    await tick();
+    s.end(); // the answer waits for the end of the pipe (R1), so every line has arrived when it comes
+    const got = await p;
     assert.deepEqual(got, { admin: ADMIN, native: NATIVE });
     assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'), JSON.stringify(chunks.map((c) => c.length)));
   }
@@ -58,20 +58,19 @@ test('the key line is accepted in the same chunk, split across chunks, or later 
   const s = new PassThrough();
   const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, s, (l) => { kr.installLine(l); });
   s.write(`${ADMIN}\n${NATIVE}\n`);
-  await p;
   const other = randomBytes(32).toString('hex');
   for (const bad of [`KEY ${HEX.slice(1)}\n`, `KEYS ${HEX}\n`, `key ${HEX}\n`, `${HEX}\n`, `KEY ${HEX.toUpperCase()}\n`, `KEY ${HEX} x\n`, 'x'.repeat(1000) + '\n']) { s.write(bad); await tick(5); }
   assert.equal(kr.has(), false);
   s.write(`KEY ${HEX}\nKEY ${other}\n`);
-  await tick();
-  assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'));
   s.end();
-  await tick(5);
+  await p;
+  assert.deepEqual(kr.get(), Buffer.from(HEX, 'hex'));
 });
 
 test('legion-core.ts reads the launch secrets as before, passes only a keyring callback, and the key never goes to a log, env or argv', () => {
   const core = readFileSync(join(repoRoot, 'src/bin/legion-core.ts'), 'utf8');
-  assert.match(core, /await readLaunchSecrets\(process\.env, process\.stdin, \(line\) => \{ connectorKeyring\.installLine\(line\); \}\)/);
+  assert.match(core, /await readLaunchSecrets\(process\.env, process\.stdin, \(line\) => \{ connectorKeyring\.installLine\(line\); gatesKeyring\.installLine\(line\); providerKeyring\.installLine\(line\); \}\)/);
+  assert.doesNotMatch(core, /providerKeyring\.get\(\)[^;]*(console|log\()|process\.env\.\w*PKEY/);
   assert.match(core, /const \{ admin: adminSecret, native: nativeSecret \} = /);
   assert.doesNotMatch(core, /connectorKeyring\.get\(\)|process\.env\.\w*KEY/);
   assert.match(core, /createGitHubClient\(\{ tokens: new TokenStore\(join\(dataDir\(\), 'connectors'\), connectorKeyring\)/);
@@ -139,8 +138,10 @@ test('shouldReEncrypt re-wraps the key; a file that does not unwrap is never ove
 
 test('main.ts: the keyless launch line is untouched; the key is a third line only when key.bin unwrapped; safeStorage is read, not created, at launch', () => {
   const main = readFileSync(join(repoRoot, 'src/electron/main.ts'), 'utf8');
-  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/);
-  assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ keyLine\(connectorKey\)\);\n\s*else child\.stdin\?\.end/);
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ providerLine\)/);
+  assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ providerLine \+ keyLine\(connectorKey\)\);\r?\n\s*else child\.stdin\?\.end/);
+  // N14b: there is always a gates line; no key (missing and not made) is read as unreadable, never as "no key"
+  assert.match(main, /const gatesLine = gatesKey \? gatesKeyLine\(gatesKey, gatesState\) : gatesKeyLine\(undefined, 'unreadable'\);/);
   assert.match(main, /const connectorKey = await loadConnectorKey\(dataDir\(\), safeStorage\);/);
   // creation is the first Connect (slice 1b): ensureConnectorKey appears only inside the connector-connect handler, never at launch
   assert.equal((main.match(/ensureConnectorKey\(/g) ?? []).length, 1);
@@ -148,6 +149,59 @@ test('main.ts: the keyless launch line is untouched; the key is a third line onl
   assert.ok(handler.includes('ensureKey: () => ensureConnectorKey(dataDir(), safeStorage)'));
   assert.doesNotMatch(main.slice(main.indexOf('async function spawnCore'), main.indexOf('/** Asks what to do with a foreign core')), /ensureConnectorKey/);
   const spawnBlock = main.slice(main.indexOf('const child = spawn('), main.indexOf('coreProc = child;'));
-  assert.doesNotMatch(spawnBlock, /connectorKey|keyLine/, 'not in argv or env');
+  assert.doesNotMatch(spawnBlock, /connectorKey|keyLine|gatesKey|providerLine|providerKey|PKEY/, 'not in argv or env');
+  // the provider keys' data key: one line, always, made at launch, over stdin only (never env, argv or a log)
+  assert.match(main, /const providerLine = await providerKeyLaunchLine\(dataDir\(\), safeStorage\);/);
+  assert.equal((main.match(/providerKeyLaunchLine\(/g) ?? []).length, 1);
+  assert.doesNotMatch(main, /console\.\w+\([^)]*providerLine/);
+  assert.doesNotMatch(main, /env:[^\n]*providerLine/);
+  assert.doesNotMatch(main, /LEGION_\w*PKEY|PKEY[^\n]*process\.env/);
   assert.doesNotMatch(main, /console\.\w+\([^)]*connectorKey/);
+});
+
+// ------------------------------------------------------------------------------------------------ the provider keys' data key
+
+test('provider key: made at launch (wrapped, 256 bits, not readable in the file) inside the providers folder; the same key comes back; the line is PKEY <hex>', async () => {
+  const dir = tempDir('legion-pkey-');
+  const { ss } = fakeStorage();
+  const line = await providerKeyLaunchLine(dir, ss, 'win32');
+  const hex = /^PKEY ([0-9a-f]{64})\n$/.exec(line)?.[1];
+  assert.ok(hex, line);
+  assert.ok(providerKeyFilePath(dir).split(sep).join('/').endsWith('/providers/key.bin'), 'inside the protected providers folder');
+  assert.ok(!readFileSync(providerKeyFilePath(dir)).toString('latin1').includes(hex!));
+  assert.equal(await loadProviderKey(dir, ss, 'win32'), hex);
+  assert.equal(await providerKeyLaunchLine(dir, ss, 'win32'), line, 'no second key');
+  assert.equal(await ensureProviderKey(dir, ss, 'win32'), hex);
+});
+
+test('provider key: Linux basic_text or unknown, or no encryption: nothing is written and the line says unavailable', async () => {
+  for (const [platform, backend, available] of [['linux', 'basic_text', true], ['linux', 'unknown', true], ['linux', undefined, true], ['win32', undefined, false], ['darwin', undefined, false]] as const) {
+    const dir = tempDir('legion-pkey-');
+    const { ss } = fakeStorage({ available, ...(platform === 'linux' ? { getSelectedStorageBackend: () => backend as string } : {}) });
+    assert.equal(await providerKeyLaunchLine(dir, ss, platform), 'PKEY - unavailable\n', `${platform}/${backend}`);
+    assert.equal(existsSync(providerKeyFilePath(dir)), false);
+  }
+  const dir = tempDir('legion-pkey-');
+  assert.match(await providerKeyLaunchLine(dir, fakeStorage({ getSelectedStorageBackend: () => 'gnome_libsecret' }).ss, 'linux'), /^PKEY [0-9a-f]{64}\n$/, 'a real keyring works');
+});
+
+test('provider key: a wrapped key that does not unwrap is never overwritten and the line says unreadable; shouldReEncrypt re-wraps', async () => {
+  const dir = tempDir('legion-pkey-');
+  mkdirSync(join(dir, 'providers'), { recursive: true });
+  writeFileSync(providerKeyFilePath(dir), 'garbage');
+  assert.equal(await providerKeyLaunchLine(dir, fakeStorage().ss, 'win32'), 'PKEY - unreadable\n');
+  assert.equal(readFileSync(providerKeyFilePath(dir), 'utf8'), 'garbage');
+  const dir2 = tempDir('legion-pkey-');
+  const hex = await ensureProviderKey(dir2, fakeStorage().ss, 'win32');
+  const { ss, calls } = fakeStorage({ reEncrypt: true });
+  assert.equal(await loadProviderKey(dir2, ss, 'win32'), hex);
+  assert.ok(calls.includes('enc'));
+});
+
+test('the provider data key line is the only place the key travels: no source file puts it into env, argv or a log', () => {
+  const hits: string[] = [];
+  const walk = (d: string) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(ts|tsx|mjs)$/.test(e.name) && /PKEY|providerKeyring|providerLine/.test(readFileSync(p, 'utf8'))) hits.push(p.split(sep).join('/').replace(/^.*\/src\//, 'src/')); } };
+  walk(join(repoRoot, 'src'));
+  assert.deepEqual(hits.sort(), ['src/bin/legion-core.ts', 'src/core/providers/keyring.ts', 'src/electron/connector-key.ts', 'src/electron/main.ts']);
+  for (const f of hits) assert.doesNotMatch(readFileSync(join(repoRoot, f), 'utf8'), /process\.env\[?[^\n]*PKEY|env:\s*\{[^}]*(providerLine|PKEY)/, f);
 });

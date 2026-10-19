@@ -6,9 +6,9 @@
  * A project with no preset ("Per agent") and an agent with its own mode give exactly 0.3.0.
  */
 import type { Preset } from '../shared/gates-registry.js';
-import type { ApprovalMode } from '../shared/types.js';
+import type { ApprovalMode, RunMode } from '../shared/types.js';
 
-export type RunMode = 'ask' | 'auto-edits' | 'smart' | 'full';
+export type { RunMode };
 export type GoalAutonomy = 'track' | 'suggest' | 'check-once' | 'own' | 'full';
 export interface ModeInputs {
   agentMode: ApprovalMode;
@@ -16,16 +16,63 @@ export interface ModeInputs {
   project?: { preset?: Preset; limit: boolean };
   appPreset: Preset;
   goal?: { autonomy: GoalAutonomy; lease?: Preset };
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
 }
 
-const RANK: Record<RunMode, number> = { ask: 0, 'auto-edits': 1, smart: 2, full: 3 };
+// ask < smart-edits < { auto-edits, smart } < full. Smart and Accept edits are not ordered with each other; `smart-edits` sits under both.
+const RANK: Record<RunMode, number> = { ask: 0, 'smart-edits': 1, 'auto-edits': 2, smart: 2, full: 3 };
 const isRunMode = (m: unknown): m is RunMode => typeof m === 'string' && Object.hasOwn(RANK, m);
 // Unknown values (they can come from disk) rank strictest and resolve to 'ask'.
-const stricter = (a: RunMode, b: RunMode): RunMode => {
-  const pick = (RANK[a] ?? -1) <= (RANK[b] ?? -1) ? a : b;
-  return isRunMode(pick) ? pick : 'ask';
-};
+/**
+ * The stricter of two modes: a call needs a card if EITHER mode would card it. An unknown value on either side (it can come from disk) fails
+ * closed to 'ask'. Smart and Accept edits are not ordered (Smart cards a risky Bash that Accept edits waves through; Accept edits cards a Bash
+ * that Smart allows; Smart cards an edit outside the project that Accept edits allows), so a run held by both is judged by `smart-edits`, which
+ * cards exactly what either would. It is never looser than either mode, and never as strict as Ask: an edit inside the project still runs.
+ */
+export function stricterMode<A extends RunMode, B extends RunMode>(a: A, b: B): A | B {
+  if (!isRunMode(a) || !isRunMode(b)) return 'ask' as A | B;
+  const x: RunMode = a; const y: RunMode = b;
+  if (x === y) return a;
+  if (x === 'ask' || y === 'ask') return 'ask' as A | B;
+  if (x === 'full') return b;
+  if (y === 'full') return a;
+  // any other pair is two of smart, auto-edits, smart-edits; the meet of two different ones is smart-edits
+  return 'smart-edits' as A | B;
+}
+const stricter = (a: RunMode, b: RunMode): RunMode => stricterMode(a, b);
+
+/**
+ * The resolver's answer for a module guard. No resolver (a core built without an engine) gives undefined, so the module uses the stored
+ * mode as in 0.3.0. A resolver that THROWS reads as Ask: the stored mode may be Full while a project or ceiling caps the run, and a failed
+ * lookup must never hand that Full back.
+ */
+export function resolverMode(engine: { runModeOf?(agentId: string, taskId?: string): RunMode | undefined } | undefined, agentId: string, taskId?: string): RunMode | undefined {
+  if (!engine?.runModeOf) return undefined;
+  try { return engine.runModeOf(agentId, taskId); } catch { return 'ask'; }
+}
+
+/** What a module's deps carry: `gateOff` bound to an engine. */
+export type GateOff = (gateId: string, a: { taskId?: string; agentId: string; action: string; ceiling?: RunMode; always?: boolean; dry?: boolean }) => boolean;
+
+/**
+ * Whether a guard that raises its own card (the GitHub write, the board delete, the browser, Blender and room cards, the proposal Inbox) may skip
+ * it. The gate is read with the run's START project and judged like tool cards: an explicit owner override skips it for every agent, a preset
+ * alone (Bypass) only for a run whose mode is full (Engine.cardOffFor). No engine, a throw or a missing answer keeps the card. A run with an
+ * approval ceiling (a bot or an app woke it) keeps its card whatever the gate says. When the card is skipped the activity log gets one
+ * "would have asked" line, if the agent's own setting (or `always`) would have asked.
+ */
+export function gateOff(
+  engine: { cardOffFor?(taskId: string | undefined, id: string, agentId: string): unknown; noteGateOff?(a: { gateId: string; taskId: string; agentId: string; action: string; always?: boolean }): void } | undefined,
+  gateId: string,
+  a: { taskId?: string; agentId: string; action: string; ceiling?: RunMode; always?: boolean; /** Only read the gate; write no line. */ dry?: boolean },
+): boolean {
+  try {
+    if (!engine?.cardOffFor || a.ceiling) return false;
+    if (engine.cardOffFor(a.taskId, gateId, a.agentId) !== true) return false;
+    if (a.taskId && !a.dry) engine.noteGateOff?.({ gateId, taskId: a.taskId, agentId: a.agentId, action: a.action, ...(a.always ? { always: true } : {}) });
+    return true;
+  } catch { return false; }
+}
 
 export function presetMode(p: Preset): RunMode {
   switch (p) {
@@ -49,4 +96,9 @@ export function effectiveMode(a: ModeInputs): RunMode {
   if (preset && a.project?.limit) out = stricter(out, presetMode(a.goal?.lease ?? preset));
   if (a.ceiling) out = stricter(out, a.ceiling);
   return isRunMode(out) ? out : 'ask';
+}
+
+/** What a run would be judged by with no presets at all: the agent's own mode, or ask for an agent that follows its project, under the ceiling. */
+export function baselineMode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; ceiling?: RunMode }): RunMode {
+  return effectiveMode({ agentMode: a.agentMode, source: a.source ?? 'own', appPreset: 'ask', ...(a.ceiling ? { ceiling: a.ceiling } : {}) });
 }

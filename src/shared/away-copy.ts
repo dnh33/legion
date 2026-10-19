@@ -16,9 +16,14 @@ export const AWAY_COPY = {
     editsOutside: 'Changes a file outside this project, check it',
     writesFile: 'Writes a file',
     fetches: 'Fetches from the web',
+    localRun: 'Runs a check on your computer',
     decides: 'A choice, nothing happens until you answer',
     proposal: 'Written after outside content',
     unknown: 'Unknown effect, check it',
+  },
+  card: {
+    /** The first line of a Smart card for a build or test command, once a build or script file in the project changed (by an agent, or any change Legion did not see). */
+    buildEdited: 'This command runs code in your project, and a build or script file here changed since you last allowed one.',
   },
   queue: {
     slot: (running: number, cap: number): string => `Waiting for a free slot (${running} of ${cap} running in all projects)`,

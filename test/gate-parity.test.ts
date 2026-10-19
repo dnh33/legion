@@ -16,7 +16,7 @@ test('the fixture is the full grid', () => {
 });
 
 test('no gate settings (Per agent projects, agents with their own mode) reproduce every 0.3.0 decision, for a project run and for a run with no project', async () => {
-  const core = createGatesCore({ dataDir: join(cleanupTemp('legion-parity-'), 'data') });
+  const core = createGatesCore({ dataDir: join(cleanupTemp('legion-parity-'), 'data'), keyring: { get: () => Buffer.alloc(32, 5) } }); // keyed: switching the limit off below is a loosening, which needs a signing key
   // Pins the exact mode per row: the engine's modeNow and the run-start `=== 'full'` bypass use it, not just the two booleans below.
   const checkRows = (pid: string | undefined): void => {
     for (const r of fx.rows) {

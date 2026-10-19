@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChatMessage, CompactionSettings, McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
-import { api, base, openExternal, token } from '../api';
+import { api, base, CORE_NEXT_STEP, openExternal, token } from '../api';
 import { checkBoat, compactNow, ensureBoatChecked, closeSettings, decide, errText, loadSettings, resetCompaction, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
@@ -21,12 +21,16 @@ import { NotificationsSection } from '../away/NotificationsSection';
 import { SoundsSection } from '../sound/SoundsSection';
 import { SpendingSection } from '../away/SpendingSection';
 import { AccessibilitySection } from '../a11y/AccessibilitySection';
-import { NAV, groupNav } from './settingsNav';
+import { NAV, groupNav, settingsUnreachableLine } from './settingsNav';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
+import { RELEASES } from '../whatsnew/releases';
+import { hasTipsFor } from '../whatsnew/tipsLogic';
 
 export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
   const settings = useStore((s) => s.settings);
+  const settingsFail = useStore((s) => s.settingsFail);
+  const conn = useStore((s) => s.conn);
   useEffect(() => { if (!settings) void loadSettings(); }, []);
   // Providers ship (OpenRouter on by default); the tab shows only when the core serves the provider routes (config.json features.providers)
   const provView = useProviders((x) => x.view);
@@ -68,7 +72,15 @@ export function SettingsPanel() {
       </nav>
       <div ref={scrollEl} className="set-scroll scroll-cue">
         <div className="set-body">
-          {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
+          {!settings ? (settingsFail || conn === 'offline'
+            ? (
+              <div className="set-offline" role="alert">
+                <Icon name="x" size={13} />
+                <span>{settingsFail?.kind === 'other' && conn !== 'offline' ? `Settings could not load: ${settingsFail.message}` : settingsUnreachableLine(section, CORE_NEXT_STEP)}{' '}
+                  <button type="button" className="link-btn" onClick={() => void loadSettings()}>Try again</button></span>
+              </div>
+            )
+            : <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div>) : (
             section === 'claude' ? <ClaudeSection s={settings} />
               : section === 'gates' ? <GatesSection s={settings} />
               : section === 'notifications' ? <><NotificationsSection /><SoundsSection /></>
@@ -179,7 +191,7 @@ function ClaudeSection({ s }: { s: SettingsView }) {
           <input id="claude-budget" className="narrow" inputMode="decimal" value={budget} placeholder="no limit" onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
         <label className="set-check"><input type="checkbox" checked={inherit} onChange={(e) => setInherit(e.target.checked)} />
-          <span><b>Inherit my Claude Code settings</b><em>Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal. The MCP choice below is separate and applies whichever way this is set.</em></span></label>
+          <span><b>Inherit my Claude Code settings</b><em>Agents read your own Claude Code settings and CLAUDE.md. Commands your Claude Code allow rules allow run without a Legion card; Legion's own safety cards still ask.</em><em>A project's settings, hooks and skills are read only when they carry no commands, or when you trusted that folder. A notice in the thread offers the trust. The folders you trusted are listed under Settings, Gates, Fine tuning, "Folders you trust". A project's CLAUDE.md is always read.</em><em>The MCP choice below is separate and applies whichever way this is set.</em></span></label>
         <label className="set-check"><input type="checkbox" checked={inheritMcp} onChange={(e) => setInheritMcp(e.target.checked)} />
           <span><b>Also load MCP servers and claude.ai connectors from my Claude Code setup</b><em>Off by default. When off, Legion asks Claude Code to use only Legion's own tools and the servers you add under MCP servers, and not to load claude.ai connectors. Turning it on brings back the servers and connectors you use in Claude Code, which connect again on every run. This only changes what Legion's own code asks Claude Code to load; it does not limit what an agent's ordinary tools, such as a shell, can reach.</em></span></label>
       </div>
@@ -823,7 +835,7 @@ function TipsRow({ version }: { version: string }) {
         <input type="checkbox" checked={enabled} onChange={(e) => setTipsEnabled(e.target.checked)} />
         <span><b>Show tips after updates</b><em>A few short notes about what changed, shown once when it is quiet. You can end them at any time.</em></span>
       </label>
-      <button type="button" className="btn sm" disabled={!version} onClick={() => { if (replayTips(version)) { toast('The tips show as you open each page.'); closeSettings(); } else toast('This version has no tips.'); }}>What's new</button>
+      {hasTipsFor(version, RELEASES) && <button type="button" className="btn sm" onClick={() => { if (replayTips(version)) { toast('The tips show as you open each page.'); closeSettings(); } }}>What's new</button>}
     </div>
   );
 }

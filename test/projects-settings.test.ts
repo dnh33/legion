@@ -41,7 +41,7 @@ test('changed from the default: only the sections that differ get a dot', () => 
 });
 
 test('the nav lists the eight sections in the spec order', () => {
-  assert.deepEqual(SETTINGS_NAV.map((n) => n.label), ['General', 'Folders', 'Members', 'While you are away', 'Safety', 'Budget', 'Notifications', 'Archive']);
+  assert.deepEqual(SETTINGS_NAV.map((n) => n.label), ['General', 'Folders', 'Members', 'How agents ask', 'While you are away', 'Safety', 'Budget', 'Notifications', 'Archive']);
 });
 
 test('While you are away: Park is offered only when the core says it can; keep-awake likewise', () => {

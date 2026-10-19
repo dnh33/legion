@@ -4,6 +4,7 @@ import type {
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { loadProviders } from './providers/providersStore';
+import { saveWithMode, type AgentBody } from './gates/agentModeSave';
 import { incomingWins } from './chat/tasksync';
 import { keepTasks } from './history/historyLogic';
 import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type ThreadMeta } from './chat/threadWindow';
@@ -70,6 +71,8 @@ export interface AppState {
   mascotForce: RelicState | null;
   mascotVm: boolean | null;
   settings: SettingsView | null;
+  /** Why Settings has nothing to show: the core did not answer (`offline`), or answered with an error. Null while loading or loaded. */
+  settingsFail: { kind: 'offline' | 'other'; message: string } | null;
   settingsOpen: boolean;
   settingsSection: SettingsSection;
   showClosed: boolean;
@@ -105,7 +108,7 @@ let state: AppState = {
   onboardingDismissed: ls('legion.onboarded') === '1', toasts: [],
   catalog: null, catalogLoading: false,
   mascotLab: false, mascotForce: null, mascotVm: null,
-  settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
+  settings: null, settingsFail: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
   view: 'chat',
   projects: [], projectsLoaded: false, projectFilter: ls(FILTER_KEY) || null,
 };
@@ -134,7 +137,7 @@ export function toast(text: string, kind: Toast['kind'] = 'info') {
     const same = s.toasts.find((t) => t.text === text && t.kind === kind);
     return { toasts: [...s.toasts.filter((t) => t !== same), { id, text, kind, n: (same?.n ?? 0) + 1 }].slice(-4) };
   });
-  window.setTimeout(() => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' ? 6000 : 3000);
+  window.setTimeout(() => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' || text.length > 40 ? 7000 : 3000);
 }
 const errText = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
@@ -357,6 +360,7 @@ export function init() {
     setState({ conn });
     if (conn === 'online' && prev !== 'online') {
       { const c = getState().catalog; if (!c || c.error) void loadCatalog(true); }
+      if (!getState().settings && getState().settingsOpen) void loadSettings(); // Settings that could not load while the core was away load by themselves when it is back
       void refresh().then(() => { const t = getState().selectedTaskId; if (t) void loadTask(t, true); });
     }
     prev = conn;
@@ -566,9 +570,9 @@ export function settleApproval(id: string, allow: boolean, announce = true) {
   });
 }
 
-export async function decide(id: string, allow: boolean) {
+export async function decide(id: string, allow: boolean, site?: 'always' | 'goal' | 'once') {
   settleApproval(id, allow, false); // optimistic; the sound waits for the send
-  try { await api.decide(id, allow); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  try { await api.decide(id, allow, site); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**
@@ -613,12 +617,16 @@ export const openPalette = () => setState({ palette: true, doctorOpen: false, ed
 export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
 export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
-export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null }) {
-  try {
-    const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
-    // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"
-    const body = a as unknown as Partial<AgentProfile> & { name: string };
-    const saved = id ? await api.patchAgent(id, body) : await api.createAgent(body);
+export async function saveAgent(id: string | null, a: AgentBody): Promise<boolean> {
+  const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
+  // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"
+  const r = await saveWithMode(id, a, {
+    bridge: window.legion?.agentModeChange,
+    patch: (aid, body) => api.patchAgent(aid, body as unknown as Partial<AgentProfile>),
+    create: (body) => api.createAgent(body as unknown as Partial<AgentProfile> & { name: string }),
+  });
+  if (r.state === 'saved') {
+    const saved = r.agent;
     // A remembered composer pick was made against the model that was configured then; a new model in Settings
     // makes it meaningless, so it goes (effectiveModel refuses an unequal value either way).
     if (id && before !== undefined && saved.model !== before) lsDel(modelKey(id));
@@ -626,7 +634,11 @@ export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>
     if (!id) selectAgent(saved.id);
     setState({ editor: null });
     return true;
-  } catch (e) { toast(errText(e), 'error'); return false; }
+  }
+  // A new agent that was created before the owner cancelled exists now: show it and close the editor, or a second save would make a copy.
+  if (r.created) { handleEvent({ type: 'agent.updated', agent: r.created }); selectAgent(r.created.id); setState({ editor: null }); }
+  toast(r.text, r.state === 'cancelled' ? 'info' : 'error');
+  return false;
 }
 export async function removeAgent(id: string) {
   try {
@@ -699,7 +711,11 @@ export async function setShowClosed(on: boolean) {
 
 /* ---------- settings ---------- */
 export async function loadSettings() {
-  try { setState({ settings: await api.settings() }); } catch (e) { toast(errText(e), 'error'); }
+  try { setState({ settings: await api.settings(), settingsFail: null }); } catch (e) {
+    // the panel says why it is empty (no spinner that never ends); the toast stays for the moment itself
+    setState({ settingsFail: { kind: e instanceof ApiError && e.status === 0 ? 'offline' : 'other', message: errText(e) } });
+    toast(errText(e), 'error');
+  }
 }
 export function openSettings(section?: SettingsSection) {
   setState({ settingsOpen: true, palette: false, doctorOpen: false, editor: null, ...(section ? { settingsSection: section } : {}) });

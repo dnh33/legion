@@ -18,17 +18,18 @@ test('readLaunchSecrets registers the admin and native secrets; the data key is 
   const kr = new ConnectorKeyring();
   const p = readLaunchSecrets({ LEGION_ADMIN_STDIN: '1' }, pipe, (l) => { kr.installLine(l); });
   pipe.write(`${ADMIN}\n${NATIVE}\n`);
+  // the key arrives later on the same pipe; the answer comes when the pipe ends
+  const b64 = KEY_BYTES.toString('base64');
+  assert.equal(redact(`k=${b64}`), `k=${b64}`);
+  await new Promise((r) => setTimeout(r, 30));
+  pipe.write(`KEY ${KEY_BYTES.toString('hex')}\n`);
+  pipe.end();
   const got = await p;
   assert.equal(got.admin, ADMIN);
   assert.equal(got.native, NATIVE);
   const out = redact(`admin ${ADMIN} native ${NATIVE}`);
   assert.ok(!out.includes(ADMIN) && !out.includes(NATIVE), out);
   assert.ok(!redact(Buffer.from(ADMIN).toString('base64')).includes(Buffer.from(ADMIN).toString('base64')), 'also in base64');
-  // the key arrives later on the same pipe
-  const b64 = KEY_BYTES.toString('base64');
-  assert.equal(redact(`k=${b64}`), `k=${b64}`);
-  pipe.write(`KEY ${KEY_BYTES.toString('hex')}\n`);
-  await new Promise((r) => setTimeout(r, 30));
   assert.equal(kr.has(), true);
   assert.ok(!redact(`k=${b64}`).includes(b64), 'base64 of the raw key');
   assert.ok(!redact(`k=${KEY_BYTES.toString('base64url')}`).includes(KEY_BYTES.toString('base64url')), 'base64url');

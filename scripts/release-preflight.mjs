@@ -19,6 +19,7 @@
  * Exits non-zero and prints what is wrong. Run it after building + signing, before `gh release create`.
  */
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -26,9 +27,10 @@ import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO, requireR
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 import { carryForFolder } from './lib/stone-carry.mjs';
+import { prevTagShowArgs, unixApplyVerdict, unixDepsHashOfLock } from './lib/unix-apply-check.mjs';
 import { frozenParserProblems, sourcesFromGit } from './lib/frozen-parser.mjs';
 
-const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v' });
+const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v', 'prev-lock': 'v', 'prev-tag': 'v' });
 requireRehearsalFor(a, ['no-network', 'stones']);
 
 // --pkg is REQUIRED, with no default. It used to fall back to a hardcoded owner-local folder, which was wrong twice over:
@@ -168,6 +170,29 @@ else {
     for (const p of fp) fail(`frozen parser: ${p}`);
     if (!fp.length) pass(`the manifest parses with the frozen ${stoneTag} parser and the current one`);
   }
+  // Mac and Linux installs made by install.sh apply only code-only releases whose dependency hash equals the previous release's.
+  {
+    // The previous release's lock: a file (--prev-lock) or the tag's lock (--prev-tag, git show). Compared as dependency hashes, as the updater does.
+    let prevLock = null;
+    if (a['prev-lock']) {
+      try { prevLock = readFileSync(a['prev-lock'], 'utf8'); } catch (e) { fail(`could not read --prev-lock: ${e.message}`); }
+    } else if (a['prev-tag']) {
+      const showArgs = prevTagShowArgs(REPO, a['prev-tag']);
+      if (!showArgs) fail('--prev-tag must be a release tag such as v0.3.4 (it has to start with "v" and a digit)');
+      else {
+        const g = spawnSync('git', showArgs, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+        if (g.status === 0) prevLock = g.stdout; else fail(`could not read package-lock.json at ${a['prev-tag']} (git show): ${String(g.stderr).trim()}`);
+      }
+    }
+    const thisLock = existsSync(appZip) ? readZipEntry(readFileSync(appZip), `legion-${version}/package-lock.json`) : null;
+    let depsHash = null; let prevDepsHash = null;
+    try {
+      if (thisLock) depsHash = await unixDepsHashOfLock(thisLock.toString('utf8'));
+      if (prevLock !== null) prevDepsHash = await unixDepsHashOfLock(prevLock);
+    } catch (e) { fail(`could not compute the dependency hash (run npm run build first): ${e.message}`); }
+    const v = unixApplyVerdict({ version, requiresFullInstall: m.requiresFullInstall, depsHash, prevDepsHash });
+    if (v.level === 'fail') fail(v.message); else if (v.level === 'warn') warn(v.message); else pass(v.message);
+  }
   if (!m.notes || !String(m.notes).trim()) fail('manifest has no release notes — people read these before updating');
   else if (String(m.notes).length > 2000) fail('manifest notes exceed the 2000-char cap');
   else pass(`manifest carries release notes (${String(m.notes).length} chars)`);
@@ -217,11 +242,11 @@ try {
 
 // --------------------------------------------- 5. install-mode + no unattended apply
 try {
-  const { installMode } = await import(new URL(`../dist/src/core/updater/apply.js?p=${Date.now()}`, import.meta.url).href);
+  const { installMode } = await import(new URL(`../dist/src/core/updater/index.js?p=${Date.now()}`, import.meta.url).href);
   const mode = installMode({ root: REPO, platform: process.platform });
   if (mode === 'checkout') warn('this working tree is a git checkout: installMode() there is notify-only (that is correct for a checkout, not for a user install)');
   else pass(`installMode for a real install: ${mode}`);
-} catch { warn('could not determine installMode (non-fatal)'); }
+} catch (e) { fail(`could not run the installMode check (run npm run build first): ${e.message}`); }
 
 // ---------------------------------------------------------------- verdict
 console.log(`\n${ok.length} ok, ${warns.length} warning(s), ${fails.length} failure(s)`);

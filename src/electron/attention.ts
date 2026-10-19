@@ -32,7 +32,7 @@ export interface AskSignal {
 /** A run that failed or finished. */
 export interface RunSignal { key: string; agentName: string; projectId: string | null; projectName: string | null; taskId: string }
 /** A project budget that was just reached. */
-export interface BudgetSignal { key: string; projectId: string; projectName: string | null; period: 'day' | 'week' | 'month' }
+export interface BudgetSignal { key: string; projectId: string; projectName: string | null; period: 'day' | 'week' | 'month'; /** false: Stop at the budget is off for the project, so runs keep going. */ stops?: boolean }
 
 /** The owner's choices (Settings, Notifications, and each project's level). */
 export interface Prefs {
@@ -198,7 +198,7 @@ function announce(items: Item[]): Notif[] {
     const project = inProject(first.s.projectName);
     const tag = `${first.cls}:${group.map((g) => g.s.key).join(',').slice(0, 120)}`;
     if (first.cls === 'budget') {
-      out.push({ tag, title: project ? `Budget reached in ${project}` : 'Budget reached', body: `New runs wait until ${PERIOD_WAIT[first.s.period]}.`, target: target(projectId) });
+      out.push({ tag, title: project ? `Budget reached in ${project}` : 'Budget reached', body: first.s.stops === false ? 'Runs keep going: Stop at the budget is off for this project.' : `New runs wait until ${PERIOD_WAIT[first.s.period]}.`, target: target(projectId) });
     } else if (first.cls === 'ask') {
       if (n === 1) out.push({ tag, title: askTitle(first.s.kind, who(first.s.agentName)), body: project ? `In ${project}` : 'Open Legion to answer.', target: target(projectId, first.s.taskId) });
       else out.push({ tag, title: project ? `${n} things need you in ${project}` : `${n} things need you`, body: 'Open Legion to answer.', target: target(projectId) });

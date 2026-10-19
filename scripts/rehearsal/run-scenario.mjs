@@ -200,7 +200,7 @@ try {
     check(!!h1, `the new version ${good} starts and reports health`);
     const j = await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' ? true : null), 120000);
     check(!!j, 'the update is committed (journal)');
-    check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
+    check(!!(await waitFor('the outcome to read ok', async () => (readJson(join(up, 'outcome.json'))?.result === 'ok' ? true : null), 30000)), 'the outcome is ok'); // written just after the journal: wait, do not read once
     check(readJson(join(install, 'package.json'))?.version === good && readJson(join(install, 'build-info.json'))?.version === good, `package.json and build-info.json say ${good}`);
     const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json')); // the candidate's own file list (an install does not keep it)
     const bad = [];
@@ -342,7 +342,7 @@ try {
     check(!!stampNow && line2.includes(`[${stampNow}]`), `the full swap was done by the ${walk ? "stepping stone's" : 'NEW'} helper (${stampNow}): ${line2.trim()}`);
     check(log2.includes('full package:'), 'the full swap used the full-package route (runtime outside the install)');
     check(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === good ? true : null), 120000) !== null, 'the full update is committed');
-    check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
+    check(!!(await waitFor('the outcome to read ok', async () => (readJson(join(up, 'outcome.json'))?.result === 'ok' ? true : null), 30000)), 'the outcome is ok'); // written just after the journal: wait, do not read once
     const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json'));
     const wrong = [];
     for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
@@ -416,7 +416,7 @@ try {
       const log2 = applyLog();
       check(log2.split('\n').some((l) => l.includes(`apply ${stone} -> ${s2}`)), `the swap ${stone} -> ${s2} is in the apply log`);
       check(log2.includes('full package:'), 'hop 2 used the full-package swap (runtime outside the install)');
-      check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
+      check(!!(await waitFor('the outcome to read ok', async () => (readJson(join(up, 'outcome.json'))?.result === 'ok' ? true : null), 30000)), 'the outcome is ok'); // written just after the journal: wait, do not read once
       const hits2 = hitsNow();
       const iApp = first(hits2, `legion-${s2}-app.zip`), iFull = first(hits2, `legion-${s2}-win-x64.zip`);
       check(iApp >= 0 && iFull > iApp, 'the code package was requested first, then the full package (the fallback)');

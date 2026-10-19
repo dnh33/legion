@@ -66,6 +66,16 @@ test('failure paths: no proven core, an unknown provider, a core refusal, a bad 
   assert.equal(dialogLine('a‮b\nc\u0000d'), 'a b c d');
 });
 
+test('C-L3: zero-width marks, direction marks, the Arabic letter mark and the byte-order mark are taken out of a dialog line', () => {
+  assert.equal(dialogLine('Bob\u200e\u200fx'), 'Bob x');
+  assert.equal(dialogLine('Bo\u200bb'), 'Bo b');
+  assert.equal(dialogLine('a\u200c\u200db'), 'a b');
+  assert.equal(dialogLine('a\u061cb'), 'a b');
+  assert.equal(dialogLine('\ufeffname'), 'name');
+  assert.equal(dialogLine('a\u202eb\u2066c'), 'a b c', 'the direction controls it already removed');
+  assert.equal(dialogLine('plain name'), 'plain name');
+});
+
 test('adding a new custom endpoint: an "Add" dialog names the label and host, then the core creates it with the native secret', async () => {
   const { d, dialogs, calls } = deps();
   const r = await providerChange({ kind: 'entry', id: 'deepseek2', patch: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', enabled: true } }, d);

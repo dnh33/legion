@@ -17,6 +17,13 @@ test('warning: connectors + full approval + a shell; a Claude agent always has a
   assert.equal(w({ connectors: false }), undefined);
 });
 
+test('M3: the warning follows the resolved mode when one is given, and the stored mode when not', () => {
+  const w = (o: Partial<Parameters<typeof connectorsShellWarning>[0]>) => connectorsShellWarning({ connectors: true, approval: 'ask', onProvider: false, vmOn: false, ...o });
+  assert.match(w({ resolved: 'full' })!, /never asks/, 'a follow-project agent in a Bypass project never asks');
+  assert.equal(w({ approval: 'full', resolved: 'ask' }), undefined, 'a Full agent held at Ask by its project still asks');
+  assert.match(w({ approval: 'full' })!, /never asks/, 'with no resolved mode the stored one decides');
+});
+
 test('storage wording is plain for every state', () => {
   assert.match(storageLine('ok'), /encrypted/);
   assert.match(storageLine('memory-only'), /each time Legion starts/);

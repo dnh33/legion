@@ -13,6 +13,7 @@ import type { AgentProfile, Task } from '../../shared/types.js';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
 import { liveSecrets } from '../kg/index.js';
 import type { CoreModule, ModuleDeps, ModuleJob, TaskEndOutcome } from '../modules.js';
+import { gateOff, resolverMode } from '../permission-mode.js';
 import { HttpError } from '../server.js';
 import { chromiumEngine } from './chromium.js';
 import type { ChromiumIo } from './chromium.js';
@@ -165,7 +166,8 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
       if (!cfg().enabled) return {};
       return {
         legion_browser: buildBrowserServer(agent, job, {
-          manager, guard, resolve, approvals: deps.approvals, secrets: () => liveSecrets(deps.config), modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } },
+          manager, guard, resolve, approvals: deps.approvals, secrets: () => liveSecrets(deps.config), modeOf: (id, taskId) => resolverMode(deps.engine, id, taskId), gateOff: (id, a) => gateOff(deps.engine, id, a),
+          webAllows: (taskId, agentId, url) => { try { return deps.engine.webReadAllows(taskId, agentId, url) === true; } catch { return false; } },
           statusLine: (taskId) => {
             const e = manager.peek(taskId);
             const d = detect();

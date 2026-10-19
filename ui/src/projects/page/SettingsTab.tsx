@@ -5,7 +5,7 @@
  * rule created only after Confirm.
  */
 import { useEffect, useRef, useState } from 'react';
-import { PROJECT_LIMITS } from '../../../../src/shared/projects';
+import { PROJECT_LIMITS, usesDefaultFolder } from '../../../../src/shared/projects';
 import type { Project } from '../../../../src/shared/projects';
 import { loadSettings, useStore } from '../../store';
 import { archiveProject, changeMembers, chooseFolder, saveProject, unarchiveProject, useDefaultFolder } from '../projectsStore';
@@ -14,12 +14,14 @@ import { loadMarshal, saveMarshal, useBoard } from '../board/boardStore';
 import { patchAway, projectAway, setPaused, useAway } from '../awayStore';
 import { announce } from './announce';
 import { grantReads, revokeReads } from './readsGrant';
-import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, parseBudget, parseParkMinutes } from './settingsLogic';
+import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, changedSections, findReadsGrant, parseBudget, parseParkMinutes, pickSection } from './settingsLogic';
 import type { Period } from './settingsLogic';
+import { useGateOff } from './holdOff';
 import type { PageFacts } from './pageLogic';
 import { PIcon } from './PIcon';
 import { ProjectRepoLine } from '../../github/ProjectRepoLine';
 import { Switch } from './Switch';
+import { AskSection, ProjectNotice } from './AskSection';
 import '../projects.css';
 import './settings.css';
 
@@ -35,6 +37,8 @@ function Opt({ id, title, help, children }: { id: string; title: string; help?: 
 export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) {
   const [active, setActive] = useState('general');
   const root = useRef<HTMLDivElement>(null);
+  const snav = useRef<HTMLElement>(null);
+  const [edge, setEdge] = useState({ start: false, end: false });
   const away = useAway((s) => projectAway(s, project.id));
   const changed = changedSections(away);
   const archived = project.status === 'archived';
@@ -42,19 +46,48 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
   // scroll-spy: the section nearest the top of the page's scroll area is the current one
   useEffect(() => {
     const scroller = document.getElementById('pg-panel');
-    const secs = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-sec]') ?? []);
-    if (!scroller || !secs.length) return;
+    if (!scroller) return;
+    // The sections are read on every scroll, not once: a section such as "How agents ask" draws nothing until its settings arrive, so a snapshot
+    // taken at mount would never contain it and the menu would stay on the section above.
     const on = (): void => {
-      const top = scroller.getBoundingClientRect().top + 24;
-      let cur = secs[0]!.dataset.sec!;
-      for (const s of secs) if (s.getBoundingClientRect().top <= top) cur = s.dataset.sec!;
-      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) cur = secs[secs.length - 1]!.dataset.sec!;
+      const secs = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-sec]') ?? []);
+      if (!secs.length) return;
+      const cur = pickSection(secs.map((s) => ({ id: s.dataset.sec!, top: s.getBoundingClientRect().top })), scroller.getBoundingClientRect().top + 24, scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4);
       setActive(cur);
     };
     scroller.addEventListener('scroll', on, { passive: true });
     on();
     return () => scroller.removeEventListener('scroll', on);
   }, []);
+  // the menu is one scrollable row when the page is narrow: keep the current section's button in view
+  useEffect(() => {
+    const nav = snav.current;
+    const on = nav?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!nav || !on || nav.scrollWidth <= nav.clientWidth) return;
+    const n = nav.getBoundingClientRect(); const b = on.getBoundingClientRect();
+    if (b.left < n.left + 34 || b.right > n.right - 34) nav.scrollTo({ left: nav.scrollLeft + b.left - n.left - 40 });
+  }, [active]);
+  // an arrow shows on each side of the row that has more to reach (the row is a plain scroller; this is the sign that it scrolls)
+  useEffect(() => {
+    const nav = snav.current;
+    if (!nav) return;
+    const read = (): void => {
+      const more = nav.scrollWidth > nav.clientWidth + 1;
+      const next = { start: more && nav.scrollLeft > 1, end: more && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1 };
+      setEdge((e) => (e.start === next.start && e.end === next.end ? e : next));
+    };
+    read();
+    nav.addEventListener('scroll', read, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read);
+    ro?.observe(nav);
+    return () => { nav.removeEventListener('scroll', read); ro?.disconnect(); };
+  }, []);
+  const slide = (dir: 1 | -1): void => {
+    const nav = snav.current;
+    if (!nav) return;
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    nav.scrollBy({ left: dir * Math.max(120, Math.round(nav.clientWidth * 0.7)), behavior: calm ? 'auto' : 'smooth' });
+  };
   const go = (id: string): void => {
     const el = root.current?.querySelector<HTMLElement>(`[data-sec="${id}"]`);
     const scroller = document.getElementById('pg-panel');
@@ -66,21 +99,29 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
 
   return (
     <div className="pg-inner pg-set2" ref={root}>
-      <nav className="pg-snav" aria-label="Settings sections">
-        {SETTINGS_NAV.map((n) => {
-          const dot = n.changed ? changed.has(n.changed) : false;
-          return (
-            <button key={n.id} type="button" data-tip={n.id === 'away' ? 'project-away' : undefined} aria-current={active === n.id ? 'true' : undefined} className={active === n.id ? 'on' : ''} onClick={() => go(n.id)}>
-              {n.label}{dot && <><i className="dt" aria-hidden="true" /><span className="sr">, changed from the default</span></>}
-            </button>
-          );
-        })}
+      <div className="pg-snavw">
+        <div className="pg-snavs">
+          <nav className="pg-snav" aria-label="Settings sections" ref={snav}>
+            {SETTINGS_NAV.map((n) => {
+              const dot = n.changed ? changed.has(n.changed) : false;
+              return (
+                <button key={n.id} type="button" data-tip={n.id === 'away' ? 'project-away' : undefined} aria-current={active === n.id ? 'true' : undefined} className={active === n.id ? 'on' : ''} onClick={() => go(n.id)}>
+                  {n.label}{dot && <><i className="dt" aria-hidden="true" /><span className="sr">, changed from the default</span></>}
+                </button>
+              );
+            })}
+          </nav>
+          {edge.start && <button type="button" className="pg-snav-more start" tabIndex={-1} aria-hidden="true" onClick={() => slide(-1)}><PIcon name="back" size={14} /></button>}
+          {edge.end && <button type="button" className="pg-snav-more end" tabIndex={-1} aria-hidden="true" onClick={() => slide(1)}><PIcon name="back" size={14} /></button>}
+        </div>
         <span className="leg"><i aria-hidden="true" />Changed from the default</span>
-      </nav>
+      </div>
       <div className="pg-sbody">
+        <ProjectNotice />
         <General project={project} />
         <Folders project={project} />
         <Members project={project} f={f} />
+        <AskSection project={project} />
         <Away project={project} />
         <Safety project={project} />
         <BudgetSection project={project} />
@@ -128,6 +169,7 @@ function General({ project }: { project: Project }) {
 function Folders({ project }: { project: Project }) {
   const [busy, setBusy] = useState(false);
   const run = async (fn: () => Promise<unknown>): Promise<void> => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
+  const isDefault = usesDefaultFolder(project);
   return (
     <section data-sec="folders" aria-labelledby="set-h-folders">
       <h2 id="set-h-folders" tabIndex={-1}>Folders</h2>
@@ -135,7 +177,8 @@ function Folders({ project }: { project: Project }) {
       <p className="pg-path"><code>{project.folder}</code></p>
       <div className="pg-row2">
         <button type="button" className="pg-btn" disabled={busy} onClick={() => void run(() => chooseFolder(project.id))}>Choose folder&hellip;</button>
-        <button type="button" className="pg-btn ghost" disabled={busy} onClick={() => void run(() => useDefaultFolder(project.id))}>Use default folder</button>
+        <button type="button" className="pg-btn ghost" disabled={busy || isDefault} title={isDefault ? 'This project already uses its default folder.' : undefined} onClick={() => void run(() => useDefaultFolder(project.id))}>Use default folder</button>
+        {isDefault && <span className="muted-s">This project already uses its default folder.</span>}
       </div>
       <ProjectRepoLine project={project} />
     </section>
@@ -279,6 +322,7 @@ export function Safety({ project }: { project: Project }) {
 function BudgetSection({ project }: { project: Project }) {
   const pid = project.id;
   const away = useAway((s) => projectAway(s, pid));
+  const stopOff = useGateOff('budget-stop', pid);
   const b = away.budget;
   const [amount, setAmount] = useState(b ? String(b.limit) : '50');
   const [period, setPeriod] = useState<Period>(b?.period ?? 'week');
@@ -296,7 +340,7 @@ function BudgetSection({ project }: { project: Project }) {
   return (
     <section data-sec="budget" aria-labelledby="set-h-budget">
       <h2 id="set-h-budget" tabIndex={-1}>Budget{changedSections(away).has('budget') && <span className="changed">Changed</span>}</h2>
-      <p className="lead">At the budget, new runs wait, running work finishes, and you get one notification.</p>
+      <p className="lead">{stopOff ? 'Stop at the budget is off for this project, so new runs keep starting past the budget. You still see what you spent and get one notification. Turn it back on in Settings, Gates, Fine tuning.' : 'At the budget, new runs wait, running work finishes, and you get one notification.'}</p>
       <Opt id="bud" title={`Set a ${noun} budget`} help={b ? undefined : 'No budget. Optional.'}>
         <Switch id="bud-sw" on={!!b} label={`Set a ${noun} budget`} onChange={save} />
       </Opt>

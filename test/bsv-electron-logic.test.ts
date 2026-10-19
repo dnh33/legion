@@ -134,7 +134,10 @@ const main = readFileSync(new URL('../../src/electron/main.ts', import.meta.url)
 const preload = readFileSync(new URL('../../src/electron/preload.cjs', import.meta.url), 'utf8');
 
 test('main.ts: the native secret goes to the core over stdin only and never to the renderer, a log, argv or env', () => {
-  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/);
+  // the pipe carries the admin secret, the native secret, the gates line and the provider line (and the connectors key line when there is one), then ends
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ providerLine\)/);
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ gatesLine \+ providerLine \+ keyLine\(connectorKey\)\)/);
+  assert.equal((main.match(/\bstdin\??\.(?:end|write)\(/g) ?? []).length, 2, 'these two calls are the only writes to the core pipe');
   const bootstrap = main.slice(main.indexOf("ipcMain.on('legion:bootstrap'"), main.indexOf("ipcMain.handle('legion:bsv-policy'"));
   assert.doesNotMatch(bootstrap, /nativeSecret|native/i, 'bootstrap must not carry the native secret');
   const spawnBlock = main.slice(main.indexOf('const child = spawn('), main.indexOf('coreProc = child;'));
@@ -145,6 +148,19 @@ test('main.ts: the native secret goes to the core over stdin only and never to t
   assert.equal(uses.length, 5, uses.join('\n'));
   assert.ok(uses.every((l) => /^let nativeSecret|^nativeSecret = |nativeSecret = undefined|headers\['X-Legion-Native'\] = nativeSecret/.test(l)), uses.join('\n'));
   assert.doesNotMatch(preload, /nativeSecret|X-Legion-Native/i, 'the preload has no native secret');
+});
+
+test('C-L4: legion:bootstrap (it hands out the admin secret) and legion:open-external check the sender like the other handlers', () => {
+  const boot = main.slice(main.indexOf("ipcMain.on('legion:bootstrap'"), main.indexOf("ipcMain.handle('legion:bsv-policy'"));
+  assert.match(boot, /senderFrame/);
+  assert.match(boot, /sender\)? !== win\.webContents|\.sender\s*!==\s*win\.webContents/);
+  assert.match(boot, /trustedSender\(bootFrame, uiUrl\)/);
+  assert.ok(boot.indexOf('trustedSender') < boot.indexOf('rendererAdmin'), 'the sender check comes before the secret is read');
+  assert.match(boot, /e\.returnValue = null; return;/, 'a refused sender gets nothing, and the synchronous call still returns');
+  const ext = main.slice(main.indexOf("ipcMain.handle('legion:open-external'"), main.indexOf("ipcMain.on('legion:view'"));
+  assert.match(ext, /\.sender !== win\.webContents/);
+  assert.match(ext, /trustedSender\(frameUrl, uiUrl\)/);
+  assert.ok(ext.indexOf('trustedSender') < ext.indexOf('shell.openExternal'), 'the sender check comes before anything is opened');
 });
 
 test('main.ts: the policy IPC handler checks the sender window and frame URL first, and the native header is sent only to the pinned core after the dialog', () => {

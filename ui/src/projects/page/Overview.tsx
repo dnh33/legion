@@ -14,6 +14,7 @@ import { Digest } from './Digest';
 import { Menu } from './Menu';
 import { PIcon } from './PIcon';
 import type { PIconName } from './PIcon';
+import { useGateOff } from './holdOff';
 import { setTab } from './pageState';
 import type { Lens } from './pageState';
 import { continueTask, openTask, retryTask, stopTask } from './taskActions';
@@ -60,12 +61,13 @@ function SetUp({ project }: { project: Project }) {
 /* ---------- banners ---------- */
 function Banners({ f, project, spend }: { f: PageFacts; project: Project; spend: import('../../api').ProjectSpend | undefined }) {
   const paused = useAway((s) => projectAway(s, project.id).paused);
+  const stopOff = useGateOff('budget-stop', project.id);
   const [pop, setPop] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   if (project.status === 'archived') {
     return <div className="pg-banner neutral" role="note"><PIcon name="archive" size={18} className="bi" /><div className="bt"><b>This project is archived.</b> <span>It starts no new tasks and its board is read-only. Nothing was deleted.</span></div></div>;
   }
-  const hit = budgetBanner(spend?.budget);
+  const hit = budgetBanner(spend?.budget, stopOff);
   void f;
   return (
     <div data-region="banner">
@@ -73,7 +75,7 @@ function Banners({ f, project, spend }: { f: PageFacts; project: Project; spend:
         <div className="pg-banner" role="status">
           <PIcon name="coin" size={18} className="bi" /><div className="bt"><b className="long">{hit.title}</b><b className="short">{hit.shortTitle}</b> <span>{hit.text}</span></div>
           <div className="ba"><button ref={btn} type="button" className="pg-btn" aria-haspopup="dialog" aria-expanded={pop} onClick={() => setPop((v) => !v)}>Change budget</button></div>
-          {pop && <BudgetPop anchor={btn} project={project} budget={spend!.budget} onClose={() => setPop(false)} />}
+          {pop && <BudgetPop anchor={btn} project={project} budget={spend!.budget} stopOff={stopOff} onClose={() => setPop(false)} />}
         </div>
       )}
       {paused && (
@@ -86,7 +88,7 @@ function Banners({ f, project, spend }: { f: PageFacts; project: Project; spend:
   );
 }
 
-function BudgetPop({ anchor, project, budget, onClose }: { anchor: React.RefObject<HTMLElement | null>; project: Project; budget: BudgetVerdict; onClose: () => void }) {
+function BudgetPop({ anchor, project, budget, stopOff, onClose }: { anchor: React.RefObject<HTMLElement | null>; project: Project; budget: BudgetVerdict; stopOff: boolean; onClose: () => void }) {
   const [v, setV] = useState(String(budget.limit ?? ''));
   const n = Number(v);
   const bad = !(n > 0) || !Number.isFinite(n);
@@ -98,10 +100,16 @@ function BudgetPop({ anchor, project, budget, onClose }: { anchor: React.RefObje
         <input className="pg-inp" inputMode="decimal" value={v} aria-label="Budget in dollars" aria-invalid={bad} onChange={(e) => setV(e.target.value)} style={{ width: 90, height: 32, background: 'var(--surface)', border: '1px solid var(--control-line)', borderRadius: 'var(--r)', padding: '0 8px', color: 'var(--text)' }} />
         <button type="button" className="pg-btn" disabled={bad} onClick={() => { void patchAway(project.id, { budget: { limit: n, period } }).then((ok) => { if (ok) { announce('Budget saved.'); onClose(); } }); }}>Save budget</button>
       </label>
-      <p style={{ margin: '8px 0 0' }}>New runs start again as soon as the budget is above what you spent.</p>
-      <hr />
-      <p style={{ margin: '0 0 8px' }}>Or spend over the budget until {period === 'week' ? 'Monday' : 'the next period'}. Runs that start now cost real money.</p>
-      <button type="button" className="pg-btn ghost sm" onClick={() => { void runAnyway(project.id).then((ok) => { if (ok) { announce('Running over the budget until the period ends.'); onClose(); } }); }}>Run anyway this week</button>
+      {stopOff ? (
+        <p style={{ margin: '8px 0 0' }}>Runs are not waiting at the budget, because Stop at the budget is off for this project.</p>
+      ) : (
+        <>
+          <p style={{ margin: '8px 0 0' }}>New runs start again as soon as the budget is above what you spent.</p>
+          <hr />
+          <p style={{ margin: '0 0 8px' }}>Or spend over the budget until {period === 'week' ? 'Monday' : 'the next period'}. Runs that start now cost real money.</p>
+          <button type="button" className="pg-btn ghost sm" onClick={() => { void runAnyway(project.id).then((ok) => { if (ok) { announce('Running over the budget until the period ends.'); onClose(); } }); }}>Run anyway this week</button>
+        </>
+      )}
     </Menu>
   );
 }
@@ -275,7 +283,8 @@ function SideColumn({ f, project, spend, showMembers }: { f: PageFacts; project:
   const rooms = useRooms((s) => s.rooms);
   const rs = roomsOf(rooms, project.id);
   const b = spend?.budget;
-  const block = spendBlock(spend?.week ?? 0, b?.limited ? b : undefined);
+  const stopOff = useGateOff('budget-stop', project.id);
+  const block = spendBlock(spend?.week ?? 0, b?.limited ? b : undefined, stopOff);
   const working = new Set(workingAgents(f));
   return (
     <aside className="pg-side" data-region="side" aria-label="Project summary">

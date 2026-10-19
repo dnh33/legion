@@ -1,11 +1,14 @@
 /** Human-in-the-loop tool approvals. */
 import { BLENDER_EXEC_TOOL } from '../shared/blender.js';
 import { BROWSER_SERVER_NAME, BROWSER_TOOLS } from '../shared/browser.js';
-import { classifySafe } from '../shared/consequence.js';
+import { classifySafe, unknownConsequence } from '../shared/consequence.js';
 import type { Consequence } from '../shared/consequence.js';
-import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
+import { SITE_ANSWERS } from '../shared/types.js';
+import type { ApprovalMode, ApprovalRequest, SiteAnswer } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
+import { stricterMode } from './permission-mode.js';
+import type { RunMode } from './permission-mode.js';
 import { longestWaitSeconds, startAskTimer } from './away/policy.js';
 import type { AskPolicy, AskTimer } from './away/policy.js';
 
@@ -37,11 +40,8 @@ export function isLegionTool(toolName: string): boolean {
  */
 const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set(BROWSER_TOOLS.map((t) => `mcp__${BROWSER_SERVER_NAME}__${t}`));
 
-const MODE_RANK: Record<ApprovalMode, number> = { ask: 0, 'auto-edits': 1, full: 2 };
-/** The stricter (less permissive) of two approval modes. */
-export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
-  return MODE_RANK[a] <= MODE_RANK[b] ? a : b;
-}
+// One rank table for every mode comparison: it lives in permission-mode.ts.
+export { stricterMode };
 
 /** VM tools that burn billing or hand a whole task to another Claude inside the VM. A run capped by another party (an MCP client, or a bot woken by one) needs a card for these. */
 const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop']);
@@ -58,7 +58,7 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
  * (src/core/connectors/gateway.ts, mcp__legion_connectors__) that write outward or spend raise their own card in EVERY mode, full
  * included, by calling `broker.request` directly. They are the only exception to the rule above. Do not "fix" them to go through
  * guardAsk. (Slice 1b shipped READ tools only. Since 2026-10-15 the six GitHub write tools are the carded handlers: src/core/connectors/github/write-tools.ts raises
- * ONE card per write through the gateway's `ask`, in `ask`, `auto-edits` and `full`, on the Claude path and the provider path, with no Remember.)
+ * ONE card per write through the gateway's `ask`, in `ask`, `auto-edits` and `full`, on the Claude path and the provider path, with no Remember, unless the registry says the card is off for the run (Bypass, or the owner's own switch).)
  * Second exception, maintainer decision 2026-10-07: WebFetch and WebSearch in a run that read connector data AND is tainted raise their own
  * card in every mode (Engine.webEgressCard), because web access can carry that data out.
  *
@@ -71,11 +71,11 @@ export interface GuardDecision {
   /** False when the run is `full` and uncapped: the caller must NOT ask, and must go straight to the action. */
   needsCard: boolean;
   /** The mode actually in force, for the reason a card was or was not shown. */
-  mode: ApprovalMode;
+  mode: RunMode;
 }
 
-/** Reads the agent's live approval mode from the store. Returns undefined when the agent is gone. */
-export type ModeOf = (agentId: string) => ApprovalMode | undefined;
+/** Reads the agent's live mode (for that task, when given) from the store. Returns undefined when the agent is gone. */
+export type ModeOf = (agentId: string, taskId?: string) => RunMode | undefined;
 
 /**
  * The one function a guard calls instead of asking on its own. `ask` is called only when a card is genuinely
@@ -85,40 +85,85 @@ export type ModeOf = (agentId: string) => ApprovalMode | undefined;
  */
 export async function guardAsk(
   opts: {
-    ceiling?: ApprovalMode;
+    ceiling?: RunMode;
     /** The live store read. Omit only where no store is reachable; the agent's own setting is then used. */
     modeOf?: ModeOf;
     agentId: string;
+    /** The task the guarded call belongs to, so a task-level mode (a goal's autonomy) is read, not only the agent's own. */
+    taskId?: string;
     /** The agent's setting as it stood when the run started. Used only if `modeOf` cannot answer. */
-    fallbackMode: ApprovalMode;
+    fallbackMode: RunMode;
+    /** What the guarded call does. Smart asks only at level 3; with none given it asks (fails closed). */
+    consequence?: Consequence;
     /** Shows the card and resolves with the owner's answer. Never called in `full`. */
     ask: () => Promise<boolean>;
   },
 ): Promise<boolean> {
-  const live = opts.modeOf?.(opts.agentId);
+  const live = opts.modeOf?.(opts.agentId, opts.taskId);
   const base = live ?? opts.fallbackMode;
   const effective = opts.ceiling ? stricterMode(base, opts.ceiling) : base;
-  if (decideGuard(effective).needsCard) return opts.ask();
+  if (decideGuard(effective, opts.consequence).needsCard) return opts.ask();
   return true;
 }
 
-/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards. */
-export function decideGuard(mode: ApprovalMode): GuardDecision {
-  return { needsCard: mode !== 'full', mode };
+/**
+ * Smart's card test: a level 3 ask (unknown is level 3 too), any ask that reaches the network (`net`), whatever its level, and a local build or
+ * test run (`runs-code`) once an agent changed a build or script file in the project (`buildEdited`, only the engine's tool cards pass it).
+ */
+export const smartCards = (c: Consequence, buildEdited?: boolean): boolean => c.level >= 3 || c.tags.includes('net') || (buildEdited === true && c.tags.includes('runs-code'));
+
+/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards; Smart cards per `smartCards`. */
+export function decideGuard(mode: RunMode, consequence?: Consequence): GuardDecision {
+  if (mode === 'full') return { needsCard: false, mode };
+  if (mode === 'smart') return { needsCard: smartCards(consequence ?? unknownConsequence()), mode };
+  // Ask, Accept edits and smart-edits: a module guard always cards (Accept edits already does)
+  return { needsCard: true, mode };
 }
 
 /**
  * `capped`: the run has an approval ceiling from someone else (it came from an MCP client or was woken by another bot). Then vm_exec,
  * vm_claude and vm_desktop need a card even though they are Legion's own tools; everything else follows the mode as before.
  */
-export function needsApproval(mode: ApprovalMode, toolName: string, opts: { capped?: boolean } = {}): boolean {
+export function needsApproval(mode: RunMode, toolName: string, opts: { capped?: boolean; consequence?: Consequence; buildEdited?: boolean } = {}): boolean {
   if (opts.capped && CAPPED_CARDED.has(toolName)) return true;
   if (BROWSER_TOOL_NAMES.has(toolName)) return false;
   if (mode === 'full') return false;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
+  if (mode === 'smart') return smartCards(opts.consequence ?? unknownConsequence(), opts.buildEdited);
+  // smart-edits (held by Smart and by Accept edits): an edit cards where Smart would (level 3), every other call cards where Accept edits would
+  if (mode === 'smart-edits') return EDIT_TOOLS.has(toolName) ? (opts.consequence ?? unknownConsequence()).level >= 3 : true;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
   // Bash, other mcp__*, and unknown tools
   return true;
+}
+
+/**
+ * Whether the engine's web check (a new site asks, a built-in docs or approved site opens) applies to this call: every mode but Bypass, for the two
+ * web tools. It is not part of `needsApproval`: WebFetch and WebSearch stay read-only there, and the check raises its own card (Engine.askGuards).
+ */
+export function webChecksApply(mode: RunMode, toolName: string): boolean {
+  return mode !== 'full' && webKind(toolName) !== undefined;
+}
+
+/**
+ * Which built-in web tool a call counts as for the web check, the egress card and the gate rules: Legion's two provider tools (the owner's
+ * optional web search and page read providers, src/core/web-search) are judged exactly like WebSearch and WebFetch. Exact names only: a tool of another server
+ * that ends in the same words is not one.
+ */
+export function webKind(toolName: string): 'WebFetch' | 'WebSearch' | undefined {
+  if (toolName === 'WebFetch' || toolName === 'mcp__legion__web_read') return 'WebFetch';
+  if (toolName === 'WebSearch' || toolName === 'mcp__legion__web_search') return 'WebSearch';
+  return undefined;
+}
+
+/**
+ * The input of a web call in the shape the web check reads: a page address for the fetch kind, a query for the search kind. For the provider
+ * tools only those two fields are carried (the TARGET address of a read, the query of a search); the built-in tools keep their input as it is.
+ */
+export function webInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+  if (toolName === 'mcp__legion__web_read') return { url: typeof input?.url === 'string' ? input.url : '' };
+  if (toolName === 'mcp__legion__web_search') return { query: typeof input?.query === 'string' ? input.query : '' };
+  return input;
 }
 
 function compactJson(v: unknown, max: number): string {
@@ -129,7 +174,8 @@ function compactJson(v: unknown, max: number): string {
 
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   const cap = (s: string) => (s.length > 400 ? s.slice(0, 399) + '…' : s);
-  if (toolName === 'Bash' && typeof input?.command === 'string') return cap(input.command);
+  // every shell tool shows its command as written (the card and the activity log read it; JSON would hide it from the log scrub)
+  if ((toolName === 'Bash' || toolName === 'PowerShell' || toolName === 'Monitor' || toolName === 'mcp__host__shell') && typeof input?.command === 'string') return cap(input.command);
   if ((toolName === 'Write' || toolName === 'Edit') && typeof input?.file_path === 'string') return cap(input.file_path);
   if (toolName === BLENDER_EXEC_TOOL && typeof input?.script === 'string') {
     const lines = input.script.split('\n');
@@ -159,7 +205,7 @@ export function describeWaited(elapsedMs: number, baseMs: number): string {
   return `${base} of waiting (quiet hours paused the countdown, so it stayed open for ${long})`;
 }
 
-interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer }
+interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer; alwaysRefusal?: string }
 
 export class ApprovalBroker {
   private readonly items = new Map<string, Pending>();
@@ -189,6 +235,9 @@ export class ApprovalBroker {
     origin?: ApprovalRequest['origin'],
     opts: {
       /** Called when the wait ends in a deny; gets how long the ask really stayed open (quiet hours make that longer than the wait). */ onTimeout?: (waitedMs?: number) => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean;
+      /** A web card: the site and whether Always allow is offered. The four answers go with it. */ site?: NonNullable<ApprovalRequest['site']>;
+      /** Why "Always allow" is refused on this card (said back to the app that sent it). */ alwaysRefusal?: string;
+      /** Called with the card as soon as it is open, so the caller knows its id (for `takeSite`). */ onOpen?: (req: ApprovalRequest) => void;
       /** The run's project (the engine knows it; a module that does not is asked of the policy by task). */ projectId?: string;
       /** What saying yes would do. Absent: worked out here from the tool and its input. */ consequence?: Consequence;
       /** The ask may be parked when its project is set to park (only the engine's own cards). Needs `onPark`. */ parkable?: boolean;
@@ -201,6 +250,7 @@ export class ApprovalBroker {
       summary: opts.summary ?? summarizeToolInput(toolName, input), input, at: nowIso(),
       ...(origin ? { origin } : {}),
       ...(opts.noRemember ? { noRemember: true } : {}),
+      ...(opts.site ? { site: opts.site } : {}),
       ...(projectId ? { projectId } : {}),
       consequence: opts.consequence ?? classifySafe({ kind: 'approval', toolName, input }),
     };
@@ -212,7 +262,8 @@ export class ApprovalBroker {
         onDeny: () => { try { opts.onTimeout?.((this.now ?? Date.now)() - askedAt); } catch { /* advisory */ } this.settle(req.id, false); },
         ...(opts.parkable && opts.onPark ? { onPark: () => { try { opts.onPark!(); } catch { /* advisory */ } this.settle(req.id, false); } } : {}),
       });
-      this.items.set(req.id, { req, resolve: resolvePromise, timer });
+      this.items.set(req.id, { req, resolve: resolvePromise, timer, ...(opts.alwaysRefusal ? { alwaysRefusal: opts.alwaysRefusal } : {}) });
+      try { opts.onOpen?.(req); } catch { /* advisory */ }
       this.bus.emit({ type: 'approval.requested', approval: req });
     });
   }
@@ -223,7 +274,30 @@ export class ApprovalBroker {
    */
   hold(id: string, ms: number): boolean { return this.items.get(id)?.timer.hold(ms) ?? false; }
 
-  resolve(id: string, allow: boolean): boolean { return this.settle(id, allow); }
+  /**
+   * The owner's answer. On a web card a yes may say how far it reaches (`site`): for good, for this goal, or this one call; no `site` means this one call.
+   * A site answer on a No means nothing and is dropped. Throws (the route turns it into a 400, and the card stays open) for a site answer that is not one
+   * of the three, on a card that is not a web card, or `always` where the card does not offer it. An unknown or closed card answers false and changes nothing.
+   */
+  resolve(id: string, allow: boolean, site?: SiteAnswer): boolean {
+    if (site !== undefined && !SITE_ANSWERS.includes(site)) throw new Error('The site answer must be always, goal or once.');
+    const p = this.items.get(id);
+    if (!p) return false;
+    if (site !== undefined && allow) {
+      if (!p.req.site) throw new Error('A site answer belongs on a web card.');
+      if (site === 'always' && !p.req.site.canAlways) throw new Error(p.alwaysRefusal ?? 'Always allow is not offered for this site.');
+      this.sites.set(id, site);
+    }
+    return this.settle(id, allow);
+  }
+
+  /** The site answer that came with a card's yes (once: a second call gets nothing). Read right after the request settles. */
+  takeSite(id: string): SiteAnswer | undefined {
+    const s = this.sites.get(id);
+    this.sites.delete(id);
+    return s;
+  }
+  private readonly sites = new Map<string, SiteAnswer>();
 
   cancelForTask(taskId: string): void {
     for (const [id, p] of [...this.items]) if (p.req.taskId === taskId) this.settle(id, false);

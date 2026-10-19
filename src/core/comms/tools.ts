@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { CommsError } from './hub.js';
 import type { CommsHub, SenderRun } from './hub.js';
 import type { TaskOrigin } from '../../shared/comms.js';
-import type { ApprovalMode } from '../../shared/types.js';
+import type { RunMode } from '../../shared/types.js';
 import { roomModelParam } from '../agent-tools.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
@@ -26,9 +26,9 @@ async function guard(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRe
 
 /** `run` is the engine's view of the task using this server: its taint and its approval ceiling travel with every message the bot sends. */
 export function buildCommsToolsServer(
-  agentId: string, hub: CommsHub, run?: { taint(): boolean; markTainted?(): void; ceiling?: ApprovalMode; taskId?: string; origin?: TaskOrigin },
+  agentId: string, hub: CommsHub, run?: { taint(): boolean; markTainted?(): void; ceiling?: RunMode; taskId?: string; origin?: TaskOrigin },
 ): McpSdkServerConfigWithInstance {
-  const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}), ...(run?.origin?.viaMcpClient ? { viaMcpClient: true } : {}) });
+  const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}), ...(run?.taskId ? { taskId: run.taskId } : {}), ...(run?.origin?.viaMcpClient ? { viaMcpClient: true } : {}) });
   const botList = tool(
     'bot_list',
     'List the other bots you can talk to: id, name, description, state (idle / working / waiting) and the rooms you share with each.',

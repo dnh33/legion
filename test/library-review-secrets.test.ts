@@ -172,6 +172,11 @@ test('R5.6 exportLibrary cannot escape legion/: hostile ids/titles/types from a 
   const mk = (id: string, title: string, type = 'note') => JSON.stringify({ op: 'node', node: { id, type, title, body: 'b', tags: [], scope: 'shared', createdBy: 'alpha', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' } });
   writeFileSync(join(dir, 'graph.jsonl'), [mk('../../evil', '../../../x'), mk('..\\..\\evil2', 'a\\b/c'), mk('CON', 'con'), mk('NUL', 'nul'), mk('aux.txt', 'AUX'), mk('a'.repeat(80), 'z'.repeat(500)), mk('x', 'y', '../../etc')].join('\n') + '\n');
   const g = new Graph({ dir });
+  // What the hostile ids would reach if they escaped is the folder above the vaults: the OS temp folder, which other runs share. A stale
+  // folder of that name (an old run, another tool) must not fail this test, so the check is that nothing there is created or changed.
+  const strays = ['evil', 'evil2', 'x'];
+  const strayState = (): Array<string | null> => strays.map((n) => { try { return readdirSync(join(tmpdir(), n)).sort().join('|'); } catch { return null; } });
+  const strayBefore = strayState();
   const vault = cleanupTemp('vault-');
   exportLibrary(g, vault);
   const lib = resolve(vault, 'legion');
@@ -180,7 +185,7 @@ test('R5.6 exportLibrary cannot escape legion/: hostile ids/titles/types from a 
   walk(vault);
   assert.ok(all.length >= 6);
   for (const p of all) assert.ok(resolve(p).startsWith(lib + sep), p);
-  assert.deepEqual(readdirSync(tmpdir()).filter((f) => f === 'evil' || f === 'evil2' || f === 'x'), []);
+  assert.deepEqual(strayState(), strayBefore, 'nothing was created or written outside legion/ (evil, evil2, x next to the vaults)');
   // symlinked type folder
   const outside = cleanupTemp('outside-');
   const v2 = cleanupTemp('vault-');

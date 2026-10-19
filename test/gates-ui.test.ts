@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
 import {
-  GATE_PRESETS, GATE_RAILS, MODE_TEXT, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
+  GATE_PRESETS, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
 } from '../ui/src/gates/gatesLogic.js';
+import { AGENT_MODE_LABEL, railRows } from '../ui/src/gates/presetsLogic.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const AGENTS = [
@@ -57,7 +58,7 @@ test('ruleHostless: a host rule for an agent without the shell says so; a host-e
 test('consequenceLine tells the truth per class, including the Full + Ask rule', () => {
   assert.match(consequenceLine('deny', 'full'), /every mode/);
   assert.match(consequenceLine('ask', 'full'), /Ask rules are off here/);
-  assert.match(consequenceLine('ask', 'auto-edits'), /Allow edits, ask for Bash\/MCP/);
+  assert.match(consequenceLine('ask', 'auto-edits'), /(Accept edits)/);
   assert.match(consequenceLine('allow', 'ask'), /never loosens a run another bot started/);
 });
 
@@ -68,7 +69,7 @@ test('gateTestResult IS decideGate: a deny rule answers DENY with the rule, no r
   assert.deepEqual(d.matched.map((r) => r.label), ['No rm -rf']);
   assert.equal(gateTestResult([], { toolName: 'Bash', input: { command: 'ls' }, agentId: 'zealot', mode: 'ask' }).verdict, 'baseline');
   assert.equal(VERDICT_TEXT.baseline.includes('mode decides'), true);
-  assert.equal(MODE_TEXT.full, 'Full access, never ask');
+  assert.equal(AGENT_MODE_LABEL.full, 'Full');
 });
 
 test('presets are offered, never auto-applied, and a preset rule is stamped as such', () => {
@@ -77,7 +78,7 @@ test('presets are offered, never auto-applied, and a preset rule is stamped as s
   assert.equal(r.then, 'deny');
   assert.deepEqual(r.when.commands, ['rm -rf *', 'sudo *', 'mkfs*', 'format *']);
   assert.match(r.id, /^gr_/);
-  // destructive classes are never proposed as allow (Hermes rule)
+  // destructive classes are never proposed as allow (a standing rule)
   assert.ok(GATE_PRESETS.every((p) => p.then !== 'allow'));
 });
 
@@ -93,7 +94,11 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
       contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
         import { GatesSection, GateBuilder, GateRuleCard, GateTestOut, GateRails, GateSuggestions } from ${ui('ui/src/gates/GatesSection.tsx')};
         import { AgentEditor } from ${ui('ui/src/components/AgentEditor.tsx')};
+        import { PermissionGates } from ${ui('ui/src/gates/PermissionGates.tsx')};
+        import { FolderTrustCard } from ${ui('ui/src/components/FolderTrustCard.tsx')};
         const render = (el) => renderToStaticMarkup(el);
+        export const trustCard = (text, folders) => render(createElement(FolderTrustCard, { text, folders }));
+        export const fine = (view, scope, busy) => render(createElement(PermissionGates, { view, scope, busy: !!busy, note: null, run: async () => true }));
         export const section = (rules) => render(createElement(GatesSection, { s: { gates: { rules, presetsVersion: 0 } } }));
         export const sectionWith = (gates) => render(createElement(GatesSection, { s: { gates } }));
         export const builder = (draft) => render(createElement(GateBuilder, { draft, setDraft: () => {}, agents: globalThis.__st.agents, projects: globalThis.__st.projects, projectOf: globalThis.__projectOf, mode: draft.mode ?? 'ask', onCancel: () => {}, onSave: () => {}, saveLabel: 'Add gate' }));
@@ -111,11 +116,20 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
         b.onLoad({ filter: /^providers-store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const providerModelGroups = () => []; export const providerModelLabel = (m) => m;
           export const loadProviders = async () => {}; export const useProviders = (sel) => sel(globalThis.__prov ?? { view: null });` }));
+        b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api-stub', namespace: 'stub' }));
+        b.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
+          export class ApiError extends Error {} export const request = async () => []; export const subscribe = () => () => {};` }));
         b.onResolve({ filter: /armory\/AgentSkills$/ }, () => ({ path: 'agent-skills', namespace: 'stub' }));
         b.onLoad({ filter: /^agent-skills$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const AgentSkills = () => null; export const settingOf = (v) => v ?? 'inherit'; export const valueOf = () => ({ mode: 'inherit' });` }));
         b.onResolve({ filter: /armory\/armoryStore$/ }, () => ({ path: 'armory-store', namespace: 'stub' }));
         b.onLoad({ filter: /^armory-store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `export const revealSkill = () => {};` }));
+        b.onResolve({ filter: /useGatesView$/ }, () => ({ path: 'use-gates-view', namespace: 'stub' }));
+        b.onLoad({ filter: /^use-gates-view$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
+          export const useGatesView = () => ({ view: globalThis.__gv ?? null, loadError: null, reload: async () => {}, apply: async () => ({ state: 'ok' }) });
+          export const useGatesAction = () => ({ pending: false, note: null, run: async () => true });
+          export const loadWebHosts = async () => ({ lastUsed: {}, approvedAt: {} }); export const loadActivity = async () => []; export const reloadGatesFromDisk = async () => {};
+          export const PENDING_TEXT = 'Waiting for you to confirm in the window';` }));
         b.onResolve({ filter: /^(\.\.\/)*store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onLoad({ filter: /^store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const useStore = (sel) => sel(globalThis.__st);
@@ -136,7 +150,7 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
   return { r: createRequire(file)(file) as Render, saved: g.__saved, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-const baseState = () => ({ agents: AGENTS, projects: [{ id: 'website', name: 'website' }], catalog: null, boatHealth: null });
+const baseState = () => ({ agents: AGENTS, projects: [{ id: 'website', name: 'website', members: ['zealot', 'scout'] }], tasks: [], catalog: null, boatHealth: null });
 
 test('render: an empty Gates section teaches the layering and offers the tester, the preset and the locked rails', async () => {
   const { r, saved, cleanup } = await loadUi(baseState());
@@ -149,7 +163,7 @@ test('render: an empty Gates section teaches the layering and offers the tester,
     assert.match(html, /Try it/);
     assert.match(html, /Nothing runs/);
     assert.match(html, /Rails — locked|Rails/);
-    for (const rail of GATE_RAILS) assert.ok(html.includes(rail.title), `rail shown: ${rail.title}`);
+    for (const rail of railRows()) assert.ok(html.includes(rail.label.replace(/'/g, '&#x27;')), `rail shown: ${rail.label}`); // the page escapes the straight apostrophe
     assert.equal(saved.length, 0, 'rendering decides nothing and saves nothing');
   } finally { cleanup(); }
 });
@@ -250,4 +264,142 @@ test('every tool group the core knows has a chip in Settings -> Gates (a group t
   const { GATE_TOOL_GROUPS } = await import('../src/core/gates.js');
   assert.deepEqual(TOOL_CHIPS.map((c) => c.id).sort(), Object.keys(GATE_TOOL_GROUPS).sort());
   assert.equal(TOOL_CHIPS.find((c) => c.id === 'tasks')?.label, 'Task list');
+});
+
+// ---------------------------------------------------------------- the Gates page (Task 12)
+
+test('render: the Gates page shows the presets, the notes, fine tuning, QA, rails and activity', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    (globalThis as { __gv?: unknown }).__gv = { app: { version: 1, preset: 'smart' }, projects: {}, unreadable: [], changedOutside: [], canSign: true };
+    const html = r.section([]);
+    assert.match(html, /How agents ask/);
+    assert.match(html, /role="radio"|type="radio"/);
+    for (const label of ['Ask', 'Accept edits', 'Smart', 'Bypass']) assert.ok(html.includes(`<b>${label}</b>`), label);
+    assert.match(html, /<input type="radio"[^>]*checked=""[^>]*\/><span><b>Smart<\/b>/, 'Smart is the chosen preset');
+    assert.ok(html.includes('Legion has no sandbox for commands on your computer.'));
+    assert.match(html, /Fine tuning/);
+    assert.match(html, /class="gates-value">On, limit 4</, 'at the app default the gates read as plain values, not switches');
+    assert.ok(!/role="switch"/.test(html));
+    assert.match(html, /Check which websites agents read/, 'the new web gate has a row');
+    assert.doesNotMatch(html, /These follow each goal.s care level|QA gates|Limit the size of a goal|A separate reviewer/, 'the goal and QA rows wait for goals');
+    assert.match(html, />14 permission gates\./, 'the Fine tuning count is the rows shown');
+    assert.equal((html.match(/class="gates-gate-wrap"/g) ?? []).length, 14, 'and 14 rows are shown');
+    for (const label of ['A few seconds to take back an Allow', 'Stop runs that stall', 'Stop at the budget']) assert.ok(html.includes(label), `${label} has a switch row`);
+    assert.ok(!html.includes('Not used: without this'), 'ask-timeout-deny has no switch row');
+    assert.match(html, /No answer means no[\s\S]{0,120}refused after 10 minutes[\s\S]{0,200}Always on/, 'it is in the rails list with its sentence');
+    assert.match(html, /Always on/);
+    assert.match(html, /Activity/);
+    assert.ok(!/Gate settings changed outside Legion/.test(html), 'no banner when nothing changed');
+    assert.ok(!/Shell safety floor|Expert/.test(html), 'no expert block, no shell-floor switch');
+    assert.ok(!html.includes('\u2014'), 'no em dash anywhere on the page');
+  } finally { delete (globalThis as { __gv?: unknown }).__gv; cleanup(); }
+});
+
+test('render: a file changed outside Legion shows the banner with Accept and Keep mine; without a key the looser presets say why', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    (globalThis as { __gv?: unknown }).__gv = { app: { version: 1 }, projects: {}, unreadable: ['website'], changedOutside: ['app'], canSign: false };
+    const html = r.section([]);
+    assert.match(html, /Gate settings changed outside Legion\./);
+    assert.match(html, /Legion is using Ask for all projects until you decide\./);
+    assert.match(html, />Accept</); assert.match(html, />Keep mine</); assert.match(html, />Reload</);
+    assert.match(html, /The gate settings for the project website could not be read, so Legion is using Ask for it\./);
+    assert.ok(html.includes('Legion cannot sign settings on your computer, so only Ask is available.'));
+    assert.equal((html.match(/type="radio"[^>]*disabled=""/g) ?? []).length, 3, 'the three looser radios are disabled');
+  } finally { delete (globalThis as { __gv?: unknown }).__gv; cleanup(); }
+});
+
+// ---------------------------------------------------------------- the keep list editor ("Variables commands may keep")
+
+const gv = (envKeep?: string[], over: Record<string, unknown> = {}) => ({ app: { version: 1, ...(envKeep ? { envKeep } : {}) }, projects: {}, unreadable: [], changedOutside: [], canSign: true, ...over });
+
+test('render: at the app default the env-scrub row has the keep list editor: label, field, Add off while empty, the empty line, the note', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(), 'app');
+    assert.match(html, /Variables commands may keep/);
+    assert.match(html, /<input[^>]*aria-label="Variable name"/);
+    assert.match(html, /<button[^>]*disabled=""[^>]*>Add<\/button>/, 'nothing typed, Add is off');
+    assert.match(html, /None are kept/);
+    assert.match(html, /every project and outside projects/);
+    assert.match(html, /values are never shown/i);
+    assert.ok(html.indexOf('Variables commands may keep') > html.indexOf('Keep keys and passwords out of commands'), 'it hangs under the env-scrub gate');
+    assert.ok(!html.includes('\u2014'));
+  } finally { cleanup(); }
+});
+
+test('render: the kept names are listed with a Remove button each, and the empty line goes', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(['NPM_TOKEN', 'MYAPP_*']), 'app');
+    assert.match(html, /<code>NPM_TOKEN<\/code>/);
+    assert.match(html, /<code>MYAPP_\*<\/code>/);
+    assert.match(html, /aria-label="Remove NPM_TOKEN"/);
+    assert.match(html, /aria-label="Remove MYAPP_\*"/);
+    assert.match(html, /Prefix: every name that starts with MYAPP_/);
+    assert.ok(!/None are kept/.test(html));
+  } finally { cleanup(); }
+});
+
+test('render: Add and Remove are off while a change is waiting for your yes', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(['NPM_TOKEN']), 'app', true);
+    assert.match(html, /aria-label="Remove NPM_TOKEN"[^>]*disabled=""|disabled=""[^>]*aria-label="Remove NPM_TOKEN"/);
+    assert.match(html, /<input[^>]*aria-label="Variable name"[^>]*disabled=""|<input[^>]*disabled=""[^>]*aria-label="Variable name"/);
+  } finally { cleanup(); }
+});
+
+test('render: for a single project the editor is not shown, and a line says the list is shared and where to change it', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.fine(gv(['NPM_TOKEN'], { projects: { website: { version: 1 } } }), 'website');
+    assert.ok(!/aria-label="Variable name"/.test(html));
+    assert.match(html, /The variables kept for commands are the same in every project\. Choose Everything above to change them\./);
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------- folder trust (security finding H1)
+
+const REPO_FOLDER = 'D:/bots/qa-trust-repo';
+const HELD = [{ folder: REPO_FOLDER, lines: ['Hook PreToolUse (command) in .claude/settings.json runs: node mark-it.js', 'Environment variables set by .claude/settings.json: MY_TOKEN (values are not shown)'], more: 0 }];
+
+test('render: the thread card names the folder, what was held back, and offers Trust this folder', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const html = r.trustCard("This folder's own Claude Code settings and skills can run commands, and you have not trusted it, so this run used your user settings only.\nmore", HELD);
+    assert.match(html, /This folder&#x27;s settings were held back/);
+    assert.ok(html.includes(REPO_FOLDER));
+    assert.match(html, /Hook PreToolUse \(command\) in \.claude\/settings\.json runs: node mark-it\.js/);
+    assert.match(html, /MY_TOKEN \(values are not shown\)/);
+    assert.match(html, />Trust this folder<\/button>/);
+    assert.ok(!html.includes('—'));
+    assert.ok(!/border-left|border-right/.test(html));
+  } finally { cleanup(); }
+});
+
+test('render: a long list is cut to a few lines and a count, and says the confirmation lists all', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const lines = Array.from({ length: 10 }, (_, i) => `Hook E${i} (command) in .claude/settings.json runs: c${i}`);
+    const html = r.trustCard('x', [{ folder: REPO_FOLDER, lines, more: 0 }]);
+    assert.ok(html.includes('runs: c5') && !html.includes('runs: c6'));
+    assert.match(html, /and 4 more\. The confirmation lists all of them\./);
+  } finally { cleanup(); }
+});
+
+test('render: Folders you trust, at the app default, lists each folder with Remove; with none it says what that means', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const none = r.fine(gv(), 'app');
+    assert.match(none, /Folders you trust/);
+    assert.match(none, /No folder is trusted\. Agents still read a project&#x27;s CLAUDE\.md and rules as text/);
+    const some = r.fine(gv(undefined, { app: { version: 1, trustedFolders: [{ folder: REPO_FOLDER, digest: 'a'.repeat(64) }] } }), 'app');
+    assert.ok(some.includes(REPO_FOLDER));
+    assert.match(some, /aria-label="Remove D:\/bots\/qa-trust-repo"/);
+    assert.ok(!/No folder is trusted/.test(some));
+    const proj = r.fine(gv(undefined, { projects: { website: { version: 1 } } }), 'website');
+    assert.ok(!/Folders you trust/.test(proj), 'trust is for the whole app, not a project');
+  } finally { cleanup(); }
 });

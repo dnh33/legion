@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { LegionConfig } from '../../../src/shared/types';
 import { api } from '../api';
-import { openSettings, runDoctor, useStore } from '../store';
+import { openSettings, runDoctor, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { Icon } from './icons';
 import { Modal } from './Modal';
+
+/** Checks whose fix is a sentence that points at a Settings page: it is shown as text with a button there, not as a command to copy. */
+const SETTINGS_FIX: Record<string, SettingsSection> = { 'provider-keys': 'providers' };
+const SETTINGS_FIX_LABEL: Record<string, string> = { 'provider-keys': 'Open Providers settings' };
 
 export function DoctorModal() {
   const checks = useStore((s) => s.doctor);
@@ -27,7 +31,8 @@ export function DoctorModal() {
               <b>{c.label}{isOptional(c) && <span className="opt-tag">Optional {'·'} not set up</span>}</b>
               <p>{isOptional(c) ? 'Agent VMs stay off until you add a boat.dev key. Everything else works without it.' : c.detail}</p>
               {c.id === 'boat' && (!c.ok || isOptional(c)) && <button className="btn sm" style={{ marginTop: 8 }} onClick={() => openSettings('boat')}>Open boat.dev settings</button>}
-              {(!c.ok || isOptional(c)) && c.fix && c.id !== 'boat' && <div className="cmd fix"><code>{c.fix}</code><button className="btn-ghost sm" onClick={() => void copyText(c.fix!)}><Icon name="copy" size={12} /> Copy</button></div>}
+              {!c.ok && c.fix && c.id in SETTINGS_FIX && <><p className="muted-s fix-prose">{c.fix}</p><button className="btn sm" onClick={() => openSettings(SETTINGS_FIX[c.id])}>{SETTINGS_FIX_LABEL[c.id]}</button></>}
+              {(!c.ok || isOptional(c)) && c.fix && c.id !== 'boat' && !(c.id in SETTINGS_FIX) && <div className="cmd fix"><code>{c.fix}</code><button className="btn-ghost sm" onClick={() => void copyText(c.fix!)}><Icon name="copy" size={12} /> Copy</button></div>}
             </div>
           </li>
         ))}

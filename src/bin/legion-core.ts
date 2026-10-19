@@ -4,11 +4,15 @@
 import { describeError, setFatalSink } from '../core/log/install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
+import { ProviderKeyring } from '../core/providers/keyring.js';
+import { updateCommitted } from '../core/updater/committed.js';
 import { createProvidersModule } from '../core/providers/routes.js';
+import { WebSearchService } from '../core/web-search/index.js';
+import { createWebSearchModule } from '../core/web-search/routes.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
-import { readLaunchSecrets } from '../core/admin.js';
+import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -37,11 +41,15 @@ import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
 import { createAwayCore, createAwayModule } from '../core/away/index.js';
 import { createGatesCore, createGatesModule } from '../core/gates-settings/index.js';
+import { createActivityLog, createActivityModule } from '../core/activity/index.js';
+import { GatesKeyring } from '../core/gates-settings/keyring.js';
 import { agentIdVisible } from '../core/visibility.js';
 import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
+import { attemptLimits } from '../core/marshal/ledger.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
+import { installFolderTargets } from '../core/exec/canonical-path.js';
 import { VmManager } from '../core/vm-manager.js';
 
 // One sink: <dataDir>/logs. log() is a thin call into it (component 'core') and writes nothing else: core.log (the raw stream file
@@ -66,13 +74,19 @@ setFatalSink((event, e) => {
 async function main() {
   // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
   // The second line is the NATIVE secret (main only, never the window): BSV policy changes need it as well.
-  // A third line (KEY <hex>, connectors data key, memory only) is accepted from the same pipe; the two secrets are read exactly as before.
+  // The later lines (gates, provider and connectors keys, memory only) come from the same pipe. With the callback the answer waits until Electron main has ended the pipe
+  // (it always does, right after writing), so every keyring below is complete before the key stores are built; a 5 s cap keeps a stuck pipe from holding the start.
   const connectorKeyring = new ConnectorKeyring();
-  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); });
+  const gatesKeyring = new GatesKeyring();
+  // the provider keys' data key (PKEY <hex>, or PKEY - unavailable / unreadable): memory only, like the other two
+  const providerKeyring = new ProviderKeyring();
+  // read BEFORE readLaunchSecrets, which clears the flag: an app-started core with no PKEY line is "no key", not "no app"
+  const launchedByApp = process.env[ADMIN_STDIN_FLAG] === '1';
+  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); gatesKeyring.installLine(line); providerKeyring.installLine(line); });
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
-  const config = loadConfig();
+  const config = loadConfig({ log: (l) => log(l) });
   const store = new Store(dataDir());
   // The one GitHub client (no network until something asks). Everyone else reaches it through getGitHubClient().
   createGitHubClient({ tokens: new TokenStore(join(dataDir(), 'connectors'), connectorKeyring), log: (l) => log(l) });
@@ -91,18 +105,29 @@ async function main() {
   const questions = new QuestionBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
   // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
-  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())), cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
+  // ONE key store for the model providers and the web providers: a second instance on the same file would write its own copy back over the other's keys
+  // With the data key from the launch line the keys are encrypted in providers/keys.enc; without it this is today's keys.json.
+  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const dataKey = providerKeyring.get();
+  const noKey = providerKeyring.noKey();
+  const providerKeys = new ProviderKeys(keyFileFor(dataDir()), { ...(dataKey ? { dataKey } : {}), ...(noKey ? { noKey } : {}), launchedByApp, committed: () => updateCommitted(installRoot) });
+  // the optional web search and page read providers (off by default: both choices are the built-in tools); the service reads the live config.webSearch
+  const webSearch = new WebSearchService({ config: () => config.webSearch, keys: providerKeys });
+  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: providerKeys, cacheFile: join(dataDir(), 'provider-models.json') }) : undefined;
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
   // the away features (0.3.0): the owner's absence settings, the spend ledger, pause and budget. The brokers and the engine read them; with no settings they behave as before
-  const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects });
+  // gatesCore is made just below; the notice for a reached budget asks it, when the budget is reached, whether the stop is on
+  const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects, stopsAtBudget: (pid) => gatesCore.gate('budget-stop', pid) !== false });
   approvals.setPolicy(awayCore.service.policy());
   questions.setPolicy(awayCore.service.policy());
-  // gate presets (spec 2026-10-14 goals and gates, part 1: Ask only, so every run keeps its agent's own mode)
-  const gatesCore = createGatesCore({ dataDir: dataDir(), projects });
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  // gate presets (spec 2026-10-14 goals and gates): signed files, a key of their own (gates-key.bin), no looser preset without the key
+  const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring, inheritMcp: () => config.claude.inheritMcp === true });
+  // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
+  const activity = createActivityLog({ dataDir: dataDir() });
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
-  engine.bridge.catalog = () => getCatalog({ config });
+  engine.bridge.catalog = () => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() });
   let stopReaper: () => void = () => {};
   const restartReaper = (keyChanged = false) => {
     stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {};
@@ -111,7 +136,6 @@ async function main() {
     vms.health.reset();
     if (keyChanged && boatConfigured()) void vms.health.probe().catch(() => undefined);
   };
-  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), install: { dir: installRoot, packaged: isPackageInstall(installRoot) }, onBoatChange: () => restartReaper(true) });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
@@ -131,9 +155,10 @@ async function main() {
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+  const webSearchModule = createWebSearchModule({ config: () => config.webSearch, keys: providerKeys, service: webSearch, configPath: configPath(), nativeSecret });
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
-  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service })] : [];
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service, limits: (pid) => attemptLimits(gatesCore.gate('attempt-caps', pid)), stallLadder: (pid) => gatesCore.gate('stall-ladder', pid) !== false, activity })] : [];
   const away = createAwayModule(moduleDeps, {
     projects, core: awayCore, questions,
     agentOk: (id) => agentIdVisible({ bsvEnabled, store }, id),
@@ -145,14 +170,15 @@ async function main() {
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
-  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
+  // Legion's own program folder is protected like the data folder, but only for an installed Legion (a dev checkout stays editable)
+  const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, activity, dataDir: dataDir(), installTargets: installFolderTargets(installRoot, isPackageInstall(installRoot)), ...(nativeSecret ? { nativeSecret } : {}) });
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, createActivityModule(moduleDeps, activity), bsv, blender, ...providersModules, webSearchModule, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
-    doctor: () => runDoctor({ config, getBoat, health: vms.health }),
-    catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret, projects, away: awayCore.service, ...(board ? { board } : {}),
+    doctor: () => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys }),
+    catalog: (force) => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() }, { force }),
+    settings, adminSecret, projects, agentMode: gates.agentMode, away: awayCore.service, ...(board ? { board } : {}),
   });
 
   restartReaper();

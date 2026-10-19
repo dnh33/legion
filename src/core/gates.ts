@@ -21,7 +21,9 @@
  * of a deny. Within one class every matching rule agrees on the verdict, so `ruleIds` lists every rule whose
  * `when` matched (config order) for the "why am I asking?" popover.
  */
-import type { ApprovalMode, GateRule, GateVerdict, GateWhen } from '../shared/types.js';
+import type { GateRule, GateVerdict, GateWhen } from '../shared/types.js';
+import { callHosts } from '../shared/web-verdict.js';
+import type { RunMode } from './permission-mode.js';
 
 /**
  * Tool groups a rule's `when.tools` may name (the UI writes these; nobody types raw tool names). A group is
@@ -34,10 +36,10 @@ export const GATE_TOOL_GROUPS: Record<string, readonly string[]> = {
   /** File writes: Claude Code's edit tools plus the agent shell's write. */
   edits: ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'mcp__host__write_file'],
   /** File/one-shot reads: needsApproval's read-only set (less the task list, its own group below), plus the agent shell's read. */
-  reads: ['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'Task', 'Agent', 'mcp__host__read_file'],
+  reads: ['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'mcp__legion__web_read', 'mcp__legion__web_search', 'Task', 'Agent', 'mcp__host__read_file'],
   /** The run's own task list on every runtime: Claude Code's TodoWrite and Task tools, and a provider run's todo_* tools. */
   tasks: ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'mcp__legion__todo_create', 'mcp__legion__todo_update', 'mcp__legion__todo_list', 'mcp__legion__todo_get'],
-  web: ['WebFetch', 'WebSearch'],
+  web: ['WebFetch', 'WebSearch', 'mcp__legion__web_read', 'mcp__legion__web_search'],
   /** The agent shell's own tools (server `host` in src/core/exec/host-tools.ts). */
   host: ['mcp__host__shell', 'mcp__host__read_file', 'mcp__host__write_file'],
   connectors: ['mcp__legion_connectors__'],
@@ -376,6 +378,13 @@ export function whenMatches(when: GateWhen, c: GateCall): boolean {
     if (typeof cmd !== 'string' || !cmd.trim()) return false;
   }
   if (when.projects?.length && !(c.projectId && when.projects.includes(c.projectId))) return false;
+  if (when.hosts?.length) {
+    // Exact match on a canonical host of the call's `url` field (other url-like fields are not read): its own host, the host of an
+    // address carried inside it, or a relay's scheme-less target. No subdomains, no path. No url or no host means no match.
+    const url = c.input?.url;
+    const hs = typeof url === 'string' ? callHosts(url) : [];
+    if (!hs.some((h) => when.hosts!.includes(h))) return false;
+  }
   if (when.contexts?.length) {
     const ctx = { capped: false, roomHop: false, tainted: false, connectorData: false, ...c.ctx };
     // The stored context names use dashes ('room-hop'); the call's flags are camelCase. Map, never compare raw.
@@ -395,7 +404,7 @@ export function whenMatches(when: GateWhen, c: GateCall): boolean {
  * No I/O, no store, no config: the caller passes the rules it read (the engine re-reads config.gates on every
  * call, so a mid-task change applies on the next tool call — no restart, no prompt-cache break).
  */
-export function decideGate(input: GateCall, rules: readonly GateRule[], mode: ApprovalMode, capped: boolean): GateDecision {
+export function decideGate(input: GateCall, rules: readonly GateRule[], mode: RunMode, capped: boolean): GateDecision {
   const cmd = typeof input.input?.command === 'string' ? input.input.command : undefined;
   const subs = cmd && cmd.trim() ? splitCommand(cmd) : undefined;
   const allowSubs = cmd && cmd.trim() ? allowSubcommands(cmd) : undefined;
@@ -405,6 +414,7 @@ export function decideGate(input: GateCall, rules: readonly GateRule[], mode: Ap
   const matched: GateRule[] = [];
   for (const r of rules) {
     if (!r.enabled) continue;
+    if (r.then === 'allow' && r.when.hosts?.length) continue; // never valid (normalizeGates refuses it); skipped here as well
     const lostProject = r.then !== 'allow' && !!call.startProjectId && call.startProjectId !== call.projectId;
     if (!whenMatches(r.when, call) && !(lostProject && whenMatches(r.when, { ...call, projectId: call.startProjectId }))) continue;
     // Command scoping is class-aware (any-subcommand for deny/ask, every-subcommand for allow); paths are the

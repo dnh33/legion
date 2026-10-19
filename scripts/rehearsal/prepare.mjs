@@ -19,6 +19,11 @@
 //   stranded2: version 0.99.3, a code-only release with the same lock as stranded, also carrying its full package: a stranded-2 install must take the
 //         CODE package and never download the carried one
 //   bad:  version 0.99.1, the same as good but its Electron main exits at once, so the first start fails and must be rolled back
+//   unix, unixbad, unixold (scripts/rehearsal/run-unix.mjs, the Mac and Linux jobs): CODE-ONLY releases that keep the lock of THIS checkout, which is also the lock of the
+//         throwaway baseline the Unix jobs install, so the code route is taken. unix 0.99.0 is the good one, unixbad 0.99.1 has a main that exits (rolled back),
+//         unixold 0.97.0 is validly signed but older than the baseline 0.98.0 (a downgrade, refused). Laid out like a real release after the stone: the second
+//         name is the release, the old name is the real stone's signed manifest. unix-badsig is unix's second-name manifest with its version text changed
+//         after signing and the ORIGINAL .sig, so the signature no longer matches the bytes. None of them has a Windows package.
 // usage: node scripts/rehearsal/prepare.mjs --out <folder outside the repo> [--good 0.99.0] [--bad 0.99.1] [--base 0.98.0]
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,7 +38,7 @@ if (!a.out) die('usage: node scripts/rehearsal/prepare.mjs --out <folder outside
 const out = resolve(a.out);
 if (insideGitTree(out)) die('--out must be outside the repository and any git work tree (the throwaway key is written there)');
 const STONE = readStones().at(-1);
-const versions = { good: a.good ?? '0.99.0', bad: a.bad ?? '0.99.1', base: a.base ?? '0.98.0', later: a.later ?? '0.99.2', stone: STONE, stranded: '0.99.2', stranded2: '0.99.3' };
+const versions = { good: a.good ?? '0.99.0', bad: a.bad ?? '0.99.1', base: a.base ?? '0.98.0', later: a.later ?? '0.99.2', stone: STONE, stranded: '0.99.2', stranded2: '0.99.3', unix: a.good ?? '0.99.0', unixbad: a.bad ?? '0.99.1', unixold: '0.97.0' };
 mkdirSync(out, { recursive: true });
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -101,6 +106,7 @@ const PLAN = {
   base: { lock: () => checkoutLock, full: true }, good: { lock: () => checkoutLock, full: true }, bad: { lock: () => checkoutLock, full: true },
   later: { lock: () => stoneLock, full: false },
   stranded: { lock: () => checkoutLock, marker: true, full: true }, stranded2: { lock: () => checkoutLock, marker: true, full: false },
+  unix: { lock: () => checkoutLock, full: false }, unixbad: { lock: () => checkoutLock, full: false }, unixold: { lock: () => checkoutLock, full: false },
 };
 for (const name of Object.keys(PLAN)) {
   const version = versions[name];
@@ -111,7 +117,7 @@ for (const name of Object.keys(PLAN)) {
   patch('package.json', (t) => { const j = JSON.parse(t); j.version = version; return JSON.stringify(j, null, 2) + '\n'; });
   patch('package-lock.json', () => lockFor(PLAN[name].lock(), version, PLAN[name].marker));
   patch('dist/src/shared/config.js', (t) => { const re = /(export const VERSION = ')[^']+(')/; if (!re.test(t)) die('dist/src/shared/config.js has no VERSION to patch'); return t.replace(re, `$1${version}$2`); });
-  if (name === 'bad') writeFileSync(join(tree, 'dist/src/electron/main.js'), '// rehearsal: a build whose first start fails\nprocess.exit(1);\n');
+  if (name === 'bad' || name === 'unixbad') writeFileSync(join(tree, 'dist/src/electron/main.js'), '// rehearsal: a build whose first start fails\nprocess.exit(1);\n');
 
   const pkg = join(out, `pkg-${name}`);
   rmSync(pkg, { recursive: true, force: true });
@@ -146,6 +152,28 @@ for (const name of Object.keys(PLAN)) {
     copyTo(ld, pkg, ['legion-update-manifest-2.json', 'legion-update-manifest-2.json.sig', `legion-${version}-app.zip`]);
     rmSync(tree, { recursive: true, force: true });
     console.log(`prepared later ${version}`);
+    continue;
+  }
+  if (name === 'unix' || name === 'unixbad' || name === 'unixold') {
+    // Not run through release-verify: that tool checks a code-only release against the STONE's lock, and these carry this checkout's lock on purpose.
+    run('release-manifest.mjs', ['--zip', app, '--notes', notes, '--out', pkg, '--stepping-stone', stoneDir]);
+    sign(join(pkg, 'legion-update-manifest-2.json'));
+    const dirName = { unix: 'unix-good', unixbad: 'unix-bad', unixold: 'unix-old' }[name];
+    const ud = join(served, dirName);
+    withStone(ud);
+    copyTo(ud, pkg, ['legion-update-manifest-2.json', 'legion-update-manifest-2.json.sig', `legion-${version}-app.zip`]);
+    if (name === 'unix') {
+      const bd = join(served, 'unix-badsig');
+      withStone(bd);
+      copyTo(bd, pkg, ['legion-update-manifest-2.json.sig', `legion-${version}-app.zip`]);
+      const mf = join(pkg, 'legion-update-manifest-2.json');
+      const text = readFileSync(mf, 'utf8');
+      const tampered = text.replace(`"version": "${version}"`, '"version": "0.99.9"');
+      if (tampered === text) die('could not tamper with the unix manifest: no version line');
+      writeFileSync(join(bd, 'legion-update-manifest-2.json'), tampered);
+    }
+    rmSync(tree, { recursive: true, force: true });
+    console.log(`prepared ${name} ${version}`);
     continue;
   }
   if (name === 'stranded' || name === 'stranded2') {

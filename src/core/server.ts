@@ -31,6 +31,8 @@ import { checkRequest, dropNonLoopback, originAllowed } from './net-guard.js';
 import { publicBoatHealth } from './boat-health.js';
 import type { ProjectStore } from './projects/store.js';
 import type { BoardStore } from './projects/board/store.js';
+import { modeOf, previewAgentMode } from './gates-settings/agent-mode.js';
+import type { AgentModeGuard } from './gates-settings/agent-mode.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -53,6 +55,8 @@ export interface CoreContext {
   away?: { caps(): CoreCaps; parked(): ParkedAsk[] };
   /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
+  /** Checks a change of an agent's mode (the gates module makes it). Absent: only a change that keeps or tightens the mode is accepted. */
+  agentMode?: AgentModeGuard;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -219,6 +223,8 @@ function parseAgentFields(b: Record<string, unknown>) {
     host: parseHost(b.host),
     model: parseModel(b.model),
     approval: oneOf(b.approval, 'approval', APPROVALS),
+    // where the mode comes from: the agent's own, or its project's preset ("Follow project")
+    approvalSource: oneOf(b.approvalSource, 'approvalSource', ['own', 'project']),
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
     connectors: parseConnectors(b.connectors),
@@ -327,11 +333,23 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- agents ----------------------------------------------------------
   route('GET', '/api/agents', () => ctx.store.listAgents().filter(visible));
-  route('POST', '/api/agents', ({ body }) => {
+  /**
+   * A change that RAISES how little an agent asks (Accept edits, Full, or following a project whose preset is looser) comes only from the app
+   * after its confirmation dialog: the native secret and the digest of the exact change. Keeping or tightening the mode needs nothing.
+   */
+  const guardMode = (c: Ctx, o: { cur: AgentProfile | undefined; name: string; change: { approval?: ApprovalMode; approvalSource?: 'own' | 'project' } }): void => {
+    if (ctx.agentMode) { ctx.agentMode.check(c, o); return; }
+    // no gates module in this core: nothing can be confirmed, so only a change that keeps or tightens the mode is taken
+    const pv = previewAgentMode({ agentId: o.cur?.id, name: o.name, before: modeOf(o.cur), change: o.change, world: { appPreset: undefined, projects: [] } });
+    if (pv.raises) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
+  };
+  route('POST', '/api/agents', (c) => {
+    const { body } = c;
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const f = parseAgentFields(body);
     const name = (f.name ?? '').trim();
     if (!name) throw new HttpError(400, 'name is required');
+    guardMode(c, { cur: undefined, name, change: { ...(f.approval ? { approval: f.approval } : {}), ...(f.approvalSource ? { approvalSource: f.approvalSource } : {}) } });
     const taken = new Set(ctx.store.listAgents().map((a) => a.id));
     const base = slugify(name);
     const id = uniqueAgentId(base, taken);
@@ -344,6 +362,7 @@ export function createServer(ctx: CoreContext): Server {
       model: f.model ?? 'auto',
       vm: { enabled: false, size: 'default', idleStopMinutes: 15, ...f.vm },
       approval: f.approval ?? 'ask',
+      ...(f.approvalSource ? { approvalSource: f.approvalSource } : {}),
       mcpServers: f.mcpServers ?? ['*'],
       ...(f.connectors?.length ? { connectors: f.connectors } : {}),
       ...(f.githubWrite?.length ? { githubWrite: f.githubWrite } : {}),
@@ -357,12 +376,14 @@ export function createServer(ctx: CoreContext): Server {
     ctx.bus.emit({ type: 'agent.updated', agent: saved });
     return saved;
   }, 201);
-  route('PATCH', '/api/agents/:id', ({ params, body }) => {
+  route('PATCH', '/api/agents/:id', (c) => {
+    const { params, body } = c;
     const cur = ctx.store.getAgent(params[0]);
     if (!cur) throw new HttpError(404, `Unknown agent "${params[0]}"`);
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const f = parseAgentFields(body);
     if (f.name !== undefined && !f.name.trim()) throw new HttpError(400, 'name must not be empty');
+    guardMode(c, { cur, name: (f.name ?? cur.name).trim(), change: { ...(f.approval ? { approval: f.approval } : {}), ...(f.approvalSource ? { approvalSource: f.approvalSource } : {}) } });
     const next: AgentProfile = {
       ...cur,
       ...(f.name !== undefined ? { name: f.name.trim() } : {}),
@@ -371,6 +392,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.systemPrompt !== undefined ? { systemPrompt: f.systemPrompt } : {}),
       ...(f.model ? { model: f.model } : {}),
       ...(f.approval ? { approval: f.approval } : {}),
+      ...(f.approvalSource ? { approvalSource: f.approvalSource } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
       ...(f.connectors ? { connectors: f.connectors } : {}),
       ...(f.githubWrite ? { githubWrite: f.githubWrite } : {}),
@@ -383,6 +405,8 @@ export function createServer(ctx: CoreContext): Server {
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };
     if (f.taskList === null) delete next.taskList;
+    // the first change of the approval setting is the owner's choice: the agent no longer "comes with Legion" (wording only; no run reads this)
+    if ((next.approval !== cur.approval || (next.approvalSource ?? 'own') !== (cur.approvalSource ?? 'own'))) delete next.seedApproval;
     if (f.githubWrite && f.githubWrite.length === 0) delete next.githubWrite;
     const saved = ctx.store.upsertAgent(next);
     ctx.bus.emit({ type: 'agent.updated', agent: saved });
@@ -534,7 +558,10 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/approvals', () => ctx.approvals.pending());
   route('POST', '/api/approvals/:id', ({ params, body }) => {
     if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'body {allow:boolean} required');
-    return { ok: ctx.approvals.resolve(params[0], body.allow) };
+    // a web card's yes may say how far it reaches: for good, for this goal, or once
+    if (body.site !== undefined && body.site !== 'always' && body.site !== 'goal' && body.site !== 'once') throw new HttpError(400, 'site must be always, goal or once');
+    try { return { ok: ctx.approvals.resolve(params[0], body.allow, body.site) }; }
+    catch (e) { throw new HttpError(400, e instanceof Error ? e.message : 'That answer is not allowed on this card.'); }
   });
   // The app is about to send an answer in the last seconds of an ask's wait: delay the core's deny (once, a few seconds). It never answers the ask.
   route('POST', '/api/approvals/:id/hold', ({ params, body }) => {

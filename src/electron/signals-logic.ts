@@ -60,7 +60,7 @@ export function eventSignals(ev: LegionEvent, open: Map<string, AskSignal>, name
       return t.status === 'error' ? { failed: [sig] } : { finished: [sig] };
     }
     case 'budget.reached':
-      return { budget: [{ key: `b:${ev.projectId}:${ev.period}:${periodStart(ev.period, now)}`, projectId: ev.projectId, projectName: sanitizeName(names.project(ev.projectId)) || null, period: ev.period }] };
+      return { budget: [{ key: `b:${ev.projectId}:${ev.period}:${periodStart(ev.period, now)}`, projectId: ev.projectId, projectName: sanitizeName(names.project(ev.projectId)) || null, period: ev.period, ...(ev.stops === false ? { stops: false } : {}) }] };
     default: return {};
   }
 }

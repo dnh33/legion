@@ -139,70 +139,79 @@ export const NATIVE_HEADER = 'x-legion-native';
  * state, so that a compromised window cannot arm or unfreeze on its own: the change has to come from main, after its confirmation dialog.
  * A missing or short second line leaves `native` undefined (policy changes then stay closed). After the first line the reader waits at
  * most `followMs` for the second.
+ *
+ * `onKeyLine` (optional) receives every later line (the key lines): the core builds its keyrings and key stores from them, so with
+ * a callback the answer comes only when the pipe has ENDED (Electron main always ends it after writing) and every line has been handed
+ * over, or at the overall `timeoutMs`, whichever is first. After the limit lines still reach the callback as they arrive. Without a
+ * callback nothing is read past the two secrets: the stream is paused and the answer comes at once.
  */
 export function readSecretsFromStream(stream: NodeJS.ReadableStream, timeoutMs = 5000, followMs = 400, onKeyLine?: (line: string) => void): Promise<LaunchSecrets> {
   return new Promise((resolve) => {
     let buf = '';
-    let done = false;
-    let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => finish(), timeoutMs);
+    let pending = ''; // after the secrets: what has arrived past the second newline and is not a whole line yet
+    let phase: 'secrets' | 'tail' = 'secrets';
+    let resolved = false;
+    let result: LaunchSecrets = {};
     let follow: ReturnType<typeof setTimeout> | undefined;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      if (timer) clearTimeout(timer);
+    const timer = setTimeout(() => { if (phase === 'secrets') takeSecrets(); answer(); }, timeoutMs);
+
+    const answer = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const deliver = (last: boolean) => {
+      if (!onKeyLine) return;
+      let i: number;
+      while ((i = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, i);
+        pending = pending.slice(i + 1);
+        try { onKeyLine(line); } catch { /* a bad line is ignored */ }
+      }
+      if (last && pending) { try { onKeyLine(pending); } catch { /* ignored */ } pending = ''; } // the end of the pipe completes a last line
+      else if (pending.length > 256) pending = '';
+    };
+    const takeSecrets = () => {
+      if (phase !== 'secrets') return;
+      phase = 'tail';
       if (follow) clearTimeout(follow);
-      stream.removeListener('data', onData);
-      stream.removeListener('end', finish);
-      stream.removeListener('error', finish);
-      const parts = buf.split('\n').map((l) => l.trim());
-      // Connectors: only when the caller asked. A third line (KEY <hex>) in this chunk, or later on the still-open pipe, goes to the
-      // callback. Without a callback nothing changes: the stream is paused and whatever follows the two secrets is dropped, as before.
-      if (onKeyLine) keyTail(stream, buf.split('\n').slice(2).join('\n'), onKeyLine);
-      else { try { stream.pause(); } catch { /* ignore */ } }
-      buf = '';
       const ok = (v: string | undefined) => (v && v.length >= MIN_ADMIN_SECRET_LENGTH ? v : undefined);
-      const admin = ok(parts[0]);
-      const native = ok(parts[1]);
+      const lines = buf.split('\n');
+      const admin = ok(lines[0]?.trim());
+      const native = ok(lines[1]?.trim());
+      pending = lines.slice(2).join('\n');
+      buf = '';
       // both per-launch secrets are known to the log redactor from the moment the core reads them (the native secret too, never given to the window)
       registerSecret(admin);
       registerSecret(native);
-      resolve({ admin, native });
+      result = { admin, native };
+      if (!onKeyLine) { stream.removeListener('data', onData); stream.removeListener('end', onEnd); stream.removeListener('close', onEnd); try { stream.pause(); } catch { /* ignore */ } answer(); return; }
+      deliver(false);
     };
     const onData = (c: Buffer | string) => {
-      buf += typeof c === 'string' ? c : c.toString('utf8');
-      const lines = buf.split('\n');
-      if (lines.length >= 3) finish(); // two complete lines
-      else if (lines.length === 2 && !follow) follow = setTimeout(finish, followMs);
+      const text = typeof c === 'string' ? c : c.toString('utf8');
+      if (phase === 'tail') { pending += text; deliver(false); return; }
+      buf += text;
+      const n = buf.split('\n').length;
+      if (n >= 3) takeSecrets(); // two complete lines
+      else if (n === 2 && !follow) follow = setTimeout(takeSecrets, followMs);
+    };
+    const onEnd = () => {
+      if (phase === 'secrets') takeSecrets();
+      deliver(true);
+      stream.removeListener('data', onData);
+      answer();
     };
     stream.on('data', onData);
-    stream.on('end', finish);
-    stream.on('error', finish);
+    stream.on('end', onEnd);
+    stream.on('close', onEnd);
+    stream.on('error', onEnd);
     try { (stream as { resume?: () => void }).resume?.(); } catch { /* ignore */ }
   });
 }
 
-/**
- * After the two secrets: keep reading lines and hand each complete one to `onLine`. `start` is what already arrived after the second
- * newline. The callback decides what a valid line is (ConnectorKeyring.installLine accepts only the documented form); nothing is kept.
- */
-function keyTail(stream: NodeJS.ReadableStream, start: string, onLine: (line: string) => void): void {
-  let pending = start;
-  const drain = () => {
-    let i: number;
-    while ((i = pending.indexOf('\n')) >= 0) {
-      const line = pending.slice(0, i);
-      pending = pending.slice(i + 1);
-      try { onLine(line); } catch { /* a bad line is ignored */ }
-    }
-    if (pending.length > 256) pending = '';
-  };
-  drain();
-  stream.on('data', (c: Buffer | string) => { pending += typeof c === 'string' ? c : c.toString('utf8'); drain(); });
-  stream.on('error', () => undefined);
-  try { (stream as { resume?: () => void }).resume?.(); } catch { /* ignore */ }
-}
-
-/** Core start: like readAdminSecret, but also takes the native secret (second line). `onKeyLine` (optional) receives later lines, see keyTail. */
+/** Core start: like readAdminSecret, but also takes the native secret (second line). `onKeyLine` (optional) receives later lines (see readSecretsFromStream): the answer waits for them. */
 export async function readLaunchSecrets(env: NodeJS.ProcessEnv, stdin: NodeJS.ReadableStream, onKeyLine?: (line: string) => void): Promise<LaunchSecrets> {
   if (env[ADMIN_STDIN_FLAG] !== '1') return {};
   delete env[ADMIN_STDIN_FLAG];

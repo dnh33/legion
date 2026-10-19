@@ -95,7 +95,9 @@ test('Electron side: only the two known name sets may be swapped; a reordered or
   const ok = { installDir: inst, stagedDir: join(inst, '.update', 'staging', '1.1.0', 'x', 'legion-1.1.0'), from: '1.0.0', to: '1.1.0' };
   assert.deepEqual([...FULL_PACKAGE_SET], [...CODE_SET, 'node_modules', 'runtime']);
   assert.equal(commitMatches({ ...ok, names: [...CODE_SET] }, inst), true, 'a code-only commit may name the code set explicitly');
-  assert.equal(commitMatches({ ...ok, names: [...FULL_PACKAGE_SET] }, inst), true, 'a full-package commit names the full set');
+  // the full set comes only from a Windows full package: off win32 the same commit is refused (main-logic.ts), on every system the check runs on
+  assert.equal(commitMatches({ ...ok, names: [...FULL_PACKAGE_SET] }, inst, 'win32'), true, 'a full-package commit names the full set');
+  for (const p of ['linux', 'darwin'] as const) assert.equal(commitMatches({ ...ok, names: [...FULL_PACKAGE_SET] }, inst, p), false, `${p}: no full-package commit`);
   for (const bad of [
     ['dist', 'node_modules'],                  // not a whole known set
     [...FULL_PACKAGE_SET, 'evil'],             // extra name
@@ -103,7 +105,7 @@ test('Electron side: only the two known name sets may be swapped; a reordered or
     [...FULL_PACKAGE_SET].reverse(),           // reordered: never what the core returns
     [...CODE_SET, 'node_modules'],             // code set plus one of the extras, not the full set
     'node_modules',                            // not an array
-  ]) assert.equal(commitMatches({ ...ok, names: bad }, inst), false, JSON.stringify(bad));
+  ]) assert.equal(commitMatches({ ...ok, names: bad }, inst, 'win32'), false, JSON.stringify(bad)); // as win32: the set check itself, not the platform rule, refuses them
   // buildJob carries the validated set through to the helper's job.json; a code-only commit carries none.
   const j = buildJob({ ...ok, names: [...FULL_PACKAGE_SET] }, { parentPid: 1, port: 4747, execPath: 'electron.exe' });
   assert.deepEqual(j.names, [...FULL_PACKAGE_SET]);

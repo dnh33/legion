@@ -85,6 +85,7 @@ test('emu N3: killing the core through a non-exec shim leaves no orphan listenin
 test('emu E3: the admin secret is in no argv, environment, core.log or file under the data directory', { skip }, async () => {
   const r = await scenario('hygiene');
   assert.equal(r.bootstrapIsSecret, true);
+  assert.deepEqual(r.bootForeign, [null, null, null, null], 'a foreign frame, no frame or another window gets no bootstrap');
   assert.equal(r.inCmdline, false);
   assert.equal(r.inEnviron, false);
   assert.equal(r.inCoreLog, false);

@@ -4,7 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { isClientRoute } from '../src/core/admin.js';
-import { createAwayModule } from '../src/core/away/index.js';
+import { createAwayCore, createAwayModule } from '../src/core/away/index.js';
+import { EventBus } from '../src/core/bus.js';
 import type { AwayModule } from '../src/core/away/index.js';
 import { ProjectStore } from '../src/core/projects/store.js';
 import { AUTH, asClient, makeFakes, start } from './helpers-c.js';
@@ -295,4 +296,26 @@ test('the app can start a task "after" the agent\'s other run (startAfter); a be
     assert.equal((await r.client('POST', '/api/tasks', { agentId: 'zealot', prompt: 'x', startAfter: true })).status, 403, 'a token client cannot queue behind a run');
     assert.equal((await r.call('POST', '/api/tasks', { agentId: 'zealot', prompt: 'x', startAfter: 'yes' })).status, 400);
   } finally { await r.close(); }
+});
+
+test('the one notice for a reached budget says whether "Stop at the budget" is on for that project', () => {
+  const root = cleanupTemp('legion-away-stop-');
+  const data = join(root, 'data');
+  const projects = new ProjectStore(data, join(data, 'ws'));
+  const on = projects.create({ name: 'On' }); const off = projects.create({ name: 'Off' }); const unknown = projects.create({ name: 'Unknown' });
+  const bus = new EventBus();
+  const events: LegionEvent[] = [];
+  bus.on((e) => events.push(e));
+  const core = createAwayCore({
+    dataDir: data, bus, tasks: { getTask: () => undefined }, projects,
+    stopsAtBudget: (pid) => { if (pid === unknown.id) throw new Error('gates not readable'); return pid !== off.id; },
+  });
+  for (const p of [on, off, unknown]) {
+    core.store.patchProject(p.id, { budget: { limit: 1, period: 'day' } });
+    core.service.recordSpend({ taskId: 't', agentId: 'zealot', projectId: p.id, usd: 2 });
+  }
+  const stopsOf = (pid: string) => events.filter((e) => e.type === 'budget.reached' && e.projectId === pid).map((e) => (e as { stops?: boolean }).stops);
+  assert.deepEqual(stopsOf(on.id), [true]);
+  assert.deepEqual(stopsOf(off.id), [false]);
+  assert.deepEqual(stopsOf(unknown.id), [true], 'a gate that cannot be read is on');
 });

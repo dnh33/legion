@@ -180,6 +180,35 @@ test('wiring: an approved script reaches the backend chosen by detection (5.1 gi
   }
 });
 
+async function execCards(m: Awaited<ReturnType<typeof mount>>, taskId: string, mode: 'live' | 'sandbox'): Promise<number> {
+  let cards = 0;
+  const off = m.bus.on((e) => { if (e.type === 'approval.requested') { cards++; setImmediate(() => m.approvals.resolve(e.approval.id, true)); } });
+  const cfg = m.mod.mcpServers!(m.store.getAgent('sculptor')!, { taskId, taint: () => false, markTainted: () => undefined }).legion_blender as any;
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await cfg.instance.connect(st);
+  const c = new Client({ name: 't', version: '0' });
+  await c.connect(ct);
+  try { await c.callTool({ name: 'blender_exec', arguments: { script: 'import bpy\nbpy.ops.mesh.primitive_cube_add()\n', mode } }); } finally { await c.close(); off?.(); }
+  return cards;
+}
+
+test('M4: the Blender guard asks the resolver for THIS task (live and sandbox): a task the resolver calls Full gets no card, another gets one', async () => {
+  for (const mode of ['live', 'sandbox'] as const) {
+    const m = await mount({ installs: ['4.2.1'], socketOpen: true, sandboxReady: true });
+    const asked: Array<string | undefined> = [];
+    (m.engine as any).runModeOf = (_id: string, taskId?: string) => { asked.push(taskId); return taskId === 'free' ? 'full' : 'ask'; };
+    assert.equal(await execCards(m, 'free', mode), 0, `${mode}: the resolver's Full for this task means no card (asked: ${JSON.stringify(asked)})`);
+    assert.equal(await execCards(m, 'capped', mode), 1, `${mode}: an Ask task is carded`);
+  }
+});
+
+test('N4: when the resolver throws, the Blender guard cards a stored-Full agent (it reads as Ask)', async () => {
+  const m = await mount({ installs: ['4.2.1'], socketOpen: true });
+  m.store.upsertAgent({ ...m.store.getAgent('sculptor')!, approval: 'full' });
+  (m.engine as any).runModeOf = () => { throw new Error('resolver down'); };
+  assert.equal(await execCards(m, 'tk', 'live'), 1);
+});
+
 test('official backend without Set up gives a clear instruction, and nothing runs', async () => {
   const m = await mount({ installs: ['5.1.0'], socketOpen: true });
   m.bus.on((e) => { if (e.type === 'approval.requested') setImmediate(() => m.approvals.resolve(e.approval.id, true)); });

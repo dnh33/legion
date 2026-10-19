@@ -4,10 +4,14 @@ import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } fr
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
 import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
 import { shortcutRefused } from '../a11y/keyClockCore';
-import { base, token } from '../api';
+import { base, CORE_NEXT_STEP, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
-import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
+import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
+import { PresetGate } from '../welcome/PresetChoice';
+import { RunChipsLive } from '../gates/RunChips';
+import { legacyModeChip } from '../gates/agentFollowLogic';
+import { dropErrorEcho } from '../chat/errorEcho';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
@@ -208,7 +212,9 @@ export function Thread() {
     return () => window.removeEventListener('keydown', h);
   });
 
-  const items = useMemo(() => group(messages), [messages]);
+  // the failure card says what the history's own "Error: ..." line says: show it once
+  const failedText = task?.status === 'error' && !paused ? task.error : undefined;
+  const items = useMemo(() => group(dropErrorEcho(messages, failedText)), [messages, failedText]);
   const results = useMemo(() => toolResults(messages), [messages]);
   const lastUser = useMemo(() => [...messages].reverse().find((m) => m.role === 'user' && !m.fromAgentId), [messages]);
   const empty = items.length === 0 && !stream && !running;
@@ -252,7 +258,7 @@ export function Thread() {
         <div className="th-right">
           {agent && <ThreadRuns agentId={agent.id} />}
           {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
-          {agent && <span className={`chip-pill ap-${agent.approval}`} title="Approval mode">{agent.approval === 'full' ? 'Full access' : agent.approval === 'ask' ? 'Asks first' : 'Auto-edits'}</span>}
+          {task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
           {task?.provider && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
           {task && <span className="th-cost" title="Cumulative cost and turns for this task">{task.costUsd != null ? money(task.costUsd) : ''}{task.costUsd != null && task.turns != null ? ' · ' : ''}{task.turns != null ? `${task.turns} turn${task.turns === 1 ? '' : 's'}` : ''}</span>}
           {taskId && <button className={`icon-btn${searchOpen ? ' on' : ''}`} onClick={() => setSearchOpen((v) => !v)} aria-pressed={searchOpen} aria-label="Search this conversation" title="Search this conversation"><Icon name="search" size={14} /></button>}
@@ -262,7 +268,7 @@ export function Thread() {
       <TaskSwitcher />
       {taskId && searchOpen && <ThreadSearch taskId={taskId} onJump={jumpTo} onClose={() => { setSearchOpen(false); setHitId(null); }} />}
       {loaded && conn === 'offline' && agents.length > 0 && (
-        <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
+        <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not answering. Legion keeps retrying, and replies resume when it is back. {CORE_NEXT_STEP}</span></div>
       )}
       <ProposalCards agentId={agentId} taskId={taskId ?? null} />
       {otherApprovals.length > 0 && (
@@ -330,7 +336,7 @@ export function Thread() {
         </div>
       </div>
       {taskId && metaDetached(meta) && <div className="banner detached" role="status"><span>Showing an earlier part of this conversation.</span> <button className="btn sm" onClick={() => { jumpToLatest(taskId); setHitId(null); stick.current = true; }}>Jump to latest</button></div>}
-      {away && !metaDetached(meta) && <button className="jump" onClick={() => toBottom(true)}><Icon name="down" size={13} /> Jump to latest</button>}
+      {taskId && away && !metaDetached(meta) && <button className="jump" onClick={() => toBottom(true)}><Icon name="down" size={13} /> Jump to latest</button>}
     </section>
   );
 }
@@ -349,7 +355,7 @@ function EmptyState() {
   const cmd = mkCmd(token);
   const shownCmd = mkCmd(token ? '\u2022'.repeat(12) : '<token>');
   const [copied, setCopied] = useState(false);
-  const signin = doctor?.find((c) => /claude|sign|auth/i.test(c.id + c.label));
+  const signin = signinCheck(doctor);
   const step = (id: WelcomeItem['id']) => WELCOME_STEPS.find((s) => s.id === id)!;
   const later = (id: WelcomeItem['id']) => WELCOME_LATER.find((s) => s.id === id)!;
   const [trying, setTrying] = useState(false);
@@ -366,7 +372,7 @@ function EmptyState() {
       <div className="empty down">
         <span className="avatar xl"><Icon name="pulse" size={24} /></span>
         <h3>{conn === 'connecting' ? 'Connecting to Legion core\u2026' : 'Cannot reach Legion core'}</h3>
-        <p>{conn === 'connecting' ? 'Hold on, this takes a moment.' : 'The local core is not answering. Start it with start-legion.cmd, then try again. Legion keeps retrying on its own.'}</p>
+        <p>{conn === 'connecting' ? 'Hold on, this takes a moment.' : `The local core is not answering. Legion keeps retrying on its own. ${CORE_NEXT_STEP} Started the core by hand? Run start-legion.cmd again.`}</p>
         <button className="btn" onClick={() => void refresh()}>Try again</button>
       </div>
     );
@@ -384,6 +390,7 @@ function EmptyState() {
     );
   }
   return (
+    <PresetGate signedIn={signin?.ok === true}>
     <div className="firstrun">
       <h3>Welcome to Legion</h3>
       <p className="lead">Give the work to the Marshal, the lead of your Order. A Claude sign-in is all you need.</p>
@@ -424,5 +431,6 @@ function EmptyState() {
       </details>
       <button className="btn-ghost" onClick={dismissOnboarding}>Dismiss</button>
     </div>
+    </PresetGate>
   );
 }

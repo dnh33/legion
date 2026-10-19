@@ -291,6 +291,14 @@ curl -fsSL https://getlegion.xyz | sh
 
 On Windows the script downloads the latest release from GitHub over HTTPS, checks it against the release's SHA-256 and runs the same setup as below. The package is not code-signed, so SmartScreen or your antivirus may warn; the check shows the file is the one the release lists, not who made it. The script runs setup with `-Yes`, so if Legion is open it is closed without a question. On macOS and Linux it builds Legion from source in `~/.local/share/legion` (Node.js 22.12 or newer and git needed; no sudo). It only updates an existing folder if that folder is a clean clone of Legion; any other folder is left alone. Both scripts are short: read them first at `scripts/install/`.
 
+**Installed on a Mac or Linux before 0.3.5?** Close Legion, then run the installer once more:
+
+```
+curl -fsSL https://getlegion.xyz | sh
+```
+
+Do not use `git pull`: it does not move your install. If you installed with `--dir`, add it again: `curl -fsSL https://getlegion.xyz | sh -s -- --dir '<your folder>'`. Your data in `~/.legion` stays. After that, Legion updates itself.
+
 ### Windows, from a release (recommended)
 
 1. Download `legion-<version>-win-x64.zip` from the [latest release](https://github.com/dnh33/legion/releases/latest).

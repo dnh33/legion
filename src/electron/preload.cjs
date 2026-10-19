@@ -27,9 +27,25 @@ contextBridge.exposeInMainWorld('legion', {
   providerChange(change) {
     return ipcRenderer.invoke('legion:provider-change', change);
   },
+  // Settings, Web search: saving a provider key and a private-network SearXNG address. Main shows the native confirmation and holds the native secret.
+  webSearchChange(change) {
+    return ipcRenderer.invoke('legion:web-search-change', change);
+  },
   // Project folder and member changes: main shows the native confirmation (and the folder chooser) and holds the native secret.
   projectChange(change) {
     return ipcRenderer.invoke('legion:project-change', change);
+  },
+  // Gate settings that loosen anything: main shows the native confirmation and holds the native secret.
+  gatesChange(change) {
+    return ipcRenderer.invoke('legion:gates-change', change);
+  },
+  // Agent editor: raising how little an agent asks. Main shows the native confirmation and holds the native secret.
+  agentModeChange(change) {
+    return ipcRenderer.invoke('legion:agent-mode-change', change);
+  },
+  // First-run "Also make my agents follow this": many agents in one native confirmation; each change is still an ordinary guarded save.
+  agentModeBatch(batch) {
+    return ipcRenderer.invoke('legion:agent-mode-batch', batch);
   },
   // Browser tool: choosing the browser program (Edge, Chrome) and local addresses. Main shows the native confirmation and holds the native secret.
   browserChange(change) {

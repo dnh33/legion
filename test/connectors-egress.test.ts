@@ -33,7 +33,7 @@ async function rig(approval: 'full' | 'ask', readFirst: boolean, then: (c: { s: 
   if (failure) throw failure;
 }
 const cardNow = async (s: ReturnType<typeof setup>) => { for (let i = 0; i < 200 && s.approvals.pending().length === 0; i++) await new Promise((r) => setTimeout(r, 5)); return s.approvals.pending(); };
-const webHooks = (options: any) => (options.hooks.PreToolUse as Array<{ matcher?: string; hooks: Array<(i: unknown, id: string, o: unknown) => Promise<any>> }>).filter((h) => h.matcher === 'WebFetch|WebSearch');
+const webHooks = (options: any) => (options.hooks.PreToolUse as Array<{ matcher?: string; hooks: Array<(i: unknown, id: string, o: unknown) => Promise<any>> }>).filter((h) => typeof h.matcher === 'string' && h.matcher.startsWith('WebFetch|WebSearch'));
 
 test('Claude path, full and uncapped: after a connector read the web request raises a card; deny blocks it, allow lets it run; one card per call', async () => {
   await rig('full', true, async ({ s, options }) => {

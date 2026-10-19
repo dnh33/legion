@@ -2,7 +2,7 @@
 import { createServer } from 'node:http';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { ProviderKeys } from '../src/core/providers/secrets.js';
+import { ProviderKeys, type ProviderKeysOptions } from '../src/core/providers/secrets.js';
 import type { ProviderEntry, ProvidersConfig } from '../src/core/providers/types.js';
 
 /** Built from two pieces so no secret scanner matches a whole key-shaped literal in the repo. */
@@ -69,7 +69,7 @@ export const jsonReply = (res: ServerResponse, status: number, obj: unknown, hea
 
 export const entryFor = (f: Fake, over: Partial<ProviderEntry> = {}): ProviderEntry => ({ kind: 'openai-compat', label: 'Fake', baseUrl: f.url, enabled: true, keyless: true, ...over });
 export const provCfg = (entries: Record<string, ProviderEntry>): ProvidersConfig => ({ version: 1, entries, maxTurns: 40, maxToolCallsPerTurn: 16 });
-export const memKeys = (dir: string): ProviderKeys => new ProviderKeys(`${dir}/providers/keys.json`);
+export const memKeys = (dir: string, opts?: ProviderKeysOptions): ProviderKeys => new ProviderKeys(`${dir}/providers/keys.json`, opts);
 
 /** A Responses-API stream: named events as `data:` lines (the type is inside the JSON). */
 export function rsText(res: ServerResponse, text: string, usage?: { input_tokens: number; output_tokens: number }): void {

@@ -11,11 +11,13 @@ export const isKnownNameSet = (names: unknown): names is readonly string[] =>
   Array.isArray(names) && NAME_SETS.some((set) => set.length === names.length && set.every((n, i) => n === names[i]));
 
 /** The commit answer is only used if it describes THIS install and a staged tree inside its own .update folder. */
-export function commitMatches(c: unknown, installDir: string): c is CommitFacts {
+export function commitMatches(c: unknown, installDir: string, platform: NodeJS.Platform = process.platform): c is CommitFacts {
   if (!c || typeof c !== 'object') return false;
   const o = c as Record<string, unknown>;
   if (![o.installDir, o.stagedDir, o.from, o.to].every((v) => typeof v === 'string' && v.length > 0)) return false;
   if (o.names !== undefined && !isKnownNameSet(o.names)) return false;
+  // The full package set (node_modules and runtime) comes only from a Windows full package. Off win32 it can never be a valid commit.
+  if (platform !== 'win32' && Array.isArray(o.names) && o.names.length === FULL_PACKAGE_SET.length) return false;
   if (o.updateId !== undefined && !(typeof o.updateId === 'string' && /^[0-9a-f]{8}$/.test(o.updateId))) return false;
   const base = resolve(installDir);
   const staged = resolve(o.stagedDir as string);
@@ -24,11 +26,17 @@ export function commitMatches(c: unknown, installDir: string): c is CommitFacts 
   return norm(resolve(o.installDir as string)) === norm(base) && norm(staged).startsWith(norm(join(base, UPDATE_DIR, 'staging')) + sep);
 }
 
-/** The Chromium switches Legion was started with that the update window must start with too (a machine with no usable GPU or sandbox, such as a CI runner). A normal start has none. */
-const WINDOW_SWITCHES = new Set(['--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage']);
+/** The Chromium switches Legion was started with that the update window must start with too (a machine with no usable GPU, sandbox or login keychain, such as a CI runner; --use-mock-keychain is carried only when the app was started with it). A normal start has none. */
+const WINDOW_SWITCHES = new Set(['--disable-gpu', '--disable-software-rasterizer', '--no-sandbox', '--disable-dev-shm-usage', '--use-mock-keychain']);
 export const windowSwitches = (argv: readonly string[]): string[] => argv.filter((a) => WINDOW_SWITCHES.has(a));
 
-export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string; dataDir?: string; window?: { enabled: boolean; userData: string; args?: string[] } }): ApplyJob {
+/** The "Updating Legion" window is win32 only (a Linux clone would start a second Electron from it). `setting` is the owner's Settings choice; only a real false turns it off. */
+export const windowShown = (platform: NodeJS.Platform, setting: boolean | undefined): boolean => platform === 'win32' && setting !== false;
+
+export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string; dataDir?: string; window?: { enabled: boolean; userData: string; args?: string[] }; /** Default: this system. */ platform?: NodeJS.Platform; /** The argv this app was started with. Off win32 its allowlisted switches go to the relaunch. */ argv?: readonly string[] }): ApplyJob {
+  // The launcher (scripts/install/install.sh) starts `electron "<dir>" "$@"`, so a user's --no-sandbox is part of how Legion starts there. The relaunch repeats exactly
+  // those switches (the same allowlist as the update window), or the new build can fail to start after a clean swap. Windows starts with the install dir only, as before.
+  const extra = (o.platform ?? process.platform) !== 'win32' ? windowSwitches(o.argv ?? []) : [];
   return {
     installDir: c.installDir, stagedDir: c.stagedDir, parentPid: o.parentPid, port: o.port, from: c.from, to: c.to,
     ...(c.names ? { names: c.names } : {}),
@@ -38,7 +46,7 @@ export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; e
     // the same command the Start-menu shortcut runs: electron.exe "<install dir>"
     // LEGION_UPDATE_HANDOFF tells the new build it is the helper's own relaunch, so the update marker (which the helper still holds while it
     // waits for this build to report healthy) does not hold the build back from starting. It does not skip the single-instance lock.
-    relaunch: { cmd: o.execPath, args: [c.installDir], cwd: c.installDir, env: { LEGION_UPDATE_HANDOFF: '1' } },
+    relaunch: { cmd: o.execPath, args: [c.installDir, ...extra], cwd: c.installDir, env: { LEGION_UPDATE_HANDOFF: '1' } },
   };
 }
 

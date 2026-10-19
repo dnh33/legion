@@ -103,7 +103,7 @@ test('a dead core is an error with a reason, not a spinner: nothing loaded, load
   reset(); world.down = true;
   await store.loadHouse();
   assert.equal(getHouse().loaded, false);
-  assert.equal(getHouse().loadError, 'Cannot reach Legion core');
+  assert.equal(getHouse().loadError, 'Cannot reach Legion core. If it stopped, use Restart core in the tray menu, or restart Legion.');
   assert.equal(getHouse().loading, false, 'the Try again button must be usable');
 });
 
@@ -116,7 +116,7 @@ test('a failed refresh keeps the list and records why; the next good read clears
   world.down = true;
   await store.loadHouse();
   assert.equal(getHouse().status!.files.length, before, 'the old list is still there');
-  assert.equal(getHouse().loadError, 'Cannot reach Legion core');
+  assert.equal(getHouse().loadError, 'Cannot reach Legion core. If it stopped, use Restart core in the tray menu, or restart Legion.');
   world.down = false;
   await store.loadHouse();
   assert.equal(getHouse().loadError, null);

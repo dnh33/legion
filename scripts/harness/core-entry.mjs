@@ -23,6 +23,7 @@ const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { Ap
 
 const { createAwayCore, createAwayModule } = await load('core/away/index.js');
 const { createGatesCore, createGatesModule } = await load('core/gates-settings/index.js');
+const { createActivityLog, createActivityModule } = await load('core/activity/index.js');
 const { agentIdVisible } = await load('core/visibility.js');
 
 const log = (...a) => process.stderr.write(`[harness-core] ${a.join(' ')}\n`);
@@ -40,7 +41,12 @@ const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat }
 const approvals = new ApprovalBroker(bus);
 const questions = new QuestionBroker(bus);
 const model = createFakeModel();
-const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+// one key store for the model and the web providers, as in legion-core.ts (no data key in the harness: today's plain file)
+const providerKeys = new ProviderKeys(keyFileFor(dataDir()));
+const { WebSearchService } = await load('core/web-search/index.js');
+const { createWebSearchModule } = await load('core/web-search/routes.js');
+const webSearch = new WebSearchService({ config: () => config.webSearch, keys: providerKeys });
+const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: providerKeys }) : undefined;
 const projects = new ProjectStore(dataDir(), config.workspaceDir);
 // the away features (0.3.0), exactly as in legion-core.ts
 const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects });
@@ -48,7 +54,8 @@ approvals.setPolicy(awayCore.service.policy());
 questions.setPolicy(awayCore.service.policy());
 // gate presets, exactly as in legion-core.ts (part 1: Ask only, so every run keeps its agent's own mode)
 const gatesCore = createGatesCore({ dataDir: dataDir(), projects });
-const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
+const activity = createActivityLog({ dataDir: dataDir() });
+const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });
 engine.bridge.catalog = fakeCatalog;
 let stopReaper = () => {};
@@ -69,6 +76,7 @@ const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
 // the updater has no signing key in this tree, so it stays off and makes no request
 const updater = createUpdaterModule(moduleDeps, { root: join(dirname(fileURLToPath(import.meta.url)), '..', '..'), nativeSecret, log, probes: {} });
 const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+const webSearchModule = createWebSearchModule({ config: () => config.webSearch, keys: providerKeys, service: webSearch, configPath: configPath(), nativeSecret });
 const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
 const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service })] : [];
 const away = createAwayModule(moduleDeps, {
@@ -85,8 +93,8 @@ const connectors = createConnectorsModule(moduleDeps, { keys: new ConnectorKeyri
 const ci = createCiModule(moduleDeps, { github: fakeGithub, writes: () => fakeGithub.writesPort(), projects, log });
 // logs: the same module as the product, on the harness data dir
 const logs = createLogsModule(moduleDeps, { sink: openLogSink(dataDir()) });
-const gates = createGatesModule(moduleDeps, { projects, core: gatesCore });
-const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
+const gates = createGatesModule(moduleDeps, { projects, core: gatesCore, activity });
+const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, gates, createActivityModule(moduleDeps, activity), bsv, blender, ...providersModules, webSearchModule, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,

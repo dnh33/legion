@@ -16,7 +16,9 @@ declare global {
       /** BSV policy changes: main shows its own native confirmation and calls the core with a secret this window never holds. */
       bsvPolicy?(action: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       connectorConnect?(): Promise<{ ok: boolean; error?: string; cancelled?: boolean }>;
-      providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown; unlocked?: boolean }>;
+      /** Settings, Web search: a provider key or a private-network SearXNG address. Main shows the native confirmation and calls the core with a secret this window never holds. */
+      webSearchChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       onBsvChanged?(cb: () => void): () => void;
       /** Tells the desktop which project page and thread this window shows (ids only), so it does not notify for what you are looking at. */
@@ -25,6 +27,11 @@ declare global {
       onOpenAsk?(cb: (ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }) => void): () => void;
       /** Project folder and member changes: main shows the native confirmation (and the folder chooser) and calls the core with a secret this window never holds. */
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Gate settings that loosen anything: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
+      gatesChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Raising how little an agent asks (Accept edits, Full, a looser followed preset): main shows the native confirmation and calls the core with a secret this window never holds. Keeping or tightening goes through the same call without a dialog. */
+      agentModeChange?(change: { agentId: string; approval?: string; approvalSource?: string }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      agentModeBatch?(batch: { preset?: string; changes: Array<{ agentId: string; approval?: string; approvalSource?: string }> }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; presetSaved?: boolean; applied: string[]; failed?: Array<{ agentId: string; error: string }> }>;
     };
   }
 }
@@ -69,6 +76,14 @@ export function adminRefusal(status: number, serverMessage: string | undefined):
   return undefined;
 }
 
+/**
+ * What to do when the core does not answer. The window cannot tell a core that stopped from one that is still starting, so the line is true in both:
+ * it names the way back if it stopped. The only restart in 0.3.5 is the tray item (or quitting and opening Legion).
+ */
+export const CORE_NEXT_STEP = 'If it stopped, use Restart core in the tray menu, or restart Legion.';
+/** The error of a call that got no answer at all. */
+export const CORE_UNREACHABLE = `Cannot reach Legion core. ${CORE_NEXT_STEP}`;
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -78,7 +93,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError(0, 'Cannot reach Legion core');
+    throw new ApiError(0, CORE_UNREACHABLE);
   }
   const text = await res.text();
   let data: unknown = undefined;
@@ -207,7 +222,7 @@ export const api = {
   desktop: (agentId: string) => request<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),
   screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
   approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
-  decide: (id: string, allow: boolean) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow }),
+  decide: (id: string, allow: boolean, site?: 'always' | 'goal' | 'once') => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, site ? { allow, site } : { allow }),
   /** The away settings (0.3.0): per-project wait, pause, budget, notification level, the app's quiet hours and when each project was last looked at. */
   away: () => request<AwayView>('GET', '/api/away'),
   patchAwayProject: (id: string, b: Record<string, unknown>) => request<unknown>('PATCH', `/api/away/projects/${encodeURIComponent(id)}`, b),

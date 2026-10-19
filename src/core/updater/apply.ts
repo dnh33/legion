@@ -45,7 +45,11 @@ export interface WindowDep {
   dispose?(): void;
 }
 
-/** The only names an update may replace (directories and files at the top of the install folder). */
+/**
+ * The only names an update may replace (directories and files at the top of the install folder).
+ * Adding a name: add it to the allow-list in scripts/install/install.sh (outside_dirt) in the same commit. Never remove one there:
+ * installed Legion versions keep swapping with their own set. test/install-sh-marker.test.ts checks both.
+ */
 export const CODE_SET: readonly string[] = Object.freeze([
   'dist', 'dist-ui', 'assets', 'scripts', 'licenses',
   'package.json', 'package-lock.json', 'build-info.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md',
@@ -715,7 +719,8 @@ const ownRuntime = (installDir: string, runtimeDir: string): boolean => relative
  *  - patch: an app shim exists in a COPY of the runtime (inside <install>/.update or the temp folder): point the shim at the window for the start.
  *  - none: anything else. The install's own runtime above all: its shim starts Legion's own main, and the helper must not do that during a swap.
  */
-export function windowLaunchPlan(p: { runtimeDir: string; installDir: string; hasAppShim: boolean; hasDefaultApp: boolean; tempDir?: string }): WindowLaunch {
+export function windowLaunchPlan(p: { runtimeDir: string; installDir: string; hasAppShim: boolean; hasDefaultApp: boolean; tempDir?: string; /** When given and not win32 the answer is always none: the update window is win32 only. */ platform?: NodeJS.Platform }): WindowLaunch {
+  if (p.platform !== undefined && p.platform !== 'win32') return 'none';
   if (!p.hasAppShim) return p.hasDefaultApp ? 'folder' : 'none';
   if (ownRuntime(p.installDir, p.runtimeDir)) return 'none';
   if (isInside(p.runtimeDir, upDir(p.installDir)) || isInside(p.runtimeDir, p.tempDir ?? tmpdir())) return 'patch';
@@ -723,7 +728,7 @@ export function windowLaunchPlan(p: { runtimeDir: string; installDir: string; ha
 }
 
 /** Test hooks: where the runtime is, how to spawn, how long to wait before the shim goes back. */
-export interface WindowHooks { execPath?: string; spawn?: typeof spawn; restoreAfterMs?: number; pollMs?: number; tempDir?: string }
+export interface WindowHooks { platform?: NodeJS.Platform; execPath?: string; spawn?: typeof spawn; restoreAfterMs?: number; pollMs?: number; tempDir?: string }
 
 /**
  * Drives the "Updating Legion" window (a tiny Electron app, update-window-main.ts, started from THIS helper's runtime and the files in .update/run/window).
@@ -760,7 +765,7 @@ export function realWindow(installDir: string, job: { updateId: string; appPid?:
         const runtimeDir = dirname(execPath);
         const shim = join(runtimeDir, 'resources', 'app', 'package.json');
         const hasAppShim = existsSync(shim);
-        const plan = windowLaunchPlan({ runtimeDir, installDir, hasAppShim, hasDefaultApp: existsSync(join(runtimeDir, 'resources', 'default_app.asar')), ...(hooks.tempDir ? { tempDir: hooks.tempDir } : {}) });
+        const plan = windowLaunchPlan({ runtimeDir, installDir, hasAppShim, hasDefaultApp: existsSync(join(runtimeDir, 'resources', 'default_app.asar')), ...(hooks.platform ? { platform: hooks.platform } : {}), ...(hooks.tempDir ? { tempDir: hooks.tempDir } : {}) });
         if (plan === 'none') { log(hasAppShim && ownRuntime(installDir, runtimeDir) ? "window: not started (the helper runs from Legion's own runtime)" : 'window: not started (this runtime cannot start it safely)'); return; }
         for (const f of [cmdFile, stateFile]) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
         writeFileSync(join(dir, 'window-job.json'), JSON.stringify({ installDir, updateId: job.updateId, helperPid: process.pid, appPid: job.appPid, userData: job.window.userData, from: job.from, to: job.to, kind: job.names?.includes('node_modules') ? 'full' : 'code', startedAt: Date.now(), ...(job.relaunch ? { relaunch: job.relaunch } : {}) }));
@@ -828,11 +833,11 @@ export function realDeps(installDir: string, job?: { port: number; parentPid?: n
   const updateId = job?.updateId ?? randomId();
   // The window needs a runtime that no swap renames: the install's own for a code-only update; for a full one only the copy outside the install.
   const full = !!job?.names?.includes('node_modules');
-  const windowOk = !!job?.window?.enabled && (!full || process.env.LEGION_APPLY_REEXEC === '1');
+  const windowOk = process.platform === 'win32' && !!job?.window?.enabled && (!full || process.env.LEGION_APPLY_REEXEC === '1');
   return {
     marker: fileMarker(installDir),
     journey: helperJourney(installDir, { ...(job ?? {}), updateId }),
-    ...(windowOk ? { window: realWindow(installDir, { updateId, ...(job?.parentPid ? { appPid: job.parentPid } : {}), from: job?.from ?? '', to: job?.to ?? '', ...(job?.names ? { names: job.names } : {}), ...(job?.relaunch ? { relaunch: job.relaunch } : {}), window: job!.window! }, logLine) } : {}),
+    ...(windowOk ? { window: realWindow(installDir, { updateId, ...(job?.parentPid ? { appPid: job.parentPid } : {}), from: job?.from ?? '', to: job?.to ?? '', ...(job?.names ? { names: job.names } : {}), ...(job?.relaunch ? { relaunch: job.relaunch } : {}), window: job!.window! }, logLine, { platform: process.platform }) } : {}),
     isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } },
     health: async (port) => {
       try {

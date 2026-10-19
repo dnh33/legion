@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { ProviderView } from '../../../src/shared/providers-view';
-import { getProviders, loadProviders, refreshModels, removeKey, removeProvider, saveEntry, saveKey, saveLimits, testProvider, useProviders } from './providersStore';
+import { Icon } from '../components/icons';
+import { getProviders, loadProviders, refreshModels, removeKey, removeProvider, saveEntry, saveKey, saveLimits, startOverKeys, testProvider, useProviders } from './providersStore';
 import { openExternal } from '../api';
 import { useStore } from '../store';
 import { keyFieldFor, visibleCards } from './cards';
 import { feedbackFor } from './feedback';
+import { WebSearchSection } from './WebSearchSection';
 import './providers.css';
 
 const PLAIN_ID = /^[a-z][a-z0-9-]{1,31}$/;
@@ -131,6 +133,9 @@ export function ProvidersSection() {
       </header>
       {error && <div className="set-error" role="alert">{error}</div>}
       {!view ? <div className="set-loading"><span className="spin" /> Loading{'…'}</div> : <>
+        {view.keyStoreState === 'blocked'
+          ? <div className="set-error key-store-blocked" role="alert"><Icon name="warn" size={13} /><div><p>{view.keyStore}</p><p><button type="button" className="btn sm" disabled={!!getProviders().busy} onClick={() => void startOverKeys()}>Start over with new keys</button></p></div></div>
+          : view.keyStore && <p className="field-note" role="status">{view.keyStore}</p>}
         <details className="prov-limits" open>
           <summary>What an agent on a provider cannot do</summary>
           <ul>{view.cannotDo.map((t) => <li key={t}>{t}</li>)}</ul>
@@ -148,6 +153,7 @@ export function ProvidersSection() {
           </div>
           <p className="field-note">Cost is shown only when a provider returns token counts and you have entered prices. Room spend limits count known costs only, so an agent on a provider with unknown cost adds nothing to a room's meter.</p>
         </fieldset>
+        <WebSearchSection />
         <ComingNext />
         <p className="field-note">Going back to an older Legion version: the older version ignores this page. An agent still set to a provider model will fail with a model error there; it never sends anything to a provider.</p>
       </>}

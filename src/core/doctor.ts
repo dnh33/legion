@@ -11,8 +11,11 @@ import { CLAUDE_NOT_CONFIGURED, type BoatHealth } from './boat-health.js';
 import { buildChildEnv, connectorSettings, isPlanOnly, planOnlySettings } from './engine.js';
 import type { QueryFn } from './engine.js';
 import { claudeHomeDir } from './armory/discover.js';
+import { keyStoreDoctor, type KeyStoreStatus } from './providers/secrets.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
+
+const MANAGED_KEY_NOTE = "Your organization's managed settings give Claude this key, and Legion cannot turn it off. Ask your admin to add credits or give you a Claude seat, or turn on Allow API credit billing.";
 
 const PLAN_ONLY_FIX = 'To use your Claude plan: run claude in a terminal, type /logout, then /login and choose your Claude account. Or turn on Settings -> Claude -> Allow API credit billing.';
 
@@ -67,7 +70,12 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
       const billed = !!source && source !== 'none';
       if (isPlanOnly(config)) {
         // Plan only: the keys in Claude Code settings are blanked for runs, so only a source the blanks cannot reach (a stored Console key) fails here.
-        if (billed) return { ok: false, detail: `Runs would bill API credits (key source: ${source}), so Legion will not start them`, fix: PLAN_ONLY_FIX };
+        if (billed) {
+          // Legion blanks ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and apiKeyHelper in the flag settings, which outrank every user, project and local file. A key still
+          // reported from one of those two sources therefore comes from the managed settings layer, the only one above them. A stored Console key ('/login managed key') is a different case.
+          const managed = source === 'ANTHROPIC_API_KEY' || source === 'apiKeyHelper';
+          return { ok: false, detail: `Runs would bill API credits (key source: ${source}), so Legion will not start them${managed ? `. ${MANAGED_KEY_NOTE}` : ''}`, fix: PLAN_ONLY_FIX };
+        }
       } else {
         // API billing allowed: say so, and keep the key names in the settings files as information.
         // Settings the runs load but this probe does not (it runs with settingSources: []).
@@ -96,7 +104,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   }
 }
 
-export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number }): Promise<DoctorCheck[]> {
+export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number; keys?: { status(): KeyStoreStatus } }): Promise<DoctorCheck[]> {
   const { config } = deps;
   const queryFn = deps.queryFn ?? realQuery;
   const checks: DoctorCheck[] = [];
@@ -127,6 +135,15 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
 
   checks.push(await safe('claude', 'Claude sign-in', () => probeClaude(config, queryFn, deps.probeTimeoutMs ?? 20_000)));
 
+  // Plan only blanks these two for the Claude run. Say so when the environment Legion started in sets one (the name only, never the value).
+  if (isPlanOnly(config)) {
+    const set = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'].filter((k) => (process.env[k] ?? '').trim() !== '');
+    if (set.length) {
+      const names = set.join(' and ');
+      checks.push({ id: 'claude-env', label: 'Claude environment keys', ok: true, detail: `Your environment sets ${names}. Legion does not use ${set.length > 1 ? 'them' : 'it'}, so your runs use your Claude plan. To bill ${set.length > 1 ? 'those keys' : 'that key'}, turn on Allow API credit billing in Settings, Claude.` });
+    }
+  }
+
   checks.push(await safe('boat', 'boat.dev', async () => {
     const boat = deps.getBoat();
     if (!boat) return { ok: true, detail: 'Not configured (agent VMs disabled)', fix: 'Open Settings → boat.dev to add a key and enable VMs' };
@@ -145,6 +162,9 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
   if (deps.getBoat() && deps.health?.claudeMissing()) {
     checks.push({ id: 'boat-claude', label: 'Claude on boat.dev', ok: true, detail: CLAUDE_NOT_CONFIGURED, fix: 'Open the Agents page in your boat.dev dashboard and connect Claude' });
   }
+
+  // How the provider and web search keys are stored. Words only, never a key value.
+  if (deps.keys) { const keys = deps.keys; checks.push(await safe('provider-keys', 'Provider keys', () => keyStoreDoctor(keys.status()))); }
 
   checks.push(await safe('workspace', 'Workspace directory', () => {
     mkdirSync(config.workspaceDir, { recursive: true });

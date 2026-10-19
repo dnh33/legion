@@ -239,7 +239,7 @@ test('plan only: accountInfo reports a key source -> no message is ever written,
 });
 
 test('plan only: the account check fails or times out -> fails closed, no message written, no escalation', async () => {
-  const text = 'This run did not start: Legion could not confirm that Claude Code will use your Claude plan (the account check did not answer). Try again. If it keeps happening, open Help -> Doctor.';
+  const text = 'This run did not start: Legion could not confirm that Claude Code will use your Claude plan (the account check did not answer). Try again. If it keeps happening, open the Doctor button in the title bar.';
   for (const account of [async () => { throw new Error('boom'); }, () => new Promise<unknown>(() => undefined)]) {
     const s = setup(async function* () { yield init('none'); yield ok; }, undefined, account, 40);
     const t = await run(s);

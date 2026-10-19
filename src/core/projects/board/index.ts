@@ -8,13 +8,17 @@ import type { BoardMarshalStatus, WorkItem } from '../../../shared/board.js';
 import type { Project } from '../../../shared/projects.js';
 import type { TaskOrigin } from '../../../shared/comms.js';
 import type { CoreModule, ModuleDeps } from '../../modules.js';
+import { gateOff, resolverMode } from '../../permission-mode.js';
 import { HttpError } from '../../server.js';
 import type { Ctx } from '../../server.js';
 import { agentIdVisible } from '../../visibility.js';
 import { engineMatcher } from '../../marshal/matcher.js';
 import { MarshalDriver } from '../../marshal/driver.js';
 import { MAX_DONE_WHEN } from '../../marshal/ledger.js';
-import type { MarshalPorts, RunState } from '../../marshal/orchestrator.js';
+import type { AttemptLimits } from '../../marshal/ledger.js';
+import { stallKeptText } from '../../marshal/orchestrator.js';
+import type { MarshalPorts, RunState, StallKept } from '../../marshal/orchestrator.js';
+import type { ActivityLog } from '../../activity/index.js';
 import type { ProjectStore } from '../store.js';
 import { BOARD_PREAMBLE, boardDigest, runPrompt } from './prompt.js';
 import type { BoardNotes } from './notes.js';
@@ -34,6 +38,12 @@ export interface BoardModuleOpts {
   notes?: BoardNotes;
   /** The away module: "Pause new starts" stops the Marshal's loop for a paused project. Absent: never paused. */
   away?: { isPaused(projectId: string): boolean };
+  /** The attempt caps per project (the `attempt-caps` gate); absent: the ledger's defaults. */
+  limits?: (projectId: string) => AttemptLimits;
+  /** The `stall-ladder` gate per project (read on every Marshal pass); absent: on. */
+  stallLadder?: (projectId: string) => boolean;
+  /** Where the "a stalled run was left running" line goes (the activity log); absent: no line. */
+  activity?: ActivityLog;
   /** The Marshal's clock. The app takes Date.now; a test passes its own. */
   marshalNow?: () => number;
   /** The Marshal's timer: starts the tick and returns the cancel function. Tests pass a no-op and call `module.marshal.tick()` themselves. */
@@ -136,6 +146,11 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     board,
     project: (pid) => { try { return projects.get(pid); } catch { return undefined; } },
     ...(opts.away ? { paused: (pid: string) => opts.away!.isPaused(pid) } : {}),
+    ...(opts.limits ? { limits: opts.limits } : {}),
+    ...(opts.stallLadder ? { stallLadder: opts.stallLadder } : {}),
+    ...(opts.activity ? { stallKept: (pid: string, a: StallKept) => {
+      try { opts.activity!.append({ kind: 'note', text: stallKeptText(a), taskId: a.taskId, projectId: pid, agentId: a.botId }); } catch { /* advisory */ }
+    } } : {}),
     ports: portsFor,
     changed,
     now: opts.marshalNow ?? Date.now,
@@ -156,7 +171,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     mcpServers: (agent, job): Record<string, McpServerConfig> => {
       // no project (or not an active one this agent belongs to) = no board tool at all
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
-      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } }, askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
+      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, ...(notes ? { notes } : {}), modeOf: (id, taskId) => resolverMode(deps.engine, id, taskId), gateOff: (id, a) => gateOff(deps.engine, id, a), askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job, agent.approval) };
     },
     preamble: (agent, ctx) => {
       const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;

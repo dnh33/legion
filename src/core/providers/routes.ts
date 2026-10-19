@@ -97,8 +97,8 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
 
       add('DELETE', '/api/providers/:id', ({ params }) => {
         const id = mustId(params[0]!);
+        try { runtime.keys.remove(id); } catch (e) { throw new HttpError(409, e instanceof Error ? e.message : 'Could not remove the key'); } // before anything changes: a locked-out key store refuses
         delete cfg().entries[id];
-        runtime.keys.remove(id);
         runtime.forgetModels(id);
         persist();
         return runtime.view();
@@ -119,8 +119,16 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
 
       add('DELETE', '/api/providers/:id/key', ({ params }) => {
         const id = mustId(params[0]!);
-        runtime.keys.remove(id);
+        try { runtime.keys.remove(id); } catch (e) { throw new HttpError(409, e instanceof Error ? e.message : 'Could not remove the key'); }
         runtime.forgetModels(id);
+        return runtime.view();
+      });
+
+      // "Start over with new keys": only the app's main process calls this, after its confirmation dialog. Sets the unreadable keys.enc aside
+      // (renamed, never deleted); main then replaces the data key and restarts the core, which is the only way out of the locked-out state.
+      add('POST', '/api/providers/keys/start-over', ({ req }) => {
+        requireNative(req);
+        try { runtime.keys.startOver(); } catch (e) { throw new HttpError(409, e instanceof Error ? e.message : 'Could not start over'); }
         return runtime.view();
       });
 

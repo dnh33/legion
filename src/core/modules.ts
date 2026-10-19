@@ -4,7 +4,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { TaskOrigin } from '../shared/comms.js';
-import type { AgentProfile, ApprovalMode, Task } from '../shared/types.js';
+import type { AgentProfile, RunMode, Task } from '../shared/types.js';
 import type { Handler } from './server.js';
 
 export type RouteAdder = (method: string, pattern: string, handler: Handler, status?: number) => void;
@@ -15,7 +15,7 @@ export interface ModuleJob {
   /** Set when another bot woke this run (rooms or the agent bridge). */
   origin?: TaskOrigin;
   /** The approval ceiling inherited from the waking bot; undefined for a run a human started. */
-  ceiling?: ApprovalMode;
+  ceiling?: RunMode;
   /** True once the run touched outside content (WebFetch, WebSearch, Bash, an external tool) or was woken by a tainted chain. Sticky. */
   taint(): boolean;
   /** Flags the run as tainted from now on (a tool just handed it text a tainted bot wrote, e.g. room_read). Sticky. */
@@ -86,6 +86,8 @@ export interface CoreModule {
    * may not load the skill named `id`, else undefined. A throwing module denies. With no module that has this method, every load is denied.
    */
   skillGate?(agent: AgentProfile, id: string): string | undefined;
+  /** Folders a shell command may not work on without the owner's card (Legion's whole data folder). Reading stays free. */
+
   /** Folders that Claude file tools (Write, Edit, MultiEdit, NotebookEdit) must not change in an agent run. */
   protectedPaths?(): string[];
   /** Register HTTP routes under /api/... (bearer auth is already enforced by the dispatcher). */

@@ -1,0 +1,20 @@
+This update installs by itself on Windows.
+
+On Mac or Linux? Close Legion, then run the installer once more: curl -fsSL https://getlegion.xyz | sh (if you installed with --dir, add it again). Do not use git pull. Your data in ~/.legion stays. After that, Legion updates itself.
+
+Choose how much your agents ask
+Settings, Gates has four presets: Ask, Accept edits, Smart and Bypass. Smart asks before anything that reaches the web, deletes, cannot be undone, or that Legion cannot classify; tests and builds run without asking. Anything that makes agents ask less asks you to confirm first. Your agents keep their own setting unless you choose Follow project.
+
+Folders you trust
+A project folder whose Claude Code settings, hooks or skills carry commands no longer runs them until you trust it. Its CLAUDE.md is still read.
+
+Your keys are safer
+Provider keys are encrypted with your system key store. Agents ask before they read password and key files, and commands no longer get variables that look like keys.
+
+Known limits
+In Smart, tests and builds an agent runs can reach the web. Paid web search bills per call, with no total unless you set a project budget. Legion has no sandbox for commands.
+
+If you go back to an older version
+Once Legion has retired the plain copy of your provider keys, an older version cannot read them; paste them again there.
+
+Full detail in CHANGELOG.md.
