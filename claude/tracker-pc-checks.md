@@ -516,3 +516,13 @@ Rules for the GitHub Apps are in `docs/GITHUB-APPS.md`. The write app also holds
 | C-GH-12 | Keyboard and screen-reader pass over the area | Reachable and labelled | open |
 | C-GH-13 | Turn the icon off in Settings | Icon gone; area still opens from the palette | open |
 | C-GH-14 | CI and agent activity in the area: a repo with runs shows the latest runs and failed jobs; "Re-run failed" and "Cancel" through the write app raise a card and act only after Allow; the agent list and "what agents did here" fill from Legion's own records | Matches GitHub's Actions page; no extra GitHub calls for the activity list | open |
+
+## 2026-10-19: Mac and Linux self-update (0.3.5). Safety class: downloads
+
+0.3.5 is the first release where an `install.sh` install updates itself. CI rehearses it (run 39220374727: macOS arm64 and Intel, Linux x64 and arm64; install.yml 39220378385) with a throwaway key and a mock keychain. CI cannot show Gatekeeper or quarantine prompts, a launch from Finder or the Dock, or a real login keychain. Steps in `docs/SHIPPING.md`, section 7a-unix, "Live walk".
+
+| id | check | pass | result |
+|---|---|---|---|
+| MAC-1 | On a real Mac (and a real Linux box or VM): `curl -fsSL https://getlegion.xyz \| sh`, start Legion | `.legion-install.json` has schema 1, manager install.sh, the real dir and `head` = `git rev-parse HEAD`; Settings, Updates shows mode apply and the "close and reopen" line; no Gatekeeper or keychain prompt blocks the start | open |
+| MAC-2 | Install 0.3.4 the old way (`--version 0.3.4` with the 0.3.4 `install.sh`), close Legion, run the 0.3.5 installer over it; once more with Legion open | Closed: the marker appears, `git status` is empty, the panel moves from the git-checkout notice to apply mode. Open: the installer stops with "Legion is running from ..." | open |
+| MAC-3 | When 0.3.6 is a prerelease: on the 0.3.5 install, press "Restart and install" in the panel, then start Legion once from the Dock or Finder through `~/.local/bin/legion` | 0.3.6 runs, data in `~/.legion` survived, the launcher finds node and git on PATH | open |

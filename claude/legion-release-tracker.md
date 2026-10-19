@@ -813,7 +813,9 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-p`** (tag `v0.2.5-p`, 2026-10-08; the merge of release/0.2.5-p). It updates the bundled
+**Update 2026-10-19: this ladder is stale since 0.2.6.** Latest release is **`0.3.5`** (tag `v0.3.5`, 2026-10-19, PR #184): the gates presets (Ask, Accept edits, Smart, Bypass), per-agent and per-project modes, folders you trust, encrypted provider keys, protected files, Smart web access, web search providers, and Mac and Linux self-update (CI-rehearsed, not hand-tested on a real Mac: checks MAC-1 to MAC-3 in `tracker-pc-checks.md`). Releases 0.2.6 to 0.3.5 are listed in `CHANGELOG.md`. The 0.3.x plans and decisions live in the maintainer's own notes, not here; do not copy the statuses below into the README without checking them against the code and `CHANGELOG.md`. Next: 0.3.6 (Legion-styled confirm window, project confirms only when access widens, automatic core restart, more Smart lessons).
+
+The paragraph below is the 2026-10-08 state. Latest release was **`0.2.5-p`** (tag `v0.2.5-p`, 2026-10-08; the merge of release/0.2.5-p). It updates the bundled
 libraries (Claude Agent SDK, MCP SDK, Electron) and moves the build tooling to Vite 8, so it ships as a full package
 that installs from inside Legion. The updater applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
