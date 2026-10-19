@@ -15,7 +15,7 @@ export type JourneyStepId = 'checking' | 'downloading' | 'verifying' | 'ready' |
 export type JourneyWhere = 'app' | 'helper' | 'new-app' | 'any';
 export interface JourneyStep { id: JourneyStepId; n: string; label: string; where: JourneyWhere; /** Only a full-package update has this step. */ fullOnly?: boolean }
 
-/** The steps, once. The numbers match the update plan (D:/bots/helper-h2-brief.md); the words are what the owner reads. */
+/** The steps, once. The numbers match the update plan (maintainer notes); the words are what the owner reads. */
 export const JOURNEY_STEPS: readonly JourneyStep[] = Object.freeze([
   { id: 'checking', n: '1', label: 'Checking for the update', where: 'app' },
   { id: 'downloading', n: '2', label: 'Downloading', where: 'app' },

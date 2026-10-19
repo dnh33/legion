@@ -19,7 +19,7 @@ them. Everything below follows from that.
 Before writing a line: **does this change anything for the person reading it?**
 
 If a reader who installed Legion gains nothing from an entry, it does not belong in the changelog. It belongs in
-`claude/legion-release-tracker.md`, which is excluded from the export and exists precisely to hold maintainer
+the maintainer's private release tracker, which is kept outside this repo and exists precisely to hold maintainer
 history.
 
 Concretely, these do **not** belong, and have been written and then removed:

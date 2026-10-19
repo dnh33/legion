@@ -92,7 +92,7 @@ Missing vs plan: no restart-recovery section in `claude/plan-project-board.md` a
 
 | Date | Decision | By | Notes |
 |---|---|---|---|
-| 2026-10-07 | Retire "persona text stays byte-identical" (`claude/audit-agent-instructions.md:95,107`). Souls get the 7-part shape. **Each soul must stay true to its bot's core and its job/role in Legion**; existing verdict lines are part of that core. | maintainer | **Confirmed 2026-10-07**, to the Fascia session and directly to the orchestrating session. |
+| 2026-10-07 | Retire "persona text stays byte-identical" (`maintainer notes (audit-agent-instructions):95,107`). Souls get the 7-part shape. **Each soul must stay true to its bot's core and its job/role in Legion**; existing verdict lines are part of that core. | maintainer | **Confirmed 2026-10-07**, to the Fascia session and directly to the orchestrating session. |
 | 2026-10-07 | Board bug patch (sub-item 1) now, in parallel with the Order-bug PR. | maintainer | Relayed by the orchestrating session. |
 | 2026-10-07 | No board auto-dispatch now. | Fascia session recommendation, maintainer asked for this audit | Conditions for later in §6.6. |
 | 2026-10-07 | Ownership and timing per §5. | orchestrating session | Merges and releases go through the orchestrator. |

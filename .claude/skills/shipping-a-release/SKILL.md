@@ -142,7 +142,7 @@ leak-check list and the outcome-not-mechanism rule.
 
 The short form, learned the hard way on `0.2.3-e`: two entries were written and then removed because a reader who
 installed Legion gains nothing from them — a release-tooling change and an internal data-structure fix. Both belong
-in `claude/legion-release-tracker.md`, which is excluded from the export. Dropping them from the changelog loses
+in the maintainer's private release tracker, kept outside this repo. Dropping them from the changelog loses
 nothing; publishing them advertises our own gaps.
 
 Every entry must survive one question: **does this change anything for the person reading it?**

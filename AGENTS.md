@@ -44,7 +44,7 @@ Version **0.2.2** (`package.json`, `src/shared/config.ts` → `VERSION`, and `pa
 Three runtime dependencies: `@anthropic-ai/claude-agent-sdk`, `@modelcontextprotocol/sdk`, `zod`. Think twice before
 adding a fourth.
 
-Work in flight: `claude/legion-release-tracker.md` is the living tracker. Plans are `claude/plan-*.md`. Checks that
+Work in flight is tracked in the maintainer's private notes. Plans are `claude/plan-*.md`. Checks that
 need the owner's PC are `claude/tracker-pc-checks.md`.
 
 ## Rules

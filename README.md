@@ -2,7 +2,7 @@
 
 <p align="center"><img alt="The Claude Code critter glitches and is converted into the Legion helm" src="docs/images/legion-takeover.gif" width="140" align="middle">&nbsp;&nbsp;<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/legion-wordmark-dark.svg"><img alt="Legion" src="docs/images/legion-wordmark-light.svg" width="380" align="middle"></picture></p>
 
-**A local multi-agent bot for your desktop — Claude by default, plus OpenRouter for any model — with a VM for every agent when it needs one.**
+**A local multi-agent bot for your desktop. Claude by default, plus OpenRouter for any model, and a VM for every agent when it needs one.**
 
 [![CI](https://github.com/dnh33/legion/actions/workflows/ci.yml/badge.svg)](https://github.com/dnh33/legion/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/dnh33/legion?include_prereleases&sort=semver&label=release)](https://github.com/dnh33/legion/releases)
@@ -25,7 +25,7 @@ Legion is in beta: expect rough edges and the odd bug.
 - **Blender bridge:** local mode (headless Blender on your computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
-- **macOS and Linux:** dev install only. The automated tests run on Windows, Linux and macOS in CI; the maintainer uses Windows.
+- **macOS and Linux:** the one-line installer sets Legion up, and since 0.3.5 that install updates itself. Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. The maintainer uses Windows.
 - **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
 
 <details><summary>Details</summary>
@@ -122,15 +122,27 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 ### You stay in control
 
-- **Approval cards** in the thread for risky tool calls; per agent `ask`, `auto-edits` or `full`. Press `A` or `D`.
-- **Settings in the app**, applied live: Claude sign-in, your boat.dev key, MCP servers.
+- **Choose how much your agents ask.** Settings, Gates has four presets:
+  - **Ask:** every action asks. Read-only commands, and commands your own Claude Code allow rules allow, run without a card.
+  - **Accept edits:** file edits run, everything else asks.
+  - **Smart:** Legion asks before an action that reaches the web, deletes, cannot be undone, or that it cannot classify. Tests and builds run without asking.
+  - **Bypass:** no permission cards. Your deny rules and Legion's safety rails still apply, and everything is logged.
+- **Per agent and per project.** An agent keeps its own setting or follows its project, and a project can limit its agents to its preset. Fine tuning lists the checks behind the presets, and each one can be set on its own. Anything that makes agents ask less asks you to confirm in a separate window first.
+- **Folders you trust.** Commands in a project folder's Claude Code settings, hooks or skills run only after you trust that folder.
+- **Approval cards** in the thread. Press `A` or `D`.
 - **Doctor** checks your setup and says how to fix what fails ([First run and Doctor](#first-run-and-doctor)).
 - **Updates that install**: one click to download, installed when you restart ([Updates](#updates)).
 
 <details><summary>Details</summary>
 
-- Settings covers Claude sign-in or API key, your boat.dev key (with a Test button), MCP servers and connection snippets.
+- Agents ask before they read password and key files (such as `.env`, SSH and cloud login folders, and Legion's own key files).
+- In every mode, agents ask before they change protected files: Git hooks, editor and agent settings, shell start-up, package managers and Legion's own settings.
+- Agents ask before they read a new website. Sites on your list open without asking, and "Always allow" on a card adds a site to it.
+- Commands an agent runs do not get environment variables that look like keys, tokens or passwords.
+- Provider keys are kept in an encrypted file, locked with your system key store.
+- Settings covers Claude sign-in or API key, providers, web search, your boat.dev key (with a Test button), MCP servers and connection snippets.
 - Doctor checks Node, config, Claude sign-in, boat.dev and the workspace.
+- Legion has no sandbox for commands: a command you allow runs with your own rights. See [SECURITY.md](SECURITY.md) and the known limits in the [changelog](CHANGELOG.md).
 
 </details>
 
@@ -340,7 +352,9 @@ To update, run setup again from a newer source folder.
 
 </details>
 
-### macOS and Linux (or any dev install)
+### macOS and Linux
+
+Use the [one-line install](#one-line-install). For a dev install from source:
 
 ```bash
 git clone https://github.com/dnh33/legion.git
@@ -353,9 +367,9 @@ npm start          # builds, then opens the desktop app
 
 ## Updates
 
-- A release install updates itself: click **Download update**, then **Restart and install**.
+- A release install on Windows, and an install made by the one-line installer on macOS or Linux, updates itself: click **Download update**, then **Restart and install**.
 - Legion checks GitHub on launch and on a schedule. Turn the check off in Settings, About.
-- A git checkout only gets a notice. Update it with `git pull`, `npm ci` and `npm run build`.
+- A git checkout you cloned yourself only gets a notice. Update it with `git pull`, `npm ci` and `npm run build`.
 
 <details><summary>Details</summary>
 
@@ -364,7 +378,7 @@ npm start          # builds, then opens the desktop app
 - Legion does not restart while a task, run or approval is live; a ready update waits until Legion is idle.
 - Before anything is applied, Legion's own code checks the release against the maintainer's signature, whose public key is built into your copy. It puts the previous version back if the new one does not start.
 - The check is one request to github.com. It sees your IP address and the Legion version.
-- A non-Windows system or a release that changes dependencies also only gets a notice.
+- On macOS and Linux, a release that changes dependencies only gets a notice: run the installer again. On Windows such a release installs itself when it carries a signed full package.
 - Details and limits: [docs/UPDATES.md](docs/UPDATES.md).
 
 </details>

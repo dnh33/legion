@@ -22,7 +22,7 @@ Row format for new intake: `id | area | preconditions | exact steps | expected o
 
 Plan ids are written `PC-<AREA>-<nn>`. The tables below are the original intake text, unchanged. (The Blender rows B1 to B11 live only on `claude/review-blender-merged` so far; they are already in the plan.)
 
-Source: `review/release-packaging-review.md` section 5 (branch `claude/review-release-packaging`) and `review/mcp-isolation-review.md`. Cloud reviewers ran Linux only; none of these is proven yet. Update the State column as each is run on this PC.
+Source: the maintainer review notes (release-packaging-review) section 5 (branch `claude/review-release-packaging`) and the maintainer review notes (mcp-isolation-review). Cloud reviewers ran Linux only; none of these is proven yet. Update the State column as each is run on this PC.
 
 ## Installer (release-packaging review, sec. 5)
 
@@ -221,7 +221,7 @@ Why: BRC-100 does not say how a wallet identifies a local app outside a browser 
 Four defects shipped in 0.2.3-a and are fixed here, all reproduced against the released app.zip. Proven in a real
 package built by `scripts/release-package.mjs` (409 entries; `dist/context-layer` = 12 files, 113.9 KB) with the module
 run as shipped inside it. **Not yet run in a real Legion**, so nothing here may be called verified until a row says pass.
-Full record: `claude/HOUSE-LAYER-VERIFICATION.md`.
+Full record: the maintainer notes (HOUSE-LAYER-VERIFICATION).
 
 | # | Check | Expected observation | State |
 |---|---|---|---|

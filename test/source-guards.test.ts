@@ -75,8 +75,6 @@ const NAME_ALLOW: Allow[] = [
   { file: 'test/model-groups.test.ts', why: 'a model id from a model provider\'s catalog, used as sample data' },
   { file: 'test/away-copy.test.ts', why: 'a negative assertion: the away copy must not spell these words, so the words appear in the assertion' },
   { file: 'test/project-page-source.test.ts', why: 'a negative assertion: the project page source must not spell these words, so the words appear in the assertion' },
-  { file: 'scripts/export-public.mjs', why: 'the public-export scrub removes a private local folder name from paths' },
-  { file: 'test/export-scrub.test.ts', why: 'asserts the scrub above' },
 ];
 test('no other coding-agent product is named in src, ui, test or scripts', () => {
   const all = ['src', 'ui/src', 'test', 'scripts'].flatMap((d) => files(d, /\.(tsx?|css|mjs|cjs|js)$/));

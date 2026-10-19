@@ -87,7 +87,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-01: Double-click setup.cmd: window stays open on success and on a forced failure
 
-- **Source:** claude/tracker-pc-checks.md P1; review/release-packaging-review.md section 5 item 1
+- **Source:** claude/tracker-pc-checks.md P1; maintainer review notes (release-packaging-review) section 5 item 1
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Windows 10 or 11 with Windows PowerShell 5.1 (powershell.exe, not pwsh). Unpacked source folder. Node installed for the success run. A second run with Node hidden from PATH (open a cmd window, run `set PATH=C:\Windows\System32` first) or with `npm ci` made to fail (disconnect the network) for the failure run.
@@ -101,7 +101,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-02: Double-click setup-yes.cmd: closes on success, stays open with a message on failure
 
-- **Source:** claude/tracker-pc-checks.md P1; review/release-packaging-review.md F4
+- **Source:** claude/tracker-pc-checks.md P1; maintainer review notes (release-packaging-review) F4
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** As INST-01. setup-yes.cmd is the unattended entry point (-Yes).
@@ -114,7 +114,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-03: Redirected input: setup never waits for a keypress
 
-- **Source:** claude/tracker-pc-checks.md P2; review/release-packaging-review.md section 5 item 2
+- **Source:** claude/tracker-pc-checks.md P2; maintainer review notes (release-packaging-review) section 5 item 2
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** cmd window in the source folder. A way to run with no console (Task Scheduler one-shot task) is optional.
@@ -129,7 +129,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-04: Process matcher stops only Legion processes
 
-- **Source:** claude/tracker-pc-checks.md P3; review/release-packaging-review.md F1, F9, section 5 item 3
+- **Source:** claude/tracker-pc-checks.md P3; maintainer review notes (release-packaging-review) F1, F9, section 5 item 3
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A build installed and running (INST-10). Four extra programs started first: (a) Legion running from the install folder, (b) a Legion source checkout on another drive with its own electron.exe running, (c) an unrelated Electron app whose folder has src\electron\main.ts and package.json with another name, (d) VS Code and a plain `node` dev server open. Use harmless sample apps only.
@@ -143,7 +143,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-05: Install to a path with spaces and non-ASCII characters
 
-- **Source:** claude/tracker-pc-checks.md P4; review/release-packaging-review.md section 5 item 4
+- **Source:** claude/tracker-pc-checks.md P4; maintainer review notes (release-packaging-review) section 5 item 4
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / command-only
 - **Preconditions:** Windows PowerShell 5.1. A folder such as C:\Users\Zoë Ørsted\Legion Test (create it, or use a user account with such a name).
@@ -157,7 +157,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-06: Dangerous -InstallDir values are refused (drive root, foreign folder, user profile)
 
-- **Source:** claude/tracker-pc-checks.md P5; review/release-packaging-review.md F2, section 5 item 5
+- **Source:** claude/tracker-pc-checks.md P5; maintainer review notes (release-packaging-review) F2, section 5 item 5
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** A throwaway foreign folder with a file `keep.txt` in it. Use -DryRun first for every target.
@@ -170,7 +170,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-07: Uninstall: shortcuts, install folder and data folder behave as documented
 
-- **Source:** claude/tracker-pc-checks.md P6; review/release-packaging-review.md section 5 item 6; README.md Install (uninstall paragraph)
+- **Source:** claude/tracker-pc-checks.md P6; maintainer review notes (release-packaging-review) section 5 item 6; README.md Install (uninstall paragraph)
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** A working install. Desktop redirected into OneDrive on the test account if possible. A second Legion shortcut pointing at another install folder.
@@ -184,7 +184,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-08: CRLF line endings survive ZIP download and git clone
 
-- **Source:** claude/tracker-pc-checks.md P7; review/release-packaging-review.md section 5 item 7
+- **Source:** claude/tracker-pc-checks.md P7; maintainer review notes (release-packaging-review) section 5 item 7
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** Git for Windows with `core.autocrlf=input`. The repo (or a ZIP of it) once it is reachable for the owner.
@@ -198,7 +198,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-09: SmartScreen and antivirus behaviour on the unsigned .cmd files
 
-- **Source:** claude/tracker-pc-checks.md P8; review/release-packaging-review.md section 5 item 8; README.md status block (unsigned, expect prompts)
+- **Source:** claude/tracker-pc-checks.md P8; maintainer review notes (release-packaging-review) section 5 item 8; README.md status block (unsigned, expect prompts)
 - **Gate / depends:** G1
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** Default Windows Security and SmartScreen settings. File arrives via browser download (Mark of the Web) and also via git clone.
@@ -211,7 +211,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-10: Fresh npm ci and build on Windows, launch from the shortcut with the real Electron binary
 
-- **Source:** claude/tracker-pc-checks.md P9; review/release-packaging-review.md section 5 item 9
+- **Source:** claude/tracker-pc-checks.md P9; maintainer review notes (release-packaging-review) section 5 item 9
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** No earlier Legion install, or a clean install folder. Network on (npm and the Electron download). Owner gives the go for downloads.
@@ -225,7 +225,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-11: Setup run from inside a Legion agent does not kill its own ancestor
 
-- **Source:** claude/tracker-pc-checks.md P10; review/release-packaging-review.md F6
+- **Source:** claude/tracker-pc-checks.md P10; maintainer review notes (release-packaging-review) F6
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** Installed Legion running. An agent with approval mode `ask` or `full` that can run shell commands. Owner present to approve the card.
@@ -238,7 +238,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-12: Setup under powershell -NonInteractive and when not user-interactive
 
-- **Source:** review/release-packaging-review.md F7. **INFERRED:** From review finding F7 (low); the tracker list did not include it.
+- **Source:** maintainer review notes (release-packaging-review) F7. **INFERRED:** From review finding F7 (low); the tracker list did not include it.
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** cmd window in the source folder; Legion running (so setup has a question to ask).
@@ -251,7 +251,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-13: Uninstall edges: partial update, in-place install from a checkout, -Purge target
 
-- **Source:** review/release-packaging-review.md F8. **INFERRED:** From review finding F8 (low); not in the tracker list. Run only against throwaway copies.
+- **Source:** maintainer review notes (release-packaging-review) F8. **INFERRED:** From review finding F8 (low); not in the tracker list. Run only against throwaway copies.
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** Throwaway source checkout copy (with a .git folder) used for an in-place install; a throwaway LEGION_HOME folder.
@@ -265,7 +265,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-14: Real Windows PowerShell 5.1: parse the scripts and run the matcher helpers on a throwaway node.exe
 
-- **Source:** review/release-packaging-review.md F5, section 0 (5.1 never run in the review)
+- **Source:** maintainer review notes (release-packaging-review) F5, section 0 (5.1 never run in the review)
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** powershell.exe 5.1 (`$PSVersionTable.PSVersion` shows 5.x). Note: the repo CI job "installer (Windows PowerShell 5.1)" covers part of this on a GitHub runner, which is not the owner's PC.
@@ -306,7 +306,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-01: Tray icon: close hides to tray, menu items work, Quit stops only a core the app started
 
-- **Source:** claude/legion-release-tracker.md handoff (tray/second-instance/title bar); docs/ARCHITECTURE.md Electron shell
+- **Source:** maintainer notes (legion-release-tracker) handoff (tray/second-instance/title bar); docs/ARCHITECTURE.md Electron shell
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Installed Legion launched from the shortcut (the app starts its own core).
@@ -322,7 +322,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-02: Second instance: starting Legion again focuses the running window
 
-- **Source:** claude/legion-release-tracker.md handoff (tray/second-instance/title bar); docs/ARCHITECTURE.md (single-instance lock)
+- **Source:** maintainer notes (legion-release-tracker) handoff (tray/second-instance/title bar); docs/ARCHITECTURE.md (single-instance lock)
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Legion running, once with the window visible and once hidden in the tray.
@@ -335,7 +335,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-03: Title bar: hidden bar with overlay controls, no overlap at 1440 px, minimum size
 
-- **Source:** claude/legion-release-tracker.md handoff (tray/second-instance/title bar); CHANGELOG.md (Title bar crowding); docs/ARCHITECTURE.md (1280x820, minimum 960x600)
+- **Source:** maintainer notes (legion-release-tracker) handoff (tray/second-instance/title bar); CHANGELOG.md (Title bar crowding); docs/ARCHITECTURE.md (1280x820, minimum 960x600)
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Legion running. Doctor chip in its longer state ("1 to fix") if you can produce it (for example remove the boat.dev key). BSV mode on shows the ticker.
@@ -378,7 +378,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-06: Doctor lists every check with a fix, on the real machine
 
-- **Source:** README.md (Doctor); claude/legion-release-tracker.md handoff
+- **Source:** README.md (Doctor); maintainer notes (legion-release-tracker) handoff
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** Installed Legion; Claude signed in or an API key set; boat.dev key optional.
@@ -418,7 +418,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-09: Upgrade from the previous build: Builder VM size reset to default once
 
-- **Source:** claude/tracker-pc-checks.md U1; review/rooms-probe-upgrade-review.md section U1; CHANGELOG.md (Upgrade: Builder's VM size is reset)
+- **Source:** claude/tracker-pc-checks.md U1; maintainer review notes (rooms-probe-upgrade-review) section U1; CHANGELOG.md (Upgrade: Builder's VM size is reset)
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** A copy of a state.json from the v6-5 build with Builder on `large` and no `migrations` flag (back up the real %USERPROFILE%\.legion first; test in a copy via LEGION_HOME).
@@ -432,7 +432,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-10: Claude sign-in and a first real run
 
-- **Source:** claude/legion-release-tracker.md handoff (approval-card flows end to end); README.md Settings
+- **Source:** maintainer notes (legion-release-tracker) handoff (approval-card flows end to end); README.md Settings
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** Owner signed in to Claude Code on this PC (or an API key set in Settings). Uses a few tokens: pick the Haiku model.
@@ -445,7 +445,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-11: Approval cards end to end: Allow, Deny, keyboard A and D, ask/auto-edits/full
 
-- **Source:** claude/legion-release-tracker.md handoff (approval-card flows end to end); README.md (Inline approvals)
+- **Source:** maintainer notes (legion-release-tracker) handoff (approval-card flows end to end); README.md (Inline approvals)
 - **Gate / depends:** G2 / after PC-APP-10
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** APP-10 passed. An agent in `ask` mode with a throwaway working directory.
@@ -460,7 +460,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-12: Sentinel scheduled routine fires unattended
 
-- **Source:** claude/legion-release-tracker.md handoff (Sentinel schedule). **INFERRED:** The handoff names it, but no scheduler code was found in src/ (only the Sentinel persona text mentions routines). The owner must say how the routine is meant to be set up before this can be run.
+- **Source:** maintainer notes (legion-release-tracker) handoff (Sentinel schedule). **INFERRED:** The handoff names it, but no scheduler code was found in src/ (only the Sentinel persona text mentions routines). The owner must say how the routine is meant to be set up before this can be run.
 - **Gate / depends:** G2 / after PC-APP-10
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** Owner decides what "a Sentinel schedule" is (a Claude Code routine, Task Scheduler call to the MCP bridge, or an in-app feature) and sets it up.
@@ -500,7 +500,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-CHAT-01: Bot-created room with no budget: card says no spend limit, running cost visible
 
-- **Source:** claude/tracker-pc-checks.md R1; review/rooms-probe-upgrade-review.md R1 checks; claude/legion-release-tracker.md decision 4
+- **Source:** claude/tracker-pc-checks.md R1; maintainer review notes (rooms-probe-upgrade-review) R1 checks; maintainer notes (legion-release-tracker) decision 4
 - **Gate / depends:** G3 / after PC-APP-10
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** APP-10 passed. Two agents. Owner at the keyboard. Use a small model.
@@ -514,7 +514,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-CHAT-02: Room budget edge cases in the real UI: remove a limit, add one, resume after a budget pause
 
-- **Source:** review/rooms-probe-upgrade-review.md polish P1, P2. **INFERRED:** Polish findings of the rooms review; behaviour already unit-tested, the wording is what needs eyes.
+- **Source:** maintainer review notes (rooms-probe-upgrade-review) polish P1, P2. **INFERRED:** Polish findings of the rooms review; behaviour already unit-tested, the wording is what needs eyes.
 - **Gate / depends:** G3 / after PC-CHAT-01
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** A room from CHAT-01 or a human-made room with a $0.05 budget.
@@ -569,7 +569,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-CHAT-06: Library Inbox with a real run: accept and reject a note; restart keeps the same graph
 
-- **Source:** claude/legion-release-tracker.md R6.1 open item; docs/LIBRARY.md
+- **Source:** maintainer notes (legion-release-tracker) R6.1 open item; docs/LIBRARY.md
 - **Gate / depends:** G3 / after PC-APP-10
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** APP-10 passed.
@@ -598,7 +598,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-01: inheritMcp off: no claude.ai connectors or user MCP servers connect, even with a settings env block
 
-- **Source:** claude/tracker-pc-checks.md M1; review/mcp-isolation-review.md F1
+- **Source:** claude/tracker-pc-checks.md M1; maintainer review notes (mcp-isolation-review) F1
 - **Gate / depends:** G3 / after PC-APP-10
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** Real claude.ai connectors enabled on the owner's account. `claude.inheritMcp` off (default). A throwaway project folder whose .claude/settings.json has an `env` block setting ENABLE_CLAUDEAI_MCP_SERVERS to "true". Fix under test: settings.disableClaudeAiConnectors passed by Legion.
@@ -612,7 +612,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-02: inheritMcp on with a registered Legion server: self-server switched off, no loop
 
-- **Source:** claude/tracker-pc-checks.md M2; review/mcp-isolation-review.md F6
+- **Source:** claude/tracker-pc-checks.md M2; maintainer review notes (mcp-isolation-review) F6
 - **Gate / depends:** G3 / after PC-MCP-05
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** `claude mcp add legion http://127.0.0.1:4747/mcp` (or stdio) configured in Claude Code. Settings, Claude: tick the MCP inheritance option.
@@ -625,7 +625,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-03: Loopback aliases of the self-server on Windows (127.0.0.2, ::ffff:127.0.0.1, localhost.)
 
-- **Source:** review/mcp-isolation-review.md F2b. **INFERRED:** Review says macOS/Windows 127/8 behaviour differs from Linux; expected result unknown.
+- **Source:** maintainer review notes (mcp-isolation-review) F2b. **INFERRED:** Review says macOS/Windows 127/8 behaviour differs from Linux; expected result unknown.
 - **Gate / depends:** G3 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** Legion core running.
@@ -650,7 +650,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-05: Register the Legion MCP stdio bridge in Claude Code (user scope), list tools, one Haiku task
 
-- **Source:** claude/legion-release-tracker.md After install: Legion MCP for Claude Code; README.md Orchestrate
+- **Source:** maintainer notes (legion-release-tracker) After install: Legion MCP for Claude Code; README.md Orchestrate
 - **Gate / depends:** G3 / after PC-INST-10, PC-APP-10
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** Legion installed (INST-10). Owner approved user-scope registration. NOTE: the tracker text shows the path as `dist\srcin\...` (a lost backslash); the real file is dist\src\bin\legion-mcp-stdio.js.
@@ -665,7 +665,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-06: MCP token class cannot approve, accept notes or change settings
 
-- **Source:** claude/legion-release-tracker.md After install (token class cannot approve cards...); README.md Orchestrate
+- **Source:** maintainer notes (legion-release-tracker) After install (token class cannot approve cards...); README.md Orchestrate
 - **Gate / depends:** G3 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** Legion running. Read the token into a PowerShell variable without printing it (`$t=(Get-Content $env:USERPROFILE\.legion\config.json -Raw | ConvertFrom-Json).authToken`).
@@ -678,7 +678,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-07: Cowork and Claude Desktop over the stdio bridge
 
-- **Source:** claude/legion-release-tracker.md handoff (Cowork over MCP); README.md Orchestrate
+- **Source:** maintainer notes (legion-release-tracker) handoff (Cowork over MCP); README.md Orchestrate
 - **Gate / depends:** G3 / after PC-INST-10
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** Claude Desktop or Cowork installed and signed in. Owner present.
@@ -705,7 +705,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-09: MCP status panel does not show URLs or tokens from a failing server
 
-- **Source:** review/mcp-isolation-review.md F3. **INFERRED:** Finding F3 (low-medium) with a fix suggested; run after the fix.
+- **Source:** maintainer review notes (mcp-isolation-review) F3. **INFERRED:** Finding F3 (low-medium) with a fix suggested; run after the fix.
 - **Gate / depends:** G3 / after PC-APP-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Settings, MCP: add a remote server named `redact-test` with URL `https://127.0.0.1:9/mcp?token=EXAMPLE0000` (a refused port).
@@ -720,7 +720,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-VM-01: Core start makes zero boat.dev key-probe calls
 
-- **Source:** claude/tracker-pc-checks.md K1; review/rooms-probe-upgrade-review.md K1; claude/legion-release-tracker.md decision 3
+- **Source:** claude/tracker-pc-checks.md K1; maintainer review notes (rooms-probe-upgrade-review) K1; maintainer notes (legion-release-tracker) decision 3
 - **Gate / depends:** G4 / after PC-APP-10
 - **Safety / automation:** account / command-only
 - **Preconditions:** boat.dev key saved in Settings. To count calls without trusting Legion: set Settings, boat.dev, "API base URL" to a local logging listener (any small Node http server on 127.0.0.1 that logs every request path) and restore it afterwards. If the owner has stored VMs, expect one lookup per stored VM at start (review K1-F1).
@@ -733,7 +733,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-VM-02: The key probe runs once: on first Settings, boat.dev open or first VM use; Check again repeats it
 
-- **Source:** claude/tracker-pc-checks.md K1; review/rooms-probe-upgrade-review.md K1 (race, re-open, reset on key change)
+- **Source:** claude/tracker-pc-checks.md K1; maintainer review notes (rooms-probe-upgrade-review) K1 (race, re-open, reset on key change)
 - **Gate / depends:** G4 / after PC-VM-01
 - **Safety / automation:** account / command-only
 - **Preconditions:** Same logging listener as VM-01 (probe results will show errors; that is fine, the count is what matters).
@@ -773,7 +773,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-VM-05: Forgemaster VM run: start, exec, preview, Open desktop, stop
 
-- **Source:** claude/legion-release-tracker.md handoff (Forgemaster VM run, real boat.dev checks); claude/legion-release-tracker.md item C
+- **Source:** maintainer notes (legion-release-tracker) handoff (Forgemaster VM run, real boat.dev checks); maintainer notes (legion-release-tracker) item C
 - **Gate / depends:** G4 / after PC-VM-02
 - **Safety / automation:** spends-money / owner-must-be-present
 - **Preconditions:** boat.dev key set and permitted. Owner says go (a VM is billed). Forgemaster agent with approval `ask`.
@@ -839,7 +839,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-01: Local mode: Blender is detected and Automatic says "Next script runs: on this computer"
 
-- **Source:** claude/tracker-pc-checks.md B1; claude/plan-blender-local-first.md 6.2 item 1; review/blender-merged-review.md section 6 item 1
+- **Source:** claude/tracker-pc-checks.md B1; claude/plan-blender-local-first.md 6.2 item 1; maintainer review notes (blender-merged-review) section 6 item 1
 - **Gate / depends:** G5 / after PC-APP-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** A real Blender (3.0 or newer) installed, bridge enabled in Settings, Blender. Branch with local mode merged (merge/blender).
@@ -852,7 +852,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-02: First script after a fresh core start runs locally, not in the VM
 
-- **Source:** review/blender-merged-review.md B1 (detect is async; first call could route to the VM). **INFERRED:** Review blocker B1 note about async detection; run after the fix.
+- **Source:** maintainer review notes (blender-merged-review) B1 (detect is async; first call could route to the VM). **INFERRED:** Review blocker B1 note about async detection; run after the fix.
 - **Gate / depends:** G5 / after PC-BLND-01
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Blender installed; boat.dev key set (so the VM is a possible fallback); mode Automatic; core freshly restarted.
@@ -865,7 +865,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-03: Cube plus GLB, FBX and PNG preview through the real runner; write guard does not break the exporters
 
-- **Source:** claude/tracker-pc-checks.md B2; claude/plan-blender-local-first.md 6.2 item 2; review/blender-merged-review.md section 6 item 1
+- **Source:** claude/tracker-pc-checks.md B2; claude/plan-blender-local-first.md 6.2 item 2; maintainer review notes (blender-merged-review) section 6 item 1
 - **Gate / depends:** G5 / after PC-BLND-01
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** BLND-01 passed. Workspace folder chosen.
@@ -879,7 +879,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-04: A write outside the task folder is blocked; an infinite loop is killed at 120 s with no blender.exe left
 
-- **Source:** claude/tracker-pc-checks.md B3; claude/plan-blender-local-first.md 6.2 item 3; review/blender-merged-review.md section 6 item 2
+- **Source:** claude/tracker-pc-checks.md B3; claude/plan-blender-local-first.md 6.2 item 3; maintainer review notes (blender-merged-review) section 6 item 2
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A hand-written script file calling the runner directly (bypassing the static check), kept under the scratch folder; a second one that loops forever. Defensive test of Legion's own controls only.
@@ -905,7 +905,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-06: A local run opens no socket on 9876 even with the community add-on auto-start on
 
-- **Source:** claude/tracker-pc-checks.md B5; claude/plan-blender-local-first.md 6.2 item 5; review/blender-merged-review.md section 6 item 4 (--factory-startup keeps add-ons out)
+- **Source:** claude/tracker-pc-checks.md B5; claude/plan-blender-local-first.md 6.2 item 5; maintainer review notes (blender-merged-review) section 6 item 4 (--factory-startup keeps add-ons out)
 - **Gate / depends:** G6 / after PC-BLND-03, PC-BLND-12
 - **Safety / automation:** downloads / command-only
 - **Preconditions:** The community add-on installed with `blendermcp_auto_start_server` on (see BLND-12 for the install). A long-running script (sleep 30 s) via the runner.
@@ -918,7 +918,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-07: Path cases: user name with a space, long task path, OneDrive-redirected Documents, 8.3 names, junctions
 
-- **Source:** claude/tracker-pc-checks.md B6; claude/plan-blender-local-first.md 6.2 item 6; review/blender-merged-review.md section 6 item 3
+- **Source:** claude/tracker-pc-checks.md B6; claude/plan-blender-local-first.md 6.2 item 6; maintainer review notes (blender-merged-review) section 6 item 3
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A test account or folders: C:\Users\Zoë Ørsted style name; a workspace under OneDrive\Documents; a task id producing a path near 200 characters; a junction made with `mklink /J` inside a throwaway task folder.
@@ -932,7 +932,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-08: Mode switch: VM and Live give the documented errors; legacy "sandbox":"off" loads as live; upgrade notice
 
-- **Source:** claude/tracker-pc-checks.md B7; claude/plan-blender-local-first.md 6.2 item 7; review/blender-merged-review.md (upgrade notice section)
+- **Source:** claude/tracker-pc-checks.md B7; claude/plan-blender-local-first.md 6.2 item 7; maintainer review notes (blender-merged-review) (upgrade notice section)
 - **Gate / depends:** G5 / after PC-BLND-01
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Copy of an old config.json containing `"blender": {"enabled": true, "sandbox": "off"}` with no `mode` key (use a LEGION_HOME copy).
@@ -946,7 +946,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-09: Antivirus or SmartScreen prompts on the first start of the local runner
 
-- **Source:** claude/tracker-pc-checks.md B8; claude/plan-blender-local-first.md 6.2 item 8; review/blender-merged-review.md section 6 item 8
+- **Source:** claude/tracker-pc-checks.md B8; claude/plan-blender-local-first.md 6.2 item 8; maintainer review notes (blender-merged-review) section 6 item 8
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A first local run on a PC where blender.exe has not been started by Legion before.
@@ -959,7 +959,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-10: Blender starts without APPDATA/LOCALAPPDATA and the variables Windows adds are recorded
 
-- **Source:** review/blender-merged-review.md section 6 item 5
+- **Source:** maintainer review notes (blender-merged-review) section 6 item 5
 - **Gate / depends:** G5 / after PC-BLND-05
 - **Safety / automation:** none / command-only
 - **Preconditions:** As BLND-05.
@@ -972,7 +972,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-11: Task folder growth: tmp and backups are cleaned or capped; a large scene is not refused forever
 
-- **Source:** review/blender-merged-review.md M3. **INFERRED:** Review medium finding; run after the fix, with modest sizes (do not fill the disk).
+- **Source:** maintainer review notes (blender-merged-review) M3. **INFERRED:** Review medium finding; run after the fix, with modest sizes (do not fill the disk).
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / command-only
 - **Preconditions:** A task with a scene of about 100 MB (add a high-poly mesh) and free disk of at least 2 GB.
@@ -985,7 +985,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-12: Community add-on: reproduce the pinned sha256 and run Set up once
 
-- **Source:** claude/tracker-pc-checks.md B9; claude/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (community backend, Windows); review/blender-merged-review.md section 6 item 7
+- **Source:** claude/tracker-pc-checks.md B9; claude/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (community backend, Windows); maintainer review notes (blender-merged-review) section 6 item 7
 - **Gate / depends:** G6 / after PC-BLND-01
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** TODO OWNER PC. Owner present and says go for the download. PowerShell 5.1.
@@ -1000,7 +1000,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-13: Official extension install on a real Blender 5.1+ and Test connection
 
-- **Source:** claude/tracker-pc-checks.md B10; claude/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (official backend); review/blender-merged-review.md M5, section 6 item 6
+- **Source:** claude/tracker-pc-checks.md B10; claude/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (official backend); maintainer review notes (blender-merged-review) M5, section 6 item 6
 - **Gate / depends:** G6 / after PC-BLND-01
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** TODO OWNER PC. Blender 5.1 or newer, `uv` installed, network on, owner says go.
@@ -1144,7 +1144,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-00: V0: build the isolated testnet VM and prove the host wallet is not reachable from it
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V0; claude/legion-release-tracker.md BSV scope change (Windows Sandbox not enabled)
+- **Source:** claude/plan-bsv-rung3.md 7.2 V0; maintainer notes (legion-release-tracker) BSV scope change (Windows Sandbox not enabled)
 - **Gate / depends:** G8 / after PC-INST-10
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** Owner at the keyboard. Windows Sandbox or a VM. Enabling Windows Sandbox needs an administrator PowerShell and a restart: `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`. BSV Desktop installed, set to TESTNET, wallet created and testnet coins obtained by the owner by hand (agents create no accounts or passwords).
@@ -1300,7 +1300,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-12: V12: a hand-edited bsv.walletUrl in config.json is ignored
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V12; review/bsv-t1-review.md P3
+- **Source:** claude/plan-bsv-rung3.md 7.2 V12; maintainer review notes (bsv-t1-review) P3
 - **Gate / depends:** G8 / after PC-BSVT-03
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-03 passed.
@@ -1386,7 +1386,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-19: Kill Legion mid-spend: restart keeps the unknown outcome and quarantines a torn audit line
 
-- **Source:** review/bsv-t1-review.md gap hunt (torn last audit line); claude/plan-bsv-rung3.md C12. **INFERRED:** Review describes the behaviour from tests on Linux; Windows file behaviour after a hard kill is the new part.
+- **Source:** maintainer review notes (bsv-t1-review) gap hunt (torn last audit line); claude/plan-bsv-rung3.md C12. **INFERRED:** Review describes the behaviour from tests on Linux; Windows file behaviour after a hard kill is the new part.
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed. Kill by PID only.
@@ -1411,7 +1411,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-21: Testnet runs request a spend only when the owner started them in the app
 
-- **Source:** claude/plan-bsv-rung3.md 9 open question 2; claude/legion-release-tracker.md BSV scope change. **INFERRED:** Decision made; the observation with a real MCP-started or room-woken run is not listed anywhere.
+- **Source:** claude/plan-bsv-rung3.md 9 open question 2; maintainer notes (legion-release-tracker) BSV scope change. **INFERRED:** Decision made; the observation with a real MCP-started or room-woken run is not listed anywhere.
 - **Gate / depends:** G8 / after PC-BSVT-04, PC-MCP-05
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-04 passed; an MCP client (Claude Code) registered (MCP-05).
@@ -1528,7 +1528,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-00: R preconditions: V1-V12 passed, review signed off, reviewed commit, own mainnet address
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b (preconditions); claude/legion-release-tracker.md BSV scope change
+- **Source:** claude/plan-bsv-rung3.md 12.6b (preconditions); maintainer notes (legion-release-tracker) BSV scope change
 - **Gate / depends:** G11 / after PC-BSVT-12
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** OWNER ONLY, BY HAND, NEVER SCRIPTED, NEVER BY AN AGENT. Owner says "go" in this session. No agent drives the keyboard.
@@ -1705,7 +1705,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-WEB-01: The install command on the site works on a clean Windows PC once the repo is public
 
-- **Source:** claude/legion-release-tracker.md Website (install command must be re-verified once the repo is public)
+- **Source:** maintainer notes (legion-release-tracker) Website (install command must be re-verified once the repo is public)
 - **Gate / depends:** G10 / after PC-INST-10
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Product repo public, site deployed. A clean Windows 10/11 user or VM with Node installed and no earlier Legion. Owner go for downloads.
@@ -1718,7 +1718,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-WEB-02: Install from a downloaded ZIP of the public repo and from git clone
 
-- **Source:** claude/legion-release-tracker.md Website; claude/tracker-pc-checks.md P7
+- **Source:** maintainer notes (legion-release-tracker) Website; claude/tracker-pc-checks.md P7
 - **Gate / depends:** G10 / after PC-INST-08
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Public repo.
@@ -1730,7 +1730,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-WEB-03: Public repo links and package metadata have no OWNER placeholder
 
-- **Source:** package.json (homepage, repository, bugs say OWNER on integration/v1); claude/legion-release-tracker.md item G. **INFERRED:** Not a PC-only check; recorded so it is not lost: package.json on integration/v1 still shows OWNER/legion until the docs branch merges.
+- **Source:** package.json (homepage, repository, bugs say OWNER on integration/v1); maintainer notes (legion-release-tracker) item G. **INFERRED:** Not a PC-only check; recorded so it is not lost: package.json on integration/v1 still shows OWNER/legion until the docs branch merges.
 - **Gate / depends:** G10
 - **Safety / automation:** none / command-only
 - **Preconditions:** Docs branch merged.
@@ -1743,7 +1743,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-WEB-04: Public repo settings: secret scanning and push protection on, private vulnerability reporting enabled
 
-- **Source:** claude/tracker-public-audit.md (go public after: secret scanning); claude/legion-release-tracker.md item G
+- **Source:** maintainer notes (tracker-public-audit) (go public after: secret scanning); maintainer notes (legion-release-tracker) item G
 - **Gate / depends:** G10
 - **Safety / automation:** account / owner-only
 - **Preconditions:** Owner logged in to GitHub.
@@ -1755,7 +1755,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-WEB-05: Deployed site: Lighthouse score at least 95 and the screenshots are the current UI
 
-- **Source:** claude/legion-release-tracker.md Website (Lighthouse >= 95; screenshots swappable after item G phase 2)
+- **Source:** maintainer notes (legion-release-tracker) Website (Lighthouse >= 95; screenshots swappable after item G phase 2)
 - **Gate / depends:** G10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Site deployed; Chrome.
@@ -1769,7 +1769,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-PERF-01: Full gate on Windows: npm ci, build:ts, test, typecheck, build:ui with exact counts
 
-- **Source:** CLAUDE.md Gates; claude/legion-release-tracker.md W0 and status updates (reference 1552 tests / 1517 pass / 0 fail / 35 skip)
+- **Source:** CLAUDE.md Gates; maintainer notes (legion-release-tracker) W0 and status updates (reference 1552 tests / 1517 pass / 0 fail / 35 skip)
 - **Gate / depends:** G9
 - **Safety / automation:** downloads / command-only
 - **Preconditions:** Clean checkout of the build under test; owner go for npm ci downloads. PowerShell present so the "real PowerShell" tests run instead of skipping.
@@ -1781,7 +1781,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-PERF-02: R6.1 replay fidelity test, repeated, to see whether the flake is gone
 
-- **Source:** claude/legion-release-tracker.md Open item R6.1
+- **Source:** maintainer notes (legion-release-tracker) Open item R6.1
 - **Gate / depends:** G9 / after PC-PERF-01
 - **Safety / automation:** none / command-only
 - **Preconditions:** Built tree (npm run build:ts).
@@ -1805,7 +1805,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-PERF-04: Perf re-record on the PC: core bench, UI idle and mascot cost, chat, lattice, with the busy ring on
 
-- **Source:** claude/legion-release-tracker.md handoff (perf re-record); claude/legion-release-tracker.md decision 6 (busy ring: re-measure in the sweep)
+- **Source:** maintainer notes (legion-release-tracker) handoff (perf re-record); maintainer notes (legion-release-tracker) decision 6 (busy ring: re-measure in the sweep)
 - **Gate / depends:** G9 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** Idle PC on AC power, no other apps. The scripts in test-perf/ use Linux paths (/tmp/m, /opt/node-tools) and need Playwright: adapt paths first and note every change. Never point them at a real wallet (they refuse that port).
@@ -1819,7 +1819,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-PERF-05: scrubSecrets timing on Windows for the token, secret_eq and http shapes
 
-- **Source:** claude/legion-release-tracker.md Follow-ups (scrubSecrets quadratic: 0.1 s at 20k chars, 1.7 s at 80k)
+- **Source:** maintainer notes (legion-release-tracker) Follow-ups (scrubSecrets quadratic: 0.1 s at 20k chars, 1.7 s at 80k)
 - **Gate / depends:** G9 / after PC-PERF-01
 - **Safety / automation:** none / command-only
 - **Preconditions:** Built tree.
@@ -1831,7 +1831,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-PERF-06: Regenerate docs screenshots on the PC if the cloud has no browser
 
-- **Source:** claude/legion-release-tracker.md item G (fallback: capture on the PC with the Playwright harnesses under test-perf/). **INFERRED:** Conditional on the cloud having no browser; item G phase 2 is not done on this base.
+- **Source:** maintainer notes (legion-release-tracker) item G (fallback: capture on the PC with the Playwright harnesses under test-perf/). **INFERRED:** Conditional on the cloud having no browser; item G phase 2 is not done on this base.
 - **Gate / depends:** G9 / after PC-INST-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Only if item G phase 2 could not do it. The Marshal art (id zealot) is photographed only, never edited.
@@ -1893,16 +1893,16 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 | Source | What was taken from it |
 |---|---|
 | claude/tracker-pc-checks.md | P1-P10, M1-M3, K1, U1, R1, handoff line (also the Blender B1-B11 variant on origin/claude/review-blender-merged) |
-| claude/legion-release-tracker.md | decisions, handoff list, R6.1 flake, scrubSecrets follow-up, Legion MCP registration, website, BSV scope, status updates |
+| maintainer notes (legion-release-tracker) | decisions, handoff list, R6.1 flake, scrubSecrets follow-up, Legion MCP registration, website, BSV scope, status updates |
 | claude/plan-bsv-rung3.md | section 3 (U1-U10), 7.2 (V0-V12), 12 (U11-U14, R0-R11), 13 |
 | claude/plan-blender-local-first.md | 6.2, 6.3, 11 (B4 managed Blender), 12 (B5 chooser) |
-| claude/tracker-public-audit.md | public-repo owner steps (secret scanning, L5) |
-| claude/release-notes-skeleton.md | unverified statements in the draft notes |
-| origin/claude/review-release-packaging: review/release-packaging-review.md | F1-F9, section 5 |
-| origin/claude/review-mcp-isolation: review/mcp-isolation-review.md | F1-F5, self-MCP variants |
-| origin/claude/review-rooms-probe-upgrade: review/rooms-probe-upgrade-review.md | R1, K1, U1, polish |
-| origin/claude/review-blender-merged: review/blender-merged-review.md | B1, M1-M5, L1-L9, section 6 |
-| origin/claude/review-bsv-t1: review/bsv-t1-review.md | F1, gap hunt, polish |
+| maintainer notes (tracker-public-audit) | public-repo owner steps (secret scanning, L5) |
+| maintainer notes (release-notes-skeleton) | unverified statements in the draft notes |
+| maintainer review notes (release-packaging-review) | F1-F9, section 5 |
+| maintainer review notes (mcp-isolation-review) | F1-F5, self-MCP variants |
+| maintainer review notes (rooms-probe-upgrade-review) | R1, K1, U1, polish |
+| maintainer review notes (blender-merged-review) | B1, M1-M5, L1-L9, section 6 |
+| maintainer review notes (bsv-t1-review) | F1, gap hunt, polish |
 | origin/claude/test-harness: docs/TESTING.md, TESTING-BLENDER.md, TESTING-BSV.md | what only a real PC can verify, owner-only lists |
 | docs/BLENDER.md | Not verified yet |
 | docs/BSV-MODE.md | Not verified, interface |
