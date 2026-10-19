@@ -2,7 +2,7 @@
   "schema": 1,
   "title": "Legion real-PC test plan",
   "updated": "2026-10-06",
-  "masterDocument": "claude/real-pc-test-plan.md",
+  "masterDocument": "docs/design/real-pc-test-plan.md",
   "evidenceRoot": "%USERPROFILE%\\legion-pc-run\\<yyyymmdd>\\ (outside the repo; never commit evidence that contains a token, key or .legion data)",
   "areas": [
     {
@@ -134,8 +134,8 @@
       "area": "INST",
       "title": "Double-click setup.cmd: window stays open on success and on a forced failure",
       "source": [
-        "claude/tracker-pc-checks.md P1",
-        "review/release-packaging-review.md section 5 item 1"
+        "docs/design/tracker-pc-checks.md P1",
+        "maintainer review notes (release-packaging-review) section 5 item 1"
       ],
       "inferred": false,
       "preconditions": "Windows 10 or 11 with Windows PowerShell 5.1 (powershell.exe, not pwsh). Unpacked source folder. Node installed for the success run. A second run with Node hidden from PATH (open a cmd window, run `set PATH=C:\\Windows\\System32` first) or with `npm ci` made to fail (disconnect the network) for the failure run.",
@@ -161,8 +161,8 @@
       "area": "INST",
       "title": "Double-click setup-yes.cmd: closes on success, stays open with a message on failure",
       "source": [
-        "claude/tracker-pc-checks.md P1",
-        "review/release-packaging-review.md F4"
+        "docs/design/tracker-pc-checks.md P1",
+        "maintainer review notes (release-packaging-review) F4"
       ],
       "inferred": false,
       "preconditions": "As INST-01. setup-yes.cmd is the unattended entry point (-Yes).",
@@ -187,8 +187,8 @@
       "area": "INST",
       "title": "Redirected input: setup never waits for a keypress",
       "source": [
-        "claude/tracker-pc-checks.md P2",
-        "review/release-packaging-review.md section 5 item 2"
+        "docs/design/tracker-pc-checks.md P2",
+        "maintainer review notes (release-packaging-review) section 5 item 2"
       ],
       "inferred": false,
       "preconditions": "cmd window in the source folder. A way to run with no console (Task Scheduler one-shot task) is optional.",
@@ -215,8 +215,8 @@
       "area": "INST",
       "title": "Process matcher stops only Legion processes",
       "source": [
-        "claude/tracker-pc-checks.md P3",
-        "review/release-packaging-review.md F1, F9, section 5 item 3"
+        "docs/design/tracker-pc-checks.md P3",
+        "maintainer review notes (release-packaging-review) F1, F9, section 5 item 3"
       ],
       "inferred": false,
       "preconditions": "A build installed and running (INST-10). Four extra programs started first: (a) Legion running from the install folder, (b) a Legion source checkout on another drive with its own electron.exe running, (c) an unrelated Electron app whose folder has src\\electron\\main.ts and package.json with another name, (d) VS Code and a plain `node` dev server open. Use harmless sample apps only.",
@@ -244,8 +244,8 @@
       "area": "INST",
       "title": "Install to a path with spaces and non-ASCII characters",
       "source": [
-        "claude/tracker-pc-checks.md P4",
-        "review/release-packaging-review.md section 5 item 4"
+        "docs/design/tracker-pc-checks.md P4",
+        "maintainer review notes (release-packaging-review) section 5 item 4"
       ],
       "inferred": false,
       "preconditions": "Windows PowerShell 5.1. A folder such as C:\\Users\\Zoë Ørsted\\Legion Test (create it, or use a user account with such a name).",
@@ -271,8 +271,8 @@
       "area": "INST",
       "title": "Dangerous -InstallDir values are refused (drive root, foreign folder, user profile)",
       "source": [
-        "claude/tracker-pc-checks.md P5",
-        "review/release-packaging-review.md F2, section 5 item 5"
+        "docs/design/tracker-pc-checks.md P5",
+        "maintainer review notes (release-packaging-review) F2, section 5 item 5"
       ],
       "inferred": false,
       "preconditions": "A throwaway foreign folder with a file `keep.txt` in it. Use -DryRun first for every target.",
@@ -297,8 +297,8 @@
       "area": "INST",
       "title": "Uninstall: shortcuts, install folder and data folder behave as documented",
       "source": [
-        "claude/tracker-pc-checks.md P6",
-        "review/release-packaging-review.md section 5 item 6",
+        "docs/design/tracker-pc-checks.md P6",
+        "maintainer review notes (release-packaging-review) section 5 item 6",
         "README.md Install (uninstall paragraph)"
       ],
       "inferred": false,
@@ -327,8 +327,8 @@
       "area": "INST",
       "title": "CRLF line endings survive ZIP download and git clone",
       "source": [
-        "claude/tracker-pc-checks.md P7",
-        "review/release-packaging-review.md section 5 item 7"
+        "docs/design/tracker-pc-checks.md P7",
+        "maintainer review notes (release-packaging-review) section 5 item 7"
       ],
       "inferred": false,
       "preconditions": "Git for Windows with `core.autocrlf=input`. The repo (or a ZIP of it) once it is reachable for the owner.",
@@ -354,8 +354,8 @@
       "area": "INST",
       "title": "SmartScreen and antivirus behaviour on the unsigned .cmd files",
       "source": [
-        "claude/tracker-pc-checks.md P8",
-        "review/release-packaging-review.md section 5 item 8",
+        "docs/design/tracker-pc-checks.md P8",
+        "maintainer review notes (release-packaging-review) section 5 item 8",
         "README.md status block (unsigned, expect prompts)"
       ],
       "inferred": false,
@@ -381,8 +381,8 @@
       "area": "INST",
       "title": "Fresh npm ci and build on Windows, launch from the shortcut with the real Electron binary",
       "source": [
-        "claude/tracker-pc-checks.md P9",
-        "review/release-packaging-review.md section 5 item 9"
+        "docs/design/tracker-pc-checks.md P9",
+        "maintainer review notes (release-packaging-review) section 5 item 9"
       ],
       "inferred": false,
       "preconditions": "No earlier Legion install, or a clean install folder. Network on (npm and the Electron download). Owner gives the go for downloads.",
@@ -408,8 +408,8 @@
       "area": "INST",
       "title": "Setup run from inside a Legion agent does not kill its own ancestor",
       "source": [
-        "claude/tracker-pc-checks.md P10",
-        "review/release-packaging-review.md F6"
+        "docs/design/tracker-pc-checks.md P10",
+        "maintainer review notes (release-packaging-review) F6"
       ],
       "inferred": false,
       "preconditions": "Installed Legion running. An agent with approval mode `ask` or `full` that can run shell commands. Owner present to approve the card.",
@@ -436,7 +436,7 @@
       "area": "INST",
       "title": "Setup under powershell -NonInteractive and when not user-interactive",
       "source": [
-        "review/release-packaging-review.md F7"
+        "maintainer review notes (release-packaging-review) F7"
       ],
       "inferred": true,
       "inferredNote": "From review finding F7 (low); the tracker list did not include it.",
@@ -464,7 +464,7 @@
       "area": "INST",
       "title": "Uninstall edges: partial update, in-place install from a checkout, -Purge target",
       "source": [
-        "review/release-packaging-review.md F8"
+        "maintainer review notes (release-packaging-review) F8"
       ],
       "inferred": true,
       "inferredNote": "From review finding F8 (low); not in the tracker list. Run only against throwaway copies.",
@@ -493,7 +493,7 @@
       "area": "INST",
       "title": "Real Windows PowerShell 5.1: parse the scripts and run the matcher helpers on a throwaway node.exe",
       "source": [
-        "review/release-packaging-review.md F5, section 0 (5.1 never run in the review)"
+        "maintainer review notes (release-packaging-review) F5, section 0 (5.1 never run in the review)"
       ],
       "inferred": false,
       "preconditions": "powershell.exe 5.1 (`$PSVersionTable.PSVersion` shows 5.x). Note: the repo CI job \"installer (Windows PowerShell 5.1)\" covers part of this on a GitHub runner, which is not the owner's PC.",
@@ -545,7 +545,7 @@
       "area": "INST",
       "title": "Desktop shortcut is created when Desktop is redirected into OneDrive",
       "source": [
-        "claude/tracker-pc-checks.md P6 (OneDrive-redirected Desktop)",
+        "docs/design/tracker-pc-checks.md P6 (OneDrive-redirected Desktop)",
         "task brief: OneDrive-redirected folders"
       ],
       "inferred": true,
@@ -572,7 +572,7 @@
       "area": "APP",
       "title": "Tray icon: close hides to tray, menu items work, Quit stops only a core the app started",
       "source": [
-        "claude/legion-release-tracker.md handoff (tray/second-instance/title bar)",
+        "maintainer notes (legion-release-tracker) handoff (tray/second-instance/title bar)",
         "docs/ARCHITECTURE.md Electron shell"
       ],
       "inferred": false,
@@ -603,7 +603,7 @@
       "area": "APP",
       "title": "Second instance: starting Legion again focuses the running window",
       "source": [
-        "claude/legion-release-tracker.md handoff (tray/second-instance/title bar)",
+        "maintainer notes (legion-release-tracker) handoff (tray/second-instance/title bar)",
         "docs/ARCHITECTURE.md (single-instance lock)"
       ],
       "inferred": false,
@@ -631,7 +631,7 @@
       "area": "APP",
       "title": "Title bar: hidden bar with overlay controls, no overlap at 1440 px, minimum size",
       "source": [
-        "claude/legion-release-tracker.md handoff (tray/second-instance/title bar)",
+        "maintainer notes (legion-release-tracker) handoff (tray/second-instance/title bar)",
         "CHANGELOG.md (Title bar crowding)",
         "docs/ARCHITECTURE.md (1280x820, minimum 960x600)"
       ],
@@ -720,7 +720,7 @@
       "title": "Doctor lists every check with a fix, on the real machine",
       "source": [
         "README.md (Doctor)",
-        "claude/legion-release-tracker.md handoff"
+        "maintainer notes (legion-release-tracker) handoff"
       ],
       "inferred": false,
       "preconditions": "Installed Legion; Claude signed in or an API key set; boat.dev key optional.",
@@ -804,8 +804,8 @@
       "area": "APP",
       "title": "Upgrade from the previous build: Builder VM size reset to default once",
       "source": [
-        "claude/tracker-pc-checks.md U1",
-        "review/rooms-probe-upgrade-review.md section U1",
+        "docs/design/tracker-pc-checks.md U1",
+        "maintainer review notes (rooms-probe-upgrade-review) section U1",
         "CHANGELOG.md (Upgrade: Builder's VM size is reset)"
       ],
       "inferred": false,
@@ -834,7 +834,7 @@
       "area": "APP",
       "title": "Claude sign-in and a first real run",
       "source": [
-        "claude/legion-release-tracker.md handoff (approval-card flows end to end)",
+        "maintainer notes (legion-release-tracker) handoff (approval-card flows end to end)",
         "README.md Settings"
       ],
       "inferred": false,
@@ -862,7 +862,7 @@
       "area": "APP",
       "title": "Approval cards end to end: Allow, Deny, keyboard A and D, ask/auto-edits/full",
       "source": [
-        "claude/legion-release-tracker.md handoff (approval-card flows end to end)",
+        "maintainer notes (legion-release-tracker) handoff (approval-card flows end to end)",
         "README.md (Inline approvals)"
       ],
       "inferred": false,
@@ -892,7 +892,7 @@
       "area": "APP",
       "title": "Sentinel scheduled routine fires unattended",
       "source": [
-        "claude/legion-release-tracker.md handoff (Sentinel schedule)"
+        "maintainer notes (legion-release-tracker) handoff (Sentinel schedule)"
       ],
       "inferred": true,
       "inferredNote": "The handoff names it, but no scheduler code was found in src/ (only the Sentinel persona text mentions routines). The owner must say how the routine is meant to be set up before this can be run.",
@@ -976,9 +976,9 @@
       "area": "CHAT",
       "title": "Bot-created room with no budget: card says no spend limit, running cost visible",
       "source": [
-        "claude/tracker-pc-checks.md R1",
-        "review/rooms-probe-upgrade-review.md R1 checks",
-        "claude/legion-release-tracker.md decision 4"
+        "docs/design/tracker-pc-checks.md R1",
+        "maintainer review notes (rooms-probe-upgrade-review) R1 checks",
+        "maintainer notes (legion-release-tracker) decision 4"
       ],
       "inferred": false,
       "preconditions": "APP-10 passed. Two agents. Owner at the keyboard. Use a small model.",
@@ -1006,7 +1006,7 @@
       "area": "CHAT",
       "title": "Room budget edge cases in the real UI: remove a limit, add one, resume after a budget pause",
       "source": [
-        "review/rooms-probe-upgrade-review.md polish P1, P2"
+        "maintainer review notes (rooms-probe-upgrade-review) polish P1, P2"
       ],
       "inferred": true,
       "inferredNote": "Polish findings of the rooms review; behaviour already unit-tested, the wording is what needs eyes.",
@@ -1122,7 +1122,7 @@
       "area": "CHAT",
       "title": "Library Inbox with a real run: accept and reject a note; restart keeps the same graph",
       "source": [
-        "claude/legion-release-tracker.md R6.1 open item",
+        "maintainer notes (legion-release-tracker) R6.1 open item",
         "docs/LIBRARY.md"
       ],
       "inferred": false,
@@ -1179,8 +1179,8 @@
       "area": "MCP",
       "title": "inheritMcp off: no claude.ai connectors or user MCP servers connect, even with a settings env block",
       "source": [
-        "claude/tracker-pc-checks.md M1",
-        "review/mcp-isolation-review.md F1"
+        "docs/design/tracker-pc-checks.md M1",
+        "maintainer review notes (mcp-isolation-review) F1"
       ],
       "inferred": false,
       "preconditions": "Real claude.ai connectors enabled on the owner's account. `claude.inheritMcp` off (default). A throwaway project folder whose .claude/settings.json has an `env` block setting ENABLE_CLAUDEAI_MCP_SERVERS to \"true\". Fix under test: settings.disableClaudeAiConnectors passed by Legion.",
@@ -1208,8 +1208,8 @@
       "area": "MCP",
       "title": "inheritMcp on with a registered Legion server: self-server switched off, no loop",
       "source": [
-        "claude/tracker-pc-checks.md M2",
-        "review/mcp-isolation-review.md F6"
+        "docs/design/tracker-pc-checks.md M2",
+        "maintainer review notes (mcp-isolation-review) F6"
       ],
       "inferred": false,
       "preconditions": "`claude mcp add legion http://127.0.0.1:4747/mcp` (or stdio) configured in Claude Code. Settings, Claude: tick the MCP inheritance option.",
@@ -1236,7 +1236,7 @@
       "area": "MCP",
       "title": "Loopback aliases of the self-server on Windows (127.0.0.2, ::ffff:127.0.0.1, localhost.)",
       "source": [
-        "review/mcp-isolation-review.md F2b"
+        "maintainer review notes (mcp-isolation-review) F2b"
       ],
       "inferred": true,
       "inferredNote": "Review says macOS/Windows 127/8 behaviour differs from Linux; expected result unknown.",
@@ -1263,7 +1263,7 @@
       "area": "MCP",
       "title": "A broken plugin MCP server in the owner's Claude setup is shown as theirs, not Legion's",
       "source": [
-        "claude/tracker-pc-checks.md M3"
+        "docs/design/tracker-pc-checks.md M3"
       ],
       "inferred": false,
       "preconditions": "The owner's Claude setup has the failing server `plugin:data:definite` (ENDPOINT_NOT_FOUND). inheritMcp on.",
@@ -1290,7 +1290,7 @@
       "area": "MCP",
       "title": "Register the Legion MCP stdio bridge in Claude Code (user scope), list tools, one Haiku task",
       "source": [
-        "claude/legion-release-tracker.md After install: Legion MCP for Claude Code",
+        "maintainer notes (legion-release-tracker) After install: Legion MCP for Claude Code",
         "README.md Orchestrate"
       ],
       "inferred": false,
@@ -1321,7 +1321,7 @@
       "area": "MCP",
       "title": "MCP token class cannot approve, accept notes or change settings",
       "source": [
-        "claude/legion-release-tracker.md After install (token class cannot approve cards...)",
+        "maintainer notes (legion-release-tracker) After install (token class cannot approve cards...)",
         "README.md Orchestrate"
       ],
       "inferred": false,
@@ -1349,7 +1349,7 @@
       "area": "MCP",
       "title": "Cowork and Claude Desktop over the stdio bridge",
       "source": [
-        "claude/legion-release-tracker.md handoff (Cowork over MCP)",
+        "maintainer notes (legion-release-tracker) handoff (Cowork over MCP)",
         "README.md Orchestrate"
       ],
       "inferred": false,
@@ -1406,7 +1406,7 @@
       "area": "MCP",
       "title": "MCP status panel does not show URLs or tokens from a failing server",
       "source": [
-        "review/mcp-isolation-review.md F3"
+        "maintainer review notes (mcp-isolation-review) F3"
       ],
       "inferred": true,
       "inferredNote": "Finding F3 (low-medium) with a fix suggested; run after the fix.",
@@ -1434,9 +1434,9 @@
       "area": "VM",
       "title": "Core start makes zero boat.dev key-probe calls",
       "source": [
-        "claude/tracker-pc-checks.md K1",
-        "review/rooms-probe-upgrade-review.md K1",
-        "claude/legion-release-tracker.md decision 3"
+        "docs/design/tracker-pc-checks.md K1",
+        "maintainer review notes (rooms-probe-upgrade-review) K1",
+        "maintainer notes (legion-release-tracker) decision 3"
       ],
       "inferred": false,
       "preconditions": "boat.dev key saved in Settings. To count calls without trusting Legion: set Settings, boat.dev, \"API base URL\" to a local logging listener (any small Node http server on 127.0.0.1 that logs every request path) and restore it afterwards. If the owner has stored VMs, expect one lookup per stored VM at start (review K1-F1).",
@@ -1463,8 +1463,8 @@
       "area": "VM",
       "title": "The key probe runs once: on first Settings, boat.dev open or first VM use; Check again repeats it",
       "source": [
-        "claude/tracker-pc-checks.md K1",
-        "review/rooms-probe-upgrade-review.md K1 (race, re-open, reset on key change)"
+        "docs/design/tracker-pc-checks.md K1",
+        "maintainer review notes (rooms-probe-upgrade-review) K1 (race, re-open, reset on key change)"
       ],
       "inferred": false,
       "preconditions": "Same logging listener as VM-01 (probe results will show errors; that is fine, the count is what matters).",
@@ -1547,8 +1547,8 @@
       "area": "VM",
       "title": "Forgemaster VM run: start, exec, preview, Open desktop, stop",
       "source": [
-        "claude/legion-release-tracker.md handoff (Forgemaster VM run, real boat.dev checks)",
-        "claude/legion-release-tracker.md item C"
+        "maintainer notes (legion-release-tracker) handoff (Forgemaster VM run, real boat.dev checks)",
+        "maintainer notes (legion-release-tracker) item C"
       ],
       "inferred": false,
       "preconditions": "boat.dev key set and permitted. Owner says go (a VM is billed). Forgemaster agent with approval `ask`.",
@@ -1576,7 +1576,7 @@
       "area": "VM",
       "title": "Builder at size `default` starts on a real account after the upgrade",
       "source": [
-        "claude/tracker-pc-checks.md U1",
+        "docs/design/tracker-pc-checks.md U1",
         "CHANGELOG.md (Builder reset)"
       ],
       "inferred": false,
@@ -1687,9 +1687,9 @@
       "area": "BLND",
       "title": "Local mode: Blender is detected and Automatic says \"Next script runs: on this computer\"",
       "source": [
-        "claude/tracker-pc-checks.md B1",
-        "claude/plan-blender-local-first.md 6.2 item 1",
-        "review/blender-merged-review.md section 6 item 1"
+        "docs/design/tracker-pc-checks.md B1",
+        "docs/design/plan-blender-local-first.md 6.2 item 1",
+        "maintainer review notes (blender-merged-review) section 6 item 1"
       ],
       "inferred": false,
       "preconditions": "A real Blender (3.0 or newer) installed, bridge enabled in Settings, Blender. Branch with local mode merged (merge/blender).",
@@ -1716,7 +1716,7 @@
       "area": "BLND",
       "title": "First script after a fresh core start runs locally, not in the VM",
       "source": [
-        "review/blender-merged-review.md B1 (detect is async; first call could route to the VM)"
+        "maintainer review notes (blender-merged-review) B1 (detect is async; first call could route to the VM)"
       ],
       "inferred": true,
       "inferredNote": "Review blocker B1 note about async detection; run after the fix.",
@@ -1744,9 +1744,9 @@
       "area": "BLND",
       "title": "Cube plus GLB, FBX and PNG preview through the real runner; write guard does not break the exporters",
       "source": [
-        "claude/tracker-pc-checks.md B2",
-        "claude/plan-blender-local-first.md 6.2 item 2",
-        "review/blender-merged-review.md section 6 item 1"
+        "docs/design/tracker-pc-checks.md B2",
+        "docs/design/plan-blender-local-first.md 6.2 item 2",
+        "maintainer review notes (blender-merged-review) section 6 item 1"
       ],
       "inferred": false,
       "preconditions": "BLND-01 passed. Workspace folder chosen.",
@@ -1774,9 +1774,9 @@
       "area": "BLND",
       "title": "A write outside the task folder is blocked; an infinite loop is killed at 120 s with no blender.exe left",
       "source": [
-        "claude/tracker-pc-checks.md B3",
-        "claude/plan-blender-local-first.md 6.2 item 3",
-        "review/blender-merged-review.md section 6 item 2"
+        "docs/design/tracker-pc-checks.md B3",
+        "docs/design/plan-blender-local-first.md 6.2 item 3",
+        "maintainer review notes (blender-merged-review) section 6 item 2"
       ],
       "inferred": false,
       "preconditions": "A hand-written script file calling the runner directly (bypassing the static check), kept under the scratch folder; a second one that loops forever. Defensive test of Legion's own controls only.",
@@ -1804,8 +1804,8 @@
       "area": "BLND",
       "title": "The script's environment has no Legion or API variables",
       "source": [
-        "claude/tracker-pc-checks.md B4",
-        "claude/plan-blender-local-first.md 6.2 item 4"
+        "docs/design/tracker-pc-checks.md B4",
+        "docs/design/plan-blender-local-first.md 6.2 item 4"
       ],
       "inferred": false,
       "preconditions": "As BLND-04. Set a dummy variable `LEGION_TEST_MARK=1` and a fake `ANTHROPIC_API_KEY=not-a-key` in the shell that starts Legion.",
@@ -1831,9 +1831,9 @@
       "area": "BLND",
       "title": "A local run opens no socket on 9876 even with the community add-on auto-start on",
       "source": [
-        "claude/tracker-pc-checks.md B5",
-        "claude/plan-blender-local-first.md 6.2 item 5",
-        "review/blender-merged-review.md section 6 item 4 (--factory-startup keeps add-ons out)"
+        "docs/design/tracker-pc-checks.md B5",
+        "docs/design/plan-blender-local-first.md 6.2 item 5",
+        "maintainer review notes (blender-merged-review) section 6 item 4 (--factory-startup keeps add-ons out)"
       ],
       "inferred": false,
       "preconditions": "The community add-on installed with `blendermcp_auto_start_server` on (see BLND-12 for the install). A long-running script (sleep 30 s) via the runner.",
@@ -1861,9 +1861,9 @@
       "area": "BLND",
       "title": "Path cases: user name with a space, long task path, OneDrive-redirected Documents, 8.3 names, junctions",
       "source": [
-        "claude/tracker-pc-checks.md B6",
-        "claude/plan-blender-local-first.md 6.2 item 6",
-        "review/blender-merged-review.md section 6 item 3"
+        "docs/design/tracker-pc-checks.md B6",
+        "docs/design/plan-blender-local-first.md 6.2 item 6",
+        "maintainer review notes (blender-merged-review) section 6 item 3"
       ],
       "inferred": false,
       "preconditions": "A test account or folders: C:\\Users\\Zoë Ørsted style name; a workspace under OneDrive\\Documents; a task id producing a path near 200 characters; a junction made with `mklink /J` inside a throwaway task folder.",
@@ -1891,9 +1891,9 @@
       "area": "BLND",
       "title": "Mode switch: VM and Live give the documented errors; legacy \"sandbox\":\"off\" loads as live; upgrade notice",
       "source": [
-        "claude/tracker-pc-checks.md B7",
-        "claude/plan-blender-local-first.md 6.2 item 7",
-        "review/blender-merged-review.md (upgrade notice section)"
+        "docs/design/tracker-pc-checks.md B7",
+        "docs/design/plan-blender-local-first.md 6.2 item 7",
+        "maintainer review notes (blender-merged-review) (upgrade notice section)"
       ],
       "inferred": false,
       "preconditions": "Copy of an old config.json containing `\"blender\": {\"enabled\": true, \"sandbox\": \"off\"}` with no `mode` key (use a LEGION_HOME copy).",
@@ -1921,9 +1921,9 @@
       "area": "BLND",
       "title": "Antivirus or SmartScreen prompts on the first start of the local runner",
       "source": [
-        "claude/tracker-pc-checks.md B8",
-        "claude/plan-blender-local-first.md 6.2 item 8",
-        "review/blender-merged-review.md section 6 item 8"
+        "docs/design/tracker-pc-checks.md B8",
+        "docs/design/plan-blender-local-first.md 6.2 item 8",
+        "maintainer review notes (blender-merged-review) section 6 item 8"
       ],
       "inferred": false,
       "preconditions": "A first local run on a PC where blender.exe has not been started by Legion before.",
@@ -1950,7 +1950,7 @@
       "area": "BLND",
       "title": "Blender starts without APPDATA/LOCALAPPDATA and the variables Windows adds are recorded",
       "source": [
-        "review/blender-merged-review.md section 6 item 5"
+        "maintainer review notes (blender-merged-review) section 6 item 5"
       ],
       "inferred": false,
       "preconditions": "As BLND-05.",
@@ -1977,7 +1977,7 @@
       "area": "BLND",
       "title": "Task folder growth: tmp and backups are cleaned or capped; a large scene is not refused forever",
       "source": [
-        "review/blender-merged-review.md M3"
+        "maintainer review notes (blender-merged-review) M3"
       ],
       "inferred": true,
       "inferredNote": "Review medium finding; run after the fix, with modest sizes (do not fill the disk).",
@@ -2005,10 +2005,10 @@
       "area": "BLND",
       "title": "Community add-on: reproduce the pinned sha256 and run Set up once",
       "source": [
-        "claude/tracker-pc-checks.md B9",
-        "claude/plan-blender-local-first.md 6.3",
+        "docs/design/tracker-pc-checks.md B9",
+        "docs/design/plan-blender-local-first.md 6.3",
         "docs/BLENDER.md Not verified yet (community backend, Windows)",
-        "review/blender-merged-review.md section 6 item 7"
+        "maintainer review notes (blender-merged-review) section 6 item 7"
       ],
       "inferred": false,
       "preconditions": "TODO OWNER PC. Owner present and says go for the download. PowerShell 5.1.",
@@ -2037,10 +2037,10 @@
       "area": "BLND",
       "title": "Official extension install on a real Blender 5.1+ and Test connection",
       "source": [
-        "claude/tracker-pc-checks.md B10",
-        "claude/plan-blender-local-first.md 6.3",
+        "docs/design/tracker-pc-checks.md B10",
+        "docs/design/plan-blender-local-first.md 6.3",
         "docs/BLENDER.md Not verified yet (official backend)",
-        "review/blender-merged-review.md M5, section 6 item 6"
+        "maintainer review notes (blender-merged-review) M5, section 6 item 6"
       ],
       "inferred": false,
       "preconditions": "TODO OWNER PC. Blender 5.1 or newer, `uv` installed, network on, owner says go.",
@@ -2152,7 +2152,7 @@
       "area": "BLND",
       "title": "Managed Blender: \"Get Blender for Legion\" pinned download, hash check, detection prefers it",
       "source": [
-        "claude/plan-blender-local-first.md section 11 (B4)"
+        "docs/design/plan-blender-local-first.md section 11 (B4)"
       ],
       "inferred": true,
       "inferredNote": "Planned feature, not merged on this base. Run only if the build under test has the button; otherwise record \"not applicable on this build\".",
@@ -2182,7 +2182,7 @@
       "area": "BLND",
       "title": "First-use chooser on the first Blender card: This computer / Cloud VM / Decide each time",
       "source": [
-        "claude/plan-blender-local-first.md section 12 (B5)"
+        "docs/design/plan-blender-local-first.md section 12 (B5)"
       ],
       "inferred": true,
       "inferredNote": "Planned feature, not merged on this base; run only if present.",
@@ -2212,7 +2212,7 @@
       "source": [
         "docs/BLENDER.md Sandbox on a real boat.dev VM item 1",
         "docs/TESTING-BLENDER.md section 4",
-        "claude/tracker-pc-checks.md B11"
+        "docs/design/tracker-pc-checks.md B11"
       ],
       "inferred": false,
       "preconditions": "boat.dev key, owner go for VM spend and the download inside the VM; Sculptor VM.",
@@ -2239,7 +2239,7 @@
       "title": "VM: cube plus GLB comes back to blender-exports with the binary intact (also the exports.ts regression)",
       "source": [
         "docs/BLENDER.md Sandbox item 2",
-        "claude/tracker-pc-checks.md B11"
+        "docs/design/tracker-pc-checks.md B11"
       ],
       "inferred": false,
       "preconditions": "BLND-19 passed.",
@@ -2344,8 +2344,8 @@
       "area": "BSVT",
       "title": "V0: build the isolated testnet VM and prove the host wallet is not reachable from it",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V0",
-        "claude/legion-release-tracker.md BSV scope change (Windows Sandbox not enabled)"
+        "docs/design/plan-bsv-rung3.md 7.2 V0",
+        "maintainer notes (legion-release-tracker) BSV scope change (Windows Sandbox not enabled)"
       ],
       "inferred": false,
       "preconditions": "Owner at the keyboard. Windows Sandbox or a VM. Enabling Windows Sandbox needs an administrator PowerShell and a restart: `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`. BSV Desktop installed, set to TESTNET, wallet created and testnet coins obtained by the owner by hand (agents create no accounts or passwords).",
@@ -2373,8 +2373,8 @@
       "area": "BSVT",
       "title": "V1 (gate before the spend module): ask the wallet for an unsigned transaction; nothing is prompted or broadcast",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V1",
-        "claude/plan-bsv-rung3.md section 3 U1, U2, U7, U8"
+        "docs/design/plan-bsv-rung3.md 7.2 V1",
+        "docs/design/plan-bsv-rung3.md section 3 U1, U2, U7, U8"
       ],
       "inferred": false,
       "preconditions": "BSVT-00 passed. Throwaway testnet wallet. By hand, no Legion code.",
@@ -2401,8 +2401,8 @@
       "area": "BSVT",
       "title": "V2 (gate): abort the unsigned reference; coins are spendable again",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V2",
-        "claude/plan-bsv-rung3.md U3"
+        "docs/design/plan-bsv-rung3.md 7.2 V2",
+        "docs/design/plan-bsv-rung3.md U3"
       ],
       "inferred": false,
       "preconditions": "BSVT-01 produced a reference.",
@@ -2428,8 +2428,8 @@
       "area": "BSVT",
       "title": "V3 and status probe: connect to the VM wallet, bsv_status shows testnet, reachable, signed in",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V3",
-        "claude/plan-bsv-rung3.md U8",
+        "docs/design/plan-bsv-rung3.md 7.2 V3",
+        "docs/design/plan-bsv-rung3.md U8",
         "docs/BSV-MODE.md Not verified",
         "docs/BSV-WALLET-DESIGN.md section 11"
       ],
@@ -2459,7 +2459,7 @@
       "area": "BSVT",
       "title": "V4: allowlist one testnet address through the native dialog",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V4"
+        "docs/design/plan-bsv-rung3.md 7.2 V4"
       ],
       "inferred": false,
       "preconditions": "BSVT-03 passed.",
@@ -2485,9 +2485,9 @@
       "area": "BSVT",
       "title": "V5: request 600 sat: dialog 1 and dialog 2, then the wallet's own prompt, then a txid",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V5",
-        "claude/plan-bsv-rung3.md U4, U5, U10",
-        "claude/tracker-pc-checks.md W1-W5"
+        "docs/design/plan-bsv-rung3.md 7.2 V5",
+        "docs/design/plan-bsv-rung3.md U4, U5, U10",
+        "docs/design/tracker-pc-checks.md W1-W5"
       ],
       "inferred": false,
       "preconditions": "BSVT-04 passed. Window visible.",
@@ -2516,9 +2516,9 @@
       "area": "BSVT",
       "title": "V6: a second request right after: record whether the wallet asks again",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V6",
-        "claude/plan-bsv-rung3.md U4",
-        "claude/tracker-pc-checks.md W2, W4"
+        "docs/design/plan-bsv-rung3.md 7.2 V6",
+        "docs/design/plan-bsv-rung3.md U4",
+        "docs/design/tracker-pc-checks.md W2, W4"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 passed.",
@@ -2545,8 +2545,8 @@
       "area": "BSVT",
       "title": "V7: Cancel at Legion's dialog: no wallet prompt, reservation freed",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V7",
-        "claude/plan-bsv-rung3.md U3"
+        "docs/design/plan-bsv-rung3.md 7.2 V7",
+        "docs/design/plan-bsv-rung3.md U3"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 passed.",
@@ -2572,8 +2572,8 @@
       "area": "BSVT",
       "title": "V8: Deny at the wallet's prompt: record what the wallet returns; Legion shows unknown",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V8",
-        "claude/plan-bsv-rung3.md U6"
+        "docs/design/plan-bsv-rung3.md 7.2 V8",
+        "docs/design/plan-bsv-rung3.md U6"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 passed.",
@@ -2600,8 +2600,8 @@
       "area": "BSVT",
       "title": "V9: kill the wallet during its prompt: unknown, still blocked after a Legion restart",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V9",
-        "claude/plan-bsv-rung3.md C12"
+        "docs/design/plan-bsv-rung3.md 7.2 V9",
+        "docs/design/plan-bsv-rung3.md C12"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 passed. Kill by PID only (never by name pattern).",
@@ -2629,7 +2629,7 @@
       "area": "BSVT",
       "title": "V10: over-cap amount and a non-allowlisted address are denied before any dialog",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V10"
+        "docs/design/plan-bsv-rung3.md 7.2 V10"
       ],
       "inferred": false,
       "preconditions": "BSVT-04 passed.",
@@ -2655,7 +2655,7 @@
       "area": "BSVT",
       "title": "V11: Freeze while dialog 1 is open: the answer is refused, no wallet prompt",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V11"
+        "docs/design/plan-bsv-rung3.md 7.2 V11"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 passed.",
@@ -2681,8 +2681,8 @@
       "area": "BSVT",
       "title": "V12: a hand-edited bsv.walletUrl in config.json is ignored",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 V12",
-        "review/bsv-t1-review.md P3"
+        "docs/design/plan-bsv-rung3.md 7.2 V12",
+        "maintainer review notes (bsv-t1-review) P3"
       ],
       "inferred": false,
       "preconditions": "BSVT-03 passed.",
@@ -2708,7 +2708,7 @@
       "area": "BSVT",
       "title": "Record the real wallet prompt wording and any persistent-permission option",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 (Also record)",
+        "docs/design/plan-bsv-rung3.md 7.2 (Also record)",
         "docs/BSV-WALLET-DESIGN.md section 10 stop condition"
       ],
       "inferred": false,
@@ -2735,8 +2735,8 @@
       "area": "BSVT",
       "title": "U9: a spend left unanswered past 100 s returns pending, and the flow still finishes",
       "source": [
-        "claude/plan-bsv-rung3.md section 3 U9",
-        "claude/plan-bsv-rung3.md 2.2"
+        "docs/design/plan-bsv-rung3.md section 3 U9",
+        "docs/design/plan-bsv-rung3.md 2.2"
       ],
       "inferred": true,
       "inferredNote": "U9 is listed as unverified; the observation is the one the plan gives.",
@@ -2872,8 +2872,8 @@
       "area": "BSVT",
       "title": "Kill Legion mid-spend: restart keeps the unknown outcome and quarantines a torn audit line",
       "source": [
-        "review/bsv-t1-review.md gap hunt (torn last audit line)",
-        "claude/plan-bsv-rung3.md C12"
+        "maintainer review notes (bsv-t1-review) gap hunt (torn last audit line)",
+        "docs/design/plan-bsv-rung3.md C12"
       ],
       "inferred": true,
       "inferredNote": "Review describes the behaviour from tests on Linux; Windows file behaviour after a hard kill is the new part.",
@@ -2928,8 +2928,8 @@
       "area": "BSVT",
       "title": "Testnet runs request a spend only when the owner started them in the app",
       "source": [
-        "claude/plan-bsv-rung3.md 9 open question 2",
-        "claude/legion-release-tracker.md BSV scope change"
+        "docs/design/plan-bsv-rung3.md 9 open question 2",
+        "maintainer notes (legion-release-tracker) BSV scope change"
       ],
       "inferred": true,
       "inferredNote": "Decision made; the observation with a real MCP-started or room-woken run is not listed anywhere.",
@@ -2958,7 +2958,7 @@
       "area": "BSVT",
       "title": "A wallet claiming mainnet is warned about and refused while Legion's mainnet switch is off",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6a (flip tests only prove Legion's gates)",
+        "docs/design/plan-bsv-rung3.md 12.6a (flip tests only prove Legion's gates)",
         "docs/BSV-MODE.md (mainnet wallet shows the warning pill)"
       ],
       "inferred": true,
@@ -2986,13 +2986,13 @@
       "area": "BSVT",
       "title": "Record dated results of V0-V12 in the tracker and mark the unverified list U1-U14 confirmed or open",
       "source": [
-        "claude/plan-bsv-rung3.md 7.2 (results go to tracker)",
-        "claude/plan-bsv-rung3.md 10 (docs mark U1-U10 confirmed or open)"
+        "docs/design/plan-bsv-rung3.md 7.2 (results go to tracker)",
+        "docs/design/plan-bsv-rung3.md 10 (docs mark U1-U10 confirmed or open)"
       ],
       "inferred": false,
       "preconditions": "BSVT-00 to BSVT-22 run.",
       "steps": [
-        "Update this plan's result fields and claude/tracker-pc-checks.md; list U1-U10 as confirmed or open in docs/BSV-MODE.md \"Not verified\"."
+        "Update this plan's result fields and docs/design/tracker-pc-checks.md; list U1-U10 as confirmed or open in docs/BSV-MODE.md \"Not verified\"."
       ],
       "expected": "Every U item has a recorded status; docs say \"has not been verified with real funds\" until BSVM is recorded.",
       "evidence": "The updated results file.",
@@ -3013,7 +3013,7 @@
       "area": "BSVT",
       "title": "W1: first spend with no grant for legion.local: when does the wallet ask (build, after the dialogs, or never)",
       "source": [
-        "claude/tracker-pc-checks.md W1",
+        "docs/design/tracker-pc-checks.md W1",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
       ],
       "inferred": false,
@@ -3041,7 +3041,7 @@
       "area": "BSVT",
       "title": "W2: after a one-time grant (if offered), a second request asks again",
       "source": [
-        "claude/tracker-pc-checks.md W2",
+        "docs/design/tracker-pc-checks.md W2",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
       ],
       "inferred": false,
@@ -3068,7 +3068,7 @@
       "area": "BSVT",
       "title": "W3: the wallet's grant prompt left open; Cancel in Legion; a late approval in the wallet",
       "source": [
-        "claude/tracker-pc-checks.md W3",
+        "docs/design/tracker-pc-checks.md W3",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
       ],
       "inferred": false,
@@ -3098,7 +3098,7 @@
       "area": "BSVT",
       "title": "W4: two requests inside a small grant: the wallet asks nothing for the second",
       "source": [
-        "claude/tracker-pc-checks.md W4",
+        "docs/design/tracker-pc-checks.md W4",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
       ],
       "inferred": false,
@@ -3125,7 +3125,7 @@
       "area": "BSVT",
       "title": "W5: the wallet's own spending-check switch and granted-apps list; revoke legion.local",
       "source": [
-        "claude/tracker-pc-checks.md W5",
+        "docs/design/tracker-pc-checks.md W5",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
       ],
       "inferred": false,
@@ -3153,7 +3153,7 @@
       "area": "BSVT",
       "title": "W6: a grant answered after 3 minutes: the late build is released (build-expired) and asking again builds at once",
       "source": [
-        "claude/tracker-pc-checks.md W6",
+        "docs/design/tracker-pc-checks.md W6",
         "src/core/bsv/spend.ts staleBuildMs; wallet-toolbox TaskFailAbandoned (abandonedMsecs 5 min)"
       ],
       "inferred": false,
@@ -3181,8 +3181,8 @@
       "area": "BSVM",
       "title": "R preconditions: V1-V12 passed, review signed off, reviewed commit, own mainnet address",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b (preconditions)",
-        "claude/legion-release-tracker.md BSV scope change"
+        "docs/design/plan-bsv-rung3.md 12.6b (preconditions)",
+        "maintainer notes (legion-release-tracker) BSV scope change"
       ],
       "inferred": false,
       "preconditions": "OWNER ONLY, BY HAND, NEVER SCRIPTED, NEVER BY AN AGENT. Owner says \"go\" in this session. No agent drives the keyboard.",
@@ -3210,7 +3210,7 @@
       "area": "BSVM",
       "title": "R0: note balance and history; Legion shows the switch OFF and not armed",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R0"
+        "docs/design/plan-bsv-rung3.md 12.6b R0"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-00 recorded.",
@@ -3237,7 +3237,7 @@
       "area": "BSVM",
       "title": "R1: connect to the real wallet and ask for 200 sat: denied mainnet-disabled, no wallet prompt",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R1"
+        "docs/design/plan-bsv-rung3.md 12.6b R1"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-01.",
@@ -3264,7 +3264,7 @@
       "area": "BSVM",
       "title": "R2: enable mainnet through the native dialog",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R2"
+        "docs/design/plan-bsv-rung3.md 12.6b R2"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-02.",
@@ -3290,7 +3290,7 @@
       "area": "BSVM",
       "title": "R3: allowlist the own address on the mainnet list; ask again: denied not-armed",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R3"
+        "docs/design/plan-bsv-rung3.md 12.6b R3"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-03.",
@@ -3316,7 +3316,7 @@
       "area": "BSVM",
       "title": "R4: Arm for 5 minutes; compare dialogs character by character against the wallet",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R4"
+        "docs/design/plan-bsv-rung3.md 12.6b R4"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-04.",
@@ -3343,7 +3343,7 @@
       "area": "BSVM",
       "title": "R5: Cancel on dialog 2: declined, no wallet prompt, still armed",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R5"
+        "docs/design/plan-bsv-rung3.md 12.6b R5"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-05.",
@@ -3369,8 +3369,8 @@
       "area": "BSVM",
       "title": "R6: confirm D1 and D2; the wallet shows its own prompt (200 sat, recipient, ONE payment output)",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R6",
-        "claude/plan-bsv-rung3.md U13"
+        "docs/design/plan-bsv-rung3.md 12.6b R6",
+        "docs/design/plan-bsv-rung3.md U13"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-06.",
@@ -3396,8 +3396,8 @@
       "area": "BSVM",
       "title": "R7: read the result; the txid and the explorer show 200 sat to the own address; balance fell by the fee only",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R7",
-        "claude/plan-bsv-rung3.md U14"
+        "docs/design/plan-bsv-rung3.md 12.6b R7",
+        "docs/design/plan-bsv-rung3.md U14"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-07.",
@@ -3423,7 +3423,7 @@
       "area": "BSVM",
       "title": "R8: ask once more: denied not-armed (one arm, one spend)",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R8"
+        "docs/design/plan-bsv-rung3.md 12.6b R8"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-08.",
@@ -3449,7 +3449,7 @@
       "area": "BSVM",
       "title": "R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve natively",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R9"
+        "docs/design/plan-bsv-rung3.md 12.6b R9"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-09.",
@@ -3476,7 +3476,7 @@
       "area": "BSVM",
       "title": "R10: Freeze while dialog 1 is open: refused, no wallet prompt",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R10"
+        "docs/design/plan-bsv-rung3.md 12.6b R10"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-10.",
@@ -3502,13 +3502,13 @@
       "area": "BSVM",
       "title": "R11: Disable mainnet, Disarm, Disconnect; record dated results",
       "source": [
-        "claude/plan-bsv-rung3.md 12.6b R11"
+        "docs/design/plan-bsv-rung3.md 12.6b R11"
       ],
       "inferred": false,
       "preconditions": "PC-BSVM-11.",
       "steps": [
         "Disable mainnet, Disarm, Disconnect.",
-        "Read the audit lines for R1 to R10 and record dated results in claude/tracker-pc-checks.md and in this plan."
+        "Read the audit lines for R1 to R10 and record dated results in docs/design/tracker-pc-checks.md and in this plan."
       ],
       "expected": "Panel shows off. Until R0-R11 are recorded every document says \"has not been verified with real funds\".",
       "evidence": "PC-BSVM-12.txt.",
@@ -3529,7 +3529,7 @@
       "area": "BSVM",
       "title": "Record U11 (mainnet network string), U12 (unsigned tx shape and P2PKH change), U13 (prompt every time), U14 (fee levels)",
       "source": [
-        "claude/plan-bsv-rung3.md section 12 (U11 to U14)"
+        "docs/design/plan-bsv-rung3.md section 12 (U11 to U14)"
       ],
       "inferred": false,
       "preconditions": "While doing R1 to R8.",
@@ -3555,7 +3555,7 @@
       "area": "WEB",
       "title": "The install command on the site works on a clean Windows PC once the repo is public",
       "source": [
-        "claude/legion-release-tracker.md Website (install command must be re-verified once the repo is public)"
+        "maintainer notes (legion-release-tracker) Website (install command must be re-verified once the repo is public)"
       ],
       "inferred": false,
       "preconditions": "Product repo public, site deployed. A clean Windows 10/11 user or VM with Node installed and no earlier Legion. Owner go for downloads.",
@@ -3582,8 +3582,8 @@
       "area": "WEB",
       "title": "Install from a downloaded ZIP of the public repo and from git clone",
       "source": [
-        "claude/legion-release-tracker.md Website",
-        "claude/tracker-pc-checks.md P7"
+        "maintainer notes (legion-release-tracker) Website",
+        "docs/design/tracker-pc-checks.md P7"
       ],
       "inferred": false,
       "preconditions": "Public repo.",
@@ -3610,7 +3610,7 @@
       "title": "Public repo links and package metadata have no OWNER placeholder",
       "source": [
         "package.json (homepage, repository, bugs say OWNER on integration/v1)",
-        "claude/legion-release-tracker.md item G"
+        "maintainer notes (legion-release-tracker) item G"
       ],
       "inferred": true,
       "inferredNote": "Not a PC-only check; recorded so it is not lost: package.json on integration/v1 still shows OWNER/legion until the docs branch merges.",
@@ -3636,8 +3636,8 @@
       "area": "WEB",
       "title": "Public repo settings: secret scanning and push protection on, private vulnerability reporting enabled",
       "source": [
-        "claude/tracker-public-audit.md (go public after: secret scanning)",
-        "claude/legion-release-tracker.md item G"
+        "maintainer notes (tracker-public-audit) (go public after: secret scanning)",
+        "maintainer notes (legion-release-tracker) item G"
       ],
       "inferred": false,
       "preconditions": "Owner logged in to GitHub.",
@@ -3661,7 +3661,7 @@
       "area": "WEB",
       "title": "Deployed site: Lighthouse score at least 95 and the screenshots are the current UI",
       "source": [
-        "claude/legion-release-tracker.md Website (Lighthouse >= 95; screenshots swappable after item G phase 2)"
+        "maintainer notes (legion-release-tracker) Website (Lighthouse >= 95; screenshots swappable after item G phase 2)"
       ],
       "inferred": false,
       "preconditions": "Site deployed; Chrome.",
@@ -3686,7 +3686,7 @@
       "title": "Full gate on Windows: npm ci, build:ts, test, typecheck, build:ui with exact counts",
       "source": [
         "CLAUDE.md Gates",
-        "claude/legion-release-tracker.md W0 and status updates (reference 1552 tests / 1517 pass / 0 fail / 35 skip)"
+        "maintainer notes (legion-release-tracker) W0 and status updates (reference 1552 tests / 1517 pass / 0 fail / 35 skip)"
       ],
       "inferred": false,
       "preconditions": "Clean checkout of the build under test; owner go for npm ci downloads. PowerShell present so the \"real PowerShell\" tests run instead of skipping.",
@@ -3710,7 +3710,7 @@
       "area": "PERF",
       "title": "R6.1 replay fidelity test, repeated, to see whether the flake is gone",
       "source": [
-        "claude/legion-release-tracker.md Open item R6.1"
+        "maintainer notes (legion-release-tracker) Open item R6.1"
       ],
       "inferred": false,
       "preconditions": "Built tree (npm run build:ts).",
@@ -3763,8 +3763,8 @@
       "area": "PERF",
       "title": "Perf re-record on the PC: core bench, UI idle and mascot cost, chat, lattice, with the busy ring on",
       "source": [
-        "claude/legion-release-tracker.md handoff (perf re-record)",
-        "claude/legion-release-tracker.md decision 6 (busy ring: re-measure in the sweep)"
+        "maintainer notes (legion-release-tracker) handoff (perf re-record)",
+        "maintainer notes (legion-release-tracker) decision 6 (busy ring: re-measure in the sweep)"
       ],
       "inferred": false,
       "preconditions": "Idle PC on AC power, no other apps. The scripts in test-perf/ use Linux paths (/tmp/m, /opt/node-tools) and need Playwright: adapt paths first and note every change. Never point them at a real wallet (they refuse that port).",
@@ -3792,7 +3792,7 @@
       "area": "PERF",
       "title": "scrubSecrets timing on Windows for the token, secret_eq and http shapes",
       "source": [
-        "claude/legion-release-tracker.md Follow-ups (scrubSecrets quadratic: 0.1 s at 20k chars, 1.7 s at 80k)"
+        "maintainer notes (legion-release-tracker) Follow-ups (scrubSecrets quadratic: 0.1 s at 20k chars, 1.7 s at 80k)"
       ],
       "inferred": false,
       "preconditions": "Built tree.",
@@ -3818,7 +3818,7 @@
       "area": "PERF",
       "title": "Regenerate docs screenshots on the PC if the cloud has no browser",
       "source": [
-        "claude/legion-release-tracker.md item G (fallback: capture on the PC with the Playwright harnesses under test-perf/)"
+        "maintainer notes (legion-release-tracker) item G (fallback: capture on the PC with the Playwright harnesses under test-perf/)"
       ],
       "inferred": true,
       "inferredNote": "Conditional on the cloud having no browser; item G phase 2 is not done on this base.",
@@ -3871,47 +3871,47 @@
   ],
   "sourcesScanned": [
     {
-      "path": "claude/tracker-pc-checks.md",
+      "path": "docs/design/tracker-pc-checks.md",
       "covered": "P1-P10, M1-M3, K1, U1, R1, handoff line (also the Blender B1-B11 variant on origin/claude/review-blender-merged)"
     },
     {
-      "path": "claude/legion-release-tracker.md",
+      "path": "maintainer notes (legion-release-tracker)",
       "covered": "decisions, handoff list, R6.1 flake, scrubSecrets follow-up, Legion MCP registration, website, BSV scope, status updates"
     },
     {
-      "path": "claude/plan-bsv-rung3.md",
+      "path": "docs/design/plan-bsv-rung3.md",
       "covered": "section 3 (U1-U10), 7.2 (V0-V12), 12 (U11-U14, R0-R11), 13"
     },
     {
-      "path": "claude/plan-blender-local-first.md",
+      "path": "docs/design/plan-blender-local-first.md",
       "covered": "6.2, 6.3, 11 (B4 managed Blender), 12 (B5 chooser)"
     },
     {
-      "path": "claude/tracker-public-audit.md",
+      "path": "maintainer notes (tracker-public-audit)",
       "covered": "public-repo owner steps (secret scanning, L5)"
     },
     {
-      "path": "claude/release-notes-skeleton.md",
+      "path": "maintainer notes (release-notes-skeleton)",
       "covered": "unverified statements in the draft notes"
     },
     {
-      "path": "origin/claude/review-release-packaging: review/release-packaging-review.md",
+      "path": "maintainer review notes (release-packaging-review)",
       "covered": "F1-F9, section 5"
     },
     {
-      "path": "origin/claude/review-mcp-isolation: review/mcp-isolation-review.md",
+      "path": "maintainer review notes (mcp-isolation-review)",
       "covered": "F1-F5, self-MCP variants"
     },
     {
-      "path": "origin/claude/review-rooms-probe-upgrade: review/rooms-probe-upgrade-review.md",
+      "path": "maintainer review notes (rooms-probe-upgrade-review)",
       "covered": "R1, K1, U1, polish"
     },
     {
-      "path": "origin/claude/review-blender-merged: review/blender-merged-review.md",
+      "path": "maintainer review notes (blender-merged-review)",
       "covered": "B1, M1-M5, L1-L9, section 6"
     },
     {
-      "path": "origin/claude/review-bsv-t1: review/bsv-t1-review.md",
+      "path": "maintainer review notes (bsv-t1-review)",
       "covered": "F1, gap hunt, polish"
     },
     {

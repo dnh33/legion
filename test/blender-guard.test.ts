@@ -732,7 +732,7 @@ test('audit: a hash chain mixing live, sandbox and local entries verifies, and t
 
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// Local routing (claude/plan-blender-local-first.md sections 2.3, 2.8, 2.9 and controls C1-C4, C8, C9, C17, C18, C20)
+// Local routing (docs/design/plan-blender-local-first.md sections 2.3, 2.8, 2.9 and controls C1-C4, C8, C9, C17, C18, C20)
 // ---------------------------------------------------------------------------------------------------------------------------------
 const lrig = (mode: 'auto' | 'local' | 'vm' | 'live' = 'local', over: Parameters<typeof rig>[0] = {}) => {
   const local = new FakeLocal();

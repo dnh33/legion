@@ -5,7 +5,7 @@
  * plume, binary ring). No DOM here: a renderer asks for the pixels of tick t and draws them.
  *
  * The critter is drawn by hand in Legion's palette and is only ever the "before" state; Legion's mascot is the helm.
- * Reference prototype the owner approved: docs/art/takeover-prototype.html. Spec: claude/spec-legion-takeover.md.
+ * Reference prototype the owner approved: docs/art/takeover-prototype.html. Spec: docs/design/spec-legion-takeover.md.
  */
 
 /** Canvas size in art pixels. */

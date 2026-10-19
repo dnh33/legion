@@ -1,5 +1,5 @@
 /**
- * Fascia 3a (claude/plan-fascia.md 6.3): the delegation and bot-message rules are said once per run, in the teamwork block.
+ * Fascia 3a (docs/design/plan-fascia.md 6.3): the delegation and bot-message rules are said once per run, in the teamwork block.
  * The safety lines that used to sit in LEGION_PREAMBLE, COMMS_PREAMBLE and the roster's COMMS_LINES must survive word for
  * word, in every run, on the Claude path and the provider path alike. So must the hop and ceiling wording and the
  * untrusted wrapping of task_result, which this change does not move.

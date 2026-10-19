@@ -222,7 +222,7 @@ export const DEFAULT_ADVANCED: BlenderAdvanced = {
     // Pinned 2026-10-02 to the newest commit that touched addon.py (project moved to ahujasid/mcp-for-blender; no tags or releases exist).
     // TODO OWNER PC: the sha256 below was taken from fetched metadata in a sandboxed session and has NOT been reproduced yet. Before release run, in PowerShell:
     //   curl.exe -sSL <addonUrl> -o addon.py; (Get-FileHash addon.py -Algorithm SHA256).Hash.ToLower()
-    // and compare. If it differs, take the PC's value and re-check `git log -1 -- addon.py` on a clone first. See claude/plan-blender-local-first.md section 5.2.
+    // and compare. If it differs, take the PC's value and re-check `git log -1 -- addon.py` on a clone first. See docs/design/plan-blender-local-first.md section 5.2.
     addonUrl: COMMUNITY_PIN_URL,
     sha256: COMMUNITY_PIN_SHA256,
     commands: { exec: 'execute_code', inspect: 'get_scene_info', objectInfo: 'get_object_info', screenshot: 'get_viewport_screenshot' },

@@ -102,6 +102,6 @@ Fixed: install() no longer raises an approval card for user-initiated updates, r
   release. For the person deciding. Above.
 - **`CHANGELOG.md`** → the record. Technical, complete, includes causes and internal changes. Never
   trimmed to match the notes.
-- **The tracker** (`claude/legion-release-tracker.md`) → why the work happened, with findings.
+- **The maintainer's release tracker** (private, outside this repo) → why the work happened, with findings.
 
 Three audiences, three documents. Copying one into another is a mistake, not consistency.

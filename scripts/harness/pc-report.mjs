@@ -2,7 +2,7 @@
 // Summarises a real-PC test run. Zero dependencies.
 //
 //   node scripts/harness/pc-report.mjs [results.json] [--plan pc-checks.json] [--by-safety] [--json] [--strict]
-//   node scripts/harness/pc-report.mjs --emit-md      prints the per-area check tables for claude/real-pc-test-plan.md
+//   node scripts/harness/pc-report.mjs --emit-md      prints the per-area check tables for docs/design/real-pc-test-plan.md
 //   node scripts/harness/pc-report.mjs --list         prints id, area, safety, automation and title of every check
 //
 // The results file is JSON: { "results": { "PC-INST-01": { "status": "pass", "date": "2026-10-02", "evidence": "path" } } }

@@ -1,13 +1,13 @@
 # Updates
 
-How an installed Legion gets a new version, and what is and is not checked. Plan and design record: `claude/plan-updater.md`. Code: `src/core/updater/*`, `src/electron/updater-main.ts`, `ui/src/components/UpdatePanel.tsx`, `scripts/release-*.mjs`. Applying an update on a real Windows PC works (check U1, maintainer report 2026-10-06; no screenshot kept). The other checks (U2 to U13: busy, rollback, files in use, antivirus, offline and the rest) are not yet recorded: `claude/tracker-pc-checks-updater.md`.
+How an installed Legion gets a new version, and what is and is not checked. Plan and design record: `docs/design/plan-updater.md`. Code: `src/core/updater/*`, `src/electron/updater-main.ts`, `ui/src/components/UpdatePanel.tsx`, `scripts/release-*.mjs`. Applying an update on a real Windows PC works (check U1, maintainer report 2026-10-06; no screenshot kept). The other checks (U2 to U13: busy, rollback, files in use, antivirus, offline and the rest) are not yet recorded: `docs/design/tracker-pc-checks-updater.md`.
 
 ## What the user sees
 
 - Settings, About, "Updates": the version you run, the last check, and, when a newer verified release exists, its version, size, date and notes (plain text). **Update** asks for an approval card; only then is anything downloaded.
 - After the download is checked and unpacked: "Update ready, will install when Legion is idle", with the reasons while it is busy. It is applied by itself once Legion has been idle for 60 seconds (no task, agent run, approval, VM install or stop, or Blender download). **Restart now** shows a native dialog naming what will stop. Running tasks are cancelled and are not resumed automatically; pending approvals are denied; cloud VMs are not touched (they keep billing until you stop them).
 - Switches: check on launch and every 12 hours (on; one GET to github.com, nothing about you is sent beyond your IP address and the Legion version); install automatically when idle (off).
-- A git checkout, an unwritable install folder, a non-Windows system, or a release that changes dependencies and carries no signed full package only shows a notice (for a checkout: `git pull`, `npm ci`, `npm run build`; Legion never runs git or npm). A release that changes dependencies *and* signs a full package applies in place like any other update.
+- A git checkout you cloned yourself, an unwritable install folder, a macOS or Linux install not made by the installer, or a release that changes dependencies and carries no signed full package for your system only shows a notice (for a checkout: `git pull`, `npm ci`, `npm run build`; Legion never runs git or npm). A release that changes dependencies *and* signs a full package applies in place like any other update.
 
 ## What is verified before anything is applied
 

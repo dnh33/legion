@@ -1,5 +1,5 @@
 /**
- * Fascia 3b (claude/plan-fascia.md 6.3): the typed brief an agent sends on ask/tell, and the typed result it reads back.
+ * Fascia 3b (docs/design/plan-fascia.md 6.3): the typed brief an agent sends on ask/tell, and the typed result it reads back.
  *
  * A brief is optional: prose still works. When one is given the bridge renders it into the callee's message as a short
  * header (Goal, numbered Done when, Context, Returns) under the existing "from" line, so the callee receives a contract

@@ -388,7 +388,7 @@ scenario({
   proves: ['The CI routes are admin-only (the MCP token gets 403) and answer from the scripted GitHub: runs, jobs, a failed job, logs refused as a state and logs served masked.',
     'A 403, a 404 and a rate limit from GitHub come back as states in a 200 answer; a rate limit pauses requests until its reset.',
     'Re-run failed jobs and Cancel reach GitHub only through the admin routes, with the repo, and only with write access.'],
-  doesNotProve: ['Real GitHub, the real client (connectors), the panel UI (checked in a browser by hand), or Windows (claude/tracker-pc-checks.md CI1 to CI4).'],
+  doesNotProve: ['Real GitHub, the real client (connectors), the panel UI (checked in a browser by hand), or Windows (docs/design/tracker-pc-checks.md CI1 to CI4).'],
   async run(h, t) {
     const call = (m, p, b, a) => h.call(m, p, b, a);
     await h.github({ scenario: 'mixed', logs: 'refused', fail: null, resetCalls: true, writes: true, connection: { auth: 'pat', permissions: { actions: 'write' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3600000).toISOString() } } });

@@ -54,7 +54,7 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
  * asset, the comms room tools and the project board all asked unconditionally, so a full-access bot still got a
  * "Needs your OK" card; the browser module already did this correctly and was the proof the pattern was known).
  *
- * EXCEPTION (decided 2026-10-06, recorded 2026-10-07; claude/design-connectors.md 4.1 step 6): the connector gateway handlers
+ * EXCEPTION (decided 2026-10-06, recorded 2026-10-07; docs/design/design-connectors.md 4.1 step 6): the connector gateway handlers
  * (src/core/connectors/gateway.ts, mcp__legion_connectors__) that write outward or spend raise their own card in EVERY mode, full
  * included, by calling `broker.request` directly. They are the only exception to the rule above. Do not "fix" them to go through
  * guardAsk. (Slice 1b shipped READ tools only. Since 2026-10-15 the six GitHub write tools are the carded handlers: src/core/connectors/github/write-tools.ts raises

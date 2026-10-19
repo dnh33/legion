@@ -257,7 +257,7 @@ export interface Task {
   bridgeHop?: number;
   /** Hidden from tabs and Recent tasks (closed by the user). Still stored and resumable. */
   archived?: boolean;
-  /** The project this task belongs to (absent: none). Set only by the app, a room's own wake or an `ask`/`tell` inheriting its caller's; see claude/plan-projects.md. */
+  /** The project this task belongs to (absent: none). Set only by the app, a room's own wake or an `ask`/`tell` inheriting its caller's; see docs/design/plan-projects.md. */
   projectId?: string;
   /** Set when this task's agent helps with a project from outside it (an outside helper): the project's deny rules bind its runs and the work it hands on. Ignored while `projectId` is set. */
   helpingProjectId?: string;

@@ -91,7 +91,7 @@ test('B: an applied override is announced in the caller thread, naming agent, co
   assert.equal(asked.json.model, 'haiku', 'and the override still applies');
 });
 
-// Audit B2 (claude/audit-agent-to-agent-ux.md): the notice was stored as role 'user' with fromAgentId = the TARGET, so the UI drew it as a
+// Audit B2 (docs/design/audit-agent-to-agent-ux.md): the notice was stored as role 'user' with fromAgentId = the TARGET, so the UI drew it as a
 // message FROM Builder, and a provider-backed caller replayed it to its model as a user turn (providers/tool-loop.ts toChatMessages).
 test('B2: the override notice is a system notice, not a message from the target, and is never replayed to a model as a user turn', async () => {
   const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {

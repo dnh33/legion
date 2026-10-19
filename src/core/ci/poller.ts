@@ -1,7 +1,7 @@
 /**
  * The CI cache and its rate-budgeted poller. One shared cache for every window; changes go out as one SSE event (`ci.updated`).
  *
- * Budget rules (claude/plan-ci-panel.md):
+ * Budget rules (docs/design/plan-ci-panel.md):
  * - Nobody watching (no heartbeat for CI_WATCH_TTL_MS): no request at all.
  * - Connected: 10 s while a run is in progress, 60 s idle, `If-None-Match` on every list call (a 304 is free for a signed-in caller).
  * - Anonymous (60 per hour): no idle polling. Refresh on open, focus and the Refresh button; while a run is in progress and the panel is

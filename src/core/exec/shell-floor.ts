@@ -482,7 +482,7 @@ export function isProtectedTarget(word: string): boolean {
   if (/^\/usr\/(?:bin|lib|lib64|libexec|sbin|share|local)$/.test(w) || /^\/volumes\/[^/]+$/.test(w) || /^\/var\/lib$/.test(w)) return true;
   if (/^\/home\/[^/]+$/.test(w)) return true;
   if (/^(?:~|\$home|\$\{home(?::[-?=+][^}]*)?\})$/.test(w)) return true;
-  // ~name is that user's home (Git Bash: ~Danie is C:/Users/Danie); ~+ and ~- are the current and the last folder
+  // ~name is that user's home (Git Bash: ~alex is C:/Users/alex); ~+ and ~- are the current and the last folder
   if (/^~(?:[a-z0-9._-]+|[+-])$/.test(w)) return true;
   // Git for Windows' own folders under its / (deleting them deletes git and bash)
   if (/^\/(?:mingw32|mingw64|clang32|clang64|clangarm64|ucrt64|cmd|git-bash\.exe|git-cmd\.exe)$/.test(w)) return true;

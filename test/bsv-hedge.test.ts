@@ -100,7 +100,7 @@ const STALE: Array<[string, RegExp]> = [
 ];
 /** "verified with real funds" is banned until the owner's record exists; the record is one line in the PC checks file. */
 const REAL_FUNDS_RECORD = /^BSV REAL-FUNDS CHECK RECORDED\b/m;
-const realFundsRecorded = (): boolean => REAL_FUNDS_RECORD.test(read('claude/tracker-pc-checks.md'));
+const realFundsRecorded = (): boolean => REAL_FUNDS_RECORD.test(read('docs/design/tracker-pc-checks.md'));
 const VERIFIED_CLAIM = /\b(verified|tested|checked|proven) (with|against|on) (a )?(real|live|mainnet|funded)[^.]{0,30}(funds|wallet|money|mainnet)/i;
 const unscopedVerified = (t: string): string[] => sentences(t).filter((x) => VERIFIED_CLAIM.test(x) && !/\b(not|never|until|no|nothing|only|none|without|yet|unverified)\b/i.test(x)).map((x) => x.trim().slice(0, 200));
 

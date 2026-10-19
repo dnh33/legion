@@ -1,7 +1,7 @@
 /**
  * The browser module. OFF by default. When switched on in Settings every agent gets the in-process `legion_browser` tools; each run gets its own
  * headless Chromium-family browser (Microsoft Edge, Google Chrome or Brave, already on this computer; nothing is downloaded), started on its first page
- * and stopped when the run ends. Every request passes Legion's own checks through the CDP Fetch domain. Plan: claude/plan-browser.md.
+ * and stopped when the run ends. Every request passes Legion's own checks through the CDP Fetch domain. Plan: docs/design/plan-browser.md.
  * Admin routes (default-deny, not in the MCP client list): GET /api/browser, POST /api/browser/{config,check,local}. Choosing the browser program and
  * "allow local addresses" need the app's native confirmation; allow-local lives in memory only (it is off after every restart).
  */

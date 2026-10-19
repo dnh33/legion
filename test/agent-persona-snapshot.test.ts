@@ -13,12 +13,12 @@ import test from 'node:test';
 import { Store } from '../src/core/store.js';
 
 const PINNED: Record<string, string> = {
-  // Soul Codex v1 (maintainer 2026-10-07, claude/plan-fascia.md 6.2): full souls for the three defaults, true to each core
+  // Soul Codex v1 (maintainer 2026-10-07, docs/design/plan-fascia.md 6.2): full souls for the three defaults, true to each core
   // Lead routing table names the Quartermaster (C4 council fix, 2026-10-12; migration lead-roster-full-v1)
   zealot: 'b242c4c8e0888ab7562a31519fb6e105c6b44a92d56ffbf761c9fe455b9288a6',
   builder: '0e355c26f0a8d4ed903ce31169dfe3ef7754d1f5b800c30bcc62d23f3a85391b',
   scout: 'ec252a6319b482ce0b106881e10b0d62eae17a223a24be0f2c0079b809210e55',
-  // Fascia 3a (claude/plan-fascia.md 6.3): the roster's trailing comms lines moved into the teamwork block, said once per run
+  // Fascia 3a (docs/design/plan-fascia.md 6.3): the roster's trailing comms lines moved into the teamwork block, said once per run
   inquisitor: 'c11895088e75c41796645b6ff345d13504119caec19c4ed1c24fb64e446ce88b',
   scribe: '198b952e24a5f351c474966d23a2c01fdc77eb8ac1b76794d3a6f1010242808d',
   archivist: 'c69d233ffd5574857623b5ca053f4c94e512dc7a4fc2c25f69d5185e4e49c617',

@@ -1,6 +1,6 @@
 # Testing the Blender bridge
 
-Companion to [TESTING.md](TESTING.md). What the bridge is and what protects it: [BLENDER.md](BLENDER.md). The plan for the local headless mode: [claude/plan-blender-local-first.md](../claude/plan-blender-local-first.md). This page says how the sandbox and live paths are tested today without Blender, what only real Blender on the owner's PC can show, and where the local headless mode (now merged into this tree; see [BLENDER.md](BLENDER.md)) plugs in.
+Companion to [TESTING.md](TESTING.md). What the bridge is and what protects it: [BLENDER.md](BLENDER.md). The plan for the local headless mode: [docs/design/plan-blender-local-first.md](design/plan-blender-local-first.md). This page says how the sandbox and live paths are tested today without Blender, what only real Blender on the owner's PC can show, and where the local headless mode (now merged into this tree; see [BLENDER.md](BLENDER.md)) plugs in.
 
 Scope of every claim: "Legion's own code, in this version, against fakes". No test here ran Blender, `bpy`, a real add-on or a real boat.dev VM. The static check is a filter, not a sandbox ([BLENDER.md](BLENDER.md), "Limits, stated plainly").
 
@@ -56,7 +56,7 @@ Mutation method for Blender controls ([TESTING.md](TESTING.md) section 8): mutat
 
 ## 4. What only real Blender on the owner's PC (or a real boat.dev key) can verify
 
-Source: [BLENDER.md](BLENDER.md) "Not verified yet" and [claude/tracker-pc-checks.md](../claude/tracker-pc-checks.md) (the Blender line of "Also still open"). None of these can be run by a cloud agent.
+Source: [BLENDER.md](BLENDER.md) "Not verified yet" and [docs/design/tracker-pc-checks.md](design/tracker-pc-checks.md) (the Blender line of "Also still open"). None of these can be run by a cloud agent.
 
 **Official backend (real Blender 5.1+).** Start the server against a real Blender; whether `uv run` and the first dependency download work behind the owner's network; whether the official add-on, which is an extension (it has a `blender_manifest.toml`), installs through Legion's headless step or needs Blender's own "Install from Disk"; Test connection and a real scene read.
 
@@ -70,7 +70,7 @@ Source: [BLENDER.md](BLENDER.md) "Not verified yet" and [claude/tracker-pc-check
 
 **Local headless mode checks (plan 6.2), once it lands:** `blender.exe --version` detection and mode "Automatic"; a cube and a GLB/FBX/PNG through the real runner (the write guard must not block the exporters); a hand-written script that writes outside the task folder is blocked; an infinite loop is killed at the limit and no `blender.exe` or child remains; the environment seen inside the run holds no Legion or API variables; with the community add-on's auto start on, a local run opens no socket on its port; paths with a space, long paths and OneDrive-redirected Documents; mode switching and a legacy `"sandbox":"off"` config; SmartScreen or antivirus prompts noted.
 
-Record dated results in `claude/tracker-pc-checks.md`.
+Record dated results in `docs/design/tracker-pc-checks.md`.
 
 ## 5. PENDING: local headless mode (branch `merge/blender`, not merged on this base)
 

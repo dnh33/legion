@@ -98,6 +98,6 @@ than the owner chose. The owner sees the real state in Settings, which reads the
 - File matching uses the real name on disk, lower-cased, because Windows and macOS are case-insensitive. A path spelled
   another way (different case, an 8.3 short name) must resolve to the same real file before the switch is checked. The
   8.3 and NTFS stream spellings can only be proven on Windows, so they are real-PC checks
-  (see `claude/tracker-pc-checks.md`), not claims.
+  (see `docs/design/tracker-pc-checks.md`), not claims.
 - Not done here: a count of each skill's token cost in the screen, a search over skill text, and a path for the
   owner's own skills. Only the shipped `skills/` folder is a skill group.

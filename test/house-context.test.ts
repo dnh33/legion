@@ -497,8 +497,8 @@ describe('house context: a packaged install', () => {
   });
 
   it('ships no personal skills: claude/skills is not part of the layer', () => {
-    // Owner decision 2026-10-04, and already the rule for the public repo: export-public.mjs excludes
-    // claude/skills/** wholesale. Shipping it would put one person's workflow skills in every user's layer.
+    // Owner decision 2026-10-04: claude/skills/** is never part of the layer. Shipping it would put one person's
+    // workflow skills in every user's layer.
     const src = packagedFixture();
     mkdirSync(join(src, 'claude', 'skills'), { recursive: true });
     writeFileSync(join(src, 'claude', 'skills', 'kodawari.md'), '# kodawari\n\nLook at it yourself.\n', 'utf8');

@@ -4,7 +4,7 @@
  * Two defects lived in that one default, and the second is the one that mattered operationally:
  *
  *   1. It put a private local path into a script that ships in the public repo. Code files are deliberately
- *      not scrubbed by export-public.mjs (they must stay byte-identical), so this literal would have published.
+ *      published as they are, so this literal would have published.
  *   2. With no --pkg, the gate silently checked that folder and reported four FAILs reading "release artifacts
  *      missing -- run build-package.mjs first", about a folder nobody had named. The comment three lines above the
  *      artifact checks says a wrong guess must NOT read as "release artifacts missing". It did exactly that.
@@ -91,7 +91,7 @@ test('--pkg is honoured wherever the artifacts are, not only in one hardcoded fo
 });
 
 test('the script carries no owner-local path literal', () => {
-  // Guards the first defect. export-public.mjs leaves code byte-identical, so a literal here is a literal in the
+  // Guards the first defect. Code is published as it is, so a literal here is a literal in the
   // public repo. The drive-and-folder names are assembled at runtime so this assertion never depends on them.
   const DRIVE_LOCAL = ['D', ':/bots'].join('');
   const src = readFileSync(SCRIPT, 'utf8');

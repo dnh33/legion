@@ -1,6 +1,6 @@
 /**
  * Blender local-first: interfaces only (no runner, no spawn code here). The runner (local.ts) implements LocalPort; the guard talks to it through
- * this file so tests can fake it. See claude/plan-blender-local-first.md sections 2.2-2.4.
+ * this file so tests can fake it. See docs/design/plan-blender-local-first.md sections 2.2-2.4.
  */
 import type { AgentProfile } from '../../shared/types.js';
 import type { BackendResult } from './backend.js';

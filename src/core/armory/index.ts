@@ -1,7 +1,7 @@
 /**
  * The Armory module: skills your agents can pick up when a task calls for one.
  *
- * Two tiers (docs/adr/0012, claude/plan-armory.md): Doctrine drills are few, trust-checked and served by the house tools; the
+ * Two tiers (docs/adr/0012, docs/design/plan-armory.md): Doctrine drills are few, trust-checked and served by the house tools; the
  * Armory is the open library, with Claude Code's own semantics. This module:
  * - keeps the Armory store and lists every skill Legion knows (the owner's, imported, Claude Code personal / plugin / built-in);
  * - hands each Claude run an explicit `skills` list (never omitted: omitted means "everything") and the local plugin folder;

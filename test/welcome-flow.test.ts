@@ -1,5 +1,5 @@
 /**
- * First-run welcome (plan claude/plan-fascia.md 6.2): the first screen points at Zealot. A new user needs only a Claude
+ * First-run welcome (plan docs/design/plan-fascia.md 6.2): the first screen points at Zealot. A new user needs only a Claude
  * sign-in to get multi-agent work, so the welcome asks for that and offers one real first task for Zealot; VMs (boat.dev)
  * and the Claude Code connection are optional and move under "Later".
  */

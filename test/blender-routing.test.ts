@@ -1,4 +1,4 @@
-/** C18: the where-does-it-run table (claude/plan-blender-local-first.md 2.3), line by line, plus the "never a silent move to a looser place" rules. */
+/** C18: the where-does-it-run table (docs/design/plan-blender-local-first.md 2.3), line by line, plus the "never a silent move to a looser place" rules. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveMode } from '../src/core/blender/guard.js';

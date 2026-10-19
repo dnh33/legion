@@ -469,7 +469,7 @@ test('B17-16 settings and config: assets default OFF, only supported sources are
 });
 
 test('B17-17 the routing table: every row is in the plan and the docs, and the code-execution tools of the second backend are not in it', () => {
-  const plan = readFileSync(join(process.cwd(), 'claude', 'plan-blender-local-first.md'), 'utf8');
+  const plan = readFileSync(join(process.cwd(), 'docs', 'design', 'plan-blender-local-first.md'), 'utf8');
   const docs = readFileSync(join(process.cwd(), 'docs', 'BLENDER.md'), 'utf8');
   for (const r of ROUTING) {
     assert.ok(plan.includes(`\`${r.tool}\``), `plan lists ${r.tool}`);

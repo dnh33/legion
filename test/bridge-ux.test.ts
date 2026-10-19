@@ -1,5 +1,5 @@
 /**
- * Agent-to-agent bridge UX (audit claude/audit-agent-to-agent-ux.md, B1 and B3-B7): what a person reads when one agent asks or
+ * Agent-to-agent bridge UX (audit docs/design/audit-agent-to-agent-ux.md, B1 and B3-B7): what a person reads when one agent asks or
  * tells another. The pure view-model (ui/src/chat/bridgeView.ts) is checked directly; a real render of the components through
  * esbuild + react-dom/server (store and api stubbed) proves the components draw what the view-model says, in the error style.
  */

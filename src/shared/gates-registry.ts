@@ -1,6 +1,6 @@
 /**
  * Every gate Legion has, in one list: what it protects, what can happen with it off, and its value under each preset
- * (spec docs/superpowers/specs/2026-10-14-goal-and-gates-design.md, section 4). Pure: no I/O, safe in the window and the core.
+ * (the goal-and-gates design spec, section 4, kept in the maintainer notes). Pure: no I/O, safe in the window and the core.
  * Permission gates follow the preset; QA gates follow a goal's care level (part 3); rails are always on and have no switch.
  */
 export const PRESETS = ['ask', 'accept-edits', 'smart', 'bypass'] as const;
