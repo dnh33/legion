@@ -245,7 +245,7 @@ async function updateTo(version, folder, from) {
   check(!!h, `${version} answers /health after the swap`);
   if (!h) throw new Error(`${version} never answered`);
   check(!!(await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' ? true : null), 120_000)), 'the journal says committed');
-  check(readJson(join(up, 'outcome.json'))?.result === 'ok', 'the outcome is ok');
+  check(!!(await waitFor('the outcome to read ok', async () => (readJson(join(up, 'outcome.json'))?.result === 'ok' ? true : null), 30_000)), 'the outcome is ok'); // written just after the journal: wait, do not read once
   check(instVersion() === version && readJson(join(install, 'build-info.json'))?.version === version, `package.json and build-info.json say ${version}`);
   check(dataOk(), '~/.legion survived (the data marker is intact)');
   check(!!(await waitFor('the old copy to be cleaned', async () => (!existsSync(join(up, 'prev')) ? true : null), 120_000)), '.update/prev was deleted after the healthy start');
