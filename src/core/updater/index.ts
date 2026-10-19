@@ -1,7 +1,7 @@
 /**
  * The updater core module: checks GitHub for a signed release manifest, stages a verified package after the user's go-ahead, decides
  * when the core is idle, and hands main the facts it needs to swap and restart. It never restarts anything itself and never runs git or npm.
- * Plan: claude/plan-updater.md. All routes are admin-only by the default-deny gate (none is on the client list); commit/drain/abort also
+ * Plan: docs/design/plan-updater.md. All routes are admin-only by the default-deny gate (none is on the client list); commit/drain/abort also
  * need the native secret, which only the Electron main process holds.
  */
 import { createHash } from 'node:crypto';

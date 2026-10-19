@@ -1,6 +1,6 @@
 /**
  * Browser tool: types and limits shared by the core and the Settings panel. The built-in browser is a headless Chromium-family browser that is
- * already on the computer (Microsoft Edge, Google Chrome, Brave) driven by Legion's own CDP client. Plan: claude/plan-browser.md.
+ * already on the computer (Microsoft Edge, Google Chrome, Brave) driven by Legion's own CDP client. Plan: docs/design/plan-browser.md.
  */
 export const BROWSER_SERVER_NAME = 'legion_browser';
 export const BROWSER_TOOLS = ['browser_open', 'browser_text', 'browser_links', 'browser_click', 'browser_type', 'browser_eval', 'browser_close', 'browser_status'] as const;

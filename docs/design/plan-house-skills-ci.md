@@ -1,6 +1,6 @@
 # Plan: house rules you can switch, shipped skills, and a CI panel
 
-Branch `feat/house-skills-ci-panel` off main `57937cf` (worktree `D:\bots\legion-house`). Status: **design, waiting for the owner's approval.** Nothing is built yet.
+Branch `feat/house-skills-ci-panel` off main `57937cf` (worktree `C:\legion-check\legion-house`). Status: **design, waiting for the owner's approval.** Nothing is built yet.
 
 ## Owner decisions (2026-10-06, question UI)
 
@@ -63,7 +63,7 @@ Branch `feat/house-skills-ci-panel` off main `57937cf` (worktree `D:\bots\legion
 | harden-github-actions | basecamp/house-skills | MIT | off | Remove `GITHUB_TOKEN=$(gh auth token) zizmor`; generalise the Basecamp-specific lines |
 | flaky-rerun rule (from LangChain baby-sit) | langchain-ai/open-swe | MIT | folded into gh-fix-ci | Re-run only when the log shows a flaky failure, never for a deterministic one |
 
-Not shipped: Cursor `loop-on-ci` (no licence; pushes in a loop) and Warp `ci-fix` (`git add -A`, then pushes).
+Not shipped: two CI-fix skills from other tools (one has no licence and pushes in a loop; the other runs `git add -A`, then pushes).
 
 Also fix: the five flat `.claude/skills/*.md` developer procedures become `.claude/skills/<name>/SKILL.md` so Claude Code really loads them (repo developers only, not shipped in the app). Stale lines get fixed too: ADR 0009:51-52, context.ts:65, and AGENTS.md:13 pointing at a folder agents cannot reach.
 
@@ -93,7 +93,7 @@ Also fix: the five flat `.claude/skills/*.md` developer procedures become `.clau
 - **CI client:** only allowed hosts; a redirect elsewhere is refused; the token is never in logs, errors or the UI after saving; the rate-limit backoff; no polling while nothing watches; the routes are admin-only; agent tools cannot re-run without approval.
 - **Tripwire:** the new file is the only new allowlist entry, and the tripwire tests still pass unchanged.
 
-## Real-PC checks (to `claude/tracker-pc-checks.md`)
+## Real-PC checks (to `docs/design/tracker-pc-checks.md`)
 
 - A real fine-grained token, read-only: the panel shows live runs for dnh33/legion. Safety class: none.
 - With a write token: "Re-run failed jobs" on a deliberately red PR. Safety class: none (GitHub minutes are free on a public repo).

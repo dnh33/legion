@@ -1,5 +1,5 @@
 /**
- * Fascia 3b (claude/plan-fascia.md 6.3): typed delegation. A lead may attach a brief (goal, one to four done_when
+ * Fascia 3b (docs/design/plan-fascia.md 6.3): typed delegation. A lead may attach a brief (goal, one to four done_when
  * checks, optional context/returns/budget/priority) to ask/tell instead of prose. The bridge renders it as a short
  * header into the callee's message, bounds the child run's spend (clamped by the owner's claude.maxBudgetUsd), scores
  * only the goal when the model is `auto`, and reads a verdict from the answer's first line against the callee's own

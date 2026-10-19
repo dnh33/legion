@@ -4,7 +4,7 @@
  * Pure: the file system is an injected interface, so it is tested with Windows-style paths on any system. Legion never runs a browser just to
  * probe it: the version comes from the install folder names, and a browser Legion cannot date is accepted with a note.
  *
- * Documented (see claude/plan-browser.md section on facts): with --remote-debugging-port=0 the browser listens on 127.0.0.1, prints
+ * Documented (see docs/design/plan-browser.md section on facts): with --remote-debugging-port=0 the browser listens on 127.0.0.1, prints
  * "DevTools listening on ws://127.0.0.1:<port>/devtools/browser/<guid>" and writes "<port>\n/devtools/browser/<guid>" to DevToolsActivePort in
  * the user data directory (chromium/content/browser/devtools/devtools_http_handler.cc, chrome/browser/devtools/remote_debugging_server.cc).
  */

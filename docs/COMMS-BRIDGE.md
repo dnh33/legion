@@ -1,6 +1,6 @@
 # Comms Bridge (v0.1)
 
-Goal: on par with Grok Bot's group chats and bot-to-bot messaging, and ahead of it on guard rails. Research: see the project doc `claude/legion-comms-research.md` (Grok Bot: 2 to 6 bot group chats, `@mention`, `@everyone`, async bot-to-bot handoffs, approval cards in the transcript, shared computer with no security boundary, no documented loop or budget guards).
+Goal: group chats and bot-to-bot messaging on par with established multi-bot chat tools (2 to 6 bots in a group chat, `@mention`, `@everyone`, async bot-to-bot handoffs, approval cards in the transcript), and ahead of them on guard rails: loop and budget guards, and a security boundary between bots.
 
 Stated assumptions (decided without the owner, easy to change): mention-only default; plain human messages go to the room lead; max 6 bots per group (bots included: rooms a bot creates or grows hold at most `comms.botRoomMaxMembers`, default 6); all rooms persist in JSONL; cost shown per room; no auto-start of VMs; bot messages carry no approval authority.
 

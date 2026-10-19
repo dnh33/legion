@@ -1,6 +1,6 @@
 # Testing BSV mode
 
-Companion to [TESTING.md](TESTING.md). It covers how to test Legion's BSV code without any real wallet and without spending anything, what the harness and the test suite do and do not show, and where the not-yet-merged spend work plugs in. What BSV mode is today: [BSV-MODE.md](BSV-MODE.md). The design and the open questions: [BSV-WALLET-DESIGN.md](BSV-WALLET-DESIGN.md). The plan for the spend tool and the mainnet amendment: [claude/plan-bsv-rung3.md](../claude/plan-bsv-rung3.md).
+Companion to [TESTING.md](TESTING.md). It covers how to test Legion's BSV code without any real wallet and without spending anything, what the harness and the test suite do and do not show, and where the not-yet-merged spend work plugs in. What BSV mode is today: [BSV-MODE.md](BSV-MODE.md). The design and the open questions: [BSV-WALLET-DESIGN.md](BSV-WALLET-DESIGN.md). The plan for the spend tool and the mainnet amendment: [docs/design/plan-bsv-rung3.md](design/plan-bsv-rung3.md).
 
 Scope of every claim here: "Legion's own code, in this version, against fakes". Nothing on this page shows how a real BRC-100 wallet behaves, and nothing shows that a person's funds are safe.
 
@@ -83,7 +83,7 @@ Every new BSV test needs a negative (see [TESTING.md](TESTING.md) section 8). BS
 
 Nothing on this list can be done by an agent or a cloud session.
 
-- **V0-V12**, testnet wallet in a VM, owner present: [claude/plan-bsv-rung3.md](../claude/plan-bsv-rung3.md) section 7.2. V1 and V2 are a gate before the spend tool is built (read-only experiments with a throwaway testnet wallet and no Legion code). V3 to V12 are the end-to-end observations (connect, `bsv_status`, allowlist, a 600 sat request with two dialogs and whatever the wallet asks, recording when it asks, a second request recording whether it asks again, Cancel, wallet Deny, killing the wallet mid-prompt, caps and allowlist denials before any dialog, freeze while a dialog is open, hand-edited `walletUrl`). Results go into [claude/tracker-pc-checks.md](../claude/tracker-pc-checks.md).
+- **V0-V12**, testnet wallet in a VM, owner present: [docs/design/plan-bsv-rung3.md](design/plan-bsv-rung3.md) section 7.2. V1 and V2 are a gate before the spend tool is built (read-only experiments with a throwaway testnet wallet and no Legion code). V3 to V12 are the end-to-end observations (connect, `bsv_status`, allowlist, a 600 sat request with two dialogs and whatever the wallet asks, recording when it asks, a second request recording whether it asks again, Cancel, wallet Deny, killing the wallet mid-prompt, caps and allowlist denials before any dialog, freeze while a dialog is open, hand-edited `walletUrl`). Results go into [docs/design/tracker-pc-checks.md](design/tracker-pc-checks.md).
 - **R0-R11**, mainnet real-funds steps, owner by hand, tiny amounts, separate from V0-V12: plan section 12.6b. Until they are recorded, every document says "has not been verified with real funds".
 - **Unverified facts** the status probe already depends on (list in [BSV-MODE.md](BSV-MODE.md), "Not verified"): whether BSV Desktop answers the four status methods without a prompt, the real response shapes, the origin rules, the wallet's prompt wording.
 - The real Electron dialogs on a real desktop (wording, default button, focus).
@@ -98,7 +98,7 @@ The spend tool T2, the native dialogs T3 and mainnet T5 are merged on `integrati
 
 ### 8.1 PENDING: spend tool (T2), `bsv_spend_request`
 
-Plan: [claude/plan-bsv-rung3.md](../claude/plan-bsv-rung3.md) sections 2-4 and 7.
+Plan: [docs/design/plan-bsv-rung3.md](design/plan-bsv-rung3.md) sections 2-4 and 7.
 
 Fake wallet methods to add in `scripts/harness/fake-wallet.mjs` (the plan's `test/bsv-fake-wallet.ts` is the in-process twin; keep their behaviours aligned; both assume the BRC-100 JSON shapes listed there as unverified items U1-U8):
 

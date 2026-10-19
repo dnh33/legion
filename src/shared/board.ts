@@ -1,5 +1,5 @@
 /**
- * Legion — project board contract (see claude/plan-project-board.md). Work items inside a Project. On by default; only served unless its feature switch in config.json is false.
+ * Legion — project board contract (see docs/design/plan-project-board.md). Work items inside a Project. On by default; only served unless its feature switch in config.json is false.
  * The board stores and shows; it never executes anything by itself.
  */
 export const BOARD_STATUSES = ['backlog', 'doing', 'review', 'done', 'blocked'] as const;

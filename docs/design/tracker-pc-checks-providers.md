@@ -1,8 +1,8 @@
 # Real-PC checks for multi-provider support (intake list)
 
-Source: `claude/plan-providers.md` section 17, branch `claude/providers`. Row format as in `claude/tracker-pc-checks.md`: `id | area | preconditions | exact steps | expected observation | evidence to capture | safety class | source`.
+Source: `docs/design/plan-providers.md` section 17, branch `claude/providers`. Row format as in `docs/design/tracker-pc-checks.md`: `id | area | preconditions | exact steps | expected observation | evidence to capture | safety class | source`.
 
-**State of every row: todo. Nothing here has been tried.** The provider code was built and tested only against Legion's own fake servers on Linux. No check below may be marked passed in a doc, the changelog or the website until its result is recorded in `claude/real-pc-test-plan.md`. Keys are typed by the owner; an agent never creates an account, a key or a payment method, and never runs a row marked `spends-money` without the owner present and a go.
+**State of every row: todo. Nothing here has been tried.** The provider code was built and tested only against Legion's own fake servers on Linux. No check below may be marked passed in a doc, the changelog or the website until its result is recorded in `docs/design/real-pc-test-plan.md`. Keys are typed by the owner; an agent never creates an account, a key or a payment method, and never runs a row marked `spends-money` without the owner present and a go.
 
 | id | area | preconditions | exact steps | expected observation | evidence | safety class | source |
 |---|---|---|---|---|---|---|---|

@@ -1,7 +1,7 @@
 /**
  * PRODUCTION WIRING: the module is built exactly the way src/bin/legion-core.ts builds it (createBlenderModule(deps, { vms, boatConfigured, log }):
  * no injected `local`, the real process port, the real IO). A fake `blender` executable sits on a temp install path (a node script with a
- * shebang, so POSIX only; the Windows run of the same path is in claude/tracker-pc-checks.md). Before this test existed every local test injected a
+ * shebang, so POSIX only; the Windows run of the same path is in docs/design/tracker-pc-checks.md). Before this test existed every local test injected a
  * fake runner, so nothing noticed that production never built one.
  */
 import assert from 'node:assert/strict';

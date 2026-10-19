@@ -1,5 +1,5 @@
 /**
- * Soul Codex v1 (plan claude/plan-fascia.md 6.2): Zealot, Builder and Scout get the shared soul shape.
+ * Soul Codex v1 (plan docs/design/plan-fascia.md 6.2): Zealot, Builder and Scout get the shared soul shape.
  * The maintainer retired "persona text stays byte-identical" on 2026-10-07, on one condition: every soul stays true to
  * its bot's core and its role in Legion. These tests pin that condition (the core lines survive), the shape (each soul
  * says when it is done, whom it hands work to, its hard limits, its output contract and one worked example), and the

@@ -67,7 +67,7 @@ function taskSummary(raw: Task) {
  * The Legion mark in Claude Code: one short last line after a run or a follow-up, e.g. "Ŧ LEGION · sworn · done". A separate text
  * block, so content[0] (the answer and its JSON head) is unchanged. No imperative and no second person: it is a status label, never
  * an instruction to the model. Not on legion_status, whose whole answer is JSON that clients may join and parse.
- * `Ŧ` (U+0166) is in every terminal font checked (claude/spec-legion-takeover.md, section 6); its one-cell width is PC check TK2.
+ * `Ŧ` (U+0166) is in every terminal font checked (docs/design/spec-legion-takeover.md, section 6); its one-cell width is PC check TK2.
  */
 export function legionTag(status: Task['status']): string {
   const state = status === 'done' ? 'done' : status === 'error' ? 'fault' : status === 'cancelled' ? 'cancelled' : status === 'queued' ? 'queued' : 'running';

@@ -2,7 +2,7 @@
 
 **2026-10-06, maintainer report:** agents used the browser tool on the maintainer's Windows PC and it works. Only BR15 is marked from that (in part). BR16 to BR24 need specific evidence and stay open.
 
-Built-in browser = headless Edge or Chrome already on the PC, driven by Legion's own CDP client (`claude/plan-browser.md`). Cloud sessions ran none of these: the tests use a fake browser script and a fake CDP server. Safety class for all: none (use a harmless public page you control), unless noted. Do not call the browser tool verified until each is recorded as passed.
+Built-in browser = headless Edge or Chrome already on the PC, driven by Legion's own CDP client (`docs/design/plan-browser.md`). Cloud sessions ran none of these: the tests use a fake browser script and a fake CDP server. Safety class for all: none (use a harmless public page you control), unless noted. Do not call the browser tool verified until each is recorded as passed.
 
 ## Checks for 0.2.0
 

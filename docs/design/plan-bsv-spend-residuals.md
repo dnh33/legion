@@ -1,6 +1,6 @@
 # Plan: BSV spend residuals after the wallet-prompt fix (2026-10-06)
 
-Branch `fix/bsv-spend-residuals`, worktree `D:\bots\legion-bsv-residuals`, base cloud/main `2bc28ce`. Comes back as a PR.
+Branch `fix/bsv-spend-residuals`, worktree `C:\legion-check\legion-bsv-residuals`, base cloud/main `2bc28ce`. Comes back as a PR.
 Follows the 0.2.5-g wallet-prompt fix (tracker section "2026-10-06 — BSV: the wallet's own prompt ...", KNOWN RESIDUALS).
 
 ## Facts (looked up, with sources)

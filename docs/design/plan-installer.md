@@ -35,7 +35,7 @@ Owner decision (2026-10-02): **no `.exe` in v0.2.0**. No IExpress build, no `bui
 
 Linux (pure, always run): version compare/min, SHASUMS parse, resolve-node helper, static contract (hosts: the scripts name only `nodejs.org` (plus the test loopback), `AllowAutoRedirect = $false`, ASCII only, no `Invoke-WebRequest`, no `Invoke-Expression`, no kill by name), tripwire files untouched.
 PowerShell tests (run where `pwsh` or `powershell` exists; the Windows CI runner always): a fake nodejs.org on `127.0.0.1` (node:http). Host override exists only as `LEGION_TEST_NODE_MIRROR` AND `LEGION_TEST_MODE=1` together, http loopback only; a test proves that WITHOUT the flag the production URL is still nodejs.org. Cases: good install, wrong sha256 (nothing installed), truncated, oversize, zip-slip, redirect refused, existing Node = no download, user says no, `-Yes` says yes, re-run idempotent, uninstall removes an owned runtime only (and not an unmarked one, and not through a junction).
-Gates: the usual. Windows-only verification (real nodejs.org, real arm64, real shortcuts) goes to `claude/tracker-pc-checks-installer.md`.
+Gates: the usual. Windows-only verification (real nodejs.org, real arm64, real shortcuts) goes to `docs/design/tracker-pc-checks-installer.md`.
 
 ## 7. Out of scope / not done
 

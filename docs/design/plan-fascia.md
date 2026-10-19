@@ -23,19 +23,7 @@ User promise this serves: "Give it to Zealot. See who does what. Get asked only 
 
 ## 2. Source research (what inspired this)
 
-Aurora / "fascia" by Brooklyn (@imbabybrooklyn, Nous Research), posts of 2026-10-06 (video only, no write-up, no repo, no model list published).
-
-| Fact | Status | Source |
-|---|---|---|
-| Brooklyn works at Nous Research and makes Hermes Agent visualisations | documented | x.com/imbabybrooklyn profile; post 2071874555157627135 |
-| Hermes Kanban: one SQLite board (`~/.hermes/kanban.db`), every worker a full OS process with its own profile identity | documented | hermes-agent.nousresearch.com/docs/user-guide/features/kanban |
-| Dispatcher tick (60 s): reclaims stale claims, reclaims crashed PIDs, promotes ready tasks, atomically claims (`BEGIN IMMEDIATE`), spawns workers | documented | same; RFC github.com/NousResearch/hermes-agent/issues/16102 (15-min claim TTL) |
-| Workers call `kanban_heartbeat`; stale = >4 h running and no heartbeat in 1 h; reclaim does not count as a failure | documented | kanban docs, events `reclaimed`, `crashed`, `stale` |
-| `task_events` append-only, monotonic id, pushed over WebSocket; UI reloads a cheap board view per burst | documented | kanban docs "Live updates" |
-| "Frontier orchestrator, inexpensive workers": model per profile, per-task `model_override` | documented | kanban docs "Cost strategy" |
-| Aurora's issue numbers and P0-P4 labels match `NousResearch/hermes-agent`, but titles shown differ from the real issues (demo data or rewritten) | checked #121121, #99963, #77169 | github.com/NousResearch/hermes-agent |
-| Aurora's speed comes from narrow work (one card per worker, short classification), parallel processes, small contexts, cached prompts | inference | from the image |
-| Which models Aurora uses, real run speed | unknown | not public |
+Inspired by a public demo of a kanban-style agent board (2026-10-06) and the documented kanban design of another agent harness: one board, every worker its own process with a lease, a dispatcher that reclaims stale or crashed claims, heartbeats for liveness, an append-only event log pushed to the UI, and a model per role. The source table with links is in the maintainer notes.
 
 What transfers to Legion: durable claims with leases, liveness by heartbeat, an append-only event log, a per-role model, and a main screen that shows important work with no live owner. What does not: Legion's core is one process, so cross-process locking is not needed; durability and liveness are.
 
@@ -80,7 +68,7 @@ Design faults:
 - Every bot-written item stays `untrusted` until the owner clicks "Mark as reviewed" (`board/store.ts:433, 488`), so runs fall to `ask` (`board/index.ts:117-122`) with no reason shown.
 - Proposers never learn accept/reject (`board/tools.ts:60`), so they may re-propose.
 UX: Inbox only inside each project (`BoardPanel.tsx:95`), Accept always → Backlog, card shows no run state/cost/evidence, "Open task 7f3a9c" labels, Blocked has no Retry, no bulk actions.
-Missing vs plan: no restart-recovery section in `claude/plan-project-board.md` at all.
+Missing vs plan: no restart-recovery section in `docs/design/plan-project-board.md` at all.
 
 ### User side
 - Welcome (`ui/src/components/Thread.tsx` EmptyState) step 2 = boat.dev key, step 3 = MCP command; neither is needed to use Legion.
@@ -97,12 +85,12 @@ Missing vs plan: no restart-recovery section in `claude/plan-project-board.md` a
 | 2026-10-07 | No board auto-dispatch now. | Fascia session recommendation, maintainer asked for this audit | Conditions for later in §6.6. |
 | 2026-10-07 | Ownership and timing per §5. | orchestrating session | Merges and releases go through the orchestrator. |
 
-Decisions this plan must not contradict: Claude default; board "not Jira", no schedules, Review never Done by bots, only the owner's click starts a run (`claude/plan-project-board.md`); scope lock (new work → ladder, running work first); council parked; no effort picker; mascot art untouchable; capability facts generated at run time, never stored; only runs started by the owner may request a BSV spend; approvals never looser than the caller; taint wrapping stays.
+Decisions this plan must not contradict: Claude default; board "not Jira", no schedules, Review never Done by bots, only the owner's click starts a run (`docs/design/plan-project-board.md`); scope lock (new work → ladder, running work first); council parked; no effort picker; mascot art untouchable; capability facts generated at run time, never stored; only runs started by the owner may request a BSV spend; approvals never looser than the caller; taint wrapping stays.
 
 ## 5. Ownership and order
 
 - Order set by the maintainer: the Order bug fixes (orchestrator, branch `fix/order-bugs`: `engine.ts` run close, `bridge.ts` hop/replies/truncation, `kg/graph.ts`, a new `task_result` tool) → connectors (orchestrator, `feat/connectors-1b`) → logging (CI session, after Release B) → ladder.
-- Sub-item 1 (board patch): **now, in parallel (maintainer, 2026-10-07).** Fascia session owns it. Own worktree off current `main` (`D:/bots/legion-board`, branch `fix/board-run-state`). Stays out of `src/core/engine.ts`, `src/core/bridge.ts` and `src/core/kg/graph.ts` (the Order-bug builder works there). The startup sweep next to `recoverInterrupted` in `core/store.ts` and at `bin/legion-core.ts:51` is allowed; keep the `legion-core.ts` change minimal, because logging will rewrite `log()` there. Stops at a green PR; the orchestrator reviews (independent reviewer + security pass) and merges.
+- Sub-item 1 (board patch): **now, in parallel (maintainer, 2026-10-07).** Fascia session owns it. Own worktree off current `main` (branch `fix/board-run-state`). Stays out of `src/core/engine.ts`, `src/core/bridge.ts` and `src/core/kg/graph.ts` (the Order-bug builder works there). The startup sweep next to `recoverInterrupted` in `core/store.ts` and at `bin/legion-core.ts:51` is allowed; keep the `legion-core.ts` change minimal, because logging will rewrite `log()` there. Stops at a green PR; the orchestrator reviews (independent reviewer + security pass) and merges.
 - Sub-items 2-7: after logging, in order. Sub-item 3 absorbs ladder items 8 (`sketch/plan-gate`) and 9 (`sketch/handoff-card`, D3 "Side thread"). Sub-items 3 and 5 build on top of the Order-bug bridge/engine changes (incl. `task_result`), never beside them.
 - Feature sessions stop at a green PR; the orchestrator merges and releases.
 
@@ -168,7 +156,7 @@ Output    First line: FOUND · PARTIAL · NOT FOUND
 Check every draft against the bot's current text and role before shipping (the maintainer's condition).
 
 ### 6.3 Typed delegation (sub-item 3, absorbs ladder 8 + 9)
-Split agreed with the orchestrator (2026-10-07): 3a roster cards + one teamwork block, 3b typed brief/result (reuses task_result and its result store), 3c model by role (ladder 8), 3d hand-off card + request tree (ladder 9, D3 "Side thread"). Sketches for 3c/3d: D:/bots/_refs/sketches/plan-gate and D:/bots/_refs/sketches/handoff; propose 3c/3d here before building.
+Split agreed with the orchestrator (2026-10-07): 3a roster cards + one teamwork block, 3b typed brief/result (reuses task_result and its result store), 3c model by role (ladder 8), 3d hand-off card + request tree (ladder 9, D3 "Side thread"). Sketches for 3c/3d are in the maintainer notes; propose 3c/3d here before building.
 3a status: MERGED (#50, 2026-10-07). One teamwork block per run (`src/core/teamwork.ts`, Claude and provider paths), VM policy only with VM tools, provider path gets the capabilities block, migration `roster-comms-lines-v1`, cards in `agents()`. Claude-path fixed cost down 7 to 15 percent per agent, now held by per-agent ceilings (+5%) in `test/prompt-size.test.ts`. Provider path not measured end to end (derived: roster bots about even, the three defaults about +220 chars from the capabilities block they now get). Next dedupe candidate: the knowledge-graph preamble lists its 16 tools, which the capabilities block lists again.
 
 Rename (maintainer, 2026-10-07): the lead's display name becomes "the Marshal"; the id `zealot` stays in code, tasks, migrations and the mascot. The orchestrator runs the rename PR. New text says "Marshal". Start 3b only after the rename PR merges (both touch `lead.ts`).
@@ -186,7 +174,7 @@ Paused for the weekly usage limit (maintainer, 2026-10-07). The plans below are 
 - Tests: brief schema (bad number of checks, long goal), header rendering, verdict parse for all 13 souls plus an unknown soul, budget clamp, prose path unchanged, router not flipped by a brief. A negative per test, made with the backup-and-restore negative script, never by reverse replacement.
 
 #### 3c. Model by role and the plan gate (ladder 8)
-Source: `D:/bots/_refs/sketches/plan-gate/design-plan-gate.md` (revision 2, direction B "Dispatch") and `review-plan-gate.md` (blocking findings #1 to #13 are folded into revision 2; nits #16 to #24 are still open). Owner decisions in the design: the gate shows before the Marshal delegates in every approval mode, Full access included (a plan review, not a permission card; a per-lead setting turns it off; note the exception next to `approvals.ts:40-50`); "optionality is the rule" (agent, model, order, delegate or do it itself: all shown and changeable).
+Source: the maintainer's design sketch for the plan gate (revision 2, direction B "Dispatch") and `review-plan-gate.md` (blocking findings #1 to #13 are folded into revision 2; nits #16 to #24 are still open). Owner decisions in the design: the gate shows before the Marshal delegates in every approval mode, Full access included (a plan review, not a permission card; a per-lead setting turns it off; note the exception next to `approvals.ts:40-50`); "optionality is the rule" (agent, model, order, delegate or do it itself: all shown and changeable).
 - Mechanism: a new `mcp__legion__plan` tool stores a `PlanRecord` on the `ChatMessage` (pending, approved, cancelled, replaced) and returns "End your turn now". Run sends a normal user message ("Plan approved. ..."). `ask` and `tell` refuse a target without an approved plan item (`assertPlanned`, also for `bot_send`, `room_post` and `handoff`; `Task` and `Agent` go into the lead's `disallowedTools`). One item is one task (`fresh: true`, `Done when:` prepended from 3b). Onward delegation (Builder to Scout) is not gated. A run not started from the app auto-approves with the same bounds (needs `origin` in `AgentToolsCtx`).
 - Model policy: the Marshal proposes the cheapest model that fits each item: planning, judging and reporting on its own model (Opus by default through a versioned migration, only while it is still the shipped `auto`); build, review and research on sonnet; exactly specified mechanical work on haiku; hard design on opus; a provider-pinned agent keeps its model. The owner can change any item.
 - Bounds, checked at plan time and again at Run: the model ceiling (`model-cap.ts`), the provider lock, the account catalog, the per-run spend limit (a warning, not a block), the effective approval. Show a concrete alias, never `auto`. New run flag `noEscalate` unless the item allows "may move up to Opus" (`shouldEscalate` otherwise reruns on Opus).
@@ -196,7 +184,7 @@ Source: `D:/bots/_refs/sketches/plan-gate/design-plan-gate.md` (revision 2, dire
 - Prompt cost: the plan wording replaces LEAD_DOCTRINE steps 1 and 2; the prompt-size ceilings must still hold.
 
 #### 3d. Hand-off card D3 "Side thread" and the request tree (ladder 9)
-Source: `D:/bots/_refs/sketches/handoff/handoff.js` (`rail()`) and `sheet-3-side-thread.html`. The maintainer picked D3.
+Source: the maintainer's hand-off sketches (`rail()`, side-thread sheet 3). The maintainer picked D3.
 - Card per ask or tell: head "[avatar] Marshal asked|told Builder" plus "waits for the answer" or "keeps working" while live; the request line; a node with a state icon (a distinct icon per state, never colour alone), the callee avatar and a status line; the answer as Markdown, clamped, with "Show all"; footer links "Open the approval" (first, warn tone), "Go to the answer", "Open <Agent>'s task". `role="group"` with an aria-label such as "Marshal asked Builder: Answered".
 - States (exact words in handoff.js `ST`): Waiting, Queued, Needs your OK, Sent, Answered with one duration, Could not finish, Cancelled, Stopped waiting, Not sent (maps the core's refusal strings: unknown agent, self, depth 3, deadlock, hop 6, rate limit 30 per 10 minutes). A tell reply is its own card ("Scout answered Marshal", "re: ..."). The callee's thread shows a breadcrumb back to the caller.
 - Backend data missing today (add as bridge events and message metadata, no new store): the callee task id while an ask is pending, a queued state for an ask, the link from an approval to the caller task, a per-request id, asked or told on the callee's first bubble, which message ends a bridged run, whether the caller stopped waiting.
@@ -230,4 +218,4 @@ Other ten bots get examples and edges (verdict lines unchanged); Settings "Advan
 
 ## 8. Needs a real PC
 
-Nothing yet. Board restart recovery and the Watch view will need a check on the owner's PC (kill the app mid-run, restart, confirm the item recovers); add it to `claude/tracker-pc-checks.md` when sub-item 1 is built.
+Nothing yet. Board restart recovery and the Watch view will need a check on the owner's PC (kill the app mid-run, restart, confirm the item recovers); add it to `docs/design/tracker-pc-checks.md` when sub-item 1 is built.

@@ -1,5 +1,5 @@
 /**
- * "Use both backends at once" (claude/plan-blender-local-first.md section 15). OFF unless the owner turns it on; with it off nothing in this file runs
+ * "Use both backends at once" (docs/design/plan-blender-local-first.md section 15). OFF unless the owner turns it on; with it off nothing in this file runs
  * and exactly one live backend is used, as before.
  *
  *   - The official Blender Lab MCP is the MAIN backend, the community add-on the SECOND. The Sculptor sees ONE merged tool list.

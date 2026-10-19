@@ -259,7 +259,7 @@ Gates (repo CLAUDE.md): `npm ci && npm run build:ts && npm run test:run && npm r
 | D11 | Connectors + `full` + shell tool on one agent; DNS pinning | Warn only (recommended) / block that combination; pinned-address dispatcher now or later |
 | D12 | Connector reads for MCP-client-origin runs | Off by default (recommended) / on |
 
-## 8. Real-PC checks (append to `claude/tracker-pc-checks.md` when built)
+## 8. Real-PC checks (append to `docs/design/tracker-pc-checks.md` when built)
 
 | Id | Area | Steps | Expected | Safety |
 |---|---|---|---|---|

@@ -1,4 +1,4 @@
-/** Project board store: one JSONL log per project (<dataDir>/board/<projectId>.jsonl). See claude/plan-project-board.md. */
+/** Project board store: one JSONL log per project (<dataDir>/board/<projectId>.jsonl). See docs/design/plan-project-board.md. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, MARSHAL_DEFAULTS, MARSHAL_LIMITS, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';

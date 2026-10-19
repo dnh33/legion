@@ -39,7 +39,7 @@ mutation for each new test, renders any UI change) before committing. At most 3 
 3. Typecheck, UI build, screenshot rig for every UI change (dark, light, 860 px).
 4. Version `0.2.5-c` in three places, lockfile diff version-only.
 5. CHANGELOG for the installed user only (A-items go to the tracker, not the changelog). Notes under 600 characters.
-6. PC checks recorded in `claude/tracker-pc-checks.md` for what needs the real SDK (B2, B3, B7).
+6. PC checks recorded in `docs/design/tracker-pc-checks.md` for what needs the real SDK (B2, B3, B7).
 7. Package, manifest, then the owner signs, merges and publishes.
 
 ## Order

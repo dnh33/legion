@@ -1,5 +1,5 @@
 /**
- * Loopback-only guard (plan: claude/plan-loopback.md). Legion's own HTTP server may only be reached from this computer, by name 127.0.0.1 or localhost.
+ * Loopback-only guard (plan: docs/design/plan-loopback.md). Legion's own HTTP server may only be reached from this computer, by name 127.0.0.1 or localhost.
  * Pure functions plus one listen helper; no node:http / node:net import on purpose (the BSV tripwire lists the files that may have them).
  *
  * What it does, in order, for EVERY request before any route (including /health, /mcp and the event stream):

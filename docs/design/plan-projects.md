@@ -136,7 +136,7 @@ Scoped claims only: Legion's own code does the checks listed in section 7; a pro
 
 ## 9. Owner-only PC checks
 
-See `claude/tracker-pc-checks-projects.md`.
+See `docs/design/tracker-pc-checks-projects.md`.
 
 ## 10. Known limits (kept honest)
 

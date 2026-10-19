@@ -91,7 +91,7 @@ Two assets, one format (full and update zips share bytes). Hash for route A is t
 
 ## 12. Only the real Windows run proves
 
-`npm ci` really picks `claude-agent-sdk-win32-x64`, and its `claude.exe` matches the SDK manifest; Electron's dist copy runs; `electron.exe` in node mode runs the core, the stdio proxy and the apply helper; the real size and zip time; `Expand-ZipSafe` on 700 MB under Windows PowerShell 5.1; shortcuts; the swap with real file locks and Defender; SmartScreen and web-mark behaviour of copied files; quarantine messages; uninstall of a 700 MB tree; the doctor card and `legion-claude.cmd /login`. Steps: `claude/tracker-pc-checks-prebuilt.md`.
+`npm ci` really picks `claude-agent-sdk-win32-x64`, and its `claude.exe` matches the SDK manifest; Electron's dist copy runs; `electron.exe` in node mode runs the core, the stdio proxy and the apply helper; the real size and zip time; `Expand-ZipSafe` on 700 MB under Windows PowerShell 5.1; shortcuts; the swap with real file locks and Defender; SmartScreen and web-mark behaviour of copied files; quarantine messages; uninstall of a 700 MB tree; the doctor card and `legion-claude.cmd /login`. Steps: `docs/design/tracker-pc-checks-prebuilt.md`.
 
 ## 13. Documented fact / assumption / unknown (looked up 2026-10-02)
 

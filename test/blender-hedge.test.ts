@@ -140,7 +140,7 @@ export function scan(sources: Src[]): string[] {
   return hits;
 }
 
-const PC_RUN_RECORDED = (): boolean => /BLENDER LOCAL PC RUN RECORDED/.test(read('claude/tracker-pc-checks.md'));
+const PC_RUN_RECORDED = (): boolean => /BLENDER LOCAL PC RUN RECORDED/.test(read('docs/design/tracker-pc-checks.md'));
 
 test('blender hedge: no banned absolute and no unscoped claim in the Blender screens, strings and docs', () => {
   assert.deepEqual(scan(SOURCES()), []);

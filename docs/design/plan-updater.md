@@ -128,7 +128,7 @@ What the updater does NOT do: kill processes by name pattern, touch `node_module
 
 ## 8. Hooks into shared files (all minimal, additive)
 
-- NEW: `src/core/updater/{types,semver,trust,manifest,net,package,idle,state,index,apply}.ts`, `src/electron/updater-main.ts`, `ui/src/UpdatePanel.tsx` (+ its CSS in the same file), `scripts/release-*.mjs`, `scripts/lib/release-lib.mjs`, `test/updater-*.test.ts`, `claude/tracker-pc-checks-updater.md`.
+- NEW: `src/core/updater/{types,semver,trust,manifest,net,package,idle,state,index,apply}.ts`, `src/electron/updater-main.ts`, `ui/src/UpdatePanel.tsx` (+ its CSS in the same file), `scripts/release-*.mjs`, `scripts/lib/release-lib.mjs`, `test/updater-*.test.ts`, `docs/design/tracker-pc-checks-updater.md`.
 - `src/bin/legion-core.ts`: create the module and add it to `modules` (about 4 lines; passes `root`, `nativeSecret`, a Blender busy probe). It passes NO policy/URL override.
 - `src/electron/main.ts`: `recoverInterrupted()` before `boot()`, `initUpdater({...})` with the helpers main already has (about 10 lines). Nothing else changes.
 - Settings UI: one line mounting `<UpdatePanel/>`.
@@ -181,7 +181,7 @@ Each control has one test file (`test/updater-*.test.ts`), fake HTTP/HTTPS-polic
 | C23 | release scripts round trip: package -> manifest -> sign -> app verifies; script refuses a key not embedded | release scripts | sign the wrong bytes |
 | C24 | `notes` is untrusted text: only shown (escaped), never given to an agent prompt or tool | updater-surface: static + UI test | pass notes into a preamble |
 
-Owner-only real-PC checks: `claude/tracker-pc-checks-updater.md` (U1..). Windows-only behaviour (locks, `taskkill`, junction install dir, shortcut relaunch, antivirus, the real GitHub redirect host) cannot be verified in the cloud and is listed there, not claimed.
+Owner-only real-PC checks: `docs/design/tracker-pc-checks-updater.md` (U1..). Windows-only behaviour (locks, `taskkill`, junction install dir, shortcut relaunch, antivirus, the real GitHub redirect host) cannot be verified in the cloud and is listed there, not claimed.
 
 ## 11. Wording for README, SECURITY.md, docs (scoped, not absolute)
 

@@ -1,6 +1,6 @@
 # BSV wallet design, version 1: for owner review
 
-Status, 2026-10-02: written as a proposal, now partly superseded. Rung 3 is BUILT, merged and tested against fake wallets only (testnet AND mainnet capability, mainnet behind a hard-off switch that ships OFF); it has NOT been verified against a real wallet or with real funds until the owner's checks (V1 to V12, R0 to R11, ND1 to ND11) are recorded in `claude/tracker-pc-checks.md`. The built design, its assumptions (`A1` to `A12`) and the mainnet amendment are in `claude/plan-bsv-rung3.md`; what the code does is in `docs/BSV-MODE.md`, section Spend. This document keeps the original reasoning, so where it says "proposed" or "design only" for rung 3 or mainnet, read it as history. Rung 2 (approved reads) is not built. Written for Daniel (the owner) to read in one sitting; it says what is verified, what is guessed, and what can still go wrong.
+Status, 2026-10-02: written as a proposal, now partly superseded. Rung 3 is BUILT, merged and tested against fake wallets only (testnet AND mainnet capability, mainnet behind a hard-off switch that ships OFF); it has NOT been verified against a real wallet or with real funds until the owner's checks (V1 to V12, R0 to R11, ND1 to ND11) are recorded in `docs/design/tracker-pc-checks.md`. The built design, its assumptions (`A1` to `A12`) and the mainnet amendment are in `docs/design/plan-bsv-rung3.md`; what the code does is in `docs/BSV-MODE.md`, section Spend. This document keeps the original reasoning, so where it says "proposed" or "design only" for rung 3 or mainnet, read it as history. Rung 2 (approved reads) is not built. Written for Daniel (the owner) to read in one sitting; it says what is verified, what is guessed, and what can still go wrong.
 
 Plain summary (as first written, before rung 3 was built; see the status above): Legion's BSV mode could ask a wallet "are you there, and which network are you on?" and nothing else. The controls that a spending phase would need (caps, allowlist, expiring arming, freeze, a tamper-evident log, confirmation that comes from outside the window) were built and tested first. This document proposed two more rungs, human-approved reads and a manual testnet spend, and lists everything that could go wrong with them. Rung 3 has since been built (and extended to mainnet behind a hard-off switch); rung 2 has not.
 
@@ -12,7 +12,7 @@ Plain summary (as first written, before rung 3 was built; see the status above):
 | 1 | `bsv_status`: ask a loopback wallet four harmless questions (version, network, signed in, block height) | Built (this release) |
 | 2 | Human-approved reads: one card per read, for example "total of spendable outputs" | Design only |
 | 3 | Manual testnet spend: Legion's card as the per-spend gate, the wallet's own check as a second one (when and whether it asks depends on the wallet, section 10) | Built and merged, tested against fake wallets only; not verified against a real wallet (order of steps differs from section 4: the wallet builds the unsigned transaction first, Legion decodes it, then the dialogs, then signing) |
-| 4 | Mainnet | Built behind a hard-off switch that ships OFF (`claude/plan-bsv-rung3.md` section 12): per-network limits, one Arm per spend, an extra LIVE FUNDS dialog. Not verified with real funds; the owner's check R0 to R11 comes first |
+| 4 | Mainnet | Built behind a hard-off switch that ships OFF (`docs/design/plan-bsv-rung3.md` section 12): per-network limits, one Arm per spend, an extra LIVE FUNDS dialog. Not verified with real funds; the owner's check R0 to R11 comes first |
 
 Each rung adds a tool name, an allowlist entry in `test/bsv-scan.ts`, and a new owner review. The tripwire fails the build if wallet vocabulary appears anywhere else, so a rung cannot arrive by accident.
 
@@ -80,7 +80,7 @@ After the wallet answers, Legion records the transaction id, settles the reserva
 
 Unknown outcome: a spend that was approved but not settled in 300 s (or interrupted by a restart or a freeze) is "unknown" and blocks every new spend until the owner resolves it with a native confirmation. There is no automatic retry anywhere (a wallet may have broadcast before the timeout).
 
-Mainnet: when this section was written it was not designed. It has since been designed and built as an amendment (`claude/plan-bsv-rung3.md` section 12): a hard-off switch (off by default), Arm for each spend, a card and dialogs that say LIVE FUNDS, per-network limits and allowlists, and the rule that an unknown outcome blocks both networks. The order of steps changed: the wallet is asked for an UNSIGNED transaction first (so Legion can decode the fee), then the dialogs, then the signing call.
+Mainnet: when this section was written it was not designed. It has since been designed and built as an amendment (`docs/design/plan-bsv-rung3.md` section 12): a hard-off switch (off by default), Arm for each spend, a card and dialogs that say LIVE FUNDS, per-network limits and allowlists, and the rule that an unknown outcome blocks both networks. The order of steps changed: the wallet is asked for an UNSIGNED transaction first (so Legion can decode the fee), then the dialogs, then the signing call.
 
 ### The approval card
 
@@ -201,7 +201,7 @@ asks for a new or renewed grant. A one-time ("ephemeral") grant exists in the co
 So in Legion's flow the wallet asks, if at all, at the build step BEFORE Legion's card, and after one grant it does not ask again inside it.
 The owner decided (2026-10-06) to keep rung 3 and reframe it rather than pause: Legion's own native dialogs are the per-spend gate, and the
 wallet's grant is a second check, which the owner keeps one-time if the wallet offers that, or at or below Legion's caps. The dialogs, the
-panel and `docs/BSV-MODE.md` say so; checks W1 to W5 in `claude/tracker-pc-checks.md` record what each real wallet does. Not verified on a
+panel and `docs/BSV-MODE.md` say so; checks W1 to W5 in `docs/design/tracker-pc-checks.md` record what each real wallet does. Not verified on a
 real wallet: the shipped BSV Desktop build may differ from master, and its prompt texts and grant choices are unknown.
 
 ### Later: the policy in the wallet (BRC-181, BRC-204)
@@ -231,7 +231,7 @@ Legion's code, tests and agents have never been pointed at the real wallet. Ever
 
 ## 12. Questions for the owner
 
-Answered on 2026-10-02 (recorded in `claude/plan-bsv-rung3.md` sections 11 and 13 and in the maintainer's release tracker; answers taken at the recommended defaults are marked there as assumed, not confirmed): arm applies to mainnet only; a run started by another bot, a room or an MCP client may not request a spend; one unattributed extra P2PKH output is accepted as wallet change and shown as wallet-claimed; no fallback to "sign first"; testnet and mainnet P2PKH recipients, one payment output; mainnet is IN scope, built, reviewed and OFF by default; `bsv.walletUrl` in `config.json` is ignored. Question 10 below ("nothing may touch mainnet") was REVERSED by the owner on 2026-10-02. The original list, with its defaults, is kept as history. My default is in brackets.
+Answered on 2026-10-02 (recorded in `docs/design/plan-bsv-rung3.md` sections 11 and 13 and in the maintainer's release tracker; answers taken at the recommended defaults are marked there as assumed, not confirmed): arm applies to mainnet only; a run started by another bot, a room or an MCP client may not request a spend; one unattributed extra P2PKH output is accepted as wallet change and shown as wallet-claimed; no fallback to "sign first"; testnet and mainnet P2PKH recipients, one payment output; mainnet is IN scope, built, reviewed and OFF by default; `bsv.walletUrl` in `config.json` is ignored. Question 10 below ("nothing may touch mainnet") was REVERSED by the owner on 2026-10-02. The original list, with its defaults, is kept as history. My default is in brackets.
 
 1. Do you want rung 2 (approved reads) at all, or is "is the wallet there and on which network" enough? [Skip rung 2 unless you want the Assayer to check for testnet coins.]
 2. For rung 3, should the owner's approval be a native dialog (robust against a compromised window) or an in-window card (easier to read, longer text)? [Native dialog showing the decoded card.]

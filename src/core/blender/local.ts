@@ -1,5 +1,5 @@
 /**
- * Local headless mode: `blender -b` on THIS computer, wrapped by Legion's own runner script (plan: claude/plan-blender-local-first.md 2.4-2.8).
+ * Local headless mode: `blender -b` on THIS computer, wrapped by Legion's own runner script (plan: docs/design/plan-blender-local-first.md 2.4-2.8).
  *
  * What this is: the card, the backup, the audit and the controls below. What it is not: a sandbox. The script runs with the Windows user's rights.
  * The Python-level guard in LOCAL_RUNNER_PY only sees Python events (open, os.remove, socket.connect ...); Blender's C code (save_as_mainfile,

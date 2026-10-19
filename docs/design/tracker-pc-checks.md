@@ -1,6 +1,6 @@
 # Checks that need the real Windows PC: INTAKE list (collected from reviewer reports)
 
-**Master:** [`claude/real-pc-test-plan.md`](real-pc-test-plan.md) (machine twin `scripts/harness/pc-checks.json`, summary `node scripts/harness/pc-report.mjs <results.json>`). It holds every check with steps, expected observation, evidence, safety class, run order and rollback. Results are recorded there. This file stays as the **intake list**: any agent that finds something only a real PC can verify appends a numbered row here (rule in `CLAUDE.md`, "Real-PC checks"), and it is merged into the plan with its source at the next refresh. Never mark a feature verified in docs or the changelog until its plan check says `pass`.
+**Master:** [`docs/design/real-pc-test-plan.md`](real-pc-test-plan.md) (machine twin `scripts/harness/pc-checks.json`, summary `node scripts/harness/pc-report.mjs <results.json>`). It holds every check with steps, expected observation, evidence, safety class, run order and rollback. Results are recorded there. This file stays as the **intake list**: any agent that finds something only a real PC can verify appends a numbered row here (rule in `CLAUDE.md`, "Real-PC checks"), and it is merged into the plan with its source at the next refresh. Never mark a feature verified in docs or the changelog until its plan check says `pass`.
 
 Row format for new intake: `id | area | preconditions | exact steps | expected observation | evidence to capture | safety class (none, downloads, spends-money, native-dialog, real-wallet, real-funds, account) | source`.
 
@@ -100,7 +100,7 @@ B4/B5 (managed Blender, chooser). Downloads: the owner present and a go for each
 - Extension verify (setup.ts `extensionListed`): the real `extension list` layout is not known. The step now needs the entry line to start with the id, show the exact version and an `enabled` marker (same line or indented lines under it). Check on the PC with Blender 5.1+ that a real list passes; if the layout differs, adjust the parser, do not loosen it to "the word appears".
 
 
-## Loopback-only guard (claude/plan-loopback.md). Safety class: none unless noted
+## Loopback-only guard (docs/design/plan-loopback.md). Safety class: none unless noted
 
 | # | Check | State |
 |---|---|---|
@@ -124,11 +124,11 @@ B17 (both backends at once). Area: Blender both-backends mode. Safety class: dow
 | B17e | **Downloads, owner present:** switch Poly Haven on, `blender_asset_search` for "crate" or an HDRI, then `blender_asset_get` for one small 1k HDRI: a card names the files, size and host; Deny fetches nothing (check `%APPDATA%\legion\blender\assets` is empty); Allow downloads into `%APPDATA%\legion\blender\assets\<task>\<id>\` with `manifest.json`, the world lighting changes in Blender, the run counts as tainted. Confirm the real file host (expected `dl.polyhaven.org`; record it) and that the md5 values match. Repeat once with a 1k model (glTF) and check textures load | todo |
 | B17f | Poly Haven switched OFF: `blender_asset_get` is refused before any listing; Sketchfab and Hyper3D show "Not available" in Settings and cannot be switched on | todo |
 
-## Project board (claude/plan-project-board.md; in v0.2.0, on by default). Safety class: none (no spend, no download)
+## Project board (docs/design/plan-project-board.md; in v0.2.0, on by default). Safety class: none (no spend, no download)
 
 **2026-10-06, maintainer report:** the board is in daily use on the maintainer's PC. No row below is marked passed from that: PB3 (screen reader), PB4 (display scale) and PB9 (crash) were not done, and the others need their evidence.
 
-Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: a project with two member agents (nothing to switch on).
+Full steps in `docs/design/tracker-pc-checks-board.md`. Preconditions: a project with two member agents (nothing to switch on).
 
 | # | Check | State |
 |---|---|---|
@@ -143,7 +143,7 @@ Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: a project with
 | PB9 | Compaction and crash: add/delete ~300 items; kill the core by PID during a write; restart: board loads, no `.tmp` left, antivirus on. | todo |
 | PB10 | Downgrade: an older build ignores `board\`; upgrade again: items are back. | todo |
 ## BSV spend tool (T2, branch `claude/bsv-t2-spend`): owner-only wallet checks. Nothing here was run: the build used fakes only
-Each assumption A1..A12 of `claude/plan-bsv-rung3.md` section 15 is a named failing-closed check in `src/core/bsv/spend.ts`; the row that proves it on a real wallet is below. If a real wallet contradicts one, the spend path refuses (fails closed) and the owner is told; release is gated on these rows, not on the build. Plan ids in `claude/real-pc-test-plan.md`: V = BSVT, R = BSVM.
+Each assumption A1..A12 of `docs/design/plan-bsv-rung3.md` section 15 is a named failing-closed check in `src/core/bsv/spend.ts`; the row that proves it on a real wallet is below. If a real wallet contradicts one, the spend path refuses (fails closed) and the owner is told; release is gated on these rows, not on the build. Plan ids in `docs/design/real-pc-test-plan.md`: V = BSVT, R = BSVM.
 
 ### V1 to V12: a SEPARATE TESTNET wallet (BSV Desktop switched to its testnet database, or a VM), owner present. Never the funded mainnet wallet
 Setup V0: the wallet app in testnet mode with testnet coins from a faucet; Legion built from the reviewed commit; confirm in Legion's BSV panel that the wallet claims a TESTNET network before anything else.
@@ -197,7 +197,7 @@ Why: BRC-100 does not say how a wallet identifies a local app outside a browser 
 | W4 | Grant a small amount (no higher than Legion's testnet caps), then two requests inside it | record whether the wallet asks at all for the second one (expected: no); Legion's dialog still appears | screenshots | todo |
 | W5 | In the wallet's own settings: find the switch for spending checks (BSV Desktop: `seekSpendingPermissions`, Settings) and any list of granted apps; revoke the `legion.local` grant | record the default (BSV Desktop master: on) and that revoking works | screenshots | todo |
 
-## BSV native dialogs and panel (T3 second pass; claude/plan-bsv-rung3.md section 15). Safety class: funds-adjacent (no spend is made by these checks; use the harness or a throwaway testnet setup, never the funded wallet, until the real-funds checks R0-R11)
+## BSV native dialogs and panel (T3 second pass; docs/design/plan-bsv-rung3.md section 15). Safety class: funds-adjacent (no spend is made by these checks; use the harness or a throwaway testnet setup, never the funded wallet, until the real-funds checks R0-R11)
 
 | # | Check | State |
 |---|---|---|
@@ -236,8 +236,8 @@ Full record: the maintainer notes (HOUSE-LAYER-VERIFICATION).
 | H9 | Press **Withdraw approval** on a file Legion also shipped (`AGENTS.md`). | It stays trusted and is labelled `From Legion`: withdrawing your approval removes your approval, not the app's own bytes. | todo |
 | H10 | Restart Legion. | `house_list` unchanged; approvals survive; nothing you dropped into the context folder was deleted. | todo |
 
-## Browser tool (built-in headless Edge/Chrome) - see claude/tracker-pc-checks-browser.md for the full steps (BR15 to BR24; the Lightpanda checks BR1-BR14 are dropped)
-Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session. 2026-10-06, maintainer report: agents used the browser tool on the real PC and it works; BR15 is marked passed in part in `claude/tracker-pc-checks-browser.md`, BR16 to BR24 stay open. Do not call the browser tool verified beyond that until each is recorded as passed.
+## Browser tool (built-in headless Edge/Chrome) - see docs/design/tracker-pc-checks-browser.md for the full steps (BR15 to BR24; the Lightpanda checks BR1-BR14 are dropped)
+Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session. 2026-10-06, maintainer report: agents used the browser tool on the real PC and it works; BR15 is marked passed in part in `docs/design/tracker-pc-checks-browser.md`, BR16 to BR24 stay open. Do not call the browser tool verified beyond that until each is recorded as passed.
 
 | H11 | **Heap ceiling (0.2.3-j).** The core now gets `min(RAM/4, 2048)` MB, floored at 512. On this machine Node's default was 4192 MB, so the cap is roughly half. **Nobody profiled the core's actual peak heap** — the cap is reasoned, not measured. Run a heavy session (large KG, several compactions, a long agent run) and watch whether heap approaches 2048. If it does, the cap is too low and the core will OOM where it previously survived. | todo |
 
@@ -273,7 +273,7 @@ Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-con
 | MD1 | Built app. Give Zealot a task that runs a Bash command that needs a card. Press Deny quickly (under 1 s), then again on a new card after a slow Deny (about 3 s). Then Allow on a third. | After each Deny, the bust and Zealot's Relic go from "Awaiting your word" to "Deliberating", with no "Executing" frame. After Allow, Executing shows as before. | A screen recording or quick screenshots of the bust label after each answer. | todo |
 | MD2 | Built app, Lattice open with a framed view. Toggle BSV mode (or anything that refreshes from the server without changing the graph). | The camera does not jump or re-fit. A real change (a node hidden or deleted elsewhere) still shows after the refresh. | Before and after screenshots of the Lattice. | todo |
 
-## 2026-10-06: the takeover art and the Ŧ mark (uncommitted, spec claude/spec-legion-takeover.md). Safety class: none (TK1, TK2, TK4); a few cents of Claude usage (TK3)
+## 2026-10-06: the takeover art and the Ŧ mark (uncommitted, spec docs/design/spec-legion-takeover.md). Safety class: none (TK1, TK2, TK4); a few cents of Claude usage (TK3)
 
 | id | Steps | Expected | Evidence | State |
 |---|---|---|---|---|
@@ -294,7 +294,7 @@ Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-con
 |---|---|---|---|---|
 | P1 | On 0.2.5-e: start Legion from the Start menu. Right-click its taskbar button, "Pin to taskbar". Quit Legion fully (tray, Quit). Click the pinned button. Then, while it runs, check the taskbar. | "Pin to taskbar" is offered; the pin starts Legion; the running window sits ON the pinned button (one button, not two). The splash is the Zealot splash. In PowerShell, the Start-menu Legion.lnk now has System.AppUserModel.ID = dev.legion.app. | Screenshot of the taskbar with Legion pinned and running; the PowerShell line. | todo |
 
-## 2026-10-06: agent-to-agent bridge wording, audit bugs B1-B7 (uncommitted on release/0.2.5-f; audit claude/audit-agent-to-agent-ux.md). Safety class: a few cents of Claude usage (AB1-AB6); none otherwise
+## 2026-10-06: agent-to-agent bridge wording, audit bugs B1-B7 (uncommitted on release/0.2.5-f; audit docs/design/audit-agent-to-agent-ux.md). Safety class: a few cents of Claude usage (AB1-AB6); none otherwise
 
 | id | Steps | Expected | Evidence | State |
 |---|---|---|---|---|
@@ -340,7 +340,7 @@ Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-con
 | AR6 | Make a skill folder with a symlink or junction under `%USERPROFILE%\.claude\skills` (many real installs have these) and open the Armory list. | The linked skill is listed with its description; nothing is written under `.claude`. | Screenshot or the GET /api/armory entry. | todo |
 | AR8 | Built app, Windows, a Claude agent in full approval mode, one Armory skill set Off, one set "Only when I ask", and the Claude Code built-in `update-config` (locked Off). (a) Ask the agent to start a subagent (the Agent tool, general-purpose) and have the subagent try to load the Off skill and `update-config`. Also ask the main agent to Write a file into `%USERPROFILE%\.legion\armory\`. (b) Make or pick a subagent file under `%USERPROFILE%\.claude\agents\` whose header has `skills:` naming an Off skill (preload), and ask the agent to start that subagent; note whether the skill text is already in the subagent's context without any Skill tool call. (c) In the same app, type `/<name>` for the "Only when I ask" skill as the task's first words. Probe on the owner's PC (2026-10-06): a typed `/plugin:skill` dispatches without a Skill tool call and without the PreToolUse hook (BETA-OK). | (a) The Skill loads are denied in the subagent and the main agent with the text "<id> is off in Legion. The owner can turn it on in Settings, Armory.", and the subagent reports the Legion reason. The Write into the Armory folder is denied with a plain message. Loading a skill that is On still works. The run is not marked failed. (b) RECORD the result: if the preload happens, there is no tool call and so no gate. That is an accepted limit (the preloaded text is the owner's own agent file); write it in the Armory doc as a known limit. If it does not happen, say so. (c) The typed `/name` for an "Only when I ask" skill still runs and the run starts normally (the typed command is the owner's own request); a typed `/name` for an Off skill is refused with the Armory message before anything is sent. | (a) The subagent report; the tool rows with the denials. (b) The subagent's first message or transcript showing whether the skill text was present, and the agent file's `skills:` line. (c) The task transcript for both typed commands. | todo |
 
-## Connectors slice 1a (design `claude/design-connectors.md` section 8; PR for `feat/connectors`)
+## Connectors slice 1a (design `docs/design/design-connectors.md` section 8; PR for `feat/connectors`)
 
 None of these is proven: the slice was built and tested on fakes only (fake safeStorage, fake GitHub). "Covers" says what the slice puts in place for the check; a check passes only when run on the real PC and recorded.
 
@@ -363,7 +363,7 @@ None of these is proven: the slice was built and tested on fakes only (fake safe
 | C-1B-7 | MCP tool timeout | Claude Code connected to Legion over MCP, GitHub connected | From Claude Code, call a Legion tool that runs `github_ci_wait` with 900 s against a slow run (or a stub that never completes) | Record whether Claude Code's MCP tool timeout allows a 900 s call or cuts it earlier; if earlier, note the limit so the cap can be lowered | Claude Code's message; timing | real account | slice 1b review |
 | C-1B-8 | Restart and reload on Windows | Built app on Windows, no `key.bin` | Connect GitHub, confirm the restart | One restart; the window reloads and opens Settings, GitHub with the code showing; the browser opens GitHub; no second error box if the restart fails (try by blocking the port) | Screenshots, `core.log` | native-dialog | slice 1b review |
 
-## 2026-10-07: Board run state (fix/board-run-state; plan `claude/plan-fascia.md` 6.1). Safety class: a few cents of Claude usage; none otherwise
+## 2026-10-07: Board run state (fix/board-run-state; plan `docs/design/plan-fascia.md` 6.1). Safety class: a few cents of Claude usage; none otherwise
 
 Built and tested on fakes only (fake task store, no Electron UI, no real restart).
 
@@ -415,7 +415,7 @@ Built and tested on fakes and the in-process test core only. Settings, Logs has 
 | LG2 | The log folder after a crash | Built app on Windows | End the core process from Task Manager while a run is going (or make it throw), then start Legion again and open Settings, Logs | `errors.log` holds the last error lines (or the folder shows the run's last lines); pasting `errors.log` into a chat shows no key, token or prompt text; `core.log` is intact | The folder listing and the pasted text | none | Logging wire |
 
 
-## 2026-10-07: Soul Codex v1 (feat/soul-codex-v1; plan `claude/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
+## 2026-10-07: Soul Codex v1 (feat/soul-codex-v1; plan `docs/design/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
 
 The souls are tested for shape and contract on fakes only; nothing has checked how a real model follows them.
 
@@ -424,7 +424,7 @@ The souls are tested for shape and contract on fakes only; nothing has checked h
 | SC1 | Built app, a fresh install (or an install whose three defaults still have their old seeds). Open Builder, Scout and Zealot and read their prompts. | All three show the new souls. Edit Scout's prompt by hand, restart Legion: your text is kept. | Screenshot of each prompt; Scout after the restart. | todo |
 | SC2 | Ask Builder: "Add a function that reverses a string in a scratch file and prove it works." Ask Scout: "What is the current LTS version of Node.js? Give the source." Ask Zealot: "Write a one-paragraph README section for the board, and have it reviewed." | Builder's first line is BUILT, PARTIAL or BLOCKED, with Evidence naming a command it ran. Scout's first line is FOUND, PARTIAL or NOT FOUND, with a link. Zealot's first line is STATUS; it hands the writing to the Scribe and the review to the Inquisitor, then reports with evidence. | The three answers, copied as text. | todo |
 
-## 2026-10-07: Welcome points at Zealot (feat/welcome-zealot; plan `claude/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
+## 2026-10-07: Welcome points at Zealot (feat/welcome-zealot; plan `docs/design/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
 
 Checked visually with `ui/dev/mock-server.mjs` (scenario `first`); the real first task needs a real Claude sign-in.
 
@@ -466,7 +466,7 @@ The workflow cannot run before it is on main. Its guard test pins the security s
 | id | result | what was seen | open issue |
 |---|---|---|---|
 | RB1 | **PASSED** 2026-10-07 (orchestrator) | Run 37681503541 (dispatch from main, ref `v0.2.5-m`) green. app.zip `b0da9855…` and win-x64.zip `ffe3ab96…` byte-identical to the published 0.2.5-m; install.ps1 and install.sh identical. | none |
-| RB2 | **PASSED** 2026-10-08 (Hermes) | 0.2.5-o and 0.2.5-p real releases: tag builds green, downloads verified (SHA256SUMS, installers, build-info `dirty:false`), signed k1, preflight "Pre-flight passed", published, live-CDN verify OK for both. | none |
+| RB2 | **PASSED** 2026-10-08 (maintainer agent) | 0.2.5-o and 0.2.5-p real releases: tag builds green, downloads verified (SHA256SUMS, installers, build-info `dirty:false`), signed k1, preflight "Pre-flight passed", published, live-CDN verify OK for both. | none |
 
 ## 2026-10-08: Release-build follow-ups (ladder 33) — attestation, SHA256SUMS signing, owner-only `v*` tag ruleset. Branch `feat/release-build-extras`
 
@@ -482,9 +482,9 @@ The scripts and the workflow change are pinned offline (`test/release-extras.tes
 
 | id | result | what was seen | open issue |
 |---|---|---|---|
-| RB3 | **PASSED** 2026-10-08 (Hermes) | `gh attestation verify` exit 0 on the app.zip and win-x64.zip of both 0.2.5-o and 0.2.5-p; SLSA provenance names the workflow, the commit, subject digest = file sha256. | none |
-| RB4 | **PASSED** 2026-10-08 (Hermes) | `release-verify` OK (8 files) locally and 7/7 fetched from the live CDN verified against the k1 key, for both 0.2.5-o and 0.2.5-p. | none |
-| RB5 | **PASSED** 2026-10-08 (Hermes, as owner's gh) | ruleset `v* release tags: owner only` active: creation/update/deletion over `refs/tags/v*`, admin bypass. | prove the refusal with a non-admin token |
+| RB3 | **PASSED** 2026-10-08 (maintainer agent) | `gh attestation verify` exit 0 on the app.zip and win-x64.zip of both 0.2.5-o and 0.2.5-p; SLSA provenance names the workflow, the commit, subject digest = file sha256. | none |
+| RB4 | **PASSED** 2026-10-08 (maintainer agent) | `release-verify` OK (8 files) locally and 7/7 fetched from the live CDN verified against the k1 key, for both 0.2.5-o and 0.2.5-p. | none |
+| RB5 | **PASSED** 2026-10-08 (maintainer agent, as owner's gh) | ruleset `v* release tags: owner only` active: creation/update/deletion over `refs/tags/v*`, admin bypass. | prove the refusal with a non-admin token |
 
 ## 2026-10-14: desktop signals (0.3.0 PR 4, spec check H9). Safety class: none
 

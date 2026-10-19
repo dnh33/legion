@@ -1,5 +1,5 @@
 /**
- * Constants of the update channel (plan: claude/plan-updater.md). Nothing here talks to the network; net.ts does, and only through
+ * Constants of the update channel (plan: docs/design/plan-updater.md). Nothing here talks to the network; net.ts does, and only through
  * `validateUrl`. The source is fixed in code: no setting, environment variable or manifest field can point it elsewhere.
  * Tests build their own `UpdateSource` (loopback, http) and pass it to the module's constructor; production code never does.
  */

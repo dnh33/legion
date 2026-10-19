@@ -45,7 +45,7 @@ Three runtime dependencies: `@anthropic-ai/claude-agent-sdk`, `@modelcontextprot
 adding a fourth.
 
 Work in flight is tracked in the maintainer's private notes. Plans are `claude/plan-*.md`. Checks that
-need the owner's PC are `claude/tracker-pc-checks.md`.
+need the owner's PC are `docs/design/tracker-pc-checks.md`.
 
 ## Rules
 
@@ -157,7 +157,7 @@ These fail quietly, which is worse than failing loudly:
   not stop or complain about it.
 - Your working copy disappears when the session ends. **Push your branch before you finish** (`claude/...`).
 - You cannot run Windows, a real Blender, a real wallet, Electron's native dialogs or the owner's accounts. Anything
-  you could not verify for that reason is **not done**: add it to `claude/tracker-pc-checks.md` and list it under
+  you could not verify for that reason is **not done**: add it to `docs/design/tracker-pc-checks.md` and list it under
   "Needs a real PC". Never mark such a feature verified in the docs or the changelog until its check is recorded as
   passed.
 - No long `sleep` chains: wait on a condition.

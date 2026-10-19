@@ -1,5 +1,5 @@
 /**
- * Legion — Projects contract (see claude/plan-projects.md). A project groups the work for one job: shared instructions, a folder,
+ * Legion — Projects contract (see docs/design/plan-projects.md). A project groups the work for one job: shared instructions, a folder,
  * member agents, and the tasks and rooms that name it. Owner-only to create or change.
  */
 export type ProjectStatus = 'active' | 'archived';

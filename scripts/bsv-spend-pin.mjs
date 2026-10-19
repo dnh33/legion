@@ -1,5 +1,5 @@
 // Prints the sha256 (CRLF normalised to LF) of the two pinned BSV files, for test/bsv-scan.ts SPEND_PINS. Reads two local files, does nothing else:
-// no network, no writes. An update of a pin needs the reviewer's sign-off in the PR (claude/plan-bsv-rung3.md section 5).
+// no network, no writes. An update of a pin needs the reviewer's sign-off in the PR (docs/design/plan-bsv-rung3.md section 5).
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

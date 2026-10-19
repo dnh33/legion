@@ -211,7 +211,7 @@ Tests first, per area. Fake servers are `node:http` on `127.0.0.1` with port 0, 
 5. `tool-loop.ts` + engine hook + `model-cap` + tests (C1 to C3, C12 to C17, C24).
 6. Routes, native key IPC, `mcp-tools` check + tests (C6, C20, C21).
 7. UI panel and picker; wording test (C22).
-8. CHANGELOG "Providers", `claude/tracker-pc-checks-providers.md`, gates, mutation pass, final report.
+8. CHANGELOG "Providers", `docs/design/tracker-pc-checks-providers.md`, gates, mutation pass, final report.
 
 ## 15. Not in this plan (Later)
 
@@ -226,14 +226,14 @@ Legion currently says Claude-only in public text. Replace after the owner's real
 - `README.md:71`: add after the first sentence: **"Provider API keys are typed once in Settings, confirmed in a native dialog, and stored in a separate file in your Legion data folder; Legion never reads keys from your environment or from other tools' credential files."**
 - `README.md:223` (Later): **"CLI agents such as Codex and OpenCode, and signing in with a ChatGPT subscription. Legion reaches other models through OpenAI-compatible HTTP endpoints only (chat completions or the Responses API)."**
 - `docs/ARCHITECTURE.md:5`: **"Legion is a local, personal multi-agent bot built around Claude. It runs on one machine for one user. Agents run on Claude through the Claude Agent SDK by default; an agent may instead run on an OpenAI-compatible endpoint through Legion's own tool loop (see docs/PROVIDERS.md, to be written from this plan)."** It targets Windows first and also runs on macOS and Linux.
-- `CLAUDE.md` line 3 and the "Decisions already made" sentence "Claude-only in v1 (Codex/ChatGPT listed under "Later")": **"Claude is the default and the full-featured path. Other providers are OpenAI-compatible HTTP endpoints only (v0.2.0, plan in claude/plan-providers.md); Codex and OpenCode as CLI agents are Later."**
+- `CLAUDE.md` line 3 and the "Decisions already made" sentence "Claude-only in v1 (Codex/ChatGPT listed under "Later")": **"Claude is the default and the full-featured path. Other providers are OpenAI-compatible HTTP endpoints only (v0.2.0, plan in docs/design/plan-providers.md); Codex and OpenCode as CLI agents are Later."**
 - `SECURITY.md`: add a short section: **"Provider keys and egress. Legion's own code sends a provider key only to the https (or loopback) origin the key was saved for, follows no redirects, and stores keys in a separate owner-only file. This is Legion's own network client; it does not stop a provider from logging what you send it. An agent on a provider has Legion's tools only and the same approval cards."**
 - Website brief (`legion-site`): replace any "Claude-only" with the README:19 sentence; keep "tested against fakes" until a check passes.
 - New `docs/PROVIDERS.md` (docs session): derive from sections 3 to 9 of this plan.
 
 ## 17. Owner-only real-PC checks
 
-Written to `claude/tracker-pc-checks-providers.md` in the intake row format (class `spends-money` or `account` where a key is typed; none for local servers; downloads for installing Ollama or LM Studio). Short list: PV-01 OpenAI key, one short task and one tool call; PV-02 OpenRouter key, a model with `/` in its id; PV-03 a local Ollama (or LM Studio) with a tool-capable model, keyless; PV-04 a custom endpoint (https) and the refusal of an `http://` remote host; PV-05 the native key dialog on Windows (cancel keeps the old key; confirm saves; the window never shows the key again); PV-06 key removed, endpoint changed (key deleted); PV-07 a provider agent asked to use `vm_exec` as a token client (card appears, nothing runs on deny); PV-08 token counts and "cost unknown" against the real response; PV-09 a Responses-only model (expected: a plain provider error); PV-10 turn cap and cancel on a slow real stream; PV-11 downgrade check on the installed older build. No check may be marked passed in any doc until its result is recorded in the plan.
+Written to `docs/design/tracker-pc-checks-providers.md` in the intake row format (class `spends-money` or `account` where a key is typed; none for local servers; downloads for installing Ollama or LM Studio). Short list: PV-01 OpenAI key, one short task and one tool call; PV-02 OpenRouter key, a model with `/` in its id; PV-03 a local Ollama (or LM Studio) with a tool-capable model, keyless; PV-04 a custom endpoint (https) and the refusal of an `http://` remote host; PV-05 the native key dialog on Windows (cancel keeps the old key; confirm saves; the window never shows the key again); PV-06 key removed, endpoint changed (key deleted); PV-07 a provider agent asked to use `vm_exec` as a token client (card appears, nothing runs on deny); PV-08 token counts and "cost unknown" against the real response; PV-09 a Responses-only model (expected: a plain provider error); PV-10 turn cap and cancel on a slow real stream; PV-11 downgrade check on the installed older build. No check may be marked passed in any doc until its result is recorded in the plan.
 
 ## 18. Build status and deviations from this plan (written after the build)
 

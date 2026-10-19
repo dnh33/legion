@@ -1,4 +1,4 @@
-/** Projects module: owner-only routes. See claude/plan-projects.md. Every route is admin-only by the gate's default deny; folder and member changes also need the native secret. */
+/** Projects module: owner-only routes. See docs/design/plan-projects.md. Every route is admin-only by the gate's default deny; folder and member changes also need the native secret. */
 import type { Project } from '../../shared/projects.js';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';

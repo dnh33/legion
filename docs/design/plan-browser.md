@@ -1,6 +1,6 @@
 # Plan: the built-in browser for Legion 0.2.0 (headless Edge or Chrome, Legion's own driver)
 
-Status: built. Branch `claude/browser-engines`. Claims are scoped ("Legion's own code ..."); nothing here is called safe or verified. Anything I could not check from a cloud session is marked **TODO OWNER PC** and has a numbered check in `claude/tracker-pc-checks-browser.md`.
+Status: built. Branch `claude/browser-engines`. Claims are scoped ("Legion's own code ..."); nothing here is called safe or verified. Anything I could not check from a cloud session is marked **TODO OWNER PC** and has a numbered check in `docs/design/tracker-pc-checks-browser.md`.
 
 ## 1. What it is
 
@@ -53,7 +53,7 @@ C1-C9, C12-C15, C17 (URL guard, DNS, wallet port, redirects, domain list, taint,
 
 ## 6. For the owner: using it on Windows
 
-Nothing to install if Edge is there (it is on every Windows 10/11): Settings, Browser: switch it on, press "Open test page" (it should say the browser started, the page loaded, JavaScript ran and the guard refused the forbidden request). If it says "No Edge or Chrome found", install one or enter its path (a confirmation dialog appears; Cancel is the default). Then run BR15 to BR22 once by hand (`claude/tracker-pc-checks-browser.md`) before trusting it on real work.
+Nothing to install if Edge is there (it is on every Windows 10/11): Settings, Browser: switch it on, press "Open test page" (it should say the browser started, the page loaded, JavaScript ran and the guard refused the forbidden request). If it says "No Edge or Chrome found", install one or enter its path (a confirmation dialog appears; Cancel is the default). Then run BR15 to BR22 once by hand (`docs/design/tracker-pc-checks-browser.md`) before trusting it on real work.
 
 ## 7. Website-ready wording
 
@@ -101,4 +101,4 @@ Decision (a) Legion's own CDP driver, versus (b) agent-browser as a black-box CL
 
 ## 11. Follow-ups for others
 
-(1) docs/BROWSER.md and the README sentence from section 7; (2) register an updater busy probe if a browser run should block an update; (3) `claude/real-pc-test-plan.md`: add BR15-BR22; (4) the engine interface is ready if 0.2.1 adds Lightpanda or agent-browser.
+(1) docs/BROWSER.md and the README sentence from section 7; (2) register an updater busy probe if a browser run should block an update; (3) `docs/design/real-pc-test-plan.md`: add BR15-BR22; (4) the engine interface is ready if 0.2.1 adds Lightpanda or agent-browser.

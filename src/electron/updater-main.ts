@@ -1,7 +1,7 @@
 /**
  * Electron side of the updater. It never downloads or verifies anything (the core does); it asks the core whether an approved update is
  * ready and idle, takes the commit answer, copies the apply helper out of the folders it will swap, starts it detached, and quits.
- * The only child process it starts is that helper, run by the installed Electron binary in node mode. Plan: claude/plan-updater.md.
+ * The only child process it starts is that helper, run by the installed Electron binary in node mode. Plan: docs/design/plan-updater.md.
  */
 import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
 import { spawn } from 'node:child_process';

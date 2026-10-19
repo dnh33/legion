@@ -1,7 +1,7 @@
 # Spec: "The Legion is taking over Claude" (takeover art, splash, title-bar egg, README, the Ŧ mark)
 
 Status: built 2026-10-06. **Owner correction, 2026-10-06: the takeover was meant for the Legion Mod for Claude Code; the desktop splash must not change.** 0.2.5-e restored the 0.2.5-c splash. The desktop keeps only the title-bar easter egg, the `Ŧ LEGION` line in MCP results and the README GIF; the splash parts of this spec apply to the mod. Deviations from the first draft are in section 11. Reference prototype, approved by the owner:
-[docs/art/takeover-prototype.html](../docs/art/takeover-prototype.html).
+[docs/art/takeover-prototype.html](../art/takeover-prototype.html).
 
 ## 1. Goal
 
@@ -110,7 +110,7 @@ Risks the owner chose to accept, recorded so nobody re-asks:
   - The read-only listings have no tag.
   - Negative: put the tag first.
 - Gate: `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`, with exact counts.
-- Real-PC checks, appended to `claude/tracker-pc-checks.md`:
+- Real-PC checks, appended to `docs/design/tracker-pc-checks.md`:
   - **TK-1:** the splash plays on a real launch and the window opens no later than today.
   - **TK-2:** `Ŧ` is visible and single-width in Windows Terminal (CaskaydiaCove NF) and in the Claude Code desktop app.
   - **TK-3:** the tag line is visible after a `legion_run` from Claude Code.

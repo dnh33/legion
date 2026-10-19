@@ -26,7 +26,7 @@ copy:
   solve different problems. Keys stay in the keyring; a secret that leaks into a log is redacted at the writer.
 - **Settings → Legion → Logs**: the folder path, one line saying what is recorded, *Open folder*, *Copy errors.log*,
   and **Clear logs**. A log a user cannot delete is a liability.
-- Four files in `<dataDir>/logs/`, split by severity and component (as Hermes Agent does):
+- Four files in `<dataDir>/logs/`, split by severity and component (as other agent harnesses do):
 
 | File | Holds |
 |---|---|
@@ -80,7 +80,7 @@ serialised.
 - Each file is size-capped: rotate at 5 MB, keep 3 old files (`legion.log.1` ... `.3`), so the folder stays under
   about 80 MB. The raw stream file is capped the same way at core start.
 - Rotation is done by the single writer (rename and reopen); no lock files.
-- **Windows trap** (Hermes Agent: rotating handlers hold lock files until closed, so deleting the folder fails with
+- **Windows trap** (seen in another agent harness: rotating handlers hold lock files until closed, so deleting the folder fails with
   WinError 32): *Clear logs* and any folder delete first ask the writer to close every handle, then delete, then
   reopen. A test reproduces the failure without the close.
 

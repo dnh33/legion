@@ -36,7 +36,7 @@ Status: **approved by the owner 2026-10-06** (split A2a / A2b). Further decision
 | Fact | skills.sh skill page `https://skills.sh/<owner>/<repo>/<skill>`; the CLI accepts owner/repo, GitHub/GitLab URLs, a direct SKILL.md or archive URL, and well-known discovery; repo discovery scans root, `skills/`, `.agents/skills/` up to 3 levels | https://github.com/vercel-labs/skills README |
 | Fact | Well-known index: `/.well-known/agent-skills/index.json` then `/.well-known/skills/index.json`, entries {name, type, description, url, digest} | vercel-labs/skills src/providers/wellknown.ts; schema https://schemas.agentskills.io/discovery/0.2.0/schema.json |
 | Fact | GitHub, no token: ref → SHA `GET api.github.com/repos/{o}/{r}/commits/{ref}` (Accept: application/vnd.github.sha); tree `GET /git/trees/{sha}?recursive=1` (check `truncated`); bytes `raw.githubusercontent.com/{o}/{r}/{sha}/{path}`; 60 API requests/hour per IP | tested live 2026-10-06 |
-| Fact | Hermes has no fetchable index of its own documented; it consumes skills.sh, GitHub and the well-known format | hermes-agent docs, user-guide/features/skills |
+| Fact | Another agent harness documents no fetchable index of its own; it consumes skills.sh, GitHub and the well-known format | that harness's skills documentation |
 | Unknown | Skill tool input field names; whether a Skill call reaches canUseTool in a Legion session; whether strictMcpConfig blocks plugin skills; plugin name without plugin.json | one cheap probe in the fake harness first (a scratch plugin with 2 skills, one manual-only, a logging canUseTool and stream tool_use) |
 | Unknown | skills.sh `/api/search` is undocumented | used only for optional search; install never depends on it |
 
@@ -166,7 +166,7 @@ Verdict "do not ship until H1-H4 are fixed". All findings are in the fix round: 
   - "Every agent run gets an explicit list of the skills you turned on; Claude Code's own skills are off until you choose them. The list hides other skills from the agent, but it is not a sandbox: an agent with file access can still read skill files."
   - "Loading a skill from outside sources (imported, or from a Claude Code plugin) marks the run as having read outside content."
 - CHANGELOG lines for the release that ships A2a (public-copy style), incl. the behaviour change: Claude Code skills now start off after the update.
-- Real-PC checks AR1-AR7 in claude/tracker-pc-checks.md (add AR7: the shell block inside the real Legion app).
+- Real-PC checks AR1-AR7 in docs/design/tracker-pc-checks.md (add AR7: the shell block inside the real Legion app).
 
 ## Threat model (owner: "secure, with the end user's safety in mind"; 2026-10-06)
 
@@ -216,7 +216,7 @@ Wording stays scoped ("Legion's own code refuses…"), never "cannot be bypassed
 - Promote creates a drill that is not approved and is off.
 - Your drill: an edit drops the approval.
 
-## Real-PC checks (to `claude/tracker-pc-checks.md`)
+## Real-PC checks (to `docs/design/tracker-pc-checks.md`)
 
 - Install a real public skill from GitHub and from skills.sh. Safety class: downloads (owner's go-ahead per run).
 - A Claude agent picks the skill up by its description. `/name` runs it. Manual-only hides it from auto-use.

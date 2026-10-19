@@ -1,6 +1,6 @@
 # Plan: Release B, the CI panel
 
-Branch `feat/ci-panel` off main `e850201` (worktree `D:\bots\legion-ci`). Supersedes steps 5-8 of `plan-house-skills-ci.md`.
+Branch `feat/ci-panel` off main `e850201` (worktree `C:\legion-check\legion-ci`). Supersedes steps 5-8 of `plan-house-skills-ci.md`.
 Ships only after the connectors session merges the real GitHub client; built now against a fake (gate the ship, not the build).
 
 ## What the owner gets
@@ -90,7 +90,7 @@ light and dark. Focus rings via `:focus-visible` only; `.sr-only` live region fo
 - Logs unavailable is shown as a state, not an error; log text is escaped and secret-masked.
 - Fake GitHub in the harness: runs, jobs, logs, logs refused, 403, 404, rate limit.
 
-## Real-PC checks (to `claude/tracker-pc-checks.md`, ids CI1...)
+## Real-PC checks (to `docs/design/tracker-pc-checks.md`, ids CI1...)
 Live runs for dnh33/legion with the real connector, read-only; Re-run failed on a deliberately red PR with the write
 app; floating panel across two monitors and after a restart (Windows). Safety class: none.
 

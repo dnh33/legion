@@ -307,7 +307,7 @@ Fullscreen, docked, about 100 columns:
 
 ## 10. Real-PC checks to record when built
 
-These go to `claude/tracker-pc-checks.md`.
+These go to `docs/design/tracker-pc-checks.md`.
 
 S1–S11 on the owner's PC (Windows Terminal), then:
 

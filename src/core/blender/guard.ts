@@ -52,7 +52,7 @@ const NO_LOCAL = 'Blender was not found on your computer';
 const noVm = (f: RouteFacts): string => `The cloud VM is not ready: ${(f.vmNote ?? 'it is not set up').replace(/[.\s]+$/, '')}`;
 
 /**
- * Where a script (or a read) goes: pure, so every combination is tested (claude/plan-blender-local-first.md section 2.3). `setting` is the saved mode; the legacy `off`
+ * Where a script (or a read) goes: pure, so every combination is tested (docs/design/plan-blender-local-first.md section 2.3). `setting` is the saved mode; the legacy `off`
  * is only an old name for `live`. A stricter place never silently becomes a looser one: vm is never replaced by local, local is never replaced by live, and a request
  * the Settings forbid is an error, not a fallback. Only `auto` with no request may move, and only from this computer to the VM (the more isolated place), and it says so.
  * `error` is plain text for the agent.

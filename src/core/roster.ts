@@ -23,7 +23,7 @@ const prompt = (role: string): string => `${role}\n\n${BACKBONE}`;
 export const withLegacyCommsLines = (seed: string): string => `${seed}\n${COMMS_LINES}`;
 
 /**
- * Soul Codex v1 (claude/plan-fascia.md 6.2; maintainer 2026-10-07): the souls of the three frozen defaults, seeded by
+ * Soul Codex v1 (docs/design/plan-fascia.md 6.2; maintainer 2026-10-07): the souls of the three frozen defaults, seeded by
  * store.ts. Each keeps its bot's core and adds the shared shape: done condition, hand-offs, hard limits, output contract
  * and one worked example. Tool names stay out (they are capability facts, generated per run); delegation mechanics stay
  * in the lead doctrine (lead.ts) and the comms preamble. Pinned by test/soul-codex.test.ts and the persona snapshot.

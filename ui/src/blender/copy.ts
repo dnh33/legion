@@ -13,7 +13,7 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: BlenderMode; title: string; tex
   { mode: 'live', title: 'My open Blender', text: 'Runs in your open Blender, with your files around it, and each script is shown as a LIVE card. Legion’s check is a filter, not a sandbox: read every line. The add-on’s socket has no password (see the notice below).' },
 ];
 
-/** The cloud VM end-to-end run has not been recorded in claude/tracker-pc-checks.md, so that one note stays. */
+/** The cloud VM end-to-end run has not been recorded in docs/design/tracker-pc-checks.md, so that one note stays. */
 export const NOT_TRIED_VM = 'Cloud VM: not yet tried on a real VM (Blender in the VM, rendering, file return).';
 /**
  * Local mode is exercised end to end by test/blender-local.test.ts (the exact Blender argument list, the script

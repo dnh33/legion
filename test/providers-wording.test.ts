@@ -27,7 +27,7 @@ test('C22 the user-facing provider text carries no verification or safety overcl
 });
 
 test('C22 the plan and the real-key checks list say nothing is verified yet', () => {
-  const checks = join(repoRoot, 'claude/tracker-pc-checks-providers.md');
+  const checks = join(repoRoot, 'docs/design/tracker-pc-checks-providers.md');
   if (!existsSync(checks)) return;
   const t = readFileSync(checks, 'utf8');
   assert.match(t, /not (?:yet )?(?:tried|verified)|no check .* passed|todo/i);

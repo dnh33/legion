@@ -2,9 +2,9 @@
 
 One executable plan for everything that only a real Windows PC, a real Blender, a testnet-wallet VM, the owner's own funds, real Electron native dialogs or real accounts can verify. A computer-use agent or the owner walks through it later, so nothing falls between the cracks.
 
-- Machine-readable twin: [`scripts/harness/pc-checks.json`](../scripts/harness/pc-checks.json) (same ids and fields; it is the source of truth for the check tables below, which are generated with `node scripts/harness/pc-report.mjs --emit-md`).
+- Machine-readable twin: [`scripts/harness/pc-checks.json`](../../scripts/harness/pc-checks.json) (same ids and fields; it is the source of truth for the check tables below, which are generated with `node scripts/harness/pc-report.mjs --emit-md`).
 - Summary of a run: `node scripts/harness/pc-report.mjs <results.json> --by-safety` prints PASS / FAIL / NOT-RUN by area and exits non-zero on any FAIL.
-- Intake list: [`claude/tracker-pc-checks.md`](tracker-pc-checks.md). Agents append new "needs a real PC" items there (rule in `CLAUDE.md`); they are merged into this plan, with their sources, when it is next refreshed.
+- Intake list: [`docs/design/tracker-pc-checks.md`](tracker-pc-checks.md). Agents append new "needs a real PC" items there (rule in `CLAUDE.md`); they are merged into this plan, with their sources, when it is next refreshed.
 - Status of this document: **nothing here has been run.** It was built on 2026-10-02 from reports and code in a Linux cloud session. Every result field says `not-run`. Anything marked **INFERRED** traces to a concrete behaviour in the code or docs but no agent had listed it; the owner may drop it.
 
 ## 1. Rules for any run
@@ -87,7 +87,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-01: Double-click setup.cmd: window stays open on success and on a forced failure
 
-- **Source:** claude/tracker-pc-checks.md P1; maintainer review notes (release-packaging-review) section 5 item 1
+- **Source:** docs/design/tracker-pc-checks.md P1; maintainer review notes (release-packaging-review) section 5 item 1
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Windows 10 or 11 with Windows PowerShell 5.1 (powershell.exe, not pwsh). Unpacked source folder. Node installed for the success run. A second run with Node hidden from PATH (open a cmd window, run `set PATH=C:\Windows\System32` first) or with `npm ci` made to fail (disconnect the network) for the failure run.
@@ -101,7 +101,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-02: Double-click setup-yes.cmd: closes on success, stays open with a message on failure
 
-- **Source:** claude/tracker-pc-checks.md P1; maintainer review notes (release-packaging-review) F4
+- **Source:** docs/design/tracker-pc-checks.md P1; maintainer review notes (release-packaging-review) F4
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** As INST-01. setup-yes.cmd is the unattended entry point (-Yes).
@@ -114,7 +114,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-03: Redirected input: setup never waits for a keypress
 
-- **Source:** claude/tracker-pc-checks.md P2; maintainer review notes (release-packaging-review) section 5 item 2
+- **Source:** docs/design/tracker-pc-checks.md P2; maintainer review notes (release-packaging-review) section 5 item 2
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** cmd window in the source folder. A way to run with no console (Task Scheduler one-shot task) is optional.
@@ -129,7 +129,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-04: Process matcher stops only Legion processes
 
-- **Source:** claude/tracker-pc-checks.md P3; maintainer review notes (release-packaging-review) F1, F9, section 5 item 3
+- **Source:** docs/design/tracker-pc-checks.md P3; maintainer review notes (release-packaging-review) F1, F9, section 5 item 3
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A build installed and running (INST-10). Four extra programs started first: (a) Legion running from the install folder, (b) a Legion source checkout on another drive with its own electron.exe running, (c) an unrelated Electron app whose folder has src\electron\main.ts and package.json with another name, (d) VS Code and a plain `node` dev server open. Use harmless sample apps only.
@@ -143,7 +143,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-05: Install to a path with spaces and non-ASCII characters
 
-- **Source:** claude/tracker-pc-checks.md P4; maintainer review notes (release-packaging-review) section 5 item 4
+- **Source:** docs/design/tracker-pc-checks.md P4; maintainer review notes (release-packaging-review) section 5 item 4
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / command-only
 - **Preconditions:** Windows PowerShell 5.1. A folder such as C:\Users\Zoë Ørsted\Legion Test (create it, or use a user account with such a name).
@@ -157,7 +157,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-06: Dangerous -InstallDir values are refused (drive root, foreign folder, user profile)
 
-- **Source:** claude/tracker-pc-checks.md P5; maintainer review notes (release-packaging-review) F2, section 5 item 5
+- **Source:** docs/design/tracker-pc-checks.md P5; maintainer review notes (release-packaging-review) F2, section 5 item 5
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** A throwaway foreign folder with a file `keep.txt` in it. Use -DryRun first for every target.
@@ -170,7 +170,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-07: Uninstall: shortcuts, install folder and data folder behave as documented
 
-- **Source:** claude/tracker-pc-checks.md P6; maintainer review notes (release-packaging-review) section 5 item 6; README.md Install (uninstall paragraph)
+- **Source:** docs/design/tracker-pc-checks.md P6; maintainer review notes (release-packaging-review) section 5 item 6; README.md Install (uninstall paragraph)
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** A working install. Desktop redirected into OneDrive on the test account if possible. A second Legion shortcut pointing at another install folder.
@@ -184,7 +184,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-08: CRLF line endings survive ZIP download and git clone
 
-- **Source:** claude/tracker-pc-checks.md P7; maintainer review notes (release-packaging-review) section 5 item 7
+- **Source:** docs/design/tracker-pc-checks.md P7; maintainer review notes (release-packaging-review) section 5 item 7
 - **Gate / depends:** G1
 - **Safety / automation:** none / command-only
 - **Preconditions:** Git for Windows with `core.autocrlf=input`. The repo (or a ZIP of it) once it is reachable for the owner.
@@ -198,7 +198,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-09: SmartScreen and antivirus behaviour on the unsigned .cmd files
 
-- **Source:** claude/tracker-pc-checks.md P8; maintainer review notes (release-packaging-review) section 5 item 8; README.md status block (unsigned, expect prompts)
+- **Source:** docs/design/tracker-pc-checks.md P8; maintainer review notes (release-packaging-review) section 5 item 8; README.md status block (unsigned, expect prompts)
 - **Gate / depends:** G1
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** Default Windows Security and SmartScreen settings. File arrives via browser download (Mark of the Web) and also via git clone.
@@ -211,7 +211,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-10: Fresh npm ci and build on Windows, launch from the shortcut with the real Electron binary
 
-- **Source:** claude/tracker-pc-checks.md P9; maintainer review notes (release-packaging-review) section 5 item 9
+- **Source:** docs/design/tracker-pc-checks.md P9; maintainer review notes (release-packaging-review) section 5 item 9
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** No earlier Legion install, or a clean install folder. Network on (npm and the Electron download). Owner gives the go for downloads.
@@ -225,7 +225,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-11: Setup run from inside a Legion agent does not kill its own ancestor
 
-- **Source:** claude/tracker-pc-checks.md P10; maintainer review notes (release-packaging-review) F6
+- **Source:** docs/design/tracker-pc-checks.md P10; maintainer review notes (release-packaging-review) F6
 - **Gate / depends:** G1 / after PC-INST-10
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** Installed Legion running. An agent with approval mode `ask` or `full` that can run shell commands. Owner present to approve the card.
@@ -291,7 +291,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-INST-16: Desktop shortcut is created when Desktop is redirected into OneDrive
 
-- **Source:** claude/tracker-pc-checks.md P6 (OneDrive-redirected Desktop); task brief: OneDrive-redirected folders. **INFERRED:** The install side of the OneDrive case is inferred from P6 (which checks removal).
+- **Source:** docs/design/tracker-pc-checks.md P6 (OneDrive-redirected Desktop); task brief: OneDrive-redirected folders. **INFERRED:** The install side of the OneDrive case is inferred from P6 (which checks removal).
 - **Gate / depends:** G1
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Windows account with Known Folder Move on, so [Environment]::GetFolderPath("Desktop") is under OneDrive.
@@ -418,7 +418,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-APP-09: Upgrade from the previous build: Builder VM size reset to default once
 
-- **Source:** claude/tracker-pc-checks.md U1; maintainer review notes (rooms-probe-upgrade-review) section U1; CHANGELOG.md (Upgrade: Builder's VM size is reset)
+- **Source:** docs/design/tracker-pc-checks.md U1; maintainer review notes (rooms-probe-upgrade-review) section U1; CHANGELOG.md (Upgrade: Builder's VM size is reset)
 - **Gate / depends:** G2 / after PC-INST-10
 - **Safety / automation:** none / command-only
 - **Preconditions:** A copy of a state.json from the v6-5 build with Builder on `large` and no `migrations` flag (back up the real %USERPROFILE%\.legion first; test in a copy via LEGION_HOME).
@@ -500,7 +500,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-CHAT-01: Bot-created room with no budget: card says no spend limit, running cost visible
 
-- **Source:** claude/tracker-pc-checks.md R1; maintainer review notes (rooms-probe-upgrade-review) R1 checks; maintainer notes (legion-release-tracker) decision 4
+- **Source:** docs/design/tracker-pc-checks.md R1; maintainer review notes (rooms-probe-upgrade-review) R1 checks; maintainer notes (legion-release-tracker) decision 4
 - **Gate / depends:** G3 / after PC-APP-10
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** APP-10 passed. Two agents. Owner at the keyboard. Use a small model.
@@ -598,7 +598,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-01: inheritMcp off: no claude.ai connectors or user MCP servers connect, even with a settings env block
 
-- **Source:** claude/tracker-pc-checks.md M1; maintainer review notes (mcp-isolation-review) F1
+- **Source:** docs/design/tracker-pc-checks.md M1; maintainer review notes (mcp-isolation-review) F1
 - **Gate / depends:** G3 / after PC-APP-10
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** Real claude.ai connectors enabled on the owner's account. `claude.inheritMcp` off (default). A throwaway project folder whose .claude/settings.json has an `env` block setting ENABLE_CLAUDEAI_MCP_SERVERS to "true". Fix under test: settings.disableClaudeAiConnectors passed by Legion.
@@ -612,7 +612,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-02: inheritMcp on with a registered Legion server: self-server switched off, no loop
 
-- **Source:** claude/tracker-pc-checks.md M2; maintainer review notes (mcp-isolation-review) F6
+- **Source:** docs/design/tracker-pc-checks.md M2; maintainer review notes (mcp-isolation-review) F6
 - **Gate / depends:** G3 / after PC-MCP-05
 - **Safety / automation:** account / owner-must-be-present
 - **Preconditions:** `claude mcp add legion http://127.0.0.1:4747/mcp` (or stdio) configured in Claude Code. Settings, Claude: tick the MCP inheritance option.
@@ -637,7 +637,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-MCP-04: A broken plugin MCP server in the owner's Claude setup is shown as theirs, not Legion's
 
-- **Source:** claude/tracker-pc-checks.md M3
+- **Source:** docs/design/tracker-pc-checks.md M3
 - **Gate / depends:** G3 / after PC-MCP-02
 - **Safety / automation:** account / owner-only
 - **Preconditions:** The owner's Claude setup has the failing server `plugin:data:definite` (ENDPOINT_NOT_FOUND). inheritMcp on.
@@ -720,7 +720,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-VM-01: Core start makes zero boat.dev key-probe calls
 
-- **Source:** claude/tracker-pc-checks.md K1; maintainer review notes (rooms-probe-upgrade-review) K1; maintainer notes (legion-release-tracker) decision 3
+- **Source:** docs/design/tracker-pc-checks.md K1; maintainer review notes (rooms-probe-upgrade-review) K1; maintainer notes (legion-release-tracker) decision 3
 - **Gate / depends:** G4 / after PC-APP-10
 - **Safety / automation:** account / command-only
 - **Preconditions:** boat.dev key saved in Settings. To count calls without trusting Legion: set Settings, boat.dev, "API base URL" to a local logging listener (any small Node http server on 127.0.0.1 that logs every request path) and restore it afterwards. If the owner has stored VMs, expect one lookup per stored VM at start (review K1-F1).
@@ -733,7 +733,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-VM-02: The key probe runs once: on first Settings, boat.dev open or first VM use; Check again repeats it
 
-- **Source:** claude/tracker-pc-checks.md K1; maintainer review notes (rooms-probe-upgrade-review) K1 (race, re-open, reset on key change)
+- **Source:** docs/design/tracker-pc-checks.md K1; maintainer review notes (rooms-probe-upgrade-review) K1 (race, re-open, reset on key change)
 - **Gate / depends:** G4 / after PC-VM-01
 - **Safety / automation:** account / command-only
 - **Preconditions:** Same logging listener as VM-01 (probe results will show errors; that is fine, the count is what matters).
@@ -787,7 +787,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-VM-06: Builder at size `default` starts on a real account after the upgrade
 
-- **Source:** claude/tracker-pc-checks.md U1; CHANGELOG.md (Builder reset)
+- **Source:** docs/design/tracker-pc-checks.md U1; CHANGELOG.md (Builder reset)
 - **Gate / depends:** G4 / after PC-APP-09, PC-VM-02
 - **Safety / automation:** spends-money / owner-must-be-present
 - **Preconditions:** APP-09 passed. A free trial account if possible (it refuses `large`).
@@ -839,7 +839,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-01: Local mode: Blender is detected and Automatic says "Next script runs: on this computer"
 
-- **Source:** claude/tracker-pc-checks.md B1; claude/plan-blender-local-first.md 6.2 item 1; maintainer review notes (blender-merged-review) section 6 item 1
+- **Source:** docs/design/tracker-pc-checks.md B1; docs/design/plan-blender-local-first.md 6.2 item 1; maintainer review notes (blender-merged-review) section 6 item 1
 - **Gate / depends:** G5 / after PC-APP-10
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** A real Blender (3.0 or newer) installed, bridge enabled in Settings, Blender. Branch with local mode merged (merge/blender).
@@ -865,7 +865,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-03: Cube plus GLB, FBX and PNG preview through the real runner; write guard does not break the exporters
 
-- **Source:** claude/tracker-pc-checks.md B2; claude/plan-blender-local-first.md 6.2 item 2; maintainer review notes (blender-merged-review) section 6 item 1
+- **Source:** docs/design/tracker-pc-checks.md B2; docs/design/plan-blender-local-first.md 6.2 item 2; maintainer review notes (blender-merged-review) section 6 item 1
 - **Gate / depends:** G5 / after PC-BLND-01
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** BLND-01 passed. Workspace folder chosen.
@@ -879,7 +879,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-04: A write outside the task folder is blocked; an infinite loop is killed at 120 s with no blender.exe left
 
-- **Source:** claude/tracker-pc-checks.md B3; claude/plan-blender-local-first.md 6.2 item 3; maintainer review notes (blender-merged-review) section 6 item 2
+- **Source:** docs/design/tracker-pc-checks.md B3; docs/design/plan-blender-local-first.md 6.2 item 3; maintainer review notes (blender-merged-review) section 6 item 2
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A hand-written script file calling the runner directly (bypassing the static check), kept under the scratch folder; a second one that loops forever. Defensive test of Legion's own controls only.
@@ -893,7 +893,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-05: The script's environment has no Legion or API variables
 
-- **Source:** claude/tracker-pc-checks.md B4; claude/plan-blender-local-first.md 6.2 item 4
+- **Source:** docs/design/tracker-pc-checks.md B4; docs/design/plan-blender-local-first.md 6.2 item 4
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / command-only
 - **Preconditions:** As BLND-04. Set a dummy variable `LEGION_TEST_MARK=1` and a fake `ANTHROPIC_API_KEY=not-a-key` in the shell that starts Legion.
@@ -905,7 +905,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-06: A local run opens no socket on 9876 even with the community add-on auto-start on
 
-- **Source:** claude/tracker-pc-checks.md B5; claude/plan-blender-local-first.md 6.2 item 5; maintainer review notes (blender-merged-review) section 6 item 4 (--factory-startup keeps add-ons out)
+- **Source:** docs/design/tracker-pc-checks.md B5; docs/design/plan-blender-local-first.md 6.2 item 5; maintainer review notes (blender-merged-review) section 6 item 4 (--factory-startup keeps add-ons out)
 - **Gate / depends:** G6 / after PC-BLND-03, PC-BLND-12
 - **Safety / automation:** downloads / command-only
 - **Preconditions:** The community add-on installed with `blendermcp_auto_start_server` on (see BLND-12 for the install). A long-running script (sleep 30 s) via the runner.
@@ -918,7 +918,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-07: Path cases: user name with a space, long task path, OneDrive-redirected Documents, 8.3 names, junctions
 
-- **Source:** claude/tracker-pc-checks.md B6; claude/plan-blender-local-first.md 6.2 item 6; maintainer review notes (blender-merged-review) section 6 item 3
+- **Source:** docs/design/tracker-pc-checks.md B6; docs/design/plan-blender-local-first.md 6.2 item 6; maintainer review notes (blender-merged-review) section 6 item 3
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A test account or folders: C:\Users\Zoë Ørsted style name; a workspace under OneDrive\Documents; a task id producing a path near 200 characters; a junction made with `mklink /J` inside a throwaway task folder.
@@ -932,7 +932,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-08: Mode switch: VM and Live give the documented errors; legacy "sandbox":"off" loads as live; upgrade notice
 
-- **Source:** claude/tracker-pc-checks.md B7; claude/plan-blender-local-first.md 6.2 item 7; maintainer review notes (blender-merged-review) (upgrade notice section)
+- **Source:** docs/design/tracker-pc-checks.md B7; docs/design/plan-blender-local-first.md 6.2 item 7; maintainer review notes (blender-merged-review) (upgrade notice section)
 - **Gate / depends:** G5 / after PC-BLND-01
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Copy of an old config.json containing `"blender": {"enabled": true, "sandbox": "off"}` with no `mode` key (use a LEGION_HOME copy).
@@ -946,7 +946,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-09: Antivirus or SmartScreen prompts on the first start of the local runner
 
-- **Source:** claude/tracker-pc-checks.md B8; claude/plan-blender-local-first.md 6.2 item 8; maintainer review notes (blender-merged-review) section 6 item 8
+- **Source:** docs/design/tracker-pc-checks.md B8; docs/design/plan-blender-local-first.md 6.2 item 8; maintainer review notes (blender-merged-review) section 6 item 8
 - **Gate / depends:** G5 / after PC-BLND-03
 - **Safety / automation:** none / owner-must-be-present
 - **Preconditions:** A first local run on a PC where blender.exe has not been started by Legion before.
@@ -985,7 +985,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-12: Community add-on: reproduce the pinned sha256 and run Set up once
 
-- **Source:** claude/tracker-pc-checks.md B9; claude/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (community backend, Windows); maintainer review notes (blender-merged-review) section 6 item 7
+- **Source:** docs/design/tracker-pc-checks.md B9; docs/design/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (community backend, Windows); maintainer review notes (blender-merged-review) section 6 item 7
 - **Gate / depends:** G6 / after PC-BLND-01
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** TODO OWNER PC. Owner present and says go for the download. PowerShell 5.1.
@@ -1000,7 +1000,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-13: Official extension install on a real Blender 5.1+ and Test connection
 
-- **Source:** claude/tracker-pc-checks.md B10; claude/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (official backend); maintainer review notes (blender-merged-review) M5, section 6 item 6
+- **Source:** docs/design/tracker-pc-checks.md B10; docs/design/plan-blender-local-first.md 6.3; docs/BLENDER.md Not verified yet (official backend); maintainer review notes (blender-merged-review) M5, section 6 item 6
 - **Gate / depends:** G6 / after PC-BLND-01
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** TODO OWNER PC. Blender 5.1 or newer, `uv` installed, network on, owner says go.
@@ -1053,7 +1053,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-17: Managed Blender: "Get Blender for Legion" pinned download, hash check, detection prefers it
 
-- **Source:** claude/plan-blender-local-first.md section 11 (B4). **INFERRED:** Planned feature, not merged on this base. Run only if the build under test has the button; otherwise record "not applicable on this build".
+- **Source:** docs/design/plan-blender-local-first.md section 11 (B4). **INFERRED:** Planned feature, not merged on this base. Run only if the build under test has the button; otherwise record "not applicable on this build".
 - **Gate / depends:** G6 / after PC-BLND-01
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Owner says go for a download of a few hundred MB. A build with the button. Disk space of 2 GB.
@@ -1068,7 +1068,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-18: First-use chooser on the first Blender card: This computer / Cloud VM / Decide each time
 
-- **Source:** claude/plan-blender-local-first.md section 12 (B5). **INFERRED:** Planned feature, not merged on this base; run only if present.
+- **Source:** docs/design/plan-blender-local-first.md section 12 (B5). **INFERRED:** Planned feature, not merged on this base; run only if present.
 - **Gate / depends:** G5 / after PC-BLND-01
 - **Safety / automation:** none / computer-use-ok
 - **Preconditions:** Blender enabled, no mode ever saved (fresh config).
@@ -1081,7 +1081,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-19: VM: Set up downloads and starts headless Blender for Linux in the boat.dev VM
 
-- **Source:** docs/BLENDER.md Sandbox on a real boat.dev VM item 1; docs/TESTING-BLENDER.md section 4; claude/tracker-pc-checks.md B11
+- **Source:** docs/BLENDER.md Sandbox on a real boat.dev VM item 1; docs/TESTING-BLENDER.md section 4; docs/design/tracker-pc-checks.md B11
 - **Gate / depends:** G7 / after PC-VM-05
 - **Safety / automation:** spends-money / owner-must-be-present
 - **Preconditions:** boat.dev key, owner go for VM spend and the download inside the VM; Sculptor VM.
@@ -1093,7 +1093,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BLND-20: VM: cube plus GLB comes back to blender-exports with the binary intact (also the exports.ts regression)
 
-- **Source:** docs/BLENDER.md Sandbox item 2; claude/tracker-pc-checks.md B11
+- **Source:** docs/BLENDER.md Sandbox item 2; docs/design/tracker-pc-checks.md B11
 - **Gate / depends:** G7 / after PC-BLND-19
 - **Safety / automation:** spends-money / owner-must-be-present
 - **Preconditions:** BLND-19 passed.
@@ -1144,7 +1144,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-00: V0: build the isolated testnet VM and prove the host wallet is not reachable from it
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V0; maintainer notes (legion-release-tracker) BSV scope change (Windows Sandbox not enabled)
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V0; maintainer notes (legion-release-tracker) BSV scope change (Windows Sandbox not enabled)
 - **Gate / depends:** G8 / after PC-INST-10
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** Owner at the keyboard. Windows Sandbox or a VM. Enabling Windows Sandbox needs an administrator PowerShell and a restart: `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`. BSV Desktop installed, set to TESTNET, wallet created and testnet coins obtained by the owner by hand (agents create no accounts or passwords).
@@ -1158,7 +1158,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-01: V1 (gate before the spend module): ask the wallet for an unsigned transaction; nothing is prompted or broadcast
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V1; claude/plan-bsv-rung3.md section 3 U1, U2, U7, U8
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V1; docs/design/plan-bsv-rung3.md section 3 U1, U2, U7, U8
 - **Gate / depends:** G8 / after PC-BSVT-00
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-00 passed. Throwaway testnet wallet. By hand, no Legion code.
@@ -1171,7 +1171,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-02: V2 (gate): abort the unsigned reference; coins are spendable again
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V2; claude/plan-bsv-rung3.md U3
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V2; docs/design/plan-bsv-rung3.md U3
 - **Gate / depends:** G8 / after PC-BSVT-01
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-01 produced a reference.
@@ -1183,7 +1183,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-03: V3 and status probe: connect to the VM wallet, bsv_status shows testnet, reachable, signed in
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V3; claude/plan-bsv-rung3.md U8; docs/BSV-MODE.md Not verified; docs/BSV-WALLET-DESIGN.md section 11
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V3; docs/design/plan-bsv-rung3.md U8; docs/BSV-MODE.md Not verified; docs/BSV-WALLET-DESIGN.md section 11
 - **Gate / depends:** G8 / after PC-BSVT-00
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** Spend-capable build running in the VM; BSV mode on.
@@ -1197,7 +1197,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-04: V4: allowlist one testnet address through the native dialog
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V4
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V4
 - **Gate / depends:** G8 / after PC-BSVT-03
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-03 passed.
@@ -1209,7 +1209,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-05: V5: request 600 sat: dialog 1 and dialog 2, then the wallet's own prompt, then a txid
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V5; claude/plan-bsv-rung3.md U4, U5, U10; claude/tracker-pc-checks.md W1-W5
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V5; docs/design/plan-bsv-rung3.md U4, U5, U10; docs/design/tracker-pc-checks.md W1-W5
 - **Gate / depends:** G8 / after PC-BSVT-04
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-04 passed. Window visible.
@@ -1224,7 +1224,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-06: V6: a second request right after: record whether the wallet asks again
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V6; claude/plan-bsv-rung3.md U4; claude/tracker-pc-checks.md W2, W4
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V6; docs/design/plan-bsv-rung3.md U4; docs/design/tracker-pc-checks.md W2, W4
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed.
@@ -1237,7 +1237,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-07: V7: Cancel at Legion's dialog: no wallet prompt, reservation freed
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V7; claude/plan-bsv-rung3.md U3
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V7; docs/design/plan-bsv-rung3.md U3
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed.
@@ -1249,7 +1249,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-08: V8: Deny at the wallet's prompt: record what the wallet returns; Legion shows unknown
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V8; claude/plan-bsv-rung3.md U6
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V8; docs/design/plan-bsv-rung3.md U6
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed.
@@ -1262,7 +1262,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-09: V9: kill the wallet during its prompt: unknown, still blocked after a Legion restart
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V9; claude/plan-bsv-rung3.md C12
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V9; docs/design/plan-bsv-rung3.md C12
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed. Kill by PID only (never by name pattern).
@@ -1276,7 +1276,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-10: V10: over-cap amount and a non-allowlisted address are denied before any dialog
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V10
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V10
 - **Gate / depends:** G8 / after PC-BSVT-04
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-04 passed.
@@ -1288,7 +1288,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-11: V11: Freeze while dialog 1 is open: the answer is refused, no wallet prompt
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V11
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V11
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed.
@@ -1300,7 +1300,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-12: V12: a hand-edited bsv.walletUrl in config.json is ignored
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 V12; maintainer review notes (bsv-t1-review) P3
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 V12; maintainer review notes (bsv-t1-review) P3
 - **Gate / depends:** G8 / after PC-BSVT-03
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-03 passed.
@@ -1312,7 +1312,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-13: Record the real wallet prompt wording and any persistent-permission option
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 (Also record); docs/BSV-WALLET-DESIGN.md section 10 stop condition
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 (Also record); docs/BSV-WALLET-DESIGN.md section 10 stop condition
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-05 to BSVT-08 in progress.
@@ -1324,7 +1324,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-14: U9: a spend left unanswered past 100 s returns pending, and the flow still finishes
 
-- **Source:** claude/plan-bsv-rung3.md section 3 U9; claude/plan-bsv-rung3.md 2.2. **INFERRED:** U9 is listed as unverified; the observation is the one the plan gives.
+- **Source:** docs/design/plan-bsv-rung3.md section 3 U9; docs/design/plan-bsv-rung3.md 2.2. **INFERRED:** U9 is listed as unverified; the observation is the one the plan gives.
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed.
@@ -1386,7 +1386,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-19: Kill Legion mid-spend: restart keeps the unknown outcome and quarantines a torn audit line
 
-- **Source:** maintainer review notes (bsv-t1-review) gap hunt (torn last audit line); claude/plan-bsv-rung3.md C12. **INFERRED:** Review describes the behaviour from tests on Linux; Windows file behaviour after a hard kill is the new part.
+- **Source:** maintainer review notes (bsv-t1-review) gap hunt (torn last audit line); docs/design/plan-bsv-rung3.md C12. **INFERRED:** Review describes the behaviour from tests on Linux; Windows file behaviour after a hard kill is the new part.
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 passed. Kill by PID only.
@@ -1411,7 +1411,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-21: Testnet runs request a spend only when the owner started them in the app
 
-- **Source:** claude/plan-bsv-rung3.md 9 open question 2; maintainer notes (legion-release-tracker) BSV scope change. **INFERRED:** Decision made; the observation with a real MCP-started or room-woken run is not listed anywhere.
+- **Source:** docs/design/plan-bsv-rung3.md 9 open question 2; maintainer notes (legion-release-tracker) BSV scope change. **INFERRED:** Decision made; the observation with a real MCP-started or room-woken run is not listed anywhere.
 - **Gate / depends:** G8 / after PC-BSVT-04, PC-MCP-05
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-04 passed; an MCP client (Claude Code) registered (MCP-05).
@@ -1424,7 +1424,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-22: A wallet claiming mainnet is warned about and refused while Legion's mainnet switch is off
 
-- **Source:** claude/plan-bsv-rung3.md 12.6a (flip tests only prove Legion's gates); docs/BSV-MODE.md (mainnet wallet shows the warning pill). **INFERRED:** Needs a mainnet-configured wallet; do it only with a second, EMPTY mainnet wallet inside the VM (never the owner's funded wallet).
+- **Source:** docs/design/plan-bsv-rung3.md 12.6a (flip tests only prove Legion's gates); docs/BSV-MODE.md (mainnet wallet shows the warning pill). **INFERRED:** Needs a mainnet-configured wallet; do it only with a second, EMPTY mainnet wallet inside the VM (never the owner's funded wallet).
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** BSVT-00 VM with a second, empty wallet set to mainnet. No funds.
@@ -1436,19 +1436,19 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-23: Record dated results of V0-V12 in the tracker and mark the unverified list U1-U14 confirmed or open
 
-- **Source:** claude/plan-bsv-rung3.md 7.2 (results go to tracker); claude/plan-bsv-rung3.md 10 (docs mark U1-U10 confirmed or open)
+- **Source:** docs/design/plan-bsv-rung3.md 7.2 (results go to tracker); docs/design/plan-bsv-rung3.md 10 (docs mark U1-U10 confirmed or open)
 - **Gate / depends:** G8 / after PC-BSVT-12
 - **Safety / automation:** none / owner-only
 - **Preconditions:** BSVT-00 to BSVT-22 run.
 - **Steps:**
-  1. Update this plan's result fields and claude/tracker-pc-checks.md; list U1-U10 as confirmed or open in docs/BSV-MODE.md "Not verified".
+  1. Update this plan's result fields and docs/design/tracker-pc-checks.md; list U1-U10 as confirmed or open in docs/BSV-MODE.md "Not verified".
 - **Expected:** Every U item has a recorded status; docs say "has not been verified with real funds" until BSVM is recorded.
 - **Evidence:** The updated results file.
 - **Result:** not-run | date: - | evidence path: -
 
 #### PC-BSVT-24: W1: first spend with no grant for legion.local: when does the wallet ask (build, after the dialogs, or never)
 
-- **Source:** claude/tracker-pc-checks.md W1; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
+- **Source:** docs/design/tracker-pc-checks.md W1; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
 - **Gate / depends:** G8 / after PC-BSVT-04
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** Fresh testnet wallet in the VM, no grant for legion.local. BSVT-04 passed.
@@ -1461,7 +1461,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-25: W2: after a one-time grant (if offered), a second request asks again
 
-- **Source:** claude/tracker-pc-checks.md W2; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
+- **Source:** docs/design/tracker-pc-checks.md W2; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
 - **Gate / depends:** G8 / after PC-BSVT-24
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** W1 done; the wallet offered a one-time grant and it was chosen.
@@ -1473,7 +1473,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-26: W3: the wallet's grant prompt left open; Cancel in Legion; a late approval in the wallet
 
-- **Source:** claude/tracker-pc-checks.md W3; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
+- **Source:** docs/design/tracker-pc-checks.md W3; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
 - **Gate / depends:** G8 / after PC-BSVT-24
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** No grant for legion.local.
@@ -1488,7 +1488,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-27: W4: two requests inside a small grant: the wallet asks nothing for the second
 
-- **Source:** claude/tracker-pc-checks.md W4; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
+- **Source:** docs/design/tracker-pc-checks.md W4; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
 - **Gate / depends:** G8 / after PC-BSVT-24
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** A grant no higher than Legion's testnet caps.
@@ -1500,7 +1500,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-28: W5: the wallet's own spending-check switch and granted-apps list; revoke legion.local
 
-- **Source:** claude/tracker-pc-checks.md W5; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
+- **Source:** docs/design/tracker-pc-checks.md W5; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
 - **Gate / depends:** G8 / after PC-BSVT-27
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** W4 done.
@@ -1513,7 +1513,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVT-29: W6: a grant answered after 3 minutes: the late build is released (build-expired) and asking again builds at once
 
-- **Source:** claude/tracker-pc-checks.md W6; src/core/bsv/spend.ts staleBuildMs; wallet-toolbox TaskFailAbandoned (abandonedMsecs 5 min)
+- **Source:** docs/design/tracker-pc-checks.md W6; src/core/bsv/spend.ts staleBuildMs; wallet-toolbox TaskFailAbandoned (abandonedMsecs 5 min)
 - **Gate / depends:** G8 / after PC-BSVT-04
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** No grant for legion.local. BSVT-04 passed.
@@ -1528,7 +1528,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-00: R preconditions: V1-V12 passed, review signed off, reviewed commit, own mainnet address
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b (preconditions); maintainer notes (legion-release-tracker) BSV scope change
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b (preconditions); maintainer notes (legion-release-tracker) BSV scope change
 - **Gate / depends:** G11 / after PC-BSVT-12
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** OWNER ONLY, BY HAND, NEVER SCRIPTED, NEVER BY AN AGENT. Owner says "go" in this session. No agent drives the keyboard.
@@ -1542,7 +1542,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-01: R0: note balance and history; Legion shows the switch OFF and not armed
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R0
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R0
 - **Gate / depends:** G11 / after PC-BSVM-00
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-00 recorded.
@@ -1555,7 +1555,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-02: R1: connect to the real wallet and ask for 200 sat: denied mainnet-disabled, no wallet prompt
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R1
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R1
 - **Gate / depends:** G11 / after PC-BSVM-01
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-01.
@@ -1568,7 +1568,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-03: R2: enable mainnet through the native dialog
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R2
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R2
 - **Gate / depends:** G11 / after PC-BSVM-02
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-02.
@@ -1580,7 +1580,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-04: R3: allowlist the own address on the mainnet list; ask again: denied not-armed
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R3
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R3
 - **Gate / depends:** G11 / after PC-BSVM-03
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-03.
@@ -1592,7 +1592,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-05: R4: Arm for 5 minutes; compare dialogs character by character against the wallet
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R4
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R4
 - **Gate / depends:** G11 / after PC-BSVM-04
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-04.
@@ -1605,7 +1605,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-06: R5: Cancel on dialog 2: declined, no wallet prompt, still armed
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R5
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R5
 - **Gate / depends:** G11 / after PC-BSVM-05
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-05.
@@ -1617,7 +1617,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-07: R6: confirm D1 and D2; the wallet shows its own prompt (200 sat, recipient, ONE payment output)
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R6; claude/plan-bsv-rung3.md U13
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R6; docs/design/plan-bsv-rung3.md U13
 - **Gate / depends:** G11 / after PC-BSVM-06
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-06.
@@ -1629,7 +1629,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-08: R7: read the result; the txid and the explorer show 200 sat to the own address; balance fell by the fee only
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R7; claude/plan-bsv-rung3.md U14
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R7; docs/design/plan-bsv-rung3.md U14
 - **Gate / depends:** G11 / after PC-BSVM-07
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-07.
@@ -1641,7 +1641,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-09: R8: ask once more: denied not-armed (one arm, one spend)
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R8
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R8
 - **Gate / depends:** G11 / after PC-BSVM-08
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-08.
@@ -1653,7 +1653,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-10: R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve natively
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R9
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R9
 - **Gate / depends:** G11 / after PC-BSVM-09
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-09.
@@ -1666,7 +1666,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-11: R10: Freeze while dialog 1 is open: refused, no wallet prompt
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R10
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R10
 - **Gate / depends:** G11 / after PC-BSVM-10
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-10.
@@ -1678,20 +1678,20 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-BSVM-12: R11: Disable mainnet, Disarm, Disconnect; record dated results
 
-- **Source:** claude/plan-bsv-rung3.md 12.6b R11
+- **Source:** docs/design/plan-bsv-rung3.md 12.6b R11
 - **Gate / depends:** G11 / after PC-BSVM-11
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-11.
 - **Steps:**
   1. Disable mainnet, Disarm, Disconnect.
-  2. Read the audit lines for R1 to R10 and record dated results in claude/tracker-pc-checks.md and in this plan.
+  2. Read the audit lines for R1 to R10 and record dated results in docs/design/tracker-pc-checks.md and in this plan.
 - **Expected:** Panel shows off. Until R0-R11 are recorded every document says "has not been verified with real funds".
 - **Evidence:** PC-BSVM-12.txt.
 - **Result:** not-run | date: - | evidence path: -
 
 #### PC-BSVM-13: Record U11 (mainnet network string), U12 (unsigned tx shape and P2PKH change), U13 (prompt every time), U14 (fee levels)
 
-- **Source:** claude/plan-bsv-rung3.md section 12 (U11 to U14)
+- **Source:** docs/design/plan-bsv-rung3.md section 12 (U11 to U14)
 - **Gate / depends:** G11 / after PC-BSVM-08
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** While doing R1 to R8.
@@ -1718,7 +1718,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 #### PC-WEB-02: Install from a downloaded ZIP of the public repo and from git clone
 
-- **Source:** maintainer notes (legion-release-tracker) Website; claude/tracker-pc-checks.md P7
+- **Source:** maintainer notes (legion-release-tracker) Website; docs/design/tracker-pc-checks.md P7
 - **Gate / depends:** G10 / after PC-INST-08
 - **Safety / automation:** downloads / owner-must-be-present
 - **Preconditions:** Public repo.
@@ -1892,10 +1892,10 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 
 | Source | What was taken from it |
 |---|---|
-| claude/tracker-pc-checks.md | P1-P10, M1-M3, K1, U1, R1, handoff line (also the Blender B1-B11 variant on origin/claude/review-blender-merged) |
+| docs/design/tracker-pc-checks.md | P1-P10, M1-M3, K1, U1, R1, handoff line (also the Blender B1-B11 variant on origin/claude/review-blender-merged) |
 | maintainer notes (legion-release-tracker) | decisions, handoff list, R6.1 flake, scrubSecrets follow-up, Legion MCP registration, website, BSV scope, status updates |
-| claude/plan-bsv-rung3.md | section 3 (U1-U10), 7.2 (V0-V12), 12 (U11-U14, R0-R11), 13 |
-| claude/plan-blender-local-first.md | 6.2, 6.3, 11 (B4 managed Blender), 12 (B5 chooser) |
+| docs/design/plan-bsv-rung3.md | section 3 (U1-U10), 7.2 (V0-V12), 12 (U11-U14, R0-R11), 13 |
+| docs/design/plan-blender-local-first.md | 6.2, 6.3, 11 (B4 managed Blender), 12 (B5 chooser) |
 | maintainer notes (tracker-public-audit) | public-repo owner steps (secret scanning, L5) |
 | maintainer notes (release-notes-skeleton) | unverified statements in the draft notes |
 | maintainer review notes (release-packaging-review) | F1-F9, section 5 |

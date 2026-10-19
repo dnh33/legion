@@ -1,6 +1,6 @@
 /**
  * "Working with other agents": the one block that tells a run how to reach other agents and how to treat what they send
- * (Fascia 3a, claude/plan-fascia.md 6.3). It replaces the delegation lines that were spread over LEGION_PREAMBLE (engine.ts),
+ * (Fascia 3a, docs/design/plan-fascia.md 6.3). It replaces the delegation lines that were spread over LEGION_PREAMBLE (engine.ts),
  * COMMS_PREAMBLE (comms/tools.ts) and the roster's COMMS_LINES, so each rule is said once per run.
  * The how-to lines follow the servers the run really has; the safety lines are always there, word for word as before.
  * Pure: no I/O, no clock.

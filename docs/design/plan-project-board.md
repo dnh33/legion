@@ -15,7 +15,7 @@ Several hosts (docs.github.com, linear.app, atlassian.com) were blocked from thi
 | **Claude Code task list**: Claude's own checklist, items pending / in progress / complete, `Ctrl+T` toggles it, can be shared across sessions by a named list id ([code.claude.com](https://code.claude.com/docs/en/interactive-mode), fetched, "Task list" section) | Small status vocabulary; the agent writes to its own items through a tool; a visible trail | Agent-created items going live directly: here they wait in an Inbox |
 | **Linear**: status categories triage, backlog, unstarted, started, completed, canceled; default flow Backlog > Todo > In Progress > Done > Canceled; priority; labels; **Triage** inbox for new issues ([linear.app docs](https://linear.app/docs/configuring-workflows.md), search summary) | Triage idea = our **Inbox** for bot proposals; 3 priorities; few labels | Custom statuses, cycles, estimates, sub-issues, SLAs |
 | **GitHub Projects**: Board (Status columns), Table, Roadmap views; fields; workflows (auto-add, item closed -> Done, auto-archive) ([docs.github.com](https://docs.github.com/en/issues/planning-and-tracking-with-projects), search summary) | Board + List views; filters | **All automation workflows** (auto-add, auto-move to Done, auto-archive) and Roadmap |
-| **Cursor background agents / Codex cloud tasks**: agent statuses Running / Waiting / Complete / Failed; the result is *reviewed before it is merged*; owner decides ([search summaries](https://stevekinney.com/courses/ai-development/cursor-background-agents)) | A finished run lands in **Review**, never Done; a failed run lands in **Blocked** with the error; the run is linked | Branch/PR creation, parallel fleets |
+| **Cloud coding-agent task lists**: agent statuses Running / Waiting / Complete / Failed; the result is *reviewed before it is merged*; owner decides (search summaries) | A finished run lands in **Review**, never Done; a failed run lands in **Blocked** with the error; the run is linked | Branch/PR creation, parallel fleets |
 | **Kanban**: columns per stage, cards move left to right, WIP limits ([Wikipedia](https://en.wikipedia.org/wiki/Kanban_(development)), search summary) | Columns + cards, drag *and* keyboard moves | WIP limits (could be Later), swimlanes |
 
 Owner-side rules that shape it (from CLAUDE.md and the Projects plan): owner-only authority, native confirmation only where authority widens, taint wrapping of outside content, Library trust model (bot notes are untrusted until the owner accepts), no execution without the owner.
@@ -142,14 +142,14 @@ Not built (deliberate): an agent removing a link (only the owner can); a briefin
 |---|---|
 | Fact (read in this repo) | Projects, native secret, admin gate, taint, `ModuleJob.projectId`, `onTaskEnd`, `startTask` params `origin` and `tainted`, Library untrusted/inbox model, existing `experimental.providers` pattern |
 | Fact (fetched) | Claude Code task list statuses and `Ctrl+T`; Claude project contents |
-| Fact (search summary, not fetched) | Cowork projects incl. scheduled tasks; Linear status categories and triage; GitHub Projects views and workflows; Cursor/Codex statuses; Kanban WIP |
+| Fact (search summary, not fetched) | Cowork projects incl. scheduled tasks; Linear status categories and triage; GitHub Projects views and workflows; cloud coding-agent statuses; Kanban WIP |
 | Assumption | Owners want 5 columns and 3 priorities; `blocked` as a column is fine; 200 items per project is enough; running a bot-written item at an `ask` ceiling is acceptable friction |
 | Assumption | `appendFileSync` of one short line is atomic enough on NTFS/ext4; a torn line is the worst case and is skipped |
 | Unknown | Screen reader behaviour of the keyboard move on real NVDA/Narrator; drag on a touch screen; Windows rename-over-open-file during compaction |
 
 ## 11. Owner-only PC checks
 
-`claude/tracker-pc-checks-board.md`.
+`docs/design/tracker-pc-checks-board.md`.
 
 ## 12. Result (not run on Windows)
 

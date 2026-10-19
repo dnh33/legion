@@ -7,12 +7,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// The real-PC test plan: claude/real-pc-test-plan.md (human) and scripts/harness/pc-checks.json (machine) must stay in step,
+// The real-PC test plan: docs/design/real-pc-test-plan.md (human) and scripts/harness/pc-checks.json (machine) must stay in step,
 // and pc-report.mjs must summarise a results file and fail on any FAIL. Pure file and process logic: runs on Linux and Windows.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const planPath = join(root, 'scripts', 'harness', 'pc-checks.json');
 const reportPath = join(root, 'scripts', 'harness', 'pc-report.mjs');
-const mdPath = join(root, 'claude', 'real-pc-test-plan.md');
+const mdPath = join(root, 'docs', 'design', 'real-pc-test-plan.md');
 const read = (p: string): string => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const lib: any = await import(pathToFileURL(reportPath).href);
@@ -73,7 +73,7 @@ test('the markdown plan lists exactly the ids and titles of the JSON, and its ge
   assert.deepEqual(mdIds, plan.checks.map((c: { id: string; title: string }) => [c.id, c.title]));
   const block = md.split('<!-- BEGIN GENERATED CHECKS -->\n')[1]?.split('<!-- END GENERATED CHECKS -->')[0];
   assert.ok(block, 'generated block markers are missing');
-  assert.equal(block, `${lib.emitMarkdown(plan)}\n`, 'claude/real-pc-test-plan.md is stale: run `node scripts/harness/pc-report.mjs --emit-md` and splice it in');
+  assert.equal(block, `${lib.emitMarkdown(plan)}\n`, 'docs/design/real-pc-test-plan.md is stale: run `node scripts/harness/pc-report.mjs --emit-md` and splice it in');
   for (const heading of ['Run order with gates', 'How a computer-use agent should run this', 'Rollback and cleanup per area', 'Sources scanned']) assert.ok(md.includes(heading), `missing section: ${heading}`);
 });
 
