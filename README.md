@@ -18,15 +18,15 @@
 Legion is in beta: expect rough edges and the odd bug.
 
 - **Releases:** prebuilt Windows releases are on [GitHub Releases](https://github.com/dnh33/legion/releases). A release install updates itself ([Updates](#updates)).
-- **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
+- **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push to main and every pull request runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
 - **Project board:** in daily use on the maintainer's PC. Screen-reader, display-scale and crash checks are still open.
-- **Browser tool:** agents have used it on the maintainer's Windows PC. Web search today goes through Claude's own search tool.
+- **Browser tool:** agents have used it on the maintainer's Windows PC. Web search goes through Claude's own search tool unless you pick a search provider with your own key in Settings, Providers.
 - **BSV mode:** tested against fake wallets only. Mainnet is built and OFF until you switch it on.
 - **Blender bridge:** local mode (headless Blender on your computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux:** the one-line installer sets Legion up, and since 0.3.5 that install updates itself. Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. The maintainer uses Windows.
-- **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
+- **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, DeepSeek, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
 
 <details><summary>Details</summary>
 
@@ -51,7 +51,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 - A small Node service on `127.0.0.1` does the work, and an Electron window sits on top.
 - Agents run through the official Claude Agent SDK. Every existing agent runs on a Claude model by default.
-- OpenRouter is a second provider: add your own key and run any model. Settings, Providers also takes an address of your own for a server that speaks the OpenAI chat-completions format. It has ready cards for OpenAI, Ollama, LM Studio and vLLM too. Codex is not offered (see [Later](#later)).
+- OpenRouter is a second provider: add your own key and run any model. Settings, Providers also takes an address of your own for a server that speaks the OpenAI chat-completions format. It has ready cards for OpenAI, DeepSeek, Ollama, LM Studio and vLLM too. Codex is not offered (see [Later](#later)).
 
 </details>
 
@@ -66,11 +66,11 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 ## Features
 
-**The highlights:** the Marshal leads an Order of 13 agents · agents ask each other for help · projects with a work board · shared long-term memory · a cloud VM per agent when a task needs one.
+**The highlights:** the Marshal leads an Order of 14 agents · agents ask each other for help · projects with a work board · shared long-term memory · a cloud VM per agent when a task needs one.
 
 ### Your agents
 
-- **13 ready-made agents**: the Marshal (lead), Builder (coding), Scout (research) and ten more, or make your own ([The Muster](#the-muster)).
+- **14 ready-made agents**: the Marshal (lead), Builder (coding), Scout (research) and eleven more, or make your own ([The Muster](#the-muster)).
 - **The Marshal leads the Order.** It splits a request into tasks, hands each to the best agent and runs independent ones at once.
 - **Agents talk to each other.** One can `ask` another and wait, or `tell` it and get the reply later.
 - **Rooms**: group chats of agents and you ([Rooms](#rooms)).
@@ -96,7 +96,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 <details><summary>Details</summary>
 
-- A project holds instructions, a folder, member agents, tasks, rooms and notes. Member agents can create, edit, move, claim and note board items; you mark them done, approve deletes and decide what runs.
+- A project holds instructions, a folder, member agents, tasks, rooms and notes. Member agents can create, edit, move, claim and note board items; you mark them done, approve deletes and decide what runs. An optional project switch lets the Marshal start items in Doing.
 - Agents give project work to members first. An agent outside the project can still help, without the project's folder, notes or board; the project's deny rules still apply to it. Whatever waits on you shows at the top of the agent list, whichever project you are viewing.
 - For provider models, Enter queues a message instead (in order, shown above the composer). Ctrl+Enter interrupts the run and sends now. A stop, a failure or a reload pauses the queue instead of sending on its own. Each thread keeps its own half-typed draft, also across restarts.
 - A run gets 200 turns by default. One that reaches the limit pauses on the model it was using; **Continue** carries on in the same conversation. A run cut short by a crash, a restart or a dropped connection offers Continue too.
@@ -107,9 +107,9 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 ### Memory and context
 
 - **The Lattice and the Library**: a shared knowledge graph the agents use as long-term memory ([Lattice and Library](#lattice-and-library)).
-- **The house layer**: rules every agent reads, plus the project's own `AGENTS.md`.
+- **The house layer**: rules every agent reads.
 - **Long conversations are compacted, not cut**, and `/compact` does it on demand.
-- **Your Claude Code setup, partly inherited**: settings, hooks, skills and slash commands.
+- **Your Claude Code setup, partly inherited**: settings, hooks and slash commands. Skills load only after you turn them on in Settings, Armory.
 
 <details><summary>Details</summary>
 
@@ -126,10 +126,10 @@ Legion runs several Claude agents from one desktop app, on your own machine.
   - **Ask:** every action asks. Read-only commands, and commands your own Claude Code allow rules allow, run without a card.
   - **Accept edits:** file edits run, everything else asks.
   - **Smart:** Legion asks before an action that reaches the web, deletes, cannot be undone, or that it cannot classify. Tests and builds run without asking.
-  - **Bypass:** no permission cards. Your deny rules and Legion's safety rails still apply, and everything is logged.
+  - **Bypass:** no permission cards, except for changes to protected files. Your deny rules and Legion's safety rails still apply, and everything is logged.
 - **Per agent and per project.** An agent keeps its own setting or follows its project, and a project can limit its agents to its preset. Fine tuning lists the checks behind the presets, and each one can be set on its own. Anything that makes agents ask less asks you to confirm in a separate window first.
 - **Folders you trust.** Commands in a project folder's Claude Code settings, hooks or skills run only after you trust that folder.
-- **Approval cards** in the thread. Press `A` or `D`.
+- **Approval cards** in the thread. Press `A` or `D` (a Blender script card needs a click to allow).
 - **Doctor** checks your setup and says how to fix what fails ([First run and Doctor](#first-run-and-doctor)).
 - **Updates that install**: one click to download, installed when you restart ([Updates](#updates)).
 
@@ -185,15 +185,15 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 ## The Muster
 
-Legion ships with 13 premade agents, each with its own persona, model policy, approval mode and animated bust.
+Legion ships with 14 premade agents, each with its own persona, model policy and approval mode. All but the Quartermaster have an animated bust.
 
 - **The originals:** the Marshal (lead), Builder (coding) and Scout (research).
 - **They are ordinary agents:** edit their prompts, models and approval modes, or delete the ones you do not want.
-- You see 12 until BSV mode is on: the Assayer stays hidden until then.
+- You see 13 until BSV mode is on: the Assayer stays hidden until then.
 
 <details><summary>Details</summary>
 
-The ten that join the originals:
+The eleven that join the originals:
 
 - **Inquisitor**: hostile review and security audit.
 - **Scribe**: documentation.
@@ -205,6 +205,7 @@ The ten that join the originals:
 - **Herald**: message drafts; drafts only, never sends.
 - **Sculptor**: Blender work through the Blender bridge.
 - **Assayer**: BSV development; hidden until BSV mode is on.
+- **Quartermaster**: supply watch; files newer versions of the skills, knowledge sources and MCP servers you use on the project board. It reports only; you decide on upgrades.
 
 </details>
 
@@ -228,7 +229,7 @@ The ten that join the originals:
 
 - **The Lattice** is a shared knowledge graph, with `kg_*` tools for every agent and a graph view.
 - **The Library** turns it into long-term memory. You accept or reject new notes in the Inbox.
-- There are no model calls or embeddings in any of it.
+- The Lattice and Library make no model calls of their own and use no embeddings. **Refresh** on a stale note starts an Archivist run, and what it proposes waits in the Inbox.
 
 <details><summary>Details</summary>
 
@@ -249,7 +250,7 @@ The ten that join the originals:
 
 <details><summary>Details</summary>
 
-An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (167 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on your computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
+An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (167 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on your computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, it asks before it reads a new website, and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
 
 </details>
 
@@ -263,7 +264,7 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 <details><summary>Details</summary>
 
 - The default is `claude.auth: "claude-login"`. To pay by API key instead, choose it in Settings, Claude (or set `claude.auth` to `api-key` and provide one). That key is then kept in `config.json`.
-- With the default sign-in, Legion's own code never reads, copies or stores your Claude login. It removes `ANTHROPIC_API_KEY` from the child environment, so your login is the one used.
+- With the default sign-in, Legion's own code never reads, copies or stores your Claude login. It removes `ANTHROPIC_API_KEY` from the child environment and blanks other API key sources for the run, so your plan is the one billed. A run that would bill API credits does not start unless you turn on Settings, Claude, Allow API credit billing.
 - Do not put Legion behind a shared endpoint, or pass your subscription through it to anyone else.
 - Anthropic's terms can change.
 
@@ -272,7 +273,7 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 ## Requirements
 
 - **A Claude sign-in:** a Claude subscription or an API key. You do not need to install Claude Code: Legion runs the `claude` program that comes with the Claude Agent SDK. To sign in once, run `claude` and type `/login`, or on a release install run `scripts\legion-claude.cmd` and type `/login`.
-- **Windows 10/11** is the primary target. macOS and Linux run from a dev install. Caveats: [Status](#status).
+- **Windows 10/11** is the primary target. macOS and Linux use the one-line installer or a dev install. Caveats: [Status](#status).
 - **Node.js 22.12 or newer, for a source install only.** The release package brings its own runtime.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
 
@@ -468,7 +469,7 @@ The MCP tools:
   <img src="docs/images/model-picker.png" alt="The model picker, listing Auto and the models available to the account" width="560">
 </p>
 
-Type `/` in the composer to open the menu. Commands Legion does not handle go to Claude Code unchanged, so your skills, plugins and custom commands work.
+Type `/` in the composer to open the menu. Commands Legion does not handle go to Claude Code unchanged. A skill command works once you turn that skill on in Settings, Armory.
 
 | Command | Action |
 |---|---|
@@ -478,6 +479,7 @@ Type `/` in the composer to open the menu. Commands Legion does not handle go to
 | `/vm start\|stop\|desktop` | Control this agent's VM. |
 | `/compact [focus]` | Compact the conversation, keeping what you name. |
 | `/doctor` | Open the setup checks. |
+| `/github` | Open GitHub. |
 | `/agent <name>` | Switch agent. |
 | `/clear` | Clear the draft. |
 
@@ -566,8 +568,7 @@ Not in v1, and not promised:
 - **BSV mode beyond one payment:** wallet reads (balances), a VM boundary for wallet tools, and spends by anything other than a run you started.
 - A code-signed installer.
 - **A browser you can watch:** see an agent use a browser inside Legion as it works.
-- **Knowledge graph audit button:** an agent that refreshes stale notes from current docs.
-- **Scheduled Sentinel runs.** Nothing in Legion runs on a timer today.
+- **Scheduled Sentinel runs.** No agent runs on a schedule of its own today. Legion's own code starts agent runs on a timer only through the optional Marshal switch for board items.
 - **An optional lighter package.**
 
 <details><summary>Details</summary>
@@ -603,7 +604,7 @@ src/
 ui/           Vite + React renderer, mascot engine, bundled fonts
   dev/        mock server and screenshot scripts
 test/         node:test suites
-scripts/      Windows installer, icon and mascot builders, MCP config printer
+scripts/      installers, icon and mascot builders, MCP config printer
 docs/         architecture, comms bridge, Lattice and Library, BSV mode, mascot art and contract, expression lab, README images
 assets/       app icon, tray icons, splash
 ```
