@@ -4,7 +4,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
-## [0.3.5] - 2026-10-18
+## [0.3.5] - 2026-10-19
 
 This update installs by itself on Windows. On a Mac or Linux, run the installer once more (see below); after that Legion updates itself there too.
 
