@@ -43,7 +43,7 @@ test('no tracked file is one .gitignore excludes', () => {
 test('the private-name scan sees planted names, and leaves the copyright lines alone (planted)', () => {
   assert.equal(privateHits('docs/x.md', `see D:/${VAULT}/notes`).length, 1);
   assert.equal(privateHits('docs/x.md', `ssh ${VPS} uptime`).length, 1);
-  assert.equal(privateHits('docs/x.md', 'https://claude.ai/code/session_01AbCd').length, 1);
+  assert.equal(privateHits('docs/x.md', ['https://claude.ai/code/', 'session_', '01AbCd'].join('')).length, 1);
   assert.equal(privateHits('README.md', `by Daniel ${SURNAME}`).length, 1);
   assert.equal(privateHits('LICENSE', `Copyright 2026 Daniel ${SURNAME}`).length, 0);
   assert.deepEqual(privateHits('src/a.ts', 'const keepalive = 1; // aether'), []);
