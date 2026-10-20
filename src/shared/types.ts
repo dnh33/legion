@@ -294,6 +294,8 @@ export interface Task {
   runsAs?: { mode: RunMode; projectId?: string };
   /** Smart for a Claude agent: `on` when Claude's own checker judged the run, `fallback` when the run could not use it and Claude asked for each action instead. Absent: not a Smart run on Claude's checks. */
   claudeChecker?: 'on' | 'fallback';
+  /** The model that had no Claude checker (only with `claudeChecker: 'fallback'`), so the chip and the Gates page can name it. */
+  claudeCheckerModel?: string;
   /** What the latest run read on the web: distinct pages, and sites the owner approved on a card during the run. Counts only, never addresses or queries. Absent until the run reads something. */
   web?: { pages: number; newSites: number };
   createdAt: string;

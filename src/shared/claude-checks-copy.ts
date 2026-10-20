@@ -3,10 +3,16 @@
 // activity log say the same thing. Plain words; no em dashes.
 import type { Preset } from './gates-registry.js';
 
-/** Said once when Claude's checker (Smart) could not be used for a run: before the run (the model has none) or by the init message. */
-export const CHECKER_FALLBACK_LINE = "Claude's checker is not available for this model, so Claude asks you as in Ask.";
-/** The short visible text of the run chip in that case; the full line is its hover and its screen-reader text. */
-export const CHECKER_CHIP = 'Claude asks as in Ask';
+/** Who had no Claude checker: the agent and the model, each known or not. */
+export interface CheckerWho { agent?: string; model?: string }
+const joinNames = (names: string[]): string => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+/** Said once when Claude's checker (Smart) could not be used for a run: before the run (the model has none) or by the init message. It names the agent and the model. */
+export function checkerFallbackLine(who: readonly CheckerWho[] = []): string {
+  const names = [...new Set(who.map((w) => (w.agent && w.model ? `${w.agent} on ${w.model}` : (w.model ?? (w.agent ? `the model ${w.agent} uses` : '')))).filter(Boolean))];
+  return `Claude's checker is not available for ${names.length ? joinNames(names) : 'the model in use'}, so Claude asks you as in Ask.`;
+}
+/** The run chip when a Smart run had no checker: one chip, in place of "Runs as Smart" plus a second one. The full line is its hover and its screen-reader text. */
+export function checkerChipText(model?: string): string { return `Smart: Claude asks as in Ask (no checker for ${model ?? 'its model'})`; }
 
 export const CLAUDE_CHECKS_LABEL = "Claude agents follow Claude's own permission checks";
 export const CLAUDE_CHECKS_LINE = 'Claude decides about its own tools in every preset. Legion still keeps your Block rules, its own files and its own tools, and the stop for catastrophic commands.';
@@ -20,7 +26,7 @@ export const ALLOW_RULES_LINE = "Legion's Allow rules do not answer Claude's own
 /** What Claude does in each preset, in plain words (measured with Claude Code 2.1.296, see the probe notes). */
 export const CLAUDE_PRESET_LINES: Record<Preset, string> = {
   ask: 'Claude asks before it edits files or runs commands. Reading files and simple listing commands run without asking.',
-  'accept-edits': 'Claude edits files and runs file commands in your project without asking. Commands like git push still ask.',
+  'accept-edits': 'File edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask.',
   smart: "Claude's own checker decides. Anything it is unsure about comes to you.",
   bypass: "Claude never asks. Your Block rules and Legion's stop for catastrophic commands still apply.",
 };
@@ -47,7 +53,7 @@ export const LEARN_MORE_GROUPS: ReadonlyArray<{ title: string; lines: readonly s
 
 /** The one-time notice after the update. */
 export const CLAUDE_NOTICE = {
-  text: "Claude agents now follow Claude's own permission checks in every preset. It is on. Claude decides about its own tools; Legion still keeps your Block rules, its own files and tools, and its stop for catastrophic commands. Other providers keep Legion's checks. You can turn this off in Settings, Gates.",
+  text: "Claude agents now follow Claude's own permission checks in every preset. It is on. Claude decides about its own tools; Legion still keeps your Block rules, its own files and tools, and its stop for catastrophic commands. In Accept edits, Claude agents: file edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask. Other providers keep Legion's checks. You can turn this off in Settings, Gates.",
   open: 'Open Gates',
   dismiss: 'Got it',
 } as const;

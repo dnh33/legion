@@ -11,7 +11,7 @@ import type { GatesRig } from './gates-rig.js';
 import { dataFolderTargets } from '../src/core/exec/canonical-path.js';
 import { claudePermissionMode, startIsStricter } from '../src/core/permission-mode.js';
 import type { GateRule } from '../src/shared/types.js';
-import { CHECKER_FALLBACK_LINE } from '../src/shared/claude-checks-copy.js';
+import { checkerFallbackLine } from '../src/shared/claude-checks-copy.js';
 
 const rule = (id: string, then: GateRule['then'], when: GateRule['when']): GateRule => ({ id, enabled: true, then, when, label: id, source: 'user' });
 const using = async (o: Parameters<typeof gatesRig>[0], body: (r: GatesRig) => Promise<void>) => {
@@ -295,11 +295,14 @@ test('the headless denial brake ends the run with a plain notice in the thread a
 test('fallback is detected from the init message: auto asked for but not given shows once; auto given shows nothing', async () => {
   await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
     assert.equal(r.options().permissionMode, 'auto');
-    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
-    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default', model: 'claude-haiku-4-5' });
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default', model: 'claude-haiku-4-5' });
     assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'fallback');
-    assert.equal(thread(r).filter((t) => t === CHECKER_FALLBACK_LINE).length, 1, 'once');
-    assert.ok(lines(r).some((t) => t === CHECKER_FALLBACK_LINE));
+    assert.equal(r.store.getTask(r.task.id)?.claudeCheckerModel, 'claude-haiku-4-5');
+    const line = checkerFallbackLine([{ agent: r.agent.name, model: 'claude-haiku-4-5' }]);
+    assert.match(line, /not available for .+ on claude-haiku-4-5,/);
+    assert.equal(thread(r).filter((t) => t === line).length, 1, 'once');
+    assert.ok(lines(r).some((t) => t === line));
   });
   await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
     r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'auto' });
@@ -339,11 +342,12 @@ test('before a Smart run, a model the catalog lists without auto support starts 
   await using({ app: 'smart', follow: true, ownChecks: true, catalog: none }, async (r) => {
     assert.equal(r.options().permissionMode, 'default', 'Claude asks, as in Ask; Legion\'s Smart judge is never used instead');
     assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'fallback');
-    assert.equal(thread(r).filter((t) => t === CHECKER_FALLBACK_LINE).length, 1, 'once, in the thread');
-    assert.ok(lines(r).some((t) => t === CHECKER_FALLBACK_LINE), 'and in the activity log');
+    const named = (t: string) => /^Claude's checker is not available for .+ on .+, so Claude asks you as in Ask\.$/.test(t) && !/this model/.test(t);
+    assert.equal(thread(r).filter(named).length, 1, 'once, in the thread, naming the agent and the model');
+    assert.ok(lines(r).some(named), 'and in the activity log');
     // the init message then agrees (default): no second line
     r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
-    assert.equal(thread(r).filter((t) => t === CHECKER_FALLBACK_LINE).length, 1);
+    assert.equal(thread(r).filter((t) => /checker is not available/.test(t)).length, 1);
   });
 });
 

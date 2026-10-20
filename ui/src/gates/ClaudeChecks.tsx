@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Icon } from '../components/icons';
 import { announce } from '../projects/page/announce';
 import { openSettings, useStore } from '../store';
-import { ALLOW_RULES_LINE, CHECKER_FALLBACK_LINE, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE } from '../../../src/shared/claude-checks-copy';
+import { ALLOW_RULES_LINE, checkerFallbackLine, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE, type CheckerWho } from '../../../src/shared/claude-checks-copy';
 import { GatesNote } from './GatesPresets';
 import { KEYSTORE_LINE, type GatesView } from './presetsLogic';
 import { claudeChecksOn, checkerFallbackNow, shouldShowClaudeNotice } from './claudeChecksLogic';
@@ -13,7 +13,7 @@ import './gates.css';
 
 /** The card under "How agents ask": the switch, what it means, where it does not apply, and the details on request. */
 export function ClaudeChecksCardView({ view, busy, note, fallback, onToggle, defaultOpen = false }: {
-  view: GatesView; busy: boolean; note: Note | null; fallback: boolean; onToggle: (on: boolean) => void; defaultOpen?: boolean;
+  view: GatesView; busy: boolean; note: Note | null; /** Who had no Claude checker on their newest run (empty: nobody). */ fallback: readonly CheckerWho[]; onToggle: (on: boolean) => void; defaultOpen?: boolean;
 }) {
   const on = claudeChecksOn(view);
   const [open, setOpen] = useState(defaultOpen);
@@ -29,7 +29,7 @@ export function ClaudeChecksCardView({ view, busy, note, fallback, onToggle, def
         </span>
       </label>
       <p className="gates-text">{OTHER_PROVIDERS_LINE}</p>
-      {on && fallback && <p className="gates-warn" role="status"><Icon name="warn" size={13} /> <span>{CHECKER_FALLBACK_LINE}</span></p>}
+      {on && fallback.length > 0 && <p className="gates-warn" role="status"><Icon name="warn" size={13} /> <span>{checkerFallbackLine(fallback)}</span></p>}
       <GatesNote note={note} pending={busy} />
       <button type="button" className="btn-ghost sm gates-learn" aria-expanded={open} aria-controls="gates-claude-help" onClick={() => setOpen((v) => !v)}>{open ? LEARN_LESS : LEARN_MORE}</button>
       {open && (
@@ -49,7 +49,8 @@ export function ClaudeChecksCardView({ view, busy, note, fallback, onToggle, def
 /** The wired card: the switch goes through the same confirm path as every other setting (the native dialog for the loosening direction). */
 export function ClaudeChecksCard({ view, busy, note, run }: { view: GatesView; busy: boolean; note: Note | null; run: (c: GatesChangeRequest, done: string) => Promise<boolean> }) {
   const tasks = useStore((s) => s.tasks);
-  const fallback = checkerFallbackNow(tasks);
+  const agents = useStore((s) => s.agents);
+  const fallback = checkerFallbackNow(tasks, (id) => agents.find((a) => a.id === id)?.name);
   return (
     <ClaudeChecksCardView view={view} busy={busy} note={note} fallback={fallback}
       onToggle={(on) => void run({ kind: 'app', patch: { claudeOwnChecks: on } }, on ? `Claude agents follow Claude's own permission checks.` : `Claude agents follow Legion's own cards again.`)} />

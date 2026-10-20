@@ -4,6 +4,7 @@ import type { AgentProfile, Task } from '../../../src/shared/types.js';
 import { shouldShowPresetChoice } from '../welcome/presetChoiceLogic.js';
 import { isProviderModel } from '../chat/busy.js';
 import type { GatesView } from './presetsLogic.js';
+import type { CheckerWho } from '../../../src/shared/claude-checks-copy.js';
 
 /** The switch: on unless the app file says false. */
 export const claudeChecksOn = (view: GatesView): boolean => view.app.claudeOwnChecks !== false;
@@ -21,9 +22,19 @@ export function shouldShowClaudeNotice(view: GatesView, agents: ReadonlyArray<Pi
   return !shouldShowPresetChoice(view, true, agents);
 }
 
-/** True when the newest task that reports a checker had to do without it: the Gates page then says so once. */
-export function checkerFallbackNow(tasks: ReadonlyArray<Pick<Task, 'updatedAt' | 'claudeChecker'>>): boolean {
-  let newest: Pick<Task, 'updatedAt' | 'claudeChecker'> | undefined;
-  for (const t of tasks) if (t.claudeChecker !== undefined && (!newest || Date.parse(t.updatedAt) > Date.parse(newest.updatedAt))) newest = t;
-  return newest?.claudeChecker === 'fallback';
+/**
+ * The agents (and their models) whose newest task that reports a checker had to do without it: the Gates page then says so once, naming them.
+ * Empty when every agent's newest report is fine. `agentName` turns an agent id into its name (an unknown id is left out of the name, not of the list).
+ */
+export function checkerFallbackNow(tasks: ReadonlyArray<Pick<Task, 'updatedAt' | 'claudeChecker'> & Partial<Pick<Task, 'agentId' | 'claudeCheckerModel'>>>, agentName: (id: string) => string | undefined = () => undefined): CheckerWho[] {
+  const newest = new Map<string, (typeof tasks)[number]>();
+  for (const t of tasks) {
+    if (t.claudeChecker === undefined) continue;
+    const key = t.agentId ?? '';
+    const cur = newest.get(key);
+    if (!cur || Date.parse(t.updatedAt) > Date.parse(cur.updatedAt)) newest.set(key, t);
+  }
+  const out: CheckerWho[] = [];
+  for (const [id, t] of newest) if (t.claudeChecker === 'fallback') { const agent = id ? agentName(id) : undefined; out.push({ ...(agent ? { agent } : {}), ...(t.claudeCheckerModel ? { model: t.claudeCheckerModel } : {}) }); }
+  return out;
 }

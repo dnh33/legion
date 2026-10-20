@@ -69,7 +69,7 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { Catalog, McpStatusView, TodoItem } from '../shared/types.js';
-import { CHECKER_FALLBACK_LINE } from '../shared/claude-checks-copy.js';
+import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -3050,22 +3050,24 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * The init message says which Claude mode the run really got. Smart asked for auto; a model, plan or CLI without it runs in Claude's default mode
    * (no error, no warning). That is shown once, in plain words, and Legion's own Smart judge is never used instead.
    */
-  private noteCheckerMode(job: Job, act: Active, given: unknown): void {
+  private noteCheckerMode(job: Job, act: Active, given: unknown, model?: unknown): void {
     if (!act.nativeChecks || typeof given !== 'string') return;
     const asked = act.sdkMode;
     act.sdkMode = given as ClaudeSdkMode;
     if (asked !== 'auto') return;
     if (given === 'auto') { this.patchTask(job.taskId, { claudeChecker: 'on' }); return; }
-    this.markCheckerFallback(job, act);
+    this.markCheckerFallback(job, act, typeof model === 'string' ? model : undefined);
   }
 
   /** The run cannot use Claude's own checker: the task says so (the chip), and the thread and the activity log say it once. */
-  private markCheckerFallback(job: Job, act: Active): void {
-    this.patchTask(job.taskId, { claudeChecker: 'fallback' });
+  private markCheckerFallback(job: Job, act: Active, model?: string): void {
+    this.patchTask(job.taskId, { claudeChecker: 'fallback', ...(model ? { claudeCheckerModel: model } : {}) });
     if (act.checkerNoted) return;
     act.checkerNoted = true;
-    this.addMessage(job.taskId, 'system', CHECKER_FALLBACK_LINE);
-    this.noteChecker(job, act, CHECKER_FALLBACK_LINE);
+    const name = this.store.getAgent(job.agentId)?.name;
+    const line = checkerFallbackLine([{ ...(name ? { agent: name } : {}), ...(model ? { model } : {}) }]);
+    this.addMessage(job.taskId, 'system', line);
+    this.noteChecker(job, act, line);
   }
 
   /**
@@ -3086,7 +3088,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (!mine || mine.supportsAutoMode === true) return;
     options.permissionMode = 'default';
     act.sdkMode = 'default';
-    this.markCheckerFallback(job, act);
+    this.markCheckerFallback(job, act, String(model));
   }
 
   /** Process one SDK message; returns an Outcome for `result` messages. */
@@ -3102,7 +3104,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           act.reached = true;
           this.patchTask(taskId, { sessionId: msg.session_id, resumable: true });
           this.noteMcpInit(act, msg.mcp_servers);
-          this.noteCheckerMode(job, act, msg.permissionMode);
+          this.noteCheckerMode(job, act, msg.permissionMode, msg.model);
         } else if (msg.subtype === 'permission_denied') {
           // Claude's own checker said no: the owner sees what and why. A denial by Legion's hooks or the owner's own answer is already on record.
           // (the hook and the permission prompt are Legion's own, as is the owner's answer on a card)

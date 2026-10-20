@@ -111,7 +111,7 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
           return (
             <label key={c.id} className={`gates-row gates-choice${why ? ' off' : ''}`}>
               <input type="radio" name={groupName} checked={current === c.id} disabled={!!why} onChange={() => setPreset(c.id)} />
-              <span><b>{c.label}</b><span className="field-note">{why ?? c.line}</span>
+              <span><b>{c.label}</b><span className="field-note">{why ?? (claudeOn && c.id !== 'bypass' ? `Other providers: ${c.line}` : c.line)}</span>
                 {claudeOn && <span className="field-note gates-claude-line">Claude agents: {CLAUDE_PRESET_LINES[c.id]}</span>}</span>
             </label>
           );

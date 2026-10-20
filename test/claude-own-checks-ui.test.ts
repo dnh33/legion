@@ -12,7 +12,7 @@ import { build } from 'esbuild';
 import { GatesError, GatesStore } from '../src/core/gates-settings/store.js';
 import { makeSigner } from '../src/core/gates-settings/sign.js';
 import {
-  ALLOW_RULES_LINE, CHECKER_CHIP, CHECKER_FALLBACK_LINE, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, CLAUDE_PRESET_LINES,
+  ALLOW_RULES_LINE, checkerChipText, checkerFallbackLine, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, CLAUDE_PRESET_LINES,
   FIRST_RUN_CLAUDE_LINE, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE,
 } from '../src/shared/claude-checks-copy.js';
 import { PRESETS } from '../src/shared/gates-registry.js';
@@ -27,6 +27,8 @@ const view = (app: Partial<GatesView['app']> = {}, o: Partial<GatesView> = {}): 
 const agent = (id: string, model = 'auto', seed = false) => ({ id, name: id, approval: 'ask' as const, approvalSource: 'own' as const, model, ...(seed ? { seedApproval: true as const } : {}) });
 const KEY = makeSigner(Buffer.alloc(32, 7))!;
 const dir = () => join(cleanupTemp('legion-claude-ui-'), 'gates');
+const WHO = [{ agent: 'Scout', model: 'haiku' }];
+const FB = checkerFallbackLine(WHO);
 const plain = (html: string): string => html.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 // ---------------------------------------------------------------- the saved flag
@@ -77,33 +79,47 @@ test('the one-time notice: an installed app with Claude agents and the switch on
   assert.equal(shouldShowClaudeNotice(view(), [agent('a', 'auto', true), agent('b', 'auto', true)]), false, 'fresh install, first-run screen pending');
 });
 
-test('the fallback is known from the newest task that reports a checker', () => {
-  const t = (id: string, at: string, claudeChecker?: 'on' | 'fallback') => ({ id, updatedAt: at, ...(claudeChecker ? { claudeChecker } : {}) });
-  assert.equal(checkerFallbackNow([]), false);
-  assert.equal(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z')]), false);
-  assert.equal(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z', 'fallback')]), true);
-  assert.equal(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z', 'fallback'), t('2', '2026-10-20T11:00:00Z', 'on')]), false, 'a later run with the checker clears it');
-  assert.equal(checkerFallbackNow([t('1', '2026-10-20T12:00:00Z'), t('2', '2026-10-20T11:00:00Z', 'fallback')]), true, 'a task that reports nothing does not clear it');
+test('the fallback is known from the newest task of each agent that reports a checker, and names the agent and the model', () => {
+  const t = (id: string, at: string, agentId: string, claudeChecker?: 'on' | 'fallback', claudeCheckerModel?: string) => ({ id, agentId, updatedAt: at, ...(claudeChecker ? { claudeChecker } : {}), ...(claudeCheckerModel ? { claudeCheckerModel } : {}) });
+  const name = (id: string) => ({ a1: 'Scout', a2: 'Builder' } as Record<string, string>)[id];
+  assert.deepEqual(checkerFallbackNow([], name), []);
+  assert.deepEqual(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z', 'a1')], name), []);
+  assert.deepEqual(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z', 'a1', 'fallback', 'haiku')], name), [{ agent: 'Scout', model: 'haiku' }]);
+  assert.deepEqual(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z', 'a1', 'fallback', 'haiku'), t('2', '2026-10-20T11:00:00Z', 'a1', 'on')], name), [], 'a later run with the checker clears it');
+  assert.deepEqual(checkerFallbackNow([t('1', '2026-10-20T12:00:00Z', 'a1'), t('2', '2026-10-20T11:00:00Z', 'a1', 'fallback', 'haiku')], name), [{ agent: 'Scout', model: 'haiku' }], 'a task that reports nothing does not clear it');
+  assert.deepEqual(checkerFallbackNow([t('1', '2026-10-20T10:00:00Z', 'a1', 'fallback', 'haiku'), t('2', '2026-10-20T10:00:00Z', 'a2', 'fallback', 'sonnet-x'), t('3', '2026-10-20T10:00:00Z', 'a3', 'on')], name), [{ agent: 'Scout', model: 'haiku' }, { agent: 'Builder', model: 'sonnet-x' }], 'one entry per agent');
+  assert.equal(checkerFallbackLine([{ agent: 'Scout', model: 'haiku' }, { agent: 'Builder', model: 'sonnet-x' }]), "Claude's checker is not available for Scout on haiku and Builder on sonnet-x, so Claude asks you as in Ask.");
+  assert.doesNotMatch(checkerFallbackLine([]), /this model/);
+  assert.doesNotMatch(checkerFallbackLine(WHO), /this model/);
 });
 
-test('the run chip says the checker is off, once, with the full line as its hover', () => {
+test('the run chip is one chip: "Smart: Claude asks as in Ask (no checker for <model>)", with the full line as its hover', () => {
   const ra = { mode: 'smart' as const };
   const on = runChips({ runsAs: ra, claudeChecker: 'on' } as never, agent('a') as never, [], null);
   assert.equal(on.checker, undefined);
+  assert.ok(on.runsAs && !/no checker/.test(on.runsAs.text));
   const none = runChips({ runsAs: ra } as never, agent('a') as never, [], null);
   assert.equal(none.checker, undefined);
-  const off = runChips({ runsAs: ra, claudeChecker: 'fallback' } as never, agent('a') as never, [], null);
-  assert.deepEqual(off.checker, { text: CHECKER_CHIP, title: CHECKER_FALLBACK_LINE });
+  const off = runChips({ runsAs: ra, claudeChecker: 'fallback', claudeCheckerModel: 'haiku' } as never, { ...agent('a'), name: 'Scout' } as never, [], null);
+  assert.equal(off.checker, undefined, 'no second chip next to "Runs as Smart"');
+  assert.equal(off.runsAs?.text, 'Smart: Claude asks as in Ask (no checker for haiku)');
+  assert.ok(off.runsAs?.title?.includes(FB));
+  // a run with no "Runs as" chip keeps one of its own
+  const alone = runChips({ claudeChecker: 'fallback' } as never, agent('a') as never, [], null);
+  assert.equal(alone.checker?.text, checkerChipText());
+  assert.doesNotMatch(alone.checker?.title ?? '', /this model/);
 });
 
 test('the words: every line is plain, with no em dash and no "this computer"', () => {
   const all = [
-    CHECKER_FALLBACK_LINE, CHECKER_CHIP, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, OTHER_PROVIDERS_LINE, CLAUDE_CHECKS_OFF_LINE, ALLOW_RULES_LINE, FIRST_RUN_CLAUDE_LINE,
+    FB, checkerChipText('haiku'), checkerChipText(), CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, OTHER_PROVIDERS_LINE, CLAUDE_CHECKS_OFF_LINE, ALLOW_RULES_LINE, FIRST_RUN_CLAUDE_LINE,
     ...Object.values(CLAUDE_PRESET_LINES), ...Object.values(CLAUDE_NOTICE), ...LEARN_MORE_GROUPS.flatMap((g) => [g.title, ...g.lines]),
   ].join('\n');
   assert.doesNotMatch(all, /—|–/);
   assert.doesNotMatch(all, /this (computer|machine)/i);
-  assert.equal(CHECKER_FALLBACK_LINE, "Claude's checker is not available for this model, so Claude asks you as in Ask.");
+  assert.equal(FB, "Claude's checker is not available for Scout on haiku, so Claude asks you as in Ask.");
+  assert.match(CLAUDE_NOTICE.text, /file edits and file commands in your project run without asking, including deleting and moving files \(rm, mv, cp\)\. Commands like git push still ask\./);
+  assert.equal(CLAUDE_PRESET_LINES['accept-edits'], 'File edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask.');
   assert.equal(CLAUDE_CHECKS_LABEL, "Claude agents follow Claude's own permission checks");
   assert.equal(OTHER_PROVIDERS_LINE, "Other providers (OpenRouter, DeepSeek, custom) use Legion's own checks.");
   assert.deepEqual(Object.keys(CLAUDE_PRESET_LINES).sort(), [...PRESETS].sort(), 'a line for every preset');
@@ -158,7 +174,7 @@ const switchOff = /role="switch"[^>]*disabled=""|disabled=""[^>]*role="switch"/;
 test('render: the switch is on, says what it means, names where it does not apply, and keeps the details behind Learn more', async () => {
   const { r, cleanup } = await loadUi();
   try {
-    const html = r.card({ view: view(), busy: false, note: null, fallback: false });
+    const html = r.card({ view: view(), busy: false, note: null, fallback: [] });
     const text = plain(html);
     assert.ok(text.includes(CLAUDE_CHECKS_LABEL));
     assert.match(html, switchOn, 'on');
@@ -167,8 +183,8 @@ test('render: the switch is on, says what it means, names where it does not appl
     assert.ok(text.includes(LEARN_MORE));
     assert.match(html, /aria-expanded="false"/);
     assert.ok(!text.includes(LEARN_MORE_GROUPS[0]!.lines[0]!), 'the help is closed until asked for');
-    assert.ok(!text.includes(CHECKER_FALLBACK_LINE));
-    const open = plain(r.card({ view: view(), busy: false, note: null, fallback: false, defaultOpen: true }));
+    assert.ok(!text.includes(FB));
+    const open = plain(r.card({ view: view(), busy: false, note: null, fallback: [], defaultOpen: true }));
     assert.ok(open.includes(LEARN_LESS));
     for (const g of LEARN_MORE_GROUPS) { assert.ok(open.includes(g.title), g.title); for (const l of g.lines) assert.ok(open.includes(l), l); }
     assert.ok(!open.includes(CLAUDE_PRESET_LINES.smart), 'what each preset does is on the presets themselves, not repeated in the help');
@@ -178,16 +194,16 @@ test('render: the switch is on, says what it means, names where it does not appl
 test('render: off is unticked and says what off means; turning it on needs a signing key, turning it off does not', async () => {
   const { r, cleanup } = await loadUi();
   try {
-    const off = r.card({ view: view({ claudeOwnChecks: false }), busy: false, note: null, fallback: true });
+    const off = r.card({ view: view({ claudeOwnChecks: false }), busy: false, note: null, fallback: WHO });
     assert.doesNotMatch(off, /role="switch"[^>]*checked=""|checked=""[^>]*role="switch"/);
     assert.ok(plain(off).includes(CLAUDE_CHECKS_OFF_LINE));
-    assert.ok(!plain(off).includes(CHECKER_FALLBACK_LINE), 'the checker is not used while the switch is off, so there is nothing to report');
-    const noKeyOff = r.card({ view: view({ claudeOwnChecks: false }, { canSign: false }), busy: false, note: null, fallback: false });
+    assert.ok(!plain(off).includes(FB), 'the checker is not used while the switch is off, so there is nothing to report');
+    const noKeyOff = r.card({ view: view({ claudeOwnChecks: false }, { canSign: false }), busy: false, note: null, fallback: [] });
     assert.match(noKeyOff, switchOff, 'on needs the key');
     assert.ok(plain(noKeyOff).includes(KEYSTORE_LINE));
-    const noKeyOn = r.card({ view: view({}, { canSign: false }), busy: false, note: null, fallback: false });
+    const noKeyOn = r.card({ view: view({}, { canSign: false }), busy: false, note: null, fallback: [] });
     assert.doesNotMatch(noKeyOn, switchOff, 'off is always allowed');
-    const busy = r.card({ view: view(), busy: true, note: null, fallback: false });
+    const busy = r.card({ view: view(), busy: true, note: null, fallback: [] });
     assert.match(busy, switchOff);
   } finally { cleanup(); }
 });
@@ -195,8 +211,8 @@ test('render: off is unticked and says what off means; turning it on needs a sig
 test('render: the fallback line shows once on the card while the switch is on, and a failed change shows its message', async () => {
   const { r, cleanup } = await loadUi();
   try {
-    const html = r.card({ view: view(), busy: false, note: { tone: 'error', text: 'The change was not made.' }, fallback: true });
-    assert.equal(plain(html).split(CHECKER_FALLBACK_LINE).length - 1, 1, 'once');
+    const html = r.card({ view: view(), busy: false, note: { tone: 'error', text: 'The change was not made.' }, fallback: WHO });
+    assert.equal(plain(html).split(FB).length - 1, 1, 'once');
     assert.match(html, /role="alert"/);
     assert.ok(plain(html).includes('The change was not made.'));
   } finally { cleanup(); }
@@ -208,8 +224,11 @@ test('render: the presets say what Claude does in each one while the switch is o
     const on = plain(r.presets({ view: view() }));
     for (const p of PRESETS) assert.ok(on.includes(CLAUDE_PRESET_LINES[p]), p);
     assert.equal(on.split('Claude agents:').length - 1, 4, 'one line per preset');
+    assert.equal(on.split('Other providers:').length - 1, 3, 'the Legion-checks text of Ask, Accept edits and Smart is labelled; Bypass reads the same for both');
+    assert.ok(on.includes('Other providers: Asks before anything that reaches the web'));
     const off = plain(r.presets({ view: view({ claudeOwnChecks: false }) }));
     for (const p of PRESETS) assert.ok(!off.includes(CLAUDE_PRESET_LINES[p]), `${p} off`);
+    assert.ok(!off.includes('Other providers:'), 'switch off: the lines are the only description');
     // a project scope shows them too: the switch is one setting for the whole app
     const proj = plain(r.presets({ view: view({}, { projects: { proj_000000000001: { version: 1 } } }), scope: 'proj_000000000001', projects: [{ id: 'proj_000000000001', name: 'Shop', members: [] }] }));
     assert.ok(proj.includes(CLAUDE_PRESET_LINES.smart));
@@ -250,15 +269,17 @@ test('render: the Allow rules line for Claude agents shows only while the switch
   } finally { cleanup(); }
 });
 
-test('render: the run chip for a run without Claude\'s checker, with the full line for screen readers and on hover', async () => {
+test('render: the run chip for a run without Claude\'s checker is one chip, with the full line for screen readers and on hover', async () => {
   const { r, cleanup } = await loadUi();
   try {
-    const task = { runsAs: { mode: 'smart' }, claudeChecker: 'fallback' };
-    const html = r.chips({ task, agent: agent('a'), projects: [], view: view() });
-    assert.ok(plain(html).includes(CHECKER_CHIP));
-    assert.ok(html.includes(`title="${CHECKER_FALLBACK_LINE.replace(/'/g, '&#x27;')}"`), 'the hover is the whole line');
-    assert.ok(plain(html).includes(CHECKER_FALLBACK_LINE), 'and so is the screen-reader text');
+    const task = { runsAs: { mode: 'smart' }, claudeChecker: 'fallback', claudeCheckerModel: 'haiku' };
+    const html = r.chips({ task, agent: { ...agent('a'), name: 'Scout' }, projects: [], view: view() });
+    assert.ok(plain(html).includes(checkerChipText('haiku')));
+    assert.equal((html.match(/chip-pill/g) ?? []).length, 1, 'one chip, not "Runs as Smart" next to a second one');
+    assert.ok(!/Runs as Smart/.test(plain(html)));
+    assert.ok(html.includes(FB.replace(/'/g, '&#x27;')), 'the hover holds the whole line');
+    assert.ok(plain(html).includes(FB), 'and so does the screen-reader text');
     const fine = r.chips({ task: { runsAs: { mode: 'smart' }, claudeChecker: 'on' }, agent: agent('a'), projects: [], view: view() });
-    assert.ok(!plain(fine).includes(CHECKER_CHIP));
+    assert.ok(!plain(fine).includes('no checker for'));
   } finally { cleanup(); }
 });
