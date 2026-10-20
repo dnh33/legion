@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CONFIRM_BUSY, deferFocus, waitUntilFree } from '../src/electron/confirm-window-logic.js';
+import { CONFIRM_BUSY, ConfirmBusyError, deferFocus, underLock } from '../src/electron/confirm-window-logic.js';
 import { makePickFolder, projectChange } from '../src/electron/project-ipc.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -64,15 +64,27 @@ test('pickFolder: the chooser holds the confirm lock while it is open, so a card
   assert.equal(lock.held, false, 'freed after an error too');
 });
 
-test('waitUntilFree: returns at once when no card is open, and otherwise waits (no refusal) until it is gone', async () => {
+test('underLock: a system dialog holds the confirm lock while it is open (a card asked meanwhile is busy, never under it) and frees it on every ending', async () => {
+  const lock = fakeLock();
+  let heldDuring: boolean | undefined;
+  assert.equal(await underLock(lock, async () => { heldDuring = lock.held; return 7; }), 7);
+  assert.equal(heldDuring, true);
+  assert.equal(lock.held, false, 'freed when it closes');
+  await assert.rejects(underLock(lock, async () => { throw new Error('boom'); }), /boom/);
+  assert.equal(lock.held, false, 'freed after an error');
+});
+
+test('underLock: refuses (busy) while a card is open, without showing anything; with wait it waits for the card instead, then holds', async () => {
+  const lock = fakeLock(true);
+  let shown = 0;
+  await assert.rejects(underLock(lock, async () => { shown++; }), (e) => e instanceof ConfirmBusyError);
+  assert.equal(shown, 0, 'nothing opened over the card');
   let slept = 0;
-  await waitUntilFree(() => false, { sleep: async () => { slept++; } });
-  assert.equal(slept, 0);
-  const busy = [true, true, true, false];
-  let i = 0;
-  await waitUntilFree(() => busy[i++]!, { sleep: async () => { slept++; } });
+  const p = underLock(lock, async () => { shown++; return lock.held; }, { wait: true, sleep: async () => { slept++; if (slept === 3) lock.release(); } });
+  assert.equal(await p, true, 'shown once the card is gone, holding the lock');
   assert.equal(slept, 3);
-  assert.equal(i, 4, 'asked again after each wait');
+  assert.equal(shown, 1);
+  assert.equal(lock.held, false);
 });
 
 test('deferFocus: the page gaining focus gives the card its focus on the next turn (inside the event Chromium would undo it), and an ended card never takes it', () => {
@@ -104,21 +116,27 @@ test('the wiring: the page focus is deferred and cleared at the end, the window 
   assert.match(win, /wheel/i);
 });
 
-test('the system dialogs a page can reach are guarded: folder chooser and Restart now refuse while a card is open; the outcome notice and the core questions wait', () => {
-  assert.match(win, /export const nativeDialogAllowed = \(\): boolean => !confirmWindowBusy\(\);/);
-  assert.match(main, /makePickFolder\(dialog, \(\) => win, \{ hold: holdConfirmWindow, release: releaseConfirmWindow \}\)/);
-  assert.doesNotMatch(main, /dialog\.showOpenDialog/, 'the chooser lives in the guarded factory');
-  assert.match(read('src/electron/project-ipc.ts'), /showOpenDialog/);
-  // updater-main keeps its own dialogs and imports nothing from the card (the pin in confirm-window-pins): the host hands it two functions
-  assert.match(main, /cardOpen: \(\) => !nativeDialogAllowed\(\), cardFree: \(\) => waitUntilFree\(confirmWindowBusy\)/);
-  const apply = /async function applyNow[\s\S]*?\n}\n/.exec(upd)![0];
-  const gate = apply.indexOf('h.cardOpen()');
-  assert.ok(gate > 0 && gate < apply.indexOf('dialog.showMessageBox(w, opts)'), 'refused before the dialog');
-  assert.match(apply, /if \(dialogOpen \|\| h\.cardOpen\(\)\) return \{ ok: false, error: 'A confirmation is already open\. Answer it first\.' \};/, 'the existing busy text');
-  const notice = /export async function showOutcomeNotice[\s\S]*?\n}\n/.exec(upd)![0];
-  assert.equal((notice.match(/await h\.cardFree\(\);/g) ?? []).length, 2, 'both notice dialogs wait for a free card');
-  for (const m of notice.matchAll(/await h\.cardFree\(\);/g)) assert.match(notice.slice(m.index!, m.index! + 500), /dialog\.showMessageBox/);
-  const ensure = /async function askRestartForeignCore[\s\S]*?\n}\n/.exec(main)![0];
-  assert.match(ensure, /await waitUntilFree\(confirmWindowBusy\);[^\n]*\n\s*const r = await dialog\.showMessageBox/);
-  assert.match(main, /waitUntilFree\(confirmWindowBusy\)\.then\(\(\) => dialog\.showMessageBox\(\{ type: 'info', message: 'Legion Core was started outside this app\./);
+test('the wiring: every system dialog a card could meet holds the lock (the chooser and Restart now refuse; the notices and the core questions wait)', () => {
+  const has = (src: string, s: string, why?: string) => assert.ok(src.includes(s), why ?? s);
+  const fn = (src: string, head: string): string => { const i = src.indexOf(head); assert.ok(i >= 0, head); return src.slice(i, src.indexOf('\n}\n', i)); };
+  has(main, 'const confirmLock = { hold: holdConfirmWindow, release: releaseConfirmWindow };');
+  has(main, 'makePickFolder(dialog, () => win, confirmLock)');
+  assert.ok(!main.includes('dialog.showOpenDialog'), 'the chooser lives in the guarded factory');
+  has(read('src/electron/project-ipc.ts'), 'underLock(lock, ');
+  for (const old of ['waitUntilFree', 'cardOpen', 'cardFree']) assert.ok(!(main + upd).includes(old), `the old check-only wiring is gone: ${old}`);
+  // updater-main imports nothing from the card (the pin in confirm-window-pins): the host hands it one guarded dialog
+  has(main, 'underLock(confirmLock, show, o).catch((e: unknown) => { if (e instanceof ConfirmBusyError) return undefined; throw e; });');
+  has(main, 'getWin: () => win, cardDialog,');
+  const apply = fn(upd, 'async function applyNow');
+  has(apply, 'const r = await h.cardDialog(() => ');
+  has(apply, "if (!r) return { ok: false, error: 'A confirmation is already open. Answer it first.' };");
+  const notice = fn(upd, 'export async function showOutcomeNotice');
+  assert.equal(notice.split('h.cardDialog(').length - 1, 2, 'both notice dialogs hold the lock');
+  assert.equal(notice.split('{ wait: true }').length - 1, 2, 'and wait for it');
+  // each guarded call picks one of two dialog calls (with or without the Legion window), so there are exactly two per cardDialog and none outside
+  for (const src of [apply, notice]) assert.equal(src.split('dialog.showMessageBox(').length - 1, 2 * (src.split('h.cardDialog(').length - 1), 'every dialog sits inside cardDialog');
+  const ask = fn(main, 'async function askRestartForeignCore');
+  has(ask, 'underLock(confirmLock, () => dialog.showMessageBox(');
+  has(ask, '{ wait: true }');
+  has(main, "void underLock(confirmLock, () => dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.");
 });

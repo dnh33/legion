@@ -28,10 +28,11 @@ export interface UpdaterHost {
   dataDir: string;
   ownCoreCall: CoreCall;
   getWin(): BrowserWindow | null;
-  /** True while a confirm card is open (main knows; this file imports nothing from it). A system dialog the page can ask for refuses then. */
-  cardOpen(): boolean;
-  /** Resolves when no confirm card is open: a notice nobody asked for waits instead of opening over it. */
-  cardFree(): Promise<void>;
+  /**
+   * Shows a system dialog while holding the confirm lock (main owns it; this file imports nothing from the card), so it never opens over a card and no
+   * card opens under it. Resolves undefined, with nothing shown, when a card is open; with `wait` it waits for the card instead (a notice nobody asked for).
+   */
+  cardDialog<T>(show: () => Promise<T>, o?: { wait?: boolean }): Promise<T | undefined>;
   uiUrl: string;
   pinnedPort(): number;
   stopCore(): Promise<void>;
@@ -128,7 +129,7 @@ let noticeShown = false;
  * After the window is up and the core answers: if the last update did not finish and nobody has acknowledged it, say so once, in a dialog on
  * the Legion window. Retry downloads and installs again; Dismiss (or Esc) clears the record.
  */
-export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin' | 'cardFree'>, dataDirPath: string): Promise<void> {
+export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin' | 'cardDialog'>, dataDirPath: string): Promise<void> {
   if (noticeShown) return;
   const n = outcomeNotice(readOutcome(h.installDir));
   if (!n) return;
@@ -151,16 +152,15 @@ export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'own
       if (res.kind === 'later') log0(res.line);
       return;
     }
-    await h.cardFree(); // never over a confirm card; the record stays in Settings meanwhile
-    const w = h.getWin();
+    // never over a confirm card, and no card under it: it waits for the card and holds the lock while open; the record stays in Settings meanwhile
     const opts = { type: 'warning' as const, title: n.title, message: n.message, buttons: [...n.buttons], defaultId: 0, cancelId: 1, noLink: true };
-    const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
+    const r = await h.cardDialog(() => { const w = h.getWin(); return w && !w.isDestroyed() ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts); }, { wait: true });
+    if (!r) return;
     const log = (line: string): void => { writeAppLog(dataDirPath, 'info', 'outcome-notice', { note: line }); };
     const res = await runNoticeChoice(n, r.response, (m, route, body) => h.ownCoreCall(m, route, body), log);
     if (res.kind === 'later') {
       const o2 = { type: 'info' as const, title: n.title, message: res.line, buttons: ['OK'], defaultId: 0, noLink: true };
-      await h.cardFree();
-      if (w && !w.isDestroyed()) await dialog.showMessageBox(w, o2); else await dialog.showMessageBox(o2);
+      await h.cardDialog(() => { const w = h.getWin(); return w && !w.isDestroyed() ? dialog.showMessageBox(w, o2) : dialog.showMessageBox(o2); }, { wait: true });
     }
   } catch (e) { writeAppLog(dataDirPath, 'warn', 'outcome-notice', { note: `the notice failed: ${e instanceof Error ? e.message : String(e)}` }); /* the Settings panel still shows the record */ }
 }
@@ -189,13 +189,14 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
     if (!st || st.status !== 200) return { ok: false, error: 'Legion could not reach its own core.' };
     if (!st.json.staged || !st.json.consent) return { ok: false, error: 'No approved update is ready.' };
     if (force) {
-      if (dialogOpen || h.cardOpen()) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
+      if (dialogOpen) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
       dialogOpen = true;
       try {
         const t = restartNowText(st.json.busy?.reasons ?? [], st.json.staged.version);
-        const w = h.getWin();
         const opts = { type: 'warning' as const, title: 'Restart Legion', message: t.message, detail: t.detail, buttons: [...t.buttons], defaultId: 0, cancelId: 0, noLink: true };
-        const r = w && !w.isDestroyed() && w.isVisible() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
+        // the page can ask for this: refused while a card is open, and it holds the lock while open so no card opens under it
+        const r = await h.cardDialog(() => { const w = h.getWin(); return w && !w.isDestroyed() && w.isVisible() ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts); });
+        if (!r) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
         if (r.response !== 1) return { ok: false, cancelled: true };
       } finally { dialogOpen = false; }
       const d = await h.ownCoreCall('POST', '/api/update/drain', {}, true);

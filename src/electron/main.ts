@@ -9,8 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
-import { CONFIRM_BUSY, ConfirmBusyError, waitUntilFree } from './confirm-window-logic.js';
-import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, nativeDialogAllowed, releaseConfirmWindow } from './confirm-window.js';
+import { CONFIRM_BUSY, ConfirmBusyError, underLock } from './confirm-window-logic.js';
+import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, releaseConfirmWindow } from './confirm-window.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
@@ -79,6 +79,11 @@ let adminSecret: string | undefined;
 let nativeSecret: string | undefined;
 /** True while a BSV confirmation dialog is open: a second request waits for the person, it does not stack dialogs. */
 let bsvDialogOpen = false;
+/** The confirm lock for system dialogs (the folder chooser, the core questions, the updater): held while one is open, so no confirm card opens under it. */
+const confirmLock = { hold: holdConfirmWindow, release: releaseConfirmWindow };
+/** A system dialog for the updater under the confirm lock: undefined (nothing shown) while a card is open, unless it waits. */
+const cardDialog = <T,>(show: () => Promise<T>, o?: { wait?: boolean }): Promise<T | undefined> =>
+  underLock(confirmLock, show, o).catch((e: unknown) => { if (e instanceof ConfirmBusyError) return undefined; throw e; });
 /** What `legion:bootstrap` hands to the renderer: set only after /health proved the core on the port is our child and holds the secret. */
 let rendererAdmin: string | undefined;
 /**
@@ -226,15 +231,15 @@ async function spawnCore(port: number): Promise<string | null> {
 
 /** Asks what to do with a foreign core that is busy. true = restart it now. */
 async function askRestartForeignCore(): Promise<boolean> {
-  await waitUntilFree(confirmWindowBusy); // a restart can be asked for by the page: this system dialog never opens over a confirm card
-  const r = await dialog.showMessageBox({
+  // a restart can be asked for by the page: this system dialog waits for an open confirm card and holds the lock while open (no card under it)
+  const r = await underLock(confirmLock, () => dialog.showMessageBox({
     type: 'question',
     buttons: ['Restart now', 'Later'],
     defaultId: 1, cancelId: 1,
     message: 'Legion Core was started outside this app and is busy.',
     detail: 'Approvals and settings stay locked until Legion restarts it, because only a core started by this app holds the admin key. '
       + 'Restarting now cuts off its running tasks and pending approvals. Later keeps it running; use Restart core in the tray menu when it is idle.',
-  });
+  }), { wait: true });
   return r.response === 0;
 }
 
@@ -251,7 +256,7 @@ async function ensureCore(): Promise<string | null> {
     const action = coreAction({ health, ownProof: !!mine, busy, selfPid: process.pid, listeners });
     if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
     if (action === 'blocked') {
-      void waitUntilFree(confirmWindowBusy).then(() => dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' })).catch(() => {});
+      void underLock(confirmLock, () => dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }), { wait: true }).catch(() => {});
       pinned = readConfig(); rendererAdmin = undefined;
       return null;
     }
@@ -663,7 +668,7 @@ if (instance.quit) {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
     // the chooser is a system window the page can ask for: it holds the confirm lock while open, so it never covers a card and no card opens under it
-    const pickFolder = makePickFolder(dialog, () => win, { hold: holdConfirmWindow, release: releaseConfirmWindow });
+    const pickFolder = makePickFolder(dialog, () => win, confirmLock);
     try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {
@@ -736,7 +741,7 @@ if (instance.quit) {
     await boot();
     if (coreBooted) void confirmAfterBoot(root, dataDir(), () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
-    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, cardOpen: () => !nativeDialogAllowed(), cardFree: () => waitUntilFree(confirmWindowBusy), uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
+    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, cardDialog, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
     initUpdater(updaterHost);
     if (coreBooted) void showOutcomeNotice(updaterHost, dataDir()); // an update that did not finish says so once, with Retry and Dismiss
   });

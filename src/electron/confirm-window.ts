@@ -8,7 +8,7 @@
  * While the card is open the app behind it gets no mouse down, up or move (the card covers it, and main drops what reaches the page anyway) and no keyboard
  * (main drops every key for the Legion page), and the card is focused whenever the Legion window or its page gains it (for the page, on the next turn). A
  * wheel over the card goes to the card, because it is the topmost view; the mouse hook carries no wheel, so a wheel sent to the page by other means is not
- * dropped. No system dialog that the Legion page can ask for opens over the card: see `nativeDialogAllowed`. Closing the Legion window, quitting, a crash and a timeout all end as "no", and the view is removed every time.
+ * dropped. No system dialog opens over the card, and no card under one: main shows them under the confirm lock (`underLock` in the logic file). Closing the Legion window, quitting, a crash and a timeout all end as "no", and the view is removed every time.
  *
  * It takes the place of dialog.showMessageBox for those questions: `confirmWindow.showMessageBox([parent,] options)` gives `{ response }` like Electron's,
  * honouring buttons, defaultId and cancelId. The parent argument is accepted for the same call shape and ignored: the question is always shown in the
@@ -50,8 +50,6 @@ let held = false;
 export const confirmWindowBusy = (): boolean => busy || held;
 export function holdConfirmWindow(): boolean { if (busy || held) return false; held = true; return true; }
 export function releaseConfirmWindow(): void { held = false; }
-/** False while a question is open or held: a system dialog (the folder chooser, Restart now) must not open over the card, where it would take its mouse and keys. */
-export const nativeDialogAllowed = (): boolean => !confirmWindowBusy();
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 /** JSON is valid script apart from these two separators in old engines; escaping them costs nothing. */

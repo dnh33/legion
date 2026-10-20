@@ -225,13 +225,17 @@ export async function orBusy<T>(flow: Promise<T>, busy: T): Promise<T> {
   try { return await flow; } catch (e) { if (e instanceof ConfirmBusyError) return busy; throw e; }
 }
 
+/** The confirm lock as main hands it out: `hold` fails while a card is open or the lock is held. */
+export interface ConfirmLock { hold(): boolean; release(): void }
 /**
- * Waits (no refusal) until no question is open. For a system dialog that no page can ask for, such as a notice from the updater or a question about a
- * core that was started outside Legion: it must not open over the card, and it must not be lost either.
+ * Shows a system dialog while holding the confirm lock, so it never opens over a card and no card opens under it (a card asked meanwhile is busy).
+ * By default a held lock refuses with ConfirmBusyError and shows nothing (a dialog the Legion page can ask for). With `wait`, it waits for the lock
+ * instead (a notice from the updater, a question about a core started outside Legion: it must not be lost). The lock is freed on every ending.
  */
-export async function waitUntilFree(isBusy: () => boolean, o: { pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<void> {
+export async function underLock<T>(lock: ConfirmLock, show: () => Promise<T>, o: { wait?: boolean; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<T> {
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  while (isBusy()) await sleep(o.pollMs ?? 500);
+  while (!lock.hold()) { if (!o.wait) throw new ConfirmBusyError(); await sleep(o.pollMs ?? 500); }
+  try { return await show(); } finally { lock.release(); }
 }
 
 /**
