@@ -93,7 +93,7 @@ scripts die).
   (`test/bsv-scan.ts`, `test/bsv-tripwire*.test.ts`, `test/bsv-hedge.test.ts`) stay as they are. Child processes may
   be spawned only in files the tripwire lists.
 - The owner's funded BSV wallet is never contacted by repo code, tests, scripts, the harness or a cloud agent. Keys
-  never live in Legion. Every spend is a manual confirmation in Legion's confirm window (or the system dialog if it cannot open). Signing, spending or broadcasting needs the
+  never live in Legion. Every spend is a manual confirmation in Legion's confirm card (or the system dialog if it cannot open). Signing, spending or broadcasting needs the
   owner's explicit go-ahead for that action, with the amount and the address, tiny amounts first.
 - No keys, tokens or `.legion` data in the repo, logs or reports. Redact any secret-shaped value to a short prefix.
 - The mascot art is untouchable: effects and logic only, never repaint.
@@ -156,7 +156,7 @@ These fail quietly, which is worse than failing loudly:
 - The owner's private notes are **not** available here. This file, `docs/`, and `claude/` are your context. Do
   not stop or complain about it.
 - Your working copy disappears when the session ends. **Push your branch before you finish** (`claude/...`).
-- You cannot run Windows, a real Blender, a real wallet, Electron's windows and dialogs (Legion's confirm window and the system dialogs) or the owner's accounts. Anything
+- You cannot run Windows, a real Blender, a real wallet, Electron's windows and dialogs (Legion's confirm card and the system dialogs) or the owner's accounts. Anything
   you could not verify for that reason is **not done**: add it to `docs/design/tracker-pc-checks.md` and list it under
   "Needs a real PC". Never mark such a feature verified in the docs or the changelog until its check is recorded as
   passed.

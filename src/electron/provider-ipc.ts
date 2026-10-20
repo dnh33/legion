@@ -10,14 +10,14 @@ import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import type { ConfirmExtras } from './confirm-window-logic.js';
 
 export interface CoreReply { status: number; json: any }
-/** A question for the person: the words, the label of the confirm button, and how the Legion confirm window should draw it. */
+/** A question for the person: the words, the label of the confirm button, and how the Legion confirm card should draw it. */
 export type ConfirmRequest = { title: string; message: string; detail: string; confirmLabel: string } & ConfirmExtras;
 /** Where a confirm comes from, shown in the window as "asked by ...". The arrow is the single right-pointing angle quotation mark. */
 export const ASKED_BY = { providers: 'Settings › Providers', webSearch: 'Settings › Web search', gates: 'Settings › Gates', browser: 'Settings › Browser', connectors: 'Settings › Connectors' } as const;
 export interface ProviderIpcDeps {
   /** A request to our own core with the admin secret, and the native secret when `native` is true. undefined = no proven core. */
   call(method: 'GET' | 'PUT' | 'POST', route: string, body?: unknown, native?: boolean): Promise<CoreReply | undefined>;
-  /** The Legion confirm window (or the system dialog when it cannot be shown). Resolves true only for the confirm button. */
+  /** The Legion confirm card (or the system dialog when it cannot be shown). Resolves true only for the confirm button. */
   confirm(opts: ConfirmRequest): Promise<boolean>;
   /** "Start over with new keys": main's two steps. Absent (a test, a headless call): the request is refused. */
   startOver?: {
@@ -158,7 +158,7 @@ async function startOver(deps: ProviderIpcDeps, blocked: boolean): Promise<Provi
 
 interface DialogLike { showMessageBox(...args: any[]): Promise<{ response: number }> }
 interface WinLike { isDestroyed(): boolean; isVisible(): boolean }
-/** The confirmation: buttons are Cancel (default) and the confirm label. `dialog` is the Legion confirm window (the system dialog in a test); every field a caller adds goes through. */
+/** The confirmation: buttons are Cancel (default) and the confirm label. `dialog` is the Legion confirm card (the system dialog in a test); every field a caller adds goes through. */
 export function makeConfirm(dialog: DialogLike, getWin: () => WinLike | null | undefined): ProviderIpcDeps['confirm'] {
   return async (o) => {
     const { confirmLabel, ...rest } = o;

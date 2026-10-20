@@ -135,7 +135,7 @@ test('dialog 1: amount, the FULL recipient, TESTNET, fee, caps, agent, the label
   assert.match(d.detail, /Unverifiable change/);
   assert.match(d.detail, /Limits: per transaction 0\.00001000 BSV \(1,000 sat\); per session 0\.00005000 BSV \(5,000 sat\); per rolling 24 hours 0\.00010000 BSV \(10,000 sat\)/);
   assert.match(d.detail, /Left after this request: per transaction 0\.00000388 BSV \(388 sat\)/);
-  assert.match(d.detail, /Cancel, Escape or closing this window denies the request/);
+  assert.match(d.detail, /Cancel or Escape denies the request/);
   assert.match(d.detail, /Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion's own code cannot see it\./);
   assert.match(d.detail, /If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion's caps\./);
   assert.match(d.detail, /ordinary tools/);
@@ -171,7 +171,7 @@ test('dialog 2 (untrusted content) is its own dialog with its own button; the Re
 test('none of the new wording makes an unscoped claim the hedge check bans, and the old claim is gone from the policy dialogs', () => {
   const NEG = /\b(nothing|no one|nobody|never|cannot|can't|can not|impossible|no way|none)\b/i;
   const VERB = /\b(sign|signs|signed|signing|spend|spends|spending|send|sends|sent|broadcast\w*|move funds|touch funds|holds? (your )?funds|inscribe\w*)\b/i;
-  const SCOPE = /(legion'?s? (own|code|tools?|app|confirm window)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
+  const SCOPE = /(legion'?s? (own|code|tools?|app|confirm card)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
   const p = parseSpendCard(card({ requiredConfirmations: ['approve', 'untrusted-content'] }));
   assert.ok(p.ok);
   const texts = [spendReviewDialog(p.card), spendUntrustedDialog(p.card), spendResolveDialog({ requestId: ID('b'), totalSats: 7, agentId: 'a', txid: null, net: 'test' }),
@@ -198,7 +198,7 @@ test('Escape and closing the dialog both come back as the cancel button (cancelI
   f.st.answers = [0];
   await f.native.review(ID('a'));
   assert.equal(f.st.dialogs[0]!.cancelId, 0, 'Escape = button 0');
-  assert.equal((f.st.dialogs[0] as { confirmAt?: number }).confirmAt, 1, 'the Legion confirm window is told which button means yes (the system dialog it falls back to is given the plain fields only: confirm-window-logic nativeOptions)');
+  assert.equal((f.st.dialogs[0] as { confirmAt?: number }).confirmAt, 1, 'the Legion confirm card is told which button means yes (the system dialog it falls back to is given the plain fields only: confirm-window-logic nativeOptions)');
   assert.equal(f.st.dialogs[0]!.defaultId, 0, 'Enter = button 0');
   f.st.answers = ['throw'];
   const r = await f.native.review(ID('b'));
@@ -438,7 +438,7 @@ test('main.ts: the poll is one 3 s timer in main, started after the core is up; 
   assert.doesNotMatch(preload, /spend|cardHash/i, 'the preload adds no spend channel: the existing bsvPolicy channel carries an id only');
   const fn = main.slice(main.indexOf('async function bsvPolicyChange'), main.indexOf('function showWindow'));
   assert.ok(fn.indexOf('parseBsvAction(raw)') < fn.indexOf('isSpendAction(action)'));
-  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| !holdConfirmWindow\(\)\) return false; bsvDialogOpen = true; return true; \}/, 'one lock for every confirmation, and a review holds the confirm window lock to the end');
+  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| !holdConfirmWindow\(\)\) return false; bsvDialogOpen = true; return true; \}/, 'one lock for every confirmation, and a review holds the confirm card lock to the end');
   assert.match(main, /release: \(\) => \{ bsvDialogOpen = false; releaseConfirmWindow\(\); \}/);
   // the dialog options passed to Electron: Cancel is the default and the Escape button
   assert.match(logic, /defaultId: cancelAt, cancelId: cancelAt, confirmAt, noLink: true/);
@@ -635,7 +635,7 @@ test('policy dialogs only talk about the spend tool when the core says it is on 
   const BANNED = /risk-free|cannot lose|can't lose|no way to overspend|safe to spend|safe on mainnet|production-ready|cannot be bypassed|\bverified\b|\bsafe\b/i;
   const NEG = /\b(nothing|no one|nobody|never|cannot|can't|can not|impossible|no way|none)\b/i;
   const VERB = /\b(sign|signs|signed|signing|spend|spends|spending|send|sends|sent|broadcast\w*|move funds|touch funds|holds? (your )?funds|inscribe\w*)\b/i;
-  const SCOPE = /(legion'?s? (own|code|tools?|app|confirm window)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
+  const SCOPE = /(legion'?s? (own|code|tools?|app|confirm card)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
   for (const tools of [true, false]) {
     const f = { ...ON, spendTools: tools, frozen: { reason: 'x' } } as any;
     const all: string[] = [];

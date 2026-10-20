@@ -22,7 +22,7 @@ export interface GatesChangeResult { ok: boolean; error?: string; cancelled?: bo
 export interface GatesIpcDeps {
   /** A request to our own core with the admin secret, the native secret when `native` is true, and `extraHeaders` (the digest). undefined = no proven core. */
   call(method: 'GET' | 'POST' | 'PATCH', route: string, body?: unknown, native?: boolean, extraHeaders?: Record<string, string>): Promise<CoreReply | undefined>;
-  /** The Legion confirm window (Cancel is the default button). Resolves true only for the confirm button. */
+  /** The Legion confirm card (Cancel is the default button). Resolves true only for the confirm button. */
   confirm(opts: ConfirmRequest): Promise<boolean>;
   /** The clock, for the pause after Cancel. Defaults to Date.now. */
   now?(): number;

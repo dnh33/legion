@@ -1,5 +1,5 @@
 /**
- * The rules of the Legion confirm window, free of electron so they are tested: what a confirm may ask (checked once, strictly), the model the
+ * The rules of Legion's confirm card, free of electron so they are tested: what a confirm may ask (checked once, strictly), the model the
  * page draws, how an answer is read, and how the card is laid over the Legion window. The overlay itself is confirm-window.ts; the page is assets/confirm-window.html.
  *
  * The page draws only what the explicit fields say. Nothing here, and nothing in the page, turns "Key: value" or "- " lines of a text into rows or

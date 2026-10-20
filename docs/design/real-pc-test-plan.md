@@ -1188,22 +1188,22 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** Spend-capable build running in the VM; BSV mode on.
 - **Steps:**
-  1. Open the BSV panel, type the wallet address, press Connect (Legion's confirm window appears; confirm).
+  1. Open the BSV panel, type the wallet address, press Connect (Legion's confirm card appears; confirm).
   2. Ask the Assayer to run bsv_status.
   3. Watch the VM wallet for any permission prompt during the four status calls (getVersion, getNetwork, isAuthenticated, getHeight).
 - **Expected:** testnet, reachable, signed in, version and height shown. RECORD: whether any status call prompted in the wallet, what the prompts said, the real response shapes (an unexpected shape must read as "network unknown", never testnet), whether network switching needs a wallet restart, and which origin rules apply.
 - **Evidence:** PC-BSVT-03.png, PC-BSVT-03.log (response shapes, scrubbed).
 - **Result:** not-run | date: - | evidence path: -
 
-#### PC-BSVT-04: V4: allowlist one testnet address through Legion's confirm window
+#### PC-BSVT-04: V4: allowlist one testnet address through Legion's confirm card
 
 - **Source:** docs/design/plan-bsv-rung3.md 7.2 V4
 - **Gate / depends:** G8 / after PC-BSVT-03
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-03 passed.
 - **Steps:**
-  1. In the BSV panel add the VM wallet's second address to the recipient allowlist; read the confirm window; confirm.
-- **Expected:** Legion's confirm window names the address; the list is saved only after confirm; Cancel saves nothing.
+  1. In the BSV panel add the VM wallet's second address to the recipient allowlist; read the confirm card; confirm.
+- **Expected:** Legion's confirm card names the address; the list is saved only after confirm; Cancel saves nothing.
 - **Evidence:** PC-BSVT-04.png (dialog).
 - **Result:** not-run | date: - | evidence path: -
 
@@ -1215,7 +1215,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Preconditions:** BSVT-04 passed. Window visible.
 - **Steps:**
   1. Ask the Assayer for 600 sat to the allowlisted address.
-  2. Read dialog 1 (a question in Legion's confirm window, 'spend review 1 of 2'; every 'dialog' in these steps means a numbered question in that window): amount 600 sat, FULL address, TESTNET, fee, caps. Confirm. Read dialog 2 (untrusted content). Confirm.
+  2. Read dialog 1 (a question in Legion's confirm card, 'spend review 1 of 2'; every 'dialog' in these steps means a numbered question in that window): amount 600 sat, FULL address, TESTNET, fee, caps. Confirm. Read dialog 2 (untrusted content). Confirm.
   3. Only now should the wallet show its prompt; approve it there.
   4. Open the txid in a testnet block explorer in a browser.
 - **Expected:** Dialog 1 matches the request exactly; dialog 2 is a separate press; the wallet prompt appears only after both; a 64-hex txid is returned; the explorer shows one 600 sat output plus change. RECORD the real wallet prompt wording and the real Electron dialog look (wording, default button Cancel, focus, hidden-window case) (U10). Revised 2026-10-06: a wallet built on wallet-toolbox may instead ask for a spending grant BEFORE Legion's card, while it builds; record which, and pick one-time if offered, else a limit no higher than Legion's caps.
@@ -1255,8 +1255,8 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Preconditions:** BSVT-05 passed.
 - **Steps:**
   1. Ask for a spend; confirm both Legion dialogs; press Deny in the WALLET.
-  2. Read Legion's status; resolve the unknown outcome in the confirm window after reading the wallet history.
-- **Expected:** Legion shows unknown (unless a reviewed mapping exists) and blocks further spends until you resolve it in the confirm window. RECORD exactly what the wallet returned on Deny (U6).
+  2. Read Legion's status; resolve the unknown outcome in the confirm card after reading the wallet history.
+- **Expected:** Legion shows unknown (unless a reviewed mapping exists) and blocks further spends until you resolve it in the confirm card. RECORD exactly what the wallet returned on Deny (U6).
 - **Evidence:** PC-BSVT-08.png, PC-BSVT-08.log (wallet reply, scrubbed).
 - **Result:** not-run | date: - | evidence path: -
 
@@ -1269,8 +1269,8 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Steps:**
   1. Start a spend and confirm both dialogs; while the wallet prompt is showing end the wallet process by its PID.
   2. Restart Legion; try another spend.
-  3. Resolve the unknown in the confirm window; try again.
-- **Expected:** unknown; after restart spends are still blocked (the unknown outcome is rebuilt from the audit); after the resolve in the confirm window spends work again.
+  3. Resolve the unknown in the confirm card; try again.
+- **Expected:** unknown; after restart spends are still blocked (the unknown outcome is rebuilt from the audit); after the resolve in the confirm card spends work again.
 - **Evidence:** PC-BSVT-09.png, PC-BSVT-09.log.
 - **Result:** not-run | date: - | evidence path: -
 
@@ -1335,7 +1335,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Evidence:** PC-BSVT-14.log.
 - **Result:** not-run | date: - | evidence path: -
 
-#### PC-BSVT-15: Confirm window for policy changes: Connect, Arm, Unfreeze, caps and allowlist; Freeze and Disarm need none
+#### PC-BSVT-15: Confirm card for policy changes: Connect, Arm, Unfreeze, caps and allowlist; Freeze and Disarm need none
 
 - **Source:** docs/BSV-MODE.md (the interface); docs/BSV-WALLET-DESIGN.md section 11 (Electron dialogs on a real desktop)
 - **Gate / depends:** G8 / after PC-BSVT-03
@@ -1343,20 +1343,20 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Preconditions:** BSVT-03 passed.
 - **Steps:**
   1. Do each action in the BSV panel; photograph the dialog; press Cancel and Escape once each.
-- **Expected:** Each of Connect, allowlist, caps, Arm and Unfreeze opens Legion's confirm window with Cancel as the default button; Cancel and Escape change nothing; Freeze and Disarm act with one click.
+- **Expected:** Each of Connect, allowlist, caps, Arm and Unfreeze opens Legion's confirm card with Cancel as the default button; Cancel and Escape change nothing; Freeze and Disarm act with one click.
 - **Evidence:** PC-BSVT-15-<action>.png.
 - **Result:** not-run | date: - | evidence path: -
 
-#### PC-BSVT-16: Confirm window with the Legion window hidden to the tray, and Windows taskkill/netstat behaviour
+#### PC-BSVT-16: Confirm card with the Legion window hidden to the tray, and Windows taskkill/netstat behaviour
 
 - **Source:** docs/BSV-WALLET-DESIGN.md section 11 (Windows specifics)
 - **Gate / depends:** G8 / after PC-BSVT-05
 - **Safety / automation:** native-dialog / owner-only
 - **Preconditions:** BSVT-05 prerequisites.
 - **Steps:**
-  1. Start a spend request, hide the window to the tray, and see where Legion's confirm window appears (on its own, on top, with no Legion window behind it) and whether it can be answered.
+  1. Start a spend request, hide the window to the tray, and see that Legion comes back with its confirm card on top (inside the Legion window, nothing else opens) and whether it can be answered.
   2. Check `netstat -ano` for the core's port and that taskkill by PID ends Legion's core.
-- **Expected:** The confirm window is still visible and answerable (or the request times out safely); netstat and taskkill behave as the notes assume.
+- **Expected:** Legion's window returns with the confirm card on top and it is answerable (or the request times out safely); netstat and taskkill behave as the notes assume.
 - **Evidence:** PC-BSVT-16.png, PC-BSVT-16.log.
 - **Result:** not-run | date: - | evidence path: -
 
@@ -1368,7 +1368,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Preconditions:** A real Electron build with the BSV bridge.
 - **Steps:**
   1. In DevTools (source checkout run) evaluate `typeof window.legion.bsvPolicy`, then perform one Cancel-only action from the panel.
-- **Expected:** The bridge exists in the real preload exactly as the emulation shows; actions reach the confirm window code.
+- **Expected:** The bridge exists in the real preload exactly as the emulation shows; actions reach the confirm card code.
 - **Evidence:** PC-BSVT-17.png.
 - **Result:** not-run | date: - | evidence path: -
 
@@ -1560,13 +1560,13 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-01.
 - **Steps:**
-  1. In the panel use Connect with the real wallet's address (typed by the owner; confirm in the confirm window).
+  1. In the panel use Connect with the real wallet's address (typed by the owner; confirm in the confirm card).
   2. Ask the Assayer for 200 sat.
 - **Expected:** Denied mainnet-disabled; NO wallet prompt; the audit shows a denied line with net main.
 - **Evidence:** PC-BSVM-02.png.
 - **Result:** not-run | date: - | evidence path: -
 
-#### PC-BSVM-03: R2: enable mainnet through Legion's confirm window
+#### PC-BSVM-03: R2: enable mainnet through Legion's confirm card
 
 - **Source:** docs/design/plan-bsv-rung3.md 12.6b R2
 - **Gate / depends:** G11 / after PC-BSVM-02
@@ -1585,7 +1585,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Safety / automation:** real-funds / owner-only
 - **Preconditions:** PC-BSVM-03.
 - **Steps:**
-  1. Add the own mainnet address to the mainnet allowlist (confirm window); ask for 200 sat again.
+  1. Add the own mainnet address to the mainnet allowlist (confirm card); ask for 200 sat again.
 - **Expected:** Denied not-armed; no wallet prompt.
 - **Evidence:** PC-BSVM-04.png.
 - **Result:** not-run | date: - | evidence path: -
@@ -1651,7 +1651,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Evidence:** PC-BSVM-09.png.
 - **Result:** not-run | date: - | evidence path: -
 
-#### PC-BSVM-10: R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve in the confirm window
+#### PC-BSVM-10: R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve in the confirm card
 
 - **Source:** docs/design/plan-bsv-rung3.md 12.6b R9
 - **Gate / depends:** G11 / after PC-BSVM-09

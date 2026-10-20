@@ -27,7 +27,7 @@ test('the main window CSP names img-src and allows no remote image', () => {
   assert.ok(img.length > 0, 'img-src must be named; without it default-src decides');
   assert.doesNotMatch(img, /https?:|\*|\/\//, `A remote image would let a page address (or a pasted web result) phone home. Keep img-src to 'self' data: blob:. Found: ${img}`);
 });
-test('the splash, update and confirm windows allow no remote image either', () => {
+test('the splash, update and confirm cards allow no remote image either', () => {
   for (const f of ['assets/splash.html', 'assets/update-window.html', 'assets/confirm-window.html']) {
     const csps = cspsOf(read(f));
     assert.equal(csps.length, 1, f);

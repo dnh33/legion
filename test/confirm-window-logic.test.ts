@@ -1,4 +1,4 @@
-/** The rules of the Legion confirm window: what a question may ask, how an answer is read, how the window is sized. No electron. */
+/** The rules of the Legion confirm card: what a question may ask, how an answer is read, how the card is laid over the Legion window. No electron. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ADDRESS_RE, ADDRESS_TAIL, bringForward, buildModel, CONFIRM_BUSY, ConfirmBusyError, createAnswerGate, LIMITS, nativeOptions, orBusy, overlayBounds, overlayZoom, pickTheme, prepareConfirm, resolveIds, syncOverlay, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';

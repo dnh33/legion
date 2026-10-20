@@ -361,7 +361,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
       const paras = [
         `Connecting sends four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
         'The connection itself does not ask for balances, outputs, addresses or keys.',
-        facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in Legion\'s confirm window (or the system dialog if it cannot open); whether the wallet asks too depends on the wallet.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
+        facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in Legion\'s confirm card (or the system dialog if it cannot open); whether the wallet asks too depends on the wallet.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
         'Whatever answers at that address is unverified: any program on your computer can listen on a port.',
         'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
       ];
@@ -386,7 +386,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
 /** A reason to refuse before asking the person anything: no dialog for a change the core would refuse anyway. */
 export function bsvPreflight(action: BsvAction, facts: BsvPolicyFacts): string | undefined {
   if (action.kind === 'arm' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
-  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (it asks in Legion\'s confirm window); Arm only applies to mainnet.';
+  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (it asks in Legion\'s confirm card); Arm only applies to mainnet.';
   if (action.kind === 'mainnet-enable' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
   if (action.kind === 'mainnet-enable' && facts.mainnetEnabled === true) return 'Mainnet is already switched on.';
   if (action.kind === 'connect' && facts.frozen) return 'The chain is frozen. Unfreeze it first; Legion does not contact a wallet while frozen.';
@@ -502,7 +502,7 @@ export function netAllowed(net: SpendNet, facts: unknown): boolean {
 
 /** The dialog as Electron takes it (nothing here is passed to Electron except these fields). */
 export interface NativeDialogOptions { type: 'warning' | 'question'; title: string; message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number; noLink: true }
-/** The same dialog for the Legion confirm window: the extra fields are only for drawing it; the system dialog gets `NativeDialogOptions` (message and detail whole). */
+/** The same dialog for the Legion confirm card: the extra fields are only for drawing it; the system dialog gets `NativeDialogOptions` (message and detail whole). */
 export type WindowDialogOptions = NativeDialogOptions & ConfirmExtras;
 /** `confirmAt` is the index of the button that means "yes" (-1: none of them, the Resolve dialog); Cancel is always the default and the Escape button, wherever it sits. */
 export type SpendDialog = WindowDialogOptions & { confirmAt: number };
@@ -553,11 +553,11 @@ export function spendReviewDialog(c: SpendCard, ctx: ReviewContext | Partial<Rec
     `Left after this request: per transaction ${satsText(c.remaining.perTxSats)}; per session ${satsText(c.remaining.perSessionSats)}; per 24 hours ${satsText(c.remaining.per24hSats)}`,
     ...(main ? [`Armed for one spend; time left: ${left(x.armRemainingMs)}`] : []),
     '',
-    main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.',
+    main ? 'This is the first of at least two dialogs. Cancel or Escape denies the request.' : 'Cancel or Escape denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.',
     ORDINARY_TOOLS,
   ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
   // For the Legion window the same facts are rows (the amount and the address are drawn large, above), the core's warnings are a list and the sentences are paragraphs.
-  const closing = main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.';
+  const closing = main ? 'This is the first of at least two dialogs. Cancel or Escape denies the request.' : 'Cancel or Escape denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.';
   const capRows = PERIOD_KEYS.map((k) => ({ label: `Limit ${PERIOD[k]}`, value: satFirst(caps?.[k]) }));
   const rows = [
     { label: 'Network', value: main ? 'MAINNET (LIVE FUNDS). This is the wallet\'s own claim; the address checks out for this network.' : c.networkLabel },
@@ -598,7 +598,7 @@ export function spendLiveDialog(c: SpendCard): SpendDialog {
       '',
       `Network: MAINNET (LIVE FUNDS). Fee ${satsText(c.feeSats)}. Total leaving the wallet: ${satsText(c.totalSats)}.`,
       'This cannot be undone. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it.',
-      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel, Escape or closing this window denies the request.',
+      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel or Escape denies the request.',
     ].join('\n'),
     buttons: [`Send ${c.payment.sats.toLocaleString('en-US')} sat to ...${lastChars(c.payment.recipient)}`, 'Cancel'],
     // the window: the amount and the address large, the numbers as rows, the sentences as paragraphs (the confirm button stays FIRST, Cancel the default)
@@ -607,7 +607,7 @@ export function spendLiveDialog(c: SpendCard): SpendDialog {
     windowMessage: '',
     windowDetail: [
       'This cannot be undone. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it.',
-      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel, Escape or closing this window denies the request.',
+      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel or Escape denies the request.',
     ].join('\n\n'),
   }, 0, 1);
 }
@@ -621,14 +621,14 @@ export function spendUntrustedDialog(c: SpendCard): SpendDialog {
       'The run behind this request read web pages, files, chain data or another program\'s output, so its text may have been steered.',
       `Check the recipient and the amount yourself: ${satsText(c.payment.sats)} to`,
       c.payment.recipient,
-      'Cancel, Escape or closing this window denies the request.',
+      'Cancel or Escape denies the request.',
     ].join('\n'),
     buttons: ['Cancel', 'I checked. Continue'],
     tone: 'money', toneTag: netTag(c), who: reviewSteps(c).of('untrusted'), amount: satText(c.payment.sats), amountNote: amountNote(c), address: c.payment.recipient,
     windowDetail: [
       'The run behind this request read web pages, files, chain data or another program\'s output, so its text may have been steered.',
       'Check the recipient and the amount yourself.',
-      'Cancel, Escape or closing this window denies the request.',
+      'Cancel or Escape denies the request.',
     ].join('\n\n'),
   });
 }
@@ -665,7 +665,7 @@ export interface SpendResult { ok: boolean; error?: string; cancelled?: boolean;
 export interface SpendDeps {
   /** A call to our own core (GET or POST; native = with the native secret). undefined = no proven core of our own. */
   core(method: 'GET' | 'POST', route: string, body?: unknown, native?: boolean): Promise<{ status: number; json: any } | undefined>;
-  /** Shows the question (the Legion confirm window) and gives the index of the pressed button. Closing it or any failure must read as Cancel. */
+  /** Shows the question (the Legion confirm card) and gives the index of the pressed button. Closing it or any failure must read as Cancel. */
   dialog(o: WindowDialogOptions & { confirmAt?: number }): Promise<number>;
   /** The one confirmation lock shared with every other confirmation: false = a question is open. */
   acquire(): boolean;
@@ -700,7 +700,7 @@ export function createSpendNative(deps: SpendDeps) {
   /** true only when the button that means yes was pressed. Anything else (Cancel, Escape, the window closed, a failure) is no. */
   const confirmed = async (o: SpendDialog): Promise<boolean> => { const n = await press(o); return n === o.confirmAt; };
   const press = async (o: SpendDialog): Promise<number> => {
-    // `dialog` is the Legion confirm window (it keeps the fields that draw the question; the system dialog it falls back to gets the plain ones)
+    // `dialog` is the Legion confirm card (it keeps the fields that draw the question; the system dialog it falls back to gets the plain ones)
     try { const n = await deps.dialog({ ...o, buttons: [...o.buttons] }); return typeof n === 'number' ? n : o.cancelId; } catch { return o.cancelId; }
   };
 
