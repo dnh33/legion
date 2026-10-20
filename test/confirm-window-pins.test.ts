@@ -249,7 +249,7 @@ test('BSV policy dialogs: money tone with a tag that matches the network, and ea
     bsvConfirmation({ kind: 'caps', net: 'test', caps: { perTxSats: 2000 } } as never, facts as never),
     bsvConfirmation({ kind: 'caps', net: 'main', caps: { perTxSats: 50 } } as never, facts as never),
     bsvConfirmation({ kind: 'allowlist', net: 'main', list: [a, a] } as never, facts as never),
-    bsvConfirmation({ kind: 'connect', url: 'http://127.0.0.1:3321' } as never, facts as never),
+    bsvConfirmation({ kind: 'connect', url: 'http://127.0.0.1:43210' } as never, facts as never), // any loopback address: the real wallet port stays out of tests (bsv-port-guard)
   ];
   assert.deepEqual(cases.map((c) => [c.tone, c.toneTag]), [['money', 'LIVE FUNDS'], ['money', 'LIVE FUNDS'], ['money', 'BSV'], ['money', 'TESTNET'], ['money', 'LIVE FUNDS'], ['money', 'LIVE FUNDS'], ['money', 'BSV']]);
   for (const c of cases) { assert.ok(c.who?.startsWith('BSV \u203a ')); assert.equal(c.buttons.length, 2); fits({ title: c.title, message: c.message, detail: c.detail, buttons: [...c.buttons], defaultId: 0, cancelId: 0, tone: c.tone, toneTag: c.toneTag, who: c.who, facts: c.facts, items: c.items, windowDetail: c.windowDetail }); }
