@@ -92,6 +92,7 @@ async function run(ch: AgentModeChange, deps: AgentModeIpcDeps): Promise<AgentMo
     message: `Change how ${pv.agentName} asks?`,
     detail: pv.loosening.join('\n\n'),
     confirmLabel: 'Confirm change',
+    who: `Agents › ${pv.agentName}`, items: pv.loosening, windowDetail: '',
   });
   if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true }; }
 
@@ -231,6 +232,7 @@ async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Pro
       message: preset !== undefined ? (n === 0 ? 'Change the default for how agents ask?' : `Change the default and how ${n === 1 ? label.get(raising[0]!.ch.agentId) : `${n} agents`} ask?`) : (n === 1 ? `Change how ${label.get(raising[0]!.ch.agentId)} asks?` : `Change how ${n} agents ask?`),
       detail: [...lines, ...closing].join(NL + NL),
       confirmLabel: 'Confirm change',
+      who: preset !== undefined ? 'Agents › first-run setup' : 'Agents', items: [...lines, ...closing], windowDetail: '',
     });
     if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true, presetSaved: false, applied: [] }; }
   }

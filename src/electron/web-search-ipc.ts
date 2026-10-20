@@ -4,7 +4,7 @@
  * API host of each provider), and only after "Confirm" calls the core with the native secret, which the window never has. The key is never put
  * in a dialog, a log line or a reply. Kept free of electron imports so it can be tested with fakes. Modelled on provider-ipc.ts.
  */
-import { dialogLine } from './provider-ipc.js';
+import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import { KEYS_BLOCKED_MESSAGE } from '../shared/providers-view.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 import { WEB_PROVIDER_HOSTS } from '../shared/web-search-config.js';
@@ -111,7 +111,7 @@ export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Pro
   }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;
-  try { if (!(await deps.confirm({ title, message, detail, confirmLabel }))) return { ok: false, cancelled: true }; } finally { open = false; }
+  try { if (!(await deps.confirm({ title, message, detail, confirmLabel, who: ASKED_BY.webSearch }))) return { ok: false, cancelled: true }; } finally { open = false; }
   const res = await deps.call(method, route, body, true);
   return fail(res) ?? { ok: true, view: res!.json };
 }

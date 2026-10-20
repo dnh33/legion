@@ -198,7 +198,7 @@ test('Escape and closing the dialog both come back as the cancel button (cancelI
   f.st.answers = [0];
   await f.native.review(ID('a'));
   assert.equal(f.st.dialogs[0]!.cancelId, 0, 'Escape = button 0');
-  assert.ok(!('confirmAt' in f.st.dialogs[0]!), 'Electron is given the display fields only');
+  assert.equal((f.st.dialogs[0] as { confirmAt?: number }).confirmAt, 1, 'the Legion confirm window is told which button means yes (the system dialog it falls back to is given the plain fields only: confirm-window-logic nativeOptions)');
   assert.equal(f.st.dialogs[0]!.defaultId, 0, 'Enter = button 0');
   f.st.answers = ['throw'];
   const r = await f.native.review(ID('b'));
@@ -438,7 +438,7 @@ test('main.ts: the poll is one 3 s timer in main, started after the core is up; 
   assert.doesNotMatch(preload, /spend|cardHash/i, 'the preload adds no spend channel: the existing bsvPolicy channel carries an id only');
   const fn = main.slice(main.indexOf('async function bsvPolicyChange'), main.indexOf('function showWindow'));
   assert.ok(fn.indexOf('parseBsvAction(raw)') < fn.indexOf('isSpendAction(action)'));
-  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen\) return false;/, 'one lock for every native dialog');
+  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return false;/, 'one lock for every confirmation, the confirm window included');
   // the dialog options passed to Electron: Cancel is the default and the Escape button
   assert.match(logic, /defaultId: cancelAt, cancelId: cancelAt, confirmAt, noLink: true/);
 });

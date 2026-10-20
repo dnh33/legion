@@ -8,8 +8,8 @@
  */
 import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_NAME_MAX, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS, TRUSTED_FOLDER_PATH_MAX } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
-import { dialogLine } from './provider-ipc.js';
-import type { CoreReply } from './provider-ipc.js';
+import { ASKED_BY, dialogLine } from './provider-ipc.js';
+import type { ConfirmRequest, CoreReply } from './provider-ipc.js';
 
 export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; firstRunChoice?: true; noticeSeen?: true }
 export type GatesChange =
@@ -21,8 +21,8 @@ export interface GatesChangeResult { ok: boolean; error?: string; cancelled?: bo
 export interface GatesIpcDeps {
   /** A request to our own core with the admin secret, the native secret when `native` is true, and `extraHeaders` (the digest). undefined = no proven core. */
   call(method: 'GET' | 'POST' | 'PATCH', route: string, body?: unknown, native?: boolean, extraHeaders?: Record<string, string>): Promise<CoreReply | undefined>;
-  /** A native dialog (Cancel is the default button). Resolves true only for the confirm button. */
-  confirm(opts: { title: string; message: string; detail: string; confirmLabel: string }): Promise<boolean>;
+  /** The Legion confirm window (Cancel is the default button). Resolves true only for the confirm button. */
+  confirm(opts: ConfirmRequest): Promise<boolean>;
   /** The clock, for the pause after Cancel. Defaults to Date.now. */
   now?(): number;
 }
@@ -180,12 +180,15 @@ async function run(ch: GatesChange, deps: GatesIpcDeps): Promise<GatesChangeResu
   const key = `${name}\n${pv.digest}`;
   if (lastCancel && lastCancel.key === key && clock() - lastCancel.at < CANCEL_PAUSE_MS) return { ok: false, error: 'You cancelled this change a moment ago. Wait a few seconds before you try it again.' };
   const trusting = ch.kind === 'app' && ch.patch.trustFolder !== undefined;
-  const detail = pv.loosening.length ? shortList(pv.loosening, trusting ? TRUST_MAX_LINES : MAX_LINES).join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  const lines = pv.loosening.length ? shortList(pv.loosening, trusting ? TRUST_MAX_LINES : MAX_LINES) : [];
+  const detail = lines.length ? lines.join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  // The core's lines are the list; the window draws one bullet per line and never reads structure out of the text itself.
+  const shown = { who: ASKED_BY.gates, ...(lines.length ? { items: lines, windowDetail: '' } : {}) };
   const title = titleFor(ch, pv.loosening);
   const ok = await deps.confirm(ch.kind === 'accept'
-    ? { title, message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings' }
-    : trusting ? { title, message: 'This folder carries settings or skills that can run commands on your computer, with your rights. Trust it?', detail, confirmLabel: 'Trust this folder' }
-    : { title, message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change' });
+    ? { title, message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings', ...shown }
+    : trusting ? { title, message: 'This folder carries settings or skills that can run commands on your computer, with your rights. Trust it?', detail, confirmLabel: 'Trust this folder', ...shown }
+    : { title, message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change', ...shown });
   if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true }; }
 
   const res = await deps.call(method, route, body, true, digest);

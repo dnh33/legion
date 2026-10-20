@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
+import { configureConfirmWindow, confirmWindow, confirmWindowBusy } from './confirm-window.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
@@ -329,14 +330,18 @@ async function ownCoreCall(method: 'GET' | 'POST' | 'PUT' | 'PATCH', route: stri
  * dialogs from it and sends the core the hash it read. The window can only name a request id. One dialog at a time (the lock is shared with
  * every other confirmation), in the order the cards arrived.
  */
+// Every settings and money confirmation is the Legion confirm window (confirm-window.ts). Its zoom and theme are the main window's, also while that is hidden.
+configureConfirmWindow({ getMainWin: () => win, log: (line) => { try { appendFileSync(join(dataDir(), 'core.log'), redact(`[${new Date().toISOString()}] ${line}\n`)); } catch { /* the question is asked all the same */ } } });
 const spendNative = createSpendNative({
   core: (method, route, body, native) => ownCoreCall(method, route, body, native),
   dialog: async (opts) => {
-    // a hidden or closed window must not hide the question: without a visible parent the dialog is shown on its own
-    const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, { ...opts, buttons: [...opts.buttons] }) : await dialog.showMessageBox({ ...opts, buttons: [...opts.buttons] });
+    // a hidden or closed window must not hide the question: without a visible parent the window opens on its own
+    const shown = { ...opts, buttons: [...opts.buttons] };
+    const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showMessageBox(win, shown) : await confirmWindow.showMessageBox(shown);
     return r.response;
   },
-  acquire: () => { if (bsvDialogOpen) return false; bsvDialogOpen = true; return true; },
+  // a review waits (the next tick, or the Review button's own message) while any other question is open: the confirm window never answers for it
+  acquire: () => { if (bsvDialogOpen || confirmWindowBusy()) return false; bsvDialogOpen = true; return true; },
   release: () => { bsvDialogOpen = false; },
   changed: () => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:bsv-changed'); } catch { /* the window is gone */ } },
   bsvOn: async () => { const r = await ownCoreCall('GET', '/api/bsv'); return r?.status === 200 && (r.json as { enabled?: unknown } | undefined)?.enabled === true; },
@@ -376,11 +381,12 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   }
   const c = bsvConfirmation(action, facts, walletLine);
   if (c.needsDialog) {
-    if (bsvDialogOpen) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
+    if (bsvDialogOpen || confirmWindowBusy()) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
     bsvDialogOpen = true;
     try {
-      const opts = { type: c.type, title: c.title, message: c.message, detail: c.detail, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
-      const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+      const { needsDialog: _n, method: _m, route: _r, body: _b, ...shown } = c; // the words and how to draw them; the route and body stay here
+      const opts = { ...shown, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
+      const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showMessageBox(win, opts) : await confirmWindow.showMessageBox(opts);
       if (r.response !== 1) return { ok: false, cancelled: true };
     } finally { bsvDialogOpen = false; }
   }
@@ -640,12 +646,12 @@ if (instance.quit) {
   ipcMain.handle('legion:provider-change', async (e, raw: unknown): Promise<ProviderChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), unlocks: () => providerKeyUnlocks(dataDir(), safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), unlocks: () => providerKeyUnlocks(dataDir(), safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:web-search-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await webSearchChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await webSearchChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
@@ -654,27 +660,27 @@ if (instance.quit) {
       const r = await dialog.showOpenDialog(win!, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
       return r.canceled ? undefined : r.filePaths[0];
     };
-    try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await gatesChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await gatesChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:agent-mode-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await agentModeChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await agentModeChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:agent-mode-batch', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.', applied: [] };
-    try { return await agentModeBatch(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.', applied: [] }; }
+    try { return await agentModeBatch(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.', applied: [] }; }
   });
   ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:connector-connect', async (e) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
@@ -682,7 +688,7 @@ if (instance.quit) {
     try {
       return await connectGithub({
         call: (method, route, body) => ownCoreCall(method, route, body),
-        confirm: makeConfirm(dialog, () => win),
+        confirm: makeConfirm(confirmWindow, () => win),
         ensureKey: () => ensureConnectorKey(dataDir(), safeStorage),
         restartCore: restartCoreQuiet,
         openExternal,

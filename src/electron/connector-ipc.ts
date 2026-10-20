@@ -11,6 +11,7 @@
  * Free of electron imports so it is tested with fakes.
  */
 import type { GithubApp } from '../shared/github-area.js';
+import { ASKED_BY } from './provider-ipc.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
 export const GITHUB_DEVICE_PAGE_URL = 'https://github.com/login/device';
@@ -46,7 +47,7 @@ export async function connectGithub(deps: ConnectorIpcDeps, app: GithubApp = 're
       const go = await deps.confirm({
         title: 'Restart Legion Core to connect GitHub?', message: 'Legion needs to restart its core once to store the GitHub sign-in encrypted.',
         detail: (running ? 'Tasks that are running now will be stopped and pending approvals cancelled. ' : '') + 'This happens once, on the first connect. The window reloads and opens Settings, GitHub, where your sign-in code appears; your browser opens the GitHub page.',
-        confirmLabel: 'Restart and connect',
+        confirmLabel: 'Restart and connect', who: ASKED_BY.connectors, tone: 'danger', toneTag: 'RESTARTS CORE',
       });
       if (!go) return { ok: false, cancelled: true };
       // the first use of the system keystore happens here, after the owner said yes (never at app start)
@@ -55,7 +56,7 @@ export async function connectGithub(deps: ConnectorIpcDeps, app: GithubApp = 're
         const mem = await deps.confirm({
           title: 'Sign in without remembering?', message: 'Your computer cannot keep the GitHub sign-in safely.',
           detail: 'Legion has no usable system keystore here (on Linux: no keyring). You can still sign in, but you will have to do it again each time Legion starts. Nothing is restarted.',
-          confirmLabel: 'Sign in each launch',
+          confirmLabel: 'Sign in each launch', who: ASKED_BY.connectors,
         });
         if (!mem) return { ok: false, cancelled: true };
         memoryOnly = true;

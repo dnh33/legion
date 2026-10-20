@@ -4,6 +4,7 @@
  * after "Confirm" calls the core with the native secret, which the window never has. Free of electron imports so it can be tested with fakes.
  */
 import { dialogLine } from './provider-ipc.js';
+import type { ConfirmFact } from './confirm-window-logic.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
 export interface ProjectIpcDeps {
@@ -79,6 +80,8 @@ export async function projectChange(raw: unknown, deps: ProjectIpcDeps): Promise
   const name = dialogLine(proj.name, 60) || 'this project';
   const oldFolder = dialogLine(proj.folder, 200);
   let title: string; let message: string; let detail: string; let confirmLabel: string; let route: string; let body: unknown;
+  // The folder questions show their folders as rows; the words around them stay a paragraph. `detail` is the same text whole, for the system dialog.
+  let rows: ConfirmFact[] | undefined; let prose = '';
   if (ch.kind === 'members') {
     const agents = await deps.call('GET', '/api/agents');
     const nameOf = (id: string): string => {
@@ -104,19 +107,23 @@ export async function projectChange(raw: unknown, deps: ProjectIpcDeps): Promise
   } else if (ch.mode === 'default') {
     title = 'Use the default folder?'; confirmLabel = 'Use default folder';
     message = `Move "${name}" back to its default folder?`;
-    detail = `Now: ${oldFolder}\n\nAgents that work on this project can read and write files in its folder. Files already there are not moved.`;
+    prose = 'Agents that work on this project can read and write files in its folder. Files already there are not moved.';
+    rows = [{ label: 'Now', value: oldFolder }];
+    detail = `Now: ${oldFolder}\n\n${prose}`;
     route = `/api/projects/${ch.id}/folder`; body = { folder: null };
   } else {
     const picked = await deps.pickFolder(typeof proj.folder === 'string' ? proj.folder : undefined);
     if (!picked) return { ok: false, cancelled: true };
     title = 'Use this folder for the project?'; confirmLabel = 'Use this folder';
     message = `Set the folder of "${name}"?`;
-    detail = `New folder: ${dialogLine(picked, 300)}\nNow: ${oldFolder}\n\nAgents that are members of this project can read and write files in that folder when they work on its tasks. Pick a folder made for this project, not a folder that holds other things. Files already in the old folder are not moved.`;
+    prose = 'Agents that are members of this project can read and write files in that folder when they work on its tasks. Pick a folder made for this project, not a folder that holds other things. Files already in the old folder are not moved.';
+    rows = [{ label: 'New folder', value: dialogLine(picked, 300) }, { label: 'Now', value: oldFolder }];
+    detail = `New folder: ${rows[0]!.value}\nNow: ${oldFolder}\n\n${prose}`;
     route = `/api/projects/${ch.id}/folder`; body = { folder: picked };
   }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;
-  try { if (!(await deps.confirm({ title, message, detail, confirmLabel }))) return { ok: false, cancelled: true }; } finally { open = false; }
+  try { if (!(await deps.confirm({ title, message, detail, confirmLabel, who: `Projects › ${name}`, ...(rows ? { facts: rows, windowDetail: prose } : {}) }))) return { ok: false, cancelled: true }; } finally { open = false; }
   const res = await deps.call('PUT', route, body, true);
   if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
   if (res.status !== 200) return { ok: false, error: dialogLine(res.json?.error, 300) || `The core refused the change (${res.status}).` };

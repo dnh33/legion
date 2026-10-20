@@ -356,7 +356,7 @@ test('M3: the window reaches the handler only through main, which checks the sen
   const i = main.indexOf("'legion:gates-change'");
   assert.ok(i > 0);
   const block = main.slice(i, i + 700);
-  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /gatesChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(dialog/);
+  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /gatesChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(confirmWindow/);
   assert.match(main, /extraHeaders\?: Record<string, string>/); assert.match(main, /Object\.assign\(headers, extraHeaders\)/);
   const pre = readFileSync(root + 'src/electron/preload.cjs', 'utf8').replace(/\r\n/g, '\n');
   assert.match(pre, /gatesChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:gates-change', change\);/);

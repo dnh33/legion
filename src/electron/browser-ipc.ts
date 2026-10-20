@@ -4,7 +4,7 @@
  * words a native dialog from the request it parsed itself, and only after "Confirm" calls the core with the native secret, which the window never
  * has. Cancel is the default button. Kept free of electron imports so it can be tested with fakes.
  */
-import { dialogLine } from './provider-ipc.js';
+import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
 export interface BrowserIpcDeps {
@@ -60,7 +60,7 @@ export async function browserChange(raw: unknown, deps: BrowserIpcDeps): Promise
   }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;
-  try { if (!(await deps.confirm({ title, message, detail, confirmLabel }))) return { ok: false, cancelled: true }; } finally { open = false; }
+  try { if (!(await deps.confirm({ title, message, detail, confirmLabel, who: ASKED_BY.browser }))) return { ok: false, cancelled: true }; } finally { open = false; }
   const res = await deps.call('POST', route, body, true);
   if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
   if (res.status !== 200) return { ok: false, error: dialogLine(res.json?.error, 300) || `The core refused the change (${res.status}).` };

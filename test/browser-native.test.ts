@@ -74,7 +74,7 @@ test('N6: the window never holds the native secret: main.ts registers the handle
   const i = main.indexOf("'legion:browser-change'");
   assert.ok(i > 0);
   const block = main.slice(i, i + 700);
-  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /browserChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(dialog/);
+  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /browserChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(confirmWindow/);
   const pre = readFileSync(root + 'src/electron/preload.cjs', 'utf8').replace(/\r\n/g, '\n');
   assert.match(pre, /browserChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:browser-change', change\);/);
   assert.doesNotMatch(pre, /nativeSecret|X-Legion-Native/i);
