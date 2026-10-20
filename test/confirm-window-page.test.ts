@@ -317,3 +317,7 @@ test('page: nothing from a window is left (no drag region, no height call for a 
   assert.doesNotMatch(html, /-webkit-app-region/);
   assert.doesNotMatch(script, /function height|height:height/);
 });
+
+test('page: focusing a button never scrolls the card (the card opens at its top, the title first, even when it scrolls as a whole)', () => {
+  assert.match(script, /\.focus\(\{preventScroll:true\}\)/);
+});

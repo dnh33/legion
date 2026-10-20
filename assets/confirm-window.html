@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-m1Tk9/7S7Ekp/pGBsaRA1KivUxpH6EO0/HomNRmvGow='">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-D2pw9YzKKMvDBLqjqfk4NkFpWPTk5C30Bao+Qr4ZW70='">
 <title>Legion</title>
 <!-- The one look of every question Legion asks you before it changes a setting or moves money: Legion's confirm card, shown inside Legion. It is a view of its own that Legion's main process lays
      over the whole Legion window (the app behind is dimmed by this page); the Legion page cannot reach it and cannot press its buttons. Driven from outside by window.confirmWindow.render(model);
@@ -161,7 +161,7 @@
     if(!list.length)return;
     list[at<0?(e.shiftKey?list.length-1:0):(at+(e.shiftKey?list.length-1:1))%list.length].focus();
   }
-  function focusDefault(){var b=$('ft').getElementsByTagName('button')[model.defaultIndex];if(b)b.focus()}
+  function focusDefault(){var b=$('ft').getElementsByTagName('button')[model.defaultIndex];if(b)b.focus({preventScroll:true})}
   // Called when the card is shown. A click or a key that lands in the first moments (a double click on the page behind, a key still held) is not an answer,
   // and neither is a click whose press began before this (the button's place is easy to guess).
   function arm(){clearTimeout(armTimer);focusDefault();armTimer=setTimeout(function(){armed=true},GUARD_MS)}
