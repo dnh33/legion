@@ -36,6 +36,10 @@ on:
         description: Branch, tag or commit to build the candidates from (empty = the branch you run this from).
         required: false
         default: ''
+      unix_live_tag:
+        description: Release the unix live job installs and updates from (for example v0.3.6 while it is a prerelease; empty = the Latest release).
+        required: false
+        default: ''
   pull_request:
     paths:
       - src/core/updater/**
@@ -213,7 +217,8 @@ jobs:
   # Mac and Linux self-update (scripts/rehearsal/run-unix.mjs, header). Every job installs with THIS checkout's scripts/install/install.sh into a fresh HOME, runs the
   # app headless (Xvfb on Linux, --use-mock-keychain on macOS) and drives the update through the app window's own admin key over a DevTools port. The release server,
   # the throwaway key and the preload are the Windows rehearsal's. The baseline is a local bare repo tagged v0.98.0 (LEGION_INSTALL_BASE=file://); the frozen job
-  # fetches the real v0.3.4 and its installer from github.com.
+  # fetches the real v0.3.4 and its installer from github.com; the live job installs the live release (input unix_live_tag, else Latest) with its own
+  # release-asset install.sh from github.com and updates it to this checkout's code-only candidate.
   unix:
     name: unix ${{ matrix.scenario }} (${{ matrix.os }})
     needs: prepare
@@ -224,8 +229,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, macos-15-intel, ubuntu-24.04-arm]
-        scenario: [update, frozen, refuse, notify]
+        scenario: [update, frozen, live, refuse, notify]
     env:
+      UNIX_LIVE_TAG: ${{ inputs.unix_live_tag }}
       # scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set; install.sh must do what a user's install does.
       CI: ""
       ELECTRON_SKIP_BINARY_DOWNLOAD: ""
