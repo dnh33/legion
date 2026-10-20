@@ -195,7 +195,7 @@ test('trust: the UI changes policy only through the app bridge; it never names t
   assert.match(read('bsvStore.ts'), /window\.legion\?\.bsvPolicy/);
 });
 
-test('trust: the panel scopes its claims to Legion\'s own code, says testnet spends need a native dialog, and never offers a spend, send or sign button', () => {
+test('trust: the panel scopes its claims to Legion\'s own code, says testnet spends need a confirmation in the confirm window, and never offers a spend, send or sign button', () => {
   const panel = read('BsvPanel.tsx');
   assert.doesNotMatch(panel, /has no spend tool/);
   assert.match(panel, /Legion&apos;s own code|Legion\\'s own code/);
@@ -211,7 +211,7 @@ const ID2 = 'b'.repeat(40);
 test('spend view: spendTools is a boolean; pending and unknown requests are listed with a short id and the sats, never an address', () => {
   const on = spendModel(policy({ spendTools: true, pending: [{ requestId: ID1, totalSats: 612 }], unknown: [{ requestId: ID2, totalSats: 1000 }] }));
   assert.match(on.headline, /one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed/);
-  assert.match(on.headline, /native confirmation/);
+  assert.match(on.headline, /confirmation in Legion's confirm window/);
   assert.deepEqual(on.pending, [{ requestId: ID1, label: 'Request aaaaaaaa: 612 sat waiting for your answer' }]);
   assert.equal(on.unknown.length, 1);
   assert.match(on.unknown[0]!.label, /outcome unknown/);

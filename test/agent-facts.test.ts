@@ -97,7 +97,7 @@ test('Assayer: the taint and network facts are stated, with no numbers; Sentinel
   try {
     const assayer = w.block(w.agents.find((a) => a.id === 'assayer')!);
     assert.match(assayer, /marks the run tainted/);
-    assert.match(assayer, /second native dialog/);
+    assert.match(assayer, /second confirmation on the owner's card/);
     assert.match(assayer, /never choose the network/);
     assert.ok(!/\d/.test(assayer.split('\n').filter((l) => l.includes('bsv_status contacts')).join(' ')), 'no numbers in the BSV line');
     const sentinel = w.block(w.agents.find((a) => a.id === 'sentinel')!);

@@ -2436,7 +2436,7 @@
       "inferred": false,
       "preconditions": "Spend-capable build running in the VM; BSV mode on.",
       "steps": [
-        "Open the BSV panel, type the wallet address, press Connect (a native confirmation appears; confirm).",
+        "Open the BSV panel, type the wallet address, press Connect (Legion's confirm window appears; confirm).",
         "Ask the Assayer to run bsv_status.",
         "Watch the VM wallet for any permission prompt during the four status calls (getVersion, getNetwork, isAuthenticated, getHeight)."
       ],
@@ -2457,16 +2457,16 @@
     {
       "id": "PC-BSVT-04",
       "area": "BSVT",
-      "title": "V4: allowlist one testnet address through the native dialog",
+      "title": "V4: allowlist one testnet address through Legion's confirm window",
       "source": [
         "docs/design/plan-bsv-rung3.md 7.2 V4"
       ],
       "inferred": false,
       "preconditions": "BSVT-03 passed.",
       "steps": [
-        "In the BSV panel add the VM wallet's second address to the recipient allowlist; read the native dialog; confirm."
+        "In the BSV panel add the VM wallet's second address to the recipient allowlist; read the confirm window; confirm."
       ],
-      "expected": "A native dialog names the address; the list is saved only after confirm; Cancel saves nothing.",
+      "expected": "Legion's confirm window names the address; the list is saved only after confirm; Cancel saves nothing.",
       "evidence": "PC-BSVT-04.png (dialog).",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2493,7 +2493,7 @@
       "preconditions": "BSVT-04 passed. Window visible.",
       "steps": [
         "Ask the Assayer for 600 sat to the allowlisted address.",
-        "Read dialog 1: amount 600 sat, FULL address, TESTNET, fee, caps. Confirm. Read dialog 2 (untrusted content). Confirm.",
+        "Read dialog 1 (a question in Legion's confirm window, 'spend review 1 of 2'; every 'dialog' in these steps means a numbered question in that window): amount 600 sat, FULL address, TESTNET, fee, caps. Confirm. Read dialog 2 (untrusted content). Confirm.",
         "Only now should the wallet show its prompt; approve it there.",
         "Open the txid in a testnet block explorer in a browser."
       ],
@@ -2579,9 +2579,9 @@
       "preconditions": "BSVT-05 passed.",
       "steps": [
         "Ask for a spend; confirm both Legion dialogs; press Deny in the WALLET.",
-        "Read Legion's status; resolve the unknown outcome in the native dialog after reading the wallet history."
+        "Read Legion's status; resolve the unknown outcome in the confirm window after reading the wallet history."
       ],
-      "expected": "Legion shows unknown (unless a reviewed mapping exists) and blocks further spends until you resolve it natively. RECORD exactly what the wallet returned on Deny (U6).",
+      "expected": "Legion shows unknown (unless a reviewed mapping exists) and blocks further spends until you resolve it in the confirm window. RECORD exactly what the wallet returned on Deny (U6).",
       "evidence": "PC-BSVT-08.png, PC-BSVT-08.log (wallet reply, scrubbed).",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2608,9 +2608,9 @@
       "steps": [
         "Start a spend and confirm both dialogs; while the wallet prompt is showing end the wallet process by its PID.",
         "Restart Legion; try another spend.",
-        "Resolve the unknown natively; try again."
+        "Resolve the unknown in the confirm window; try again."
       ],
-      "expected": "unknown; after restart spends are still blocked (the unknown outcome is rebuilt from the audit); after the native resolve spends work again.",
+      "expected": "unknown; after restart spends are still blocked (the unknown outcome is rebuilt from the audit); after the resolve in the confirm window spends work again.",
       "evidence": "PC-BSVT-09.png, PC-BSVT-09.log.",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2762,7 +2762,7 @@
     {
       "id": "PC-BSVT-15",
       "area": "BSVT",
-      "title": "Native dialogs for policy changes: Connect, Arm, Unfreeze, caps and allowlist; Freeze and Disarm need none",
+      "title": "Confirm window for policy changes: Connect, Arm, Unfreeze, caps and allowlist; Freeze and Disarm need none",
       "source": [
         "docs/BSV-MODE.md (the interface)",
         "docs/BSV-WALLET-DESIGN.md section 11 (Electron dialogs on a real desktop)"
@@ -2772,7 +2772,7 @@
       "steps": [
         "Do each action in the BSV panel; photograph the dialog; press Cancel and Escape once each."
       ],
-      "expected": "Each of Connect, allowlist, caps, Arm and Unfreeze shows a native dialog that defaults to Cancel; Cancel and Escape change nothing; Freeze and Disarm act with one click.",
+      "expected": "Each of Connect, allowlist, caps, Arm and Unfreeze opens Legion's confirm window with Cancel as the default button; Cancel and Escape change nothing; Freeze and Disarm act with one click.",
       "evidence": "PC-BSVT-15-<action>.png.",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2789,17 +2789,17 @@
     {
       "id": "PC-BSVT-16",
       "area": "BSVT",
-      "title": "Dialogs with the window hidden to the tray, and Windows taskkill/netstat behaviour",
+      "title": "Confirm window with the Legion window hidden to the tray, and Windows taskkill/netstat behaviour",
       "source": [
         "docs/BSV-WALLET-DESIGN.md section 11 (Windows specifics)"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 prerequisites.",
       "steps": [
-        "Start a spend request, hide the window to the tray, and see where the dialog appears and whether it can be answered.",
+        "Start a spend request, hide the window to the tray, and see where Legion's confirm window appears (on its own, on top, with no Legion window behind it) and whether it can be answered.",
         "Check `netstat -ano` for the core's port and that taskkill by PID ends Legion's core."
       ],
-      "expected": "The dialog is still visible and answerable (or the request times out safely); netstat and taskkill behave as the notes assume.",
+      "expected": "The confirm window is still visible and answerable (or the request times out safely); netstat and taskkill behave as the notes assume.",
       "evidence": "PC-BSVT-16.png, PC-BSVT-16.log.",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2825,7 +2825,7 @@
       "steps": [
         "In DevTools (source checkout run) evaluate `typeof window.legion.bsvPolicy`, then perform one Cancel-only action from the panel."
       ],
-      "expected": "The bridge exists in the real preload exactly as the emulation shows; actions reach the native dialog code.",
+      "expected": "The bridge exists in the real preload exactly as the emulation shows; actions reach the confirm window code.",
       "evidence": "PC-BSVT-17.png.",
       "safety": "none",
       "automation": "computer-use-ok",
@@ -3242,7 +3242,7 @@
       "inferred": false,
       "preconditions": "PC-BSVM-01.",
       "steps": [
-        "In the panel use Connect with the real wallet's address (typed by the owner; confirm the native dialog).",
+        "In the panel use Connect with the real wallet's address (typed by the owner; confirm in the confirm window).",
         "Ask the Assayer for 200 sat."
       ],
       "expected": "Denied mainnet-disabled; NO wallet prompt; the audit shows a denied line with net main.",
@@ -3262,7 +3262,7 @@
     {
       "id": "PC-BSVM-03",
       "area": "BSVM",
-      "title": "R2: enable mainnet through the native dialog",
+      "title": "R2: enable mainnet through Legion's confirm window",
       "source": [
         "docs/design/plan-bsv-rung3.md 12.6b R2"
       ],
@@ -3295,7 +3295,7 @@
       "inferred": false,
       "preconditions": "PC-BSVM-03.",
       "steps": [
-        "Add the own mainnet address to the mainnet allowlist (native dialog); ask for 200 sat again."
+        "Add the own mainnet address to the mainnet allowlist (confirm window); ask for 200 sat again."
       ],
       "expected": "Denied not-armed; no wallet prompt.",
       "evidence": "PC-BSVM-04.png.",
@@ -3447,7 +3447,7 @@
     {
       "id": "PC-BSVM-10",
       "area": "BSVM",
-      "title": "R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve natively",
+      "title": "R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve in the confirm window",
       "source": [
         "docs/design/plan-bsv-rung3.md 12.6b R9"
       ],

@@ -72,7 +72,7 @@ test('C24: release notes are untrusted text: only the updater, the Electron side
     }
   };
   walk('src'); walk('ui/src');
-  assert.deepEqual(importers.sort(), ['src/bin/legion-core.ts', 'src/electron/update-window-main.ts', 'src/electron/updater-main.ts']);
+  assert.deepEqual(importers.sort(), ['src/bin/legion-core.ts', 'src/electron/confirm-window-logic.ts' /* window placement helpers only */, 'src/electron/update-window-main.ts', 'src/electron/updater-main.ts']);
   assert.match(read('src/electron/main.ts'), /from '\.\/updater-main\.js'/);
   const panel = read('ui/src/components/UpdatePanel.tsx');
   assert.equal(/dangerouslySetInnerHTML|innerHTML/.test(panel), false);

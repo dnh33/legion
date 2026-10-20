@@ -39,7 +39,7 @@ These claims are about Legion's own code.
 ## BSV mode (testing preview)
 
 - Legion's own code holds no key and signs nothing itself. It has one spend tool that asks a wallet on this computer to pay.
-- Each spend needs your confirmation in native dialogs. Default caps are small, and the recipient list is empty.
+- Each spend needs your confirmation in Legion's confirm window (or the system dialog if it cannot open). Default caps are small, and the recipient list is empty.
 - Spending on mainnet is off by default. Only you turn mainnet on, in the app, after a warning. Each mainnet spend needs its own arm.
 - The wallet's own prompt is not always the last gate. Whether your wallet asks too depends on the wallet.
 - The spend tool has been tested against fake wallets only. It is not verified against a real wallet or with real funds.

@@ -221,12 +221,12 @@ export interface SpendModel {
   unknown: SpendRow[];
 }
 
-/** What the panel's spend section shows, from the policy answer only. Requests are answered in main's native dialogs, never here. */
+/** What the panel's spend section shows, from the policy answer only. Requests are answered in main's confirm window, never here. */
 export function spendModel(p: { spendTools: boolean; pending: PolicyView['pending']; waiting?: PolicyView['waiting']; unknown: PolicyView['unknown'] }): SpendModel {
   const sat = (n: number) => `${(Number.isSafeInteger(n) && n >= 0 ? n : 0).toLocaleString('en-US')} sat`;
   return {
     headline: p.spendTools
-      ? 'The Assayer has one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed. Every request opens native confirmations; whether your wallet asks too depends on the wallet.'
+      ? 'The Assayer has one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed. Every request opens a confirmation in Legion\'s confirm window; whether your wallet asks too depends on the wallet.'
       : 'The spend tool is not available to the Assayer in this core.',
     pending: p.pending.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)} waiting for your answer` })),
     waiting: (p.waiting ?? []).map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)}, waiting for your wallet. It may be asking you for a spending grant: answer it there, or cancel here.` })),

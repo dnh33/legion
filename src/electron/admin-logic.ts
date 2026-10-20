@@ -386,7 +386,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
 /** A reason to refuse before asking the person anything: no dialog for a change the core would refuse anyway. */
 export function bsvPreflight(action: BsvAction, facts: BsvPolicyFacts): string | undefined {
   if (action.kind === 'arm' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
-  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (a native confirmation); Arm only applies to mainnet.';
+  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (it asks in Legion\'s confirm window); Arm only applies to mainnet.';
   if (action.kind === 'mainnet-enable' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
   if (action.kind === 'mainnet-enable' && facts.mainnetEnabled === true) return 'Mainnet is already switched on.';
   if (action.kind === 'connect' && facts.frozen) return 'The chain is frozen. Unfreeze it first; Legion does not contact a wallet while frozen.';

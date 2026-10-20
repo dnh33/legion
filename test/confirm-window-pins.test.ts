@@ -263,3 +263,11 @@ test('BSV address: the "check every character" cue is the label above the addres
   for (const d of [spendReviewDialog(c), spendLiveDialog(c), spendUntrustedDialog(c)]) assert.doesNotMatch(d.windowDetail ?? '', /Check every character of the full address above/);
   assert.match(spendReviewDialog(c).detail, /Recipient \(full address, check every character\):/, 'the system dialog keeps its own label');
 });
+
+test('wording: what the README, SECURITY.md, the BSV doc and the BSV panel tell you says Legion\'s confirm window, not "native dialogs"', () => {
+  const files = ['README.md', 'SECURITY.md', 'docs/BSV-MODE.md', 'ui/src/bsv/BsvPanel.tsx', 'ui/src/bsv/ChainOverlay.tsx', 'src/shared/bsv-view.ts'];
+  for (const f of files) assert.doesNotMatch(read(f), /native (dialogs?|confirmations?)/i, f);
+  assert.match(read('SECURITY.md'), /Each spend needs your confirmation in Legion's confirm window \(or the system dialog if it cannot open\)/);
+  assert.match(read('SECURITY.md'), /\*\*Confirm window\.\*\*/);
+  assert.doesNotMatch(read('src/electron/admin-logic.ts').replace(/^\s*(\/\/|\*|\/\*\*).*$/gm, ''), /confirm it in native dialogs/);
+});
