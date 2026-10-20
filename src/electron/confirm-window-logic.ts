@@ -225,6 +225,27 @@ export async function orBusy<T>(flow: Promise<T>, busy: T): Promise<T> {
   try { return await flow; } catch (e) { if (e instanceof ConfirmBusyError) return busy; throw e; }
 }
 
+/**
+ * Waits (no refusal) until no question is open. For a system dialog that no page can ask for, such as a notice from the updater or a question about a
+ * core that was started outside Legion: it must not open over the card, and it must not be lost either.
+ */
+export async function waitUntilFree(isBusy: () => boolean, o: { pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<void> {
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  while (isBusy()) await sleep(o.pollMs ?? 500);
+}
+
+/**
+ * The card takes the focus back when the Legion page gains it. Not inside the focus event: Chromium finishes giving the focus to the page after the
+ * event, which undoes a grab made in it (measured). So the grab runs on the next turn; a burst of events makes one grab, and `cancel` ends it.
+ */
+export function deferFocus(take: () => void, timers: { set(fn: () => void, ms: number): unknown; clear(t: unknown): void } = { set: (fn, ms) => setTimeout(fn, ms), clear: (t) => clearTimeout(t as ReturnType<typeof setTimeout>) }): { onFocus(): void; cancel(): void } {
+  let t: unknown;
+  return {
+    onFocus: () => { if (t !== undefined) return; t = timers.set(() => { t = undefined; take(); }, 0); },
+    cancel: () => { if (t !== undefined) { timers.clear(t); t = undefined; } },
+  };
+}
+
 // ---------------------------------------------------------------- opening the window
 
 export interface PrepareSteps {

@@ -52,7 +52,7 @@ test('the app behind is blocked while the card is open: every key is dropped, th
   assert.match(win, /mainWc\.on\('before-input-event', dropInput\)/);
   assert.match(win, /const dropInput = \(e: Electron\.Event\): void => e\.preventDefault\(\);/, 'no key is let through, reload shortcuts included');
   assert.match(win, /mainWc\.on\('before-mouse-event', dropInput\)/);
-  assert.match(win, /mainWc\.on\('focus', takeFocus\)/); assert.match(win, /main\.on\('focus', takeFocus\)/);
+  assert.match(win, /mainWc\.on\('focus', pageFocus\.onFocus\)/); assert.match(win, /main\.on\('focus', takeFocus\)/);
   assert.match(win, /main\.once\('closed', onMainClosed\)/); assert.match(win, /main\.on\('hide', onMainHidden\)/);
   for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) assert.ok(win.includes(`'${ev}'`), `follows ${ev}`);
   assert.match(win, /main\.contentView\.on\('bounds-changed', sync\)/);
@@ -112,7 +112,7 @@ test('which questions moved: the 8 settings handlers and the BSV paths use the w
   assert.equal((main.match(/makeConfirm\(confirmWindow, \(\) => win\)/g) ?? []).length, 8);
   assert.doesNotMatch(main, /makeConfirm\(dialog/);
   const sys = [...main.matchAll(/dialog\.(showMessageBox|showErrorBox|showOpenDialog)\(/g)].map((m) => m[1]);
-  assert.deepEqual(sys, ['showMessageBox', 'showMessageBox', 'showErrorBox', 'showOpenDialog'], 'foreign-core question, started-outside notice, restart failure box, folder picker');
+  assert.deepEqual(sys, ['showMessageBox', 'showMessageBox', 'showErrorBox'], 'foreign-core question, started-outside notice, restart failure box; the folder picker lives in project-ipc, behind the busy check');
   assert.match(main, /async function askRestartForeignCore[\s\S]*?dialog\.showMessageBox/);
   assert.equal((main.match(/confirmWindow\.showMessageBox\(/g) ?? []).length, 1, 'BSV policy (one call, no window argument)');
   assert.equal((main.match(/confirmWindow\.showHeldMessageBox\(/g) ?? []).length, 1, 'spend review (one call, no window argument)');

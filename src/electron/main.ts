@@ -9,8 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
-import { CONFIRM_BUSY, ConfirmBusyError } from './confirm-window-logic.js';
-import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, releaseConfirmWindow } from './confirm-window.js';
+import { CONFIRM_BUSY, ConfirmBusyError, waitUntilFree } from './confirm-window-logic.js';
+import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, nativeDialogAllowed, releaseConfirmWindow } from './confirm-window.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
@@ -22,7 +22,7 @@ import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
 import { gatesChange } from './gates-ipc.js';
 import { agentModeBatch, agentModeChange } from './agent-mode-ipc.js';
-import { projectChange } from './project-ipc.js';
+import { makePickFolder, projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
 import { browserChange } from './browser-ipc.js';
@@ -226,6 +226,7 @@ async function spawnCore(port: number): Promise<string | null> {
 
 /** Asks what to do with a foreign core that is busy. true = restart it now. */
 async function askRestartForeignCore(): Promise<boolean> {
+  await waitUntilFree(confirmWindowBusy); // a restart can be asked for by the page: this system dialog never opens over a confirm card
   const r = await dialog.showMessageBox({
     type: 'question',
     buttons: ['Restart now', 'Later'],
@@ -250,7 +251,7 @@ async function ensureCore(): Promise<string | null> {
     const action = coreAction({ health, ownProof: !!mine, busy, selfPid: process.pid, listeners });
     if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
     if (action === 'blocked') {
-      dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }).catch(() => {});
+      void waitUntilFree(confirmWindowBusy).then(() => dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' })).catch(() => {});
       pinned = readConfig(); rendererAdmin = undefined;
       return null;
     }
@@ -661,10 +662,8 @@ if (instance.quit) {
   ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    const pickFolder = async (start?: string): Promise<string | undefined> => {
-      const r = await dialog.showOpenDialog(win!, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
-      return r.canceled ? undefined : r.filePaths[0];
-    };
+    // the chooser is a system window the page can ask for: it refuses (busy) while a confirm card is open, so it never covers the card
+    const pickFolder = makePickFolder(dialog, () => win, nativeDialogAllowed);
     try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {
@@ -737,7 +736,7 @@ if (instance.quit) {
     await boot();
     if (coreBooted) void confirmAfterBoot(root, dataDir(), () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
-    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
+    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, cardOpen: () => !nativeDialogAllowed(), cardFree: () => waitUntilFree(confirmWindowBusy), uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
     initUpdater(updaterHost);
     if (coreBooted) void showOutcomeNotice(updaterHost, dataDir()); // an update that did not finish says so once, with Retry and Dismiss
   });

@@ -5,8 +5,10 @@
  * give the answer: the card answers by changing ITS OWN title to `legion-confirm:<one-time id>:<button>`, and main reads that only from this view's web
  * contents. There is no preload, no node and no network (the page's policy allows none). Its web contents live in a session of their own.
  *
- * While the card is open the app behind it gets no mouse (the card covers it) and no keyboard (main drops every key for the Legion page), and the card is
- * focused whenever the Legion window is. Closing the Legion window, quitting, a crash and a timeout all end as "no", and the view is removed every time.
+ * While the card is open the app behind it gets no mouse down, up or move (the card covers it, and main drops what reaches the page anyway) and no keyboard
+ * (main drops every key for the Legion page), and the card is focused whenever the Legion window or its page gains it (for the page, on the next turn). A
+ * wheel over the card goes to the card, because it is the topmost view; the mouse hook carries no wheel, so a wheel sent to the page by other means is not
+ * dropped. No system dialog that the Legion page can ask for opens over the card: see `nativeDialogAllowed`. Closing the Legion window, quitting, a crash and a timeout all end as "no", and the view is removed every time.
  *
  * It takes the place of dialog.showMessageBox for those questions: `confirmWindow.showMessageBox([parent,] options)` gives `{ response }` like Electron's,
  * honouring buttons, defaultId and cancelId. The parent argument is accepted for the same call shape and ignored: the question is always shown in the
@@ -19,7 +21,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bringForward, buildModel, ConfirmBusyError, createAnswerGate, nativeOptions, overlayZoom, pickTheme, prepareConfirm, syncOverlay, type ConfirmOptions, type OverlayMain, type OverlayView } from './confirm-window-logic.js';
+import { bringForward, buildModel, ConfirmBusyError, createAnswerGate, deferFocus, nativeOptions, overlayZoom, pickTheme, prepareConfirm, syncOverlay, type ConfirmOptions, type OverlayMain, type OverlayView } from './confirm-window-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -48,6 +50,8 @@ let held = false;
 export const confirmWindowBusy = (): boolean => busy || held;
 export function holdConfirmWindow(): boolean { if (busy || held) return false; held = true; return true; }
 export function releaseConfirmWindow(): void { held = false; }
+/** False while a question is open or held: a system dialog (the folder chooser, Restart now) must not open over the card, where it would take its mouse and keys. */
+export const nativeDialogAllowed = (): boolean => !confirmWindowBusy();
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 /** JSON is valid script apart from these two separators in old engines; escaping them costs nothing. */
@@ -130,7 +134,9 @@ async function ask(opts: ConfirmOptions): Promise<number> {
     const gate = createAnswerGate(nonce, model.buttons.length);
     const cancel = model.cancelIndex;
     // While the card is open the app behind it hears nothing: every key (the reload shortcuts too) is dropped before the Legion page sees it, and the mouse is
-    // covered by the card itself (and dropped here as well). The card gets the focus back whenever the Legion window or its page gains it.
+    // covered by the card itself (mouse down, up and move that reach the page anyway are dropped here; the hook carries no wheel, and a real wheel over the
+    // card goes to the card, the topmost view). The card gets the focus back whenever the Legion window or its page gains it; for the page it is deferred a turn.
+    const pageFocus = deferFocus(takeFocus);
     const dropInput = (e: Electron.Event): void => e.preventDefault();
     const onMainClosed = (): void => finish(cancel, 'the Legion window was closed: cancelled');
     const onMainHidden = (): void => finish(cancel, 'the Legion window was hidden: cancelled');
@@ -139,7 +145,7 @@ async function ask(opts: ConfirmOptions): Promise<number> {
     const guardMain = (): void => {
       mainWc.on('before-input-event', dropInput);
       mainWc.on('before-mouse-event', dropInput);
-      mainWc.on('focus', takeFocus);
+      mainWc.on('focus', pageFocus.onFocus);
       mainWc.on('zoom-changed', sync);
       main.on('focus', takeFocus);
       for (const ev of SYNC_EVENTS) main.on(ev as 'resize', sync);
@@ -149,9 +155,10 @@ async function ask(opts: ConfirmOptions): Promise<number> {
     };
     const unguardMain = (): void => {
       try {
+        pageFocus.cancel();
         mainWc.removeListener('before-input-event', dropInput);
         mainWc.removeListener('before-mouse-event', dropInput);
-        mainWc.removeListener('focus', takeFocus);
+        mainWc.removeListener('focus', pageFocus.onFocus);
         mainWc.removeListener('zoom-changed', sync);
         main.removeListener('focus', takeFocus);
         for (const ev of SYNC_EVENTS) main.removeListener(ev as 'resize', sync);

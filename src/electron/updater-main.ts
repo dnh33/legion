@@ -28,6 +28,10 @@ export interface UpdaterHost {
   dataDir: string;
   ownCoreCall: CoreCall;
   getWin(): BrowserWindow | null;
+  /** True while a confirm card is open (main knows; this file imports nothing from it). A system dialog the page can ask for refuses then. */
+  cardOpen(): boolean;
+  /** Resolves when no confirm card is open: a notice nobody asked for waits instead of opening over it. */
+  cardFree(): Promise<void>;
   uiUrl: string;
   pinnedPort(): number;
   stopCore(): Promise<void>;
@@ -124,7 +128,7 @@ let noticeShown = false;
  * After the window is up and the core answers: if the last update did not finish and nobody has acknowledged it, say so once, in a dialog on
  * the Legion window. Retry downloads and installs again; Dismiss (or Esc) clears the record.
  */
-export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin'>, dataDirPath: string): Promise<void> {
+export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'ownCoreCall' | 'getWin' | 'cardFree'>, dataDirPath: string): Promise<void> {
   if (noticeShown) return;
   const n = outcomeNotice(readOutcome(h.installDir));
   if (!n) return;
@@ -147,6 +151,7 @@ export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'own
       if (res.kind === 'later') log0(res.line);
       return;
     }
+    await h.cardFree(); // never over a confirm card; the record stays in Settings meanwhile
     const w = h.getWin();
     const opts = { type: 'warning' as const, title: n.title, message: n.message, buttons: [...n.buttons], defaultId: 0, cancelId: 1, noLink: true };
     const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
@@ -154,6 +159,7 @@ export async function showOutcomeNotice(h: Pick<UpdaterHost, 'installDir' | 'own
     const res = await runNoticeChoice(n, r.response, (m, route, body) => h.ownCoreCall(m, route, body), log);
     if (res.kind === 'later') {
       const o2 = { type: 'info' as const, title: n.title, message: res.line, buttons: ['OK'], defaultId: 0, noLink: true };
+      await h.cardFree();
       if (w && !w.isDestroyed()) await dialog.showMessageBox(w, o2); else await dialog.showMessageBox(o2);
     }
   } catch (e) { writeAppLog(dataDirPath, 'warn', 'outcome-notice', { note: `the notice failed: ${e instanceof Error ? e.message : String(e)}` }); /* the Settings panel still shows the record */ }
@@ -183,7 +189,7 @@ async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; 
     if (!st || st.status !== 200) return { ok: false, error: 'Legion could not reach its own core.' };
     if (!st.json.staged || !st.json.consent) return { ok: false, error: 'No approved update is ready.' };
     if (force) {
-      if (dialogOpen) return { ok: false, error: 'A confirmation is already open.' };
+      if (dialogOpen || h.cardOpen()) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
       dialogOpen = true;
       try {
         const t = restartNowText(st.json.busy?.reasons ?? [], st.json.staged.version);
