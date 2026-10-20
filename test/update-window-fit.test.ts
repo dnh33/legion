@@ -100,7 +100,7 @@ test('outcome text: a long reason shows in full (never cut to "ev...."), a reaso
 });
 
 test('outcome text: an address, a port and a drive path never reach the person', () => {
-  const t = outcomeText({ result: 'failed', reason: 'could not reach http://127.0.0.1:4747/health and C:\\Users\\Danie\\legion\\dist', failedAt: 'starting' });
+  const t = outcomeText({ result: 'failed', reason: 'could not reach http://127.0.0.1:4747/health and C:\\Users\\someone\\legion\\dist', failedAt: 'starting' });
   assert.ok(!/127\.0\.0\.1|4747|C:\\/.test(t), t);
 });
 

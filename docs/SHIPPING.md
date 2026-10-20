@@ -3,8 +3,8 @@
 **Read this before cutting a release or installing Legion.** Written 2026-10-04 after a release had to be pulled
 back. Everything here is verified on this machine, not remembered.
 
-There is exactly **one** Legion folder: `D:\bots\legion`. It is the canonical clone, on `main`, and it is the
-remote `cloud`. Everything else under `D:\bots` is a worktree of it, a build scratch folder, or an unpacked package.
+There is exactly **one** Legion checkout: the canonical clone, on `main`, with the remote `cloud`. Every other
+Legion folder beside it is a worktree of it, a build scratch folder, or an unpacked package.
 
 ---
 
@@ -25,7 +25,7 @@ On 2026-10-04 the install folder was found to be a **git worktree on `main`**:
 
 ```
 %LOCALAPPDATA%\Programs\Legion\.git
-  -> gitdir: D:/bots/legion-dev/.git/worktrees/legion-review
+  -> gitdir: <a dev clone>/.git/worktrees/legion-review
 git log -1  -> deb5a69      (a commit pushed minutes earlier)
 ```
 
@@ -33,7 +33,7 @@ Two things were tangled at once:
 
 1. The install folder was registered as a worktree, so **every push to `main` landed inside the installed app** and
    showed up there as local modifications.
-2. The worktree's metadata pointed at `D:/bots/legion/.git` while living in `D:/bots/legion-dev/.git` — orphaned
+2. The worktree's metadata pointed at the main checkout's `.git` while living in a second dev clone's `.git`: orphaned
    leftovers from the `legion-review` → `legion` rename earlier the same day.
 
 **The tell:** if `git status` inside `%LOCALAPPDATA%\Programs\Legion` succeeds and prints `M CHANGELOG.md`, the
@@ -81,8 +81,8 @@ Every step, in order. The gate exists because three releases passed the whole te
 ### 0. Know where you are
 
 ```
-D:\bots\legion          canonical clone, main, remote "cloud"    <- work here
-D:\bots\legion-<topic>  a worktree for ONE feature               <- also fine, merge when done
+<checkout>          canonical clone, main, remote "cloud"    <- work here
+<checkout>-<topic>  a worktree for ONE feature               <- also fine, merge when done
 ```
 
 Never ship from a worktree that is not merged. Never build or test in the install folder.
@@ -146,8 +146,8 @@ The workflow `.github/workflows/release-build.yml` builds the package on a Windo
 
 1. Make sure `docs/release-notes/<v>.txt` is committed in the release PR. It is the text the updater shows. Max 2000 chars.
 2. After the release commit is on main, push the tag: `git tag v<v> && git push cloud v<v>`. The tag push starts "Release build" in Actions. Do not push test tags. For a dry run, use the manual run with `ref`.
-3. Check the run is the tag build of the reviewed commit, then download it. `gh run view <run-id> --repo dnh33/legion --json event,headBranch,headSha,path` must say `event` = `push`, `headBranch` = `v<v>`, `path` = `.github/workflows/release-build.yml`, and `headSha` = `git rev-parse v<v>^{commit}`, a commit on main (`git merge-base --is-ancestor <sha> cloud/main`). Only a tag build makes an artifact named `legion-<v>-release`; a manual run makes `legion-<v>-DRYRUN-<sha7>`, which is never signed. Then: `gh run download <run-id> --repo dnh33/legion -n legion-<v>-release -D D:/bots/legion-pkg-<v>`.
-4. Check the hashes. Compare `sha256sum` (or `Get-FileHash`) of each file with SHA256SUMS.txt and with the hashes in the run's job summary. Compare install.ps1 and install.sh with the files in your own checkout at the tag. Use the working-tree files, not `git show`, which drops the CRLF line endings of .ps1. Check `build-info.json` inside app.zip: `commit` is the same SHA as in step 3, and `dirty` is `false`. A match proves the download is what the runner produced from that commit. It does not prove what the runner ran: the dependency install runs on the runner too. The run also attests the artifact, so check its provenance: `gh attestation verify D:/bots/legion-pkg-<v>/legion-<v>-win-x64.zip --repo dnh33/legion` (repeat per file). Until checks RB1 and RB2 in `docs/design/tracker-pc-checks.md` have passed, also build app.zip on the PC from the tag (step 4 below) and sign only if its SHA-256 equals the artifact's.
+3. Check the run is the tag build of the reviewed commit, then download it. `gh run view <run-id> --repo dnh33/legion --json event,headBranch,headSha,path` must say `event` = `push`, `headBranch` = `v<v>`, `path` = `.github/workflows/release-build.yml`, and `headSha` = `git rev-parse v<v>^{commit}`, a commit on main (`git merge-base --is-ancestor <sha> cloud/main`). Only a tag build makes an artifact named `legion-<v>-release`; a manual run makes `legion-<v>-DRYRUN-<sha7>`, which is never signed. Then: `gh run download <run-id> --repo dnh33/legion -n legion-<v>-release -D <pkg-dir>`.
+4. Check the hashes. Compare `sha256sum` (or `Get-FileHash`) of each file with SHA256SUMS.txt and with the hashes in the run's job summary. Compare install.ps1 and install.sh with the files in your own checkout at the tag. Use the working-tree files, not `git show`, which drops the CRLF line endings of .ps1. Check `build-info.json` inside app.zip: `commit` is the same SHA as in step 3, and `dirty` is `false`. A match proves the download is what the runner produced from that commit. It does not prove what the runner ran: the dependency install runs on the runner too. The run also attests the artifact, so check its provenance: `gh attestation verify <pkg-dir>/legion-<v>-win-x64.zip --repo dnh33/legion` (repeat per file). Until checks RB1 and RB2 in `docs/design/tracker-pc-checks.md` have passed, also build app.zip on the PC from the tag (step 4 below) and sign only if its SHA-256 equals the artifact's.
 5. Do NOT re-run release-manifest on the PC. CI already wrote the final manifest. It compares the dependency tree of `package-lock.json` with the previous release tag (the same `dependencyHash` the app uses, so a version-only lock change does not count). When the tree changed, the manifest carries `requiresFullInstall: true` and the signed `fullAsset` (name, size and sha256 of `legion-<v>-win-x64.zip`). A code-only release (tree unchanged since the previous release) carries `requiresFullInstall: false` and **also** a `fullAsset` while its lock differs from the stepping stone's lock (`git show v0.3.0:package-lock.json`, compared with `dependencyHash`): see [Stepping stones](#stepping-stones). Read both lines of the run summary, "Full install needed" and "Code-only release carries its full package". When the lock equals the stone's, the manifest has neither. Read the decision in the run summary ("Full install needed") and check it matches what you expect for this release. A wrong answer is a reason to stop, not to patch the manifest by hand. If you ever must run it yourself, a dependency-change release needs both flags: `node scripts/release-manifest.mjs --zip <app.zip> --full-zip <win-x64.zip> --requires-full-install --notes docs/release-notes/<v>.txt --out <folder>`. `--requires-full-install` alone is refused (the release could only notify); `--notify-only` asks for that on purpose. A code-only release that must carry the package uses `--full-zip <win-x64.zip> --carry-full` (no `--requires-full-install`; the two contradict).
 6. Then skip steps 4 and 5 below and go on from step 6 (Sign) of this section: 6, 7, 7a, 9 and 10 as written (8 is done, because the tag is on main). Sign on the PC. The key never goes to Actions.
 
@@ -157,7 +157,7 @@ Use this when Actions is down or for a hotfix; steps 4 and 5 are the old local p
 
 ```
 rm -rf dist dist-ui && npm run build
-node scripts/build-package.mjs --out D:/bots/legion-pkg-<v> --skip-build
+node scripts/build-package.mjs --out <pkg-dir> --skip-build
 ```
 
 Use a **native `D:/...` path**. An MSYS `/d/...` becomes `D:\d\...` inside node and ENOENTs.
@@ -172,8 +172,8 @@ code-only subset).
 A release publishes **two manifest names** (see [Stepping stones](#stepping-stones)). `release-manifest.mjs` writes both: `legion-update-manifest-2.json` is the release's own manifest, `legion-update-manifest.json` is what a 0.2.7 install reads. **Every release after the stone (0.3.0), code-only or full, needs `--stepping-stone <folder>`**: the folder holds the stone's own published `legion-update-manifest.json` and `.sig` (`gh release download v0.3.0 -p 'legion-update-manifest.json*' -D <folder>`). They are copied byte for byte under the old name and never re-signed. A full-install release's own manifest also names the stone and sets `minUpdater: 2`. Without `--stepping-stone` the script refuses (a later release under the old name would be staged by a 0.2.7 install, fail the dependency-hash check and strand it). Only the stone release itself (a version listed in `scripts/stepping-stones.json`) is built without the flag: both names carry its own manifest. The release build workflow does this for you.
 
 ```
-node scripts/release-manifest.mjs --zip D:/bots/legion-pkg-<v>/legion-<v>-app.zip \
-     --out D:/bots/legion-pkg-<v> --notes <notes-file>
+node scripts/release-manifest.mjs --zip <pkg-dir>/legion-<v>-app.zip \
+     --out <pkg-dir> --notes <notes-file>
 ```
 
 Passing the 285 MB zip fails with a naming error that does not explain which zip is expected.
@@ -181,8 +181,8 @@ Passing the 285 MB zip fails with a naming error that does not explain which zip
 ### 6. Sign (the manifest **and** SHA256SUMS)
 
 ```
-node scripts/release-sign.mjs      --key <key.pem> --manifest D:/bots/legion-pkg-<v>/legion-update-manifest-2.json
-node scripts/release-sign-sums.mjs --key <key.pem> --sums     D:/bots/legion-pkg-<v>/SHA256SUMS.txt
+node scripts/release-sign.mjs      --key <key.pem> --manifest <pkg-dir>/legion-update-manifest-2.json
+node scripts/release-sign-sums.mjs --key <key.pem> --sums     <pkg-dir>/SHA256SUMS.txt
 ```
 
 The first signs the release's own manifest (`legion-update-manifest-2.json`), which the app checks before it stages an update; for the stone release itself it also writes the same `.sig` for the identical old-name file; for every later release the old name already carries the stone's own `.sig`, so nothing else is signed. The second signs `SHA256SUMS.txt`,
@@ -190,16 +190,15 @@ so the hashes a downloader compares are covered by a signature and not only by a
 writes `SHA256SUMS.txt.sig` next to it. Both use the same k1 key, both write a detached Ed25519 signature in the same
 `{"keyId","alg","sig"}` shape, and both refuse a key that is not the one the app trusts.
 
-**The key must be outside every git work tree.** The vault path
-`D:\the owner's vault\04-claude\credentials\legion-updater\legion-update-k1.key.pem` is *inside* the owner's vault's own git repo
-and the script refuses it. Copy to `D:\bots\_key.pem`, sign, delete the copy immediately. Never read the key into an
+**The key must be outside every git work tree.** The owner keeps it inside a private git repo, so the script
+refuses that path. Copy it to a folder outside any work tree, sign, delete the copy immediately. Never read the key into an
 agent session; pass the path.
 
 ### 7. THE GATE — mandatory, must end in "Pre-flight passed"
 
 ```
-node scripts/release-preflight.mjs --version <v> --pkg D:/bots/legion-pkg-<v> --prev-tag v<previous> [--stone-lock <package-lock.json of v0.3.0>]
-node scripts/release-verify.mjs   --dir D:/bots/legion-pkg-<v> [--stone-lock <package-lock.json of v0.3.0>]
+node scripts/release-preflight.mjs --version <v> --pkg <pkg-dir> --prev-tag v<previous> [--stone-lock <package-lock.json of v0.3.0>]
+node scripts/release-verify.mjs   --dir <pkg-dir> [--stone-lock <package-lock.json of v0.3.0>]
 ```
 
 `--stone-lock` is optional. Without it both scripts read the stone's lock with `git show v0.3.0:package-lock.json`, so the `v0.3.0` tag must be in your checkout. `release-publish.mjs` takes the same flag and runs the same carry check before it creates the draft.
@@ -291,7 +290,7 @@ Read every removed test line. No test may vanish silently.
 ### 9. Publish — **draft first, always**
 
 ```
-node scripts/release-publish.mjs --dir D:/bots/legion-pkg-<v> --version <v> --notes-file <file>
+node scripts/release-publish.mjs --dir <pkg-dir> --version <v> --notes-file <file>
 ```
 
 `release-publish.mjs` refuses to start unless all ten files are in the folder, then runs `gh release create --draft`, one `gh release upload` of all ten, and only then `gh release edit --draft=false --latest`. So `releases/latest` never serves a release whose second manifest, signature or package is still missing. `--dry-run` prints the three commands. If a step fails the release stays a draft; fix it and run the missing step by hand.
@@ -429,7 +428,7 @@ Only after the release side is settled. **Park, never delete** — every step he
 
 1. `git -C <install> status` — is anything uncommitted that is not yours? **Ask the owner before continuing.**
 2. Move the orphaned worktree metadata aside, renamed:
-   `D:\bots\legion-dev\.git\worktrees\legion-review` → `…\legion-review.stale-<date>`
+   `<dev clone>\.git\worktrees\legion-review` → `…\legion-review.stale-<date>`
 3. Delete the single `.git` **file** in the install folder. That is what re-enables auto-update.
 4. Re-run `setup.cmd` from a freshly downloaded release package, so the folder is a clean unpacked copy.
 
@@ -440,8 +439,8 @@ Only after the release side is settled. **Park, never delete** — every step he
 - **`Get-InstallDirVerdict` does not check for `.git`** (`scripts/lib/legion-procs.ps1:153-183`). It should refuse a
   folder containing a `.git` file or directory, naming the reason. This is the root cause and it is unfixed.
 - **No pre-ship check that the install folder is not a checkout.** The release procedure should assert it.
-- **`D:\bots\legion-dev` still exists** as a separate clone with a live worktree list, which is how the metadata got
-  tangled. It should be retired or its relationship to `D:\bots\legion` documented.
+- **A second dev clone still exists** beside the canonical checkout, with a live worktree list, which is how the
+  metadata got tangled. It should be retired or its relationship to the canonical checkout documented.
 
 ## GitHub Apps
 

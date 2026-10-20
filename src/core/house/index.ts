@@ -334,7 +334,7 @@ function headOf(root: string, rel: string, bytes: number): { heading: string; na
  * The installation root, derived the way the updater derives it: `dist/src/core/house` sits three levels below the
  * install root in a packaged build. In a dev checkout this points at the repo, which is what we want.
  *
- * `fileURLToPath`, never `new URL(...).pathname`: on Windows the latter yields `/D:/bots/...`, which resolves to the
+ * `fileURLToPath`, never `new URL(...).pathname`: on Windows the latter yields `/D:/work/...`, which resolves to the
  * wrong drive and silently syncs nothing. That is the first entry in CLAUDE.md's Windows lessons, hit on the way in.
  */
 function repoRootFromInstall(): string {

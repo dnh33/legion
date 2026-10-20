@@ -91,25 +91,25 @@ test('normalization defeats quote/escape tricks before matching', () => {
 });
 
 test('paths: gitignore-style matching, redirect targets as candidates, exceptPaths and the leading-! carve-out', () => {
-  const cwd = 'D:/bots/site';
+  const cwd = 'D:/work/site';
   // Path scoping is applied inside decideGate (it is class-aware there), so the probe goes through it.
   const denies = (when: GateWhen, call: { toolName: string; input: Record<string, unknown>; cwd: string }) =>
     decideGate(call, [rule('deny', when)], 'ask', false).verdict === 'deny';
   const write = (file_path: string) => ({ toolName: 'Write', input: { file_path }, cwd });
   const w: GateWhen = { paths: ['**/*.env', '!**/.env.example'] };
-  assert.equal(denies(w, write('D:/bots/site/.env')), true);
-  assert.equal(denies(w, write('D:/bots/site/config/.env')), true, 'double star crosses folders');
-  assert.equal(denies(w, write('D:/bots/site/.env.example')), false, 'the ! entry carves it out');
+  assert.equal(denies(w, write('D:/work/site/.env')), true);
+  assert.equal(denies(w, write('D:/work/site/config/.env')), true, 'double star crosses folders');
+  assert.equal(denies(w, write('D:/work/site/.env.example')), false, 'the ! entry carves it out');
   // `!` FIRST carves nothing: a list of only carve-outs names no paths at all.
-  assert.equal(denies({ paths: ['!**/*.env'] }, write('D:/bots/site/.env')), false, 'a leading ! lists no paths at all');
+  assert.equal(denies({ paths: ['!**/*.env'] }, write('D:/work/site/.env')), false, 'a leading ! lists no paths at all');
   assert.equal(denies({ paths: ['**/*.env'], exceptPaths: ['**/.env.example'] }, write('X/.env.example')), false);
   // A redirect target is a path candidate: `echo x > out/.env` matches a path-scoped rule.
   assert.equal(denies({ paths: ['**/*.env'] }, { toolName: 'Bash', input: { command: 'echo x > out/.env' }, cwd }), true);
   // A rule scoped to paths cannot match a call with no path at all.
   assert.equal(denies({ paths: ['**/*.env'] }, { toolName: 'Bash', input: { command: 'ls' }, cwd }), false);
   // Bare name matches at any level; a pattern with a slash is anchored to cwd-relative.
-  assert.equal(denies({ paths: ['secrets.txt'] }, write('D:/bots/site/a/b/secrets.txt')), true);
-  assert.equal(denies({ paths: ['src/app.ts'] }, write('D:/bots/site/lib/app.ts')), false);
+  assert.equal(denies({ paths: ['secrets.txt'] }, write('D:/work/site/a/b/secrets.txt')), true);
+  assert.equal(denies({ paths: ['src/app.ts'] }, write('D:/work/site/lib/app.ts')), false);
 });
 
 test('scoping: agents, projects (with and without a projectId), contexts, tools and disabled rules', () => {

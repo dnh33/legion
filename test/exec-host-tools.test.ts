@@ -77,7 +77,7 @@ test('the safety guard refuses the Windows shapes too: the shell tool runs cmd.e
   for (const cmd of [
     'rd /s /q C:\\', 'rmdir /s /q C:\\', 'RD /S /Q D:\\', 'rd /s /q "C:\\"', 'r^d /s /q C:\\',
     'del /f /s /q C:\\*', 'del /s /q C:\\*.*', 'erase /s /q D:\\',
-    'rd /s /q %USERPROFILE%', 'rd /s /q %SystemRoot%', 'rd /s /q C:\\Windows', 'rd /s /q "C:\\Program Files"', 'rd /s /q C:\\Users\\Danie',
+    'rd /s /q %USERPROFILE%', 'rd /s /q %SystemRoot%', 'rd /s /q C:\\Windows', 'rd /s /q "C:\\Program Files"', 'rd /s /q C:\\Users\\someone',
     'powershell -c "Remove-Item -Recurse -Force C:\\"', 'pwsh -Command Remove-Item -Recurse -Force $env:USERPROFILE',
     'powershell -c "Get-ChildItem C:\\ | Remove-Item -Recurse -Force"', 'powershell "gci D:\\ -Recurse | ri -Force"',
     'cmd /c rd /s /q C:\\', 'C:\\Windows\\System32\\cmd.exe /c rd /s /q C:\\',
@@ -189,7 +189,7 @@ test('the guard stays fast on a command of 100 000 rm words (no rescan per word)
 });
 
 test('a protected target is recognised however it is spelled: dot segments, macOS homes, System32', () => {
-  for (const cmd of ['rm -rf /Users/dan', 'rm -rf /Users', 'rd /s /q C:\\Windows\\System32', 'rm -rf /.', 'rd /s /q C:\\.', 'rm -rf /home/x/..', 'rd /s /q C:\\Users\\Danie\\..', 'rm -rf ~/./'])
+  for (const cmd of ['rm -rf /Users/dan', 'rm -rf /Users', 'rd /s /q C:\\Windows\\System32', 'rm -rf /.', 'rd /s /q C:\\.', 'rm -rf /home/x/..', 'rd /s /q C:\\Users\\someone\\..', 'rm -rf ~/./'])
     assert.ok(refuseCatastrophic(cmd), `refused: ${cmd}`);
   for (const cmd of ['rm -rf /Users/dan/proj/build', 'rd /s /q C:\\Windows\\Temp\\legion', 'rm -rf ./a/../b', 'rm -rf ~/proj/../proj2/dist'])
     assert.equal(refuseCatastrophic(cmd), undefined, `allowed: ${cmd}`);
@@ -198,12 +198,12 @@ test('a protected target is recognised however it is spelled: dot segments, macO
 test('Git Bash drive paths are drives: /c, /c/Users, /cygdrive/c and /mnt/c are refused like C:\\ (Git\'s rm runs from cmd.exe too)', () => {
   // Git for Windows puts its Unix tools (rm.exe) on PATH, and they read /c as the C: drive, from Git Bash AND from cmd.exe
   for (const cmd of [
-    'rm -rf /c', 'rm -rf /c/', 'rm -rf /c/*', 'rm -rf /d/*', 'rm -rf /C', 'rm -rf /c/Users', 'rm -rf /c/Users/Danie', 'rm -rf /c/Windows',
-    'rm -rf "/c/Program Files"', 'rm -rf /c/ProgramData', 'rm -rf /c/Windows/System32', 'rm -rf /cygdrive/c', 'rm -rf /mnt/c/', 'rm -rf /c/Users/Danie/..',
+    'rm -rf /c', 'rm -rf /c/', 'rm -rf /c/*', 'rm -rf /d/*', 'rm -rf /C', 'rm -rf /c/Users', 'rm -rf /c/Users/someone', 'rm -rf /c/Windows',
+    'rm -rf "/c/Program Files"', 'rm -rf /c/ProgramData', 'rm -rf /c/Windows/System32', 'rm -rf /cygdrive/c', 'rm -rf /mnt/c/', 'rm -rf /c/Users/someone/..',
     'rm -rf "$USERPROFILE"', 'rm -rf $USERPROFILE/', 'rm -rf ${USERPROFILE}', 'rm -rf $SYSTEMROOT', 'rm -rf "${PROGRAMFILES}"', 'rm -rf $WINDIR',
   ]) assert.ok(refuseCatastrophic(cmd), `refused: ${cmd}`);
   // a folder INSIDE a drive, a home or a project stays ordinary work, in the Git Bash spelling too
-  for (const cmd of ['rm -rf /c/work/site/dist', 'rm -rf /d/bots/legion/node_modules', 'rm -rf /c/Users/Danie/proj/build', 'rm -rf "$USERPROFILE/proj/build"', 'rm -rf /tmp/x', 'rm -rf /mnt/c/work/out'])
+  for (const cmd of ['rm -rf /c/work/site/dist', 'rm -rf /d/work/legion/node_modules', 'rm -rf /c/Users/someone/proj/build', 'rm -rf "$USERPROFILE/proj/build"', 'rm -rf /tmp/x', 'rm -rf /mnt/c/work/out'])
     assert.equal(refuseCatastrophic(cmd), undefined, `allowed: ${cmd}`);
 });
 
@@ -251,7 +251,7 @@ test('REVIEW (0.2.6-v): every bypass the adversarial review found is refused or 
     // targets only known when the command runs
     'rm -rf "$DIR"', 'rm -rf $TARGET/', 'rm -rf "${OUT}"/*', 'rd /s /q %TARGET%',
     // not covered before: other ways to destroy a drive or a home
-    'robocopy C:\\empty C:\\ /MIR', 'robocopy empty C:\\Users\\Danie /PURGE', 'rsync -a --delete empty/ /c/', 'chmod -R 000 /', 'chown -R nobody /c/Users',
+    'robocopy C:\\empty C:\\ /MIR', 'robocopy empty C:\\Users\\someone /PURGE', 'rsync -a --delete empty/ /c/', 'chmod -R 000 /', 'chown -R nobody /c/Users',
     'shred -n 1 /dev/sda', 'wipefs -a /dev/nvme0n1', 'mv ~ /dev/null', 'rm -rf ~/.*', 'rm -rf /[c]', 'rm -rf /?', 'rm -rf /c*', 'git -C /c clean -fdx',
   ]) assert.ok(caught(cmd), `refused or carded: ${JSON.stringify(cmd)}`);
 });
@@ -382,7 +382,7 @@ test('REVIEW 4 (0.2.6-v): each shell\'s own grammar (block comments, curly quote
     // a Windows variable with a path after it, a provider prefix, an admin share with a path, a drive-relative root, a wildcard under a drive
     ['rd /s /q %SystemDrive%\\Windows', 'cmd'], ['rd /s /q %SystemRoot%\\System32', 'cmd'], ['rd /s /q %LOCALAPPDATA%\\..\\..', 'cmd'], ['rd /s /q %ProgramFiles(x86)%', 'cmd'],
     ['Remove-Item $env:SystemRoot\\System32 -r', 'pwsh'], ['Remove-Item "$env:LOCALAPPDATA\\..\\.." -Recurse', 'pwsh'], ['Remove-Item FileSystem::C:\\ -r', 'pwsh'],
-    ['Remove-Item \\\\localhost\\C$\\Users\\Danie -r', 'pwsh'], ['rd /s /q \\Windows', 'cmd'], ['rd /s /q C:\\Win*', 'cmd'], ['Remove-Item C:\\??????s -r', 'pwsh'], ['rm -rf /c/W*', 'sh'],
+    ['Remove-Item \\\\localhost\\C$\\Users\\someone -r', 'pwsh'], ['rd /s /q \\Windows', 'cmd'], ['rd /s /q C:\\Win*', 'cmd'], ['Remove-Item C:\\??????s -r', 'pwsh'], ['rm -rf /c/W*', 'sh'],
     // delete programs run through npx, and .NET or COM delete calls
     ['npx rimraf /', 'sh'], ['rimraf ~', 'sh'], ['trash ~', 'sh'], ['(Get-Item C:\\Users).Delete($true)', 'pwsh'], ['gci C:\\ | % { $_.Delete() }', 'pwsh'],
     ['[IO.DirectoryInfo]::new("C:\\Users").Delete($true)', 'pwsh'], ['(New-Object -ComObject Scripting.FileSystemObject).DeleteFolder("C:\\Windows")', 'pwsh'],

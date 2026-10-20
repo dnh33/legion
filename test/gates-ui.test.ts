@@ -362,7 +362,7 @@ test('render: for a single project the editor is not shown, and a line says the 
 
 // ---------------------------------------------------------------- folder trust (security finding H1)
 
-const REPO_FOLDER = 'D:/bots/qa-trust-repo';
+const REPO_FOLDER = 'D:/work/qa-trust-repo';
 const HELD = [{ folder: REPO_FOLDER, lines: ['Hook PreToolUse (command) in .claude/settings.json runs: node mark-it.js', 'Environment variables set by .claude/settings.json: MY_TOKEN (values are not shown)'], more: 0 }];
 
 test('render: the thread card names the folder, what was held back, and offers Trust this folder', async () => {
@@ -397,7 +397,7 @@ test('render: Folders you trust, at the app default, lists each folder with Remo
     assert.match(none, /No folder is trusted\. Agents still read a project&#x27;s CLAUDE\.md and rules as text/);
     const some = r.fine(gv(undefined, { app: { version: 1, trustedFolders: [{ folder: REPO_FOLDER, digest: 'a'.repeat(64) }] } }), 'app');
     assert.ok(some.includes(REPO_FOLDER));
-    assert.match(some, /aria-label="Remove D:\/bots\/qa-trust-repo"/);
+    assert.match(some, /aria-label="Remove D:\/work\/qa-trust-repo"/);
     assert.ok(!/No folder is trusted/.test(some));
     const proj = r.fine(gv(undefined, { projects: { website: { version: 1 } } }), 'website');
     assert.ok(!/Folders you trust/.test(proj), 'trust is for the whole app, not a project');

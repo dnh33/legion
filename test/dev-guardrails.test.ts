@@ -67,14 +67,14 @@ test('isDevProcess flags every dev pattern', () => {
     FULL_POSIX,
     'node --test "dist/test/*.test.js"',
     'node C:\\x\\node_modules\\serve\\build\\main.js serve -s dist',
-    'node D:\\bots\\legion\\scripts\\harness\\legion-harness.mjs',
+    'node D:\\work\\legion\\scripts\\harness\\legion-harness.mjs',
     'node ui/dev/shots-rig/build-hero.mjs',
     'node ui\\dev\\serve.mjs',
-    'node D:\\bots\\legion\\node_modules\\vite\\bin\\vite.js --config ui/vite.config.ts',
+    'node D:\\work\\legion\\node_modules\\vite\\bin\\vite.js --config ui/vite.config.ts',
     'node node_modules/vite/bin/vite.js preview',
     'node C:\\x\\node_modules\\playwright-core\\cli.js install chromium',
-    'node C:\\Users\\Danie\\AppData\\Local\\Temp\\legion-abc123\\run.mjs',
-    'node C:\\Users\\Danie\\AppData\\Local\\Temp\\claude\\D--bots-legion\\x\\scratchpad\\probe.mjs',
+    'node C:\\Users\\someone\\AppData\\Local\\Temp\\legion-abc123\\run.mjs',
+    'node C:\\Users\\someone\\AppData\\Local\\Temp\\claude\\D--work-legion\\x\\scratchpad\\probe.mjs',
   ];
   for (const c of dev) assert.equal(tidy.isDevProcess(c), true, c);
 });
@@ -97,18 +97,18 @@ test('vite build is not a dev server', () => {
 
 test('isProtected: installed app, MCP helpers, Claude Code are never listed, even when they look like dev patterns', () => {
   const prot = [
-    'C:\\Users\\Danie\\AppData\\Local\\Programs\\Legion\\Legion.exe',
-    '"C:\\Users\\Danie\\AppData\\Local\\Programs\\Legion\\resources\\legion-core\\node.exe" legion-core.js',
+    'C:\\Users\\someone\\AppData\\Local\\Programs\\Legion\\Legion.exe',
+    '"C:\\Users\\someone\\AppData\\Local\\Programs\\Legion\\resources\\legion-core\\node.exe" legion-core.js',
     'node C:\\x\\npx-cli.js -y @playwright/mcp@latest',
     'node chrome-devtools-mcp --foo',
     'node server-sequential-thinking/dist/index.js',
-    'node D:\\bots\\legion\\dist\\src\\bin\\legion-mcp-stdio.js',
-    'C:\\Users\\Danie\\.local\\bin\\claude.exe --resume',
+    'node D:\\work\\legion\\dist\\src\\bin\\legion-mcp-stdio.js',
+    'C:\\Users\\someone\\.local\\bin\\claude.exe --resume',
     'claude --dangerously-skip-permissions',
     'node C:\\x\\node_modules\\@anthropic-ai\\claude-code\\cli.js',
-    'pwsh -File C:\\Users\\Danie\\.claude\\shell-snapshots\\snapshot-pwsh-1.ps1',
+    'pwsh -File C:\\Users\\someone\\.claude\\shell-snapshots\\snapshot-pwsh-1.ps1',
     // protected wins over a dev pattern
-    'C:\\Users\\Danie\\AppData\\Local\\Programs\\Legion\\node.exe --test "dist/test/*.test.js"',
+    'C:\\Users\\someone\\AppData\\Local\\Programs\\Legion\\node.exe --test "dist/test/*.test.js"',
     'node npx-cli.js playwright install',
   ];
   for (const c of prot) {
@@ -119,9 +119,9 @@ test('isProtected: installed app, MCP helpers, Claude Code are never listed, eve
 });
 
 const wts = [
-  { path: 'D:/bots/legion', isMain: true, removable: false },
-  { path: 'D:/bots/legion-armory', isMain: false, removable: false },
-  { path: 'D:/bots/legion-old', isMain: false, removable: true },
+  { path: 'D:/work/legion', isMain: true, removable: false },
+  { path: 'D:/work/legion-armory', isMain: false, removable: false },
+  { path: 'D:/work/legion-old', isMain: false, removable: true },
 ];
 const ctx = { minAge: 60, worktrees: wts };
 
@@ -137,29 +137,29 @@ test('classifyProcess: age, runtime name, protection', () => {
 
 test('classifyProcess: an active worktree process is never listed, a merged clean one is, the main app stays', () => {
   const p = (cmdline: string) => ({ pid: 5, name: 'node.exe', cmdline, ageMin: 500 });
-  assert.equal(tidy.classifyProcess(p('node --test D:\\bots\\legion-armory\\dist\\test\\*.test.js'), ctx).listed, false);
-  assert.equal(tidy.classifyProcess(p('node D:\\bots\\legion-armory\\dist\\src\\bin\\legion-core.js'), ctx).why, 'active worktree');
-  assert.equal(tidy.classifyProcess(p('node D:\\bots\\legion-old\\dist\\src\\bin\\legion-core.js'), ctx).listed, true);
-  assert.equal(tidy.classifyProcess(p('node D:\\bots\\legion\\dist\\src\\bin\\legion-core.js'), ctx).listed, false);
+  assert.equal(tidy.classifyProcess(p('node --test D:\\work\\legion-armory\\dist\\test\\*.test.js'), ctx).listed, false);
+  assert.equal(tidy.classifyProcess(p('node D:\\work\\legion-armory\\dist\\src\\bin\\legion-core.js'), ctx).why, 'active worktree');
+  assert.equal(tidy.classifyProcess(p('node D:\\work\\legion-old\\dist\\src\\bin\\legion-core.js'), ctx).listed, true);
+  assert.equal(tidy.classifyProcess(p('node D:\\work\\legion\\dist\\src\\bin\\legion-core.js'), ctx).listed, false);
   // a longer sibling name is not the main checkout
-  assert.equal(tidy.worktreeOfCmdline('node D:\\bots\\legion-armory\\x.js', wts).path, 'D:/bots/legion-armory');
+  assert.equal(tidy.worktreeOfCmdline('node D:\\work\\legion-armory\\x.js', wts).path, 'D:/work/legion-armory');
 });
 
 const PORCELAIN = [
-  'worktree D:/bots/legion',
+  'worktree D:/work/legion',
   'HEAD 1111111111111111111111111111111111111111',
   'branch refs/heads/main',
   '',
-  'worktree D:/bots/legion-old',
+  'worktree D:/work/legion-old',
   'HEAD 2222222222222222222222222222222222222222',
   'branch refs/heads/feat/old',
   '',
-  'worktree D:/bots/legion-det',
+  'worktree D:/work/legion-det',
   'HEAD 3333333333333333333333333333333333333333',
   'detached',
   'locked',
   '',
-  'worktree D:/bots/legion-gone',
+  'worktree D:/work/legion-gone',
   'HEAD 4444444444444444444444444444444444444444',
   'branch refs/heads/gone',
   'prunable gitdir file points to non-existent location',
