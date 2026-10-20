@@ -1,7 +1,7 @@
 /** The rules of the Legion confirm window: what a question may ask, how an answer is read, how the window is sized. No electron. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADDRESS_RE, ADDRESS_TAIL, buildModel, CONFIRM_BUSY, ConfirmBusyError, confirmFit, createAnswerGate, fitConfirm, LIMITS, nativeOptions, orBusy, pickTheme, prepareConfirm, resolveIds, settleConfirmFit, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
+import { ADDRESS_RE, ADDRESS_TAIL, bringForward, buildModel, CONFIRM_BUSY, ConfirmBusyError, createAnswerGate, LIMITS, nativeOptions, orBusy, overlayBounds, overlayZoom, pickTheme, prepareConfirm, resolveIds, syncOverlay, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
 
 const NONCE = 'a'.repeat(32);
 const ctx = { nonce: NONCE, theme: 'dark' as const };
@@ -134,40 +134,72 @@ test('a refused answer does not use up the gate: the real click after a garbage 
   assert.deepEqual(g.read(`legion-confirm:${NONCE}:0`), { kind: 'answer', index: 0 });
 });
 
-test('size: 480 CSS pixels wide, as tall as the content, scaled by the zoom, never past the usable area', () => {
-  const wa = { width: 1920, height: 1040 };
-  assert.deepEqual(confirmFit({ contentHeight: 300, zoom: 1, workArea: wa }), { width: 480, height: 301 });
-  assert.deepEqual(confirmFit({ contentHeight: 300, zoom: 1.5, workArea: wa }), { width: 720, height: 451 });
-  assert.deepEqual(confirmFit({ contentHeight: 300, zoom: 0.75, workArea: wa }), { width: 360, height: 226 });
-  assert.equal(confirmFit({ contentHeight: 5000, zoom: 1, workArea: { width: 1280, height: 720 } }).height, 720, 'never taller than the work area');
-  assert.equal(confirmFit({ contentHeight: 300, zoom: 3, workArea: { width: 800, height: 600 } }).width, 800, 'never wider');
-  assert.equal(confirmFit({ contentHeight: 10, zoom: 1, workArea: wa }).height, 150, 'a least height');
-  assert.deepEqual(confirmFit({ contentHeight: Number.NaN, zoom: Number.NaN, workArea: wa }), { width: 480, height: 150 });
+test('overlay bounds: the whole content area of the Legion window, from its top left corner, whatever the window is doing', () => {
+  assert.deepEqual(overlayBounds([1280, 820]), { x: 0, y: 0, width: 1280, height: 820 });
+  assert.deepEqual(overlayBounds([960, 600]), { x: 0, y: 0, width: 960, height: 600 });
+  assert.deepEqual(overlayBounds([1279.6, 819.2]), { x: 0, y: 0, width: 1280, height: 820 }, 'a fractional content area rounds up so no strip of the app stays uncovered');
+  assert.deepEqual(overlayBounds([Number.NaN, -5]), { x: 0, y: 0, width: 1, height: 1 }, 'a bad size never gives a negative or empty view');
+  assert.deepEqual(overlayBounds([]), { x: 0, y: 0, width: 1, height: 1 });
 });
 
-test('fitConfirm puts the window over its anchor and inside the screen; settle stops when the size holds', async () => {
-  const wa = { x: 0, y: 0, width: 1920, height: 1040 };
-  let b = { x: 0, y: 0, width: 480, height: 320 };
-  const w = { isDestroyed: () => false, getBounds: () => b, setBounds: (r: typeof b) => { b = r; }, zoom: () => 1 };
-  assert.equal(fitConfirm(w, 400, { x: 100, y: 100, width: 1280, height: 820 }, wa), true);
-  assert.deepEqual(b, { x: 100 + 640 - 240, y: 100 + 410 - 200, width: 480, height: 401 });
-  assert.equal(fitConfirm(w, 400, { x: 100, y: 100, width: 1280, height: 820 }, wa), false, 'nothing to change');
-  // an anchor at the edge is pulled back inside
-  b = { x: 0, y: 0, width: 480, height: 320 };
-  fitConfirm(w, 400, { x: 1800, y: 1000, width: 100, height: 100 }, wa);
-  assert.ok(b.x + b.width <= 1920 && b.y + b.height <= 1040);
-  let rounds = 0; const heights = [500, 450, 450];
-  await settleConfirmFit(w, async () => heights[rounds++]!, () => ({ x: 0, y: 0, width: 800, height: 600 }), () => wa, async () => undefined);
-  assert.equal(rounds, 3, 'measured until the second 450 changed nothing');
-  assert.equal(b.height, 451);
+test('overlay zoom follows the Legion window, clamped; nonsense is 1', () => {
+  assert.equal(overlayZoom(1.5), 1.5); assert.equal(overlayZoom(0.75), 0.75);
+  assert.equal(overlayZoom(9), 3); assert.equal(overlayZoom(0.1), 0.5);
+  assert.equal(overlayZoom(Number.NaN), 1); assert.equal(overlayZoom('2'), 1); assert.equal(overlayZoom(undefined), 1);
 });
 
-test('a destroyed window is never touched', async () => {
-  let touched = 0;
-  const w = { isDestroyed: () => true, getBounds: () => { touched++; return { x: 0, y: 0, width: 1, height: 1 }; }, setBounds: () => { touched++; }, zoom: () => 1 };
-  assert.equal(fitConfirm(w, 300, { x: 0, y: 0, width: 1, height: 1 }, { x: 0, y: 0, width: 800, height: 600 }), false);
-  await settleConfirmFit(w, async () => 300, () => ({ x: 0, y: 0, width: 1, height: 1 }), () => ({ x: 0, y: 0, width: 800, height: 600 }), async () => undefined);
-  assert.equal(touched, 0);
+const fakeOverlay = (content: number[], zoom = 1) => {
+  const main = { destroyed: false, content, zoom, isDestroyed() { return this.destroyed; }, getContentSize() { return this.content; }, getZoom() { return this.zoom; } };
+  const view = { sets: 0, zooms: 0, b: { x: 0, y: 0, width: 1, height: 1 }, z: 1, getBounds() { return this.b; }, setBounds(r: typeof this.b) { this.sets++; this.b = r; }, getZoom() { return this.z; }, setZoom(z: number) { this.zooms++; this.z = z; } };
+  return { main, view };
+};
+
+test('syncOverlay follows resize, maximize, restore and zoom, and does nothing when nothing changed', () => {
+  const { main, view } = fakeOverlay([1280, 820], 1);
+  assert.equal(syncOverlay(main, view), true);
+  assert.deepEqual(view.b, { x: 0, y: 0, width: 1280, height: 820 });
+  assert.equal(syncOverlay(main, view), false, 'nothing to change');
+  main.content = [1920, 1040]; // maximized
+  assert.equal(syncOverlay(main, view), true); assert.deepEqual(view.b, { x: 0, y: 0, width: 1920, height: 1040 });
+  main.content = [960, 600]; // restored to the smallest the window can be
+  assert.equal(syncOverlay(main, view), true); assert.deepEqual(view.b, { x: 0, y: 0, width: 960, height: 600 });
+  main.zoom = 1.5;
+  assert.equal(syncOverlay(main, view), true); assert.equal(view.z, 1.5); assert.equal(view.zooms, 1);
+  assert.equal(syncOverlay(main, view), false); assert.equal(view.zooms, 1, 'the zoom is set only when it changed');
+});
+
+test('a destroyed Legion window is never touched by the overlay sync', () => {
+  const { main, view } = fakeOverlay([1280, 820]);
+  main.destroyed = true;
+  assert.equal(syncOverlay(main, view), false);
+  assert.equal(view.sets + view.zooms, 0);
+});
+
+const fakeWin = (o: { minimized?: boolean; visible?: boolean; destroyed?: boolean; stuck?: boolean }) => {
+  const w = {
+    calls: [] as string[], minimized: !!o.minimized, visible: o.visible !== false, destroyed: !!o.destroyed,
+    isDestroyed() { return this.destroyed; }, isMinimized() { return this.minimized; }, isVisible() { return this.visible; },
+    restore() { this.calls.push('restore'); if (!o.stuck) this.minimized = false; },
+    show() { this.calls.push('show'); if (!o.stuck) this.visible = true; },
+    focus() { this.calls.push('focus'); },
+  };
+  return w;
+};
+
+test('bringForward: a shown window is just focused; a minimized one is restored; a hidden one (the tray) is shown; then it is focused', () => {
+  const a = fakeWin({}); assert.equal(bringForward(a), true); assert.deepEqual(a.calls, ['focus']);
+  const b = fakeWin({ minimized: true }); assert.equal(bringForward(b), true); assert.deepEqual(b.calls, ['restore', 'focus']);
+  const c = fakeWin({ visible: false }); assert.equal(bringForward(c), true); assert.deepEqual(c.calls, ['show', 'focus']);
+  const d = fakeWin({ minimized: true, visible: false }); assert.equal(bringForward(d), true); assert.deepEqual(d.calls, ['restore', 'show', 'focus']);
+});
+
+test('bringForward: no window, a destroyed one, or one that cannot be shown is false (the system dialog takes over); a throw is false too', () => {
+  assert.equal(bringForward(null), false); assert.equal(bringForward(undefined), false);
+  assert.equal(bringForward(fakeWin({ destroyed: true })), false);
+  assert.equal(bringForward(fakeWin({ minimized: true, stuck: true })), false);
+  assert.equal(bringForward(fakeWin({ visible: false, stuck: true })), false);
+  const boom = { ...fakeWin({}), show() { throw new Error('gone'); }, isVisible: () => false };
+  assert.equal(bringForward(boom), false);
 });
 
 test('theme: only "light" or "dark" from the page counts; anything else follows the system', () => {
@@ -191,17 +223,13 @@ test('busy: a question that loses to an open one ends its flow with the "already
 
 const never = <T = never>(): Promise<T> => new Promise<T>(() => undefined);
 const steps = (o: Partial<Parameters<typeof prepareConfirm>[0]> = {}): Parameters<typeof prepareConfirm>[0] => ({
-  load: async () => undefined, render: async () => undefined, size: async () => undefined, died: never(), stepMs: 40, totalMs: 120, ...o,
+  load: async () => undefined, render: async () => undefined, died: never(), stepMs: 40, totalMs: 120, ...o,
 });
 
 test('opening: when every step answers, it is done', async () => {
   const order: string[] = [];
-  await prepareConfirm(steps({ load: async () => { order.push('load'); }, render: async () => { order.push('render'); }, size: async () => { order.push('size'); } }));
-  assert.deepEqual(order, ['load', 'render', 'size']);
-});
-
-test('opening: a size measure that never answers ends in an error (so the system dialog takes over), not in a hang', async () => {
-  await assert.rejects(prepareConfirm(steps({ size: never })), /sizing the window took longer than 40 ms/);
+  await prepareConfirm(steps({ load: async () => { order.push('load'); }, render: async () => { order.push('render'); } }));
+  assert.deepEqual(order, ['load', 'render']);
 });
 
 test('opening: a page that never loads or never draws ends in an error', async () => {
@@ -213,7 +241,7 @@ test('opening: a page that dies while it is being drawn ends at once, whatever s
   let kill!: (e: Error) => void;
   const died = new Promise<never>((_, rej) => { kill = rej; });
   const t0 = Date.now();
-  const run = prepareConfirm(steps({ died, size: never, stepMs: 5000, totalMs: 10_000 }));
+  const run = prepareConfirm(steps({ died, render: never, stepMs: 5000, totalMs: 10_000 }));
   setTimeout(() => kill(new Error('the page stopped (crashed)')), 10);
   await assert.rejects(run, /the page stopped \(crashed\)/);
   assert.ok(Date.now() - t0 < 1000, 'it did not wait for a timeout');
@@ -221,15 +249,15 @@ test('opening: a page that dies while it is being drawn ends at once, whatever s
 
 test('opening: a watchdog ends the whole opening even when each step is within its own time', async () => {
   const slow = (ms: number) => () => new Promise<void>((r) => setTimeout(r, ms));
-  await assert.rejects(prepareConfirm(steps({ load: slow(60), render: slow(60), size: slow(60), stepMs: 2000, totalMs: 120 })), /opening the window took longer than 120 ms/);
+  await assert.rejects(prepareConfirm(steps({ load: slow(60), render: slow(70), stepMs: 2000, totalMs: 100 })), /opening the window took longer than 100 ms/);
 });
 
 test('opening: no timer is left running after it ends', async () => {
   const before = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
   await prepareConfirm(steps({ stepMs: 5000, totalMs: 10_000 }));
-  await assert.rejects(prepareConfirm(steps({ size: never, stepMs: 20, totalMs: 10_000 })));
+  await assert.rejects(prepareConfirm(steps({ render: never, stepMs: 20, totalMs: 10_000 })));
   const slow = (ms: number) => () => new Promise<void>((r) => setTimeout(r, ms));
-  await assert.rejects(prepareConfirm(steps({ load: slow(40), render: slow(40), size: slow(40), stepMs: 5000, totalMs: 60 })), /opening the window/);
+  await assert.rejects(prepareConfirm(steps({ load: slow(40), render: slow(40), stepMs: 5000, totalMs: 60 })), /opening the window/);
   await new Promise((r) => setTimeout(r, 150)); // the slow steps of the aborted opening have run out by now
   await new Promise((r) => setImmediate(r));
   const after = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
@@ -247,9 +275,9 @@ test('opening: once the page has died (or the opening has failed) no later step 
   const called: string[] = [];
   let kill!: (e: Error) => void;
   const died = new Promise<never>((_, rej) => { kill = rej; });
-  const run = prepareConfirm(steps({ died, load: () => new Promise<void>((r) => setTimeout(r, 60)), render: async () => { called.push('render'); }, size: async () => { called.push('size'); }, stepMs: 5000, totalMs: 10_000 }));
+  const run = prepareConfirm(steps({ died, load: () => new Promise<void>((r) => setTimeout(r, 60)), render: async () => { called.push('render'); }, stepMs: 5000, totalMs: 10_000 }));
   setTimeout(() => kill(new Error('the page stopped')), 10);
   await assert.rejects(run, /the page stopped/);
   await new Promise((r) => setTimeout(r, 120));
-  assert.deepEqual(called, [], 'render and size were never started on a dead page');
+  assert.deepEqual(called, [], 'render was never started on a dead page');
 });

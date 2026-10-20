@@ -1,12 +1,10 @@
 /**
  * The rules of the Legion confirm window, free of electron so they are tested: what a confirm may ask (checked once, strictly), the model the
- * page draws, how an answer is read, and how the window is sized. The window itself is confirm-window.ts; the page is assets/confirm-window.html.
+ * page draws, how an answer is read, and how the card is laid over the Legion window. The overlay itself is confirm-window.ts; the page is assets/confirm-window.html.
  *
  * The page draws only what the explicit fields say. Nothing here, and nothing in the page, turns "Key: value" or "- " lines of a text into rows or
  * bullets: a text from the core can carry words from a repository, and a repository must not be able to lay out the question it is asked about.
  */
-import { placeInArea, type Rect, type WorkArea } from '../core/updater/update-window-logic.js';
-
 export type ConfirmTone = 'default' | 'danger' | 'money';
 export interface ConfirmFact { label: string; value: string }
 
@@ -57,8 +55,6 @@ export const LIMITS = { buttons: 4, button: 48, title: 200, message: 800, detail
 export const ADDRESS_TAIL = 8;
 export const ADDRESS_RE = /^[A-Za-z0-9]{20,64}$/;
 export const THEME_BG = { dark: '#0b0d10', light: '#f6f4ee' } as const;
-export const CONFIRM_WIDTH = 480;
-export const CONFIRM_MIN_HEIGHT = 150;
 export const ANSWER_PREFIX = 'legion-confirm:';
 
 /** Control characters, bidi marks and zero-width marks out; a newline stays only where the text is allowed several lines. */
@@ -170,33 +166,51 @@ export function createAnswerGate(nonce: string, buttonCount: number): { read(tit
   };
 }
 
-/** The window's size for a page of `contentHeight` CSS pixels at `zoom`: 480 CSS pixels wide, as tall as the content, never larger than the usable area. */
-export function confirmFit(i: { contentHeight: number; zoom: number; workArea: { width: number; height: number } }): { width: number; height: number } {
-  const z = Number.isFinite(i.zoom) && i.zoom > 0 ? i.zoom : 1;
-  const content = Number.isFinite(i.contentHeight) && i.contentHeight > 0 ? Math.ceil(i.contentHeight * z) + 1 : 0;
-  return { width: Math.max(1, Math.min(Math.ceil(CONFIRM_WIDTH * z), i.workArea.width)), height: Math.max(1, Math.min(Math.max(content, Math.ceil(CONFIRM_MIN_HEIGHT * z)), i.workArea.height)) };
+// ---------------------------------------------------------------- the overlay inside the Legion window
+
+export interface Rect { x: number; y: number; width: number; height: number }
+const MIN_ZOOM = 0.5, MAX_ZOOM = 3;
+
+/** The overlay covers the whole content area of the Legion window: from its top left corner, as large as the content (rounded up, so no strip of the app stays uncovered). */
+export function overlayBounds(content: ArrayLike<number>): Rect {
+  const edge = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.max(1, Math.ceil(v)) : 1);
+  return { x: 0, y: 0, width: edge(content[0]), height: edge(content[1]) };
+}
+/** The card's zoom is the Legion window's, clamped; anything that is not a number is 1. */
+export function overlayZoom(z: unknown): number {
+  return typeof z === 'number' && Number.isFinite(z) ? Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z)) : 1;
 }
 
-/** The slice of an Electron window the fit needs. */
-export interface ConfirmFitTarget { isDestroyed(): boolean; getBounds(): Rect; setBounds(r: Rect): void; zoom(): number }
-/** Sizes the window and puts it where `anchor` is centred, inside the usable area. Returns false when nothing changed. */
-export function fitConfirm(w: ConfirmFitTarget, contentHeight: number, anchor: Rect, workArea: WorkArea): boolean {
-  if (w.isDestroyed()) return false;
-  const b = w.getBounds();
-  const size = confirmFit({ contentHeight, zoom: w.zoom(), workArea });
-  const at = placeInArea(anchor, size, workArea);
-  if (size.width === b.width && size.height === b.height && at.x === b.x && at.y === b.y) return false;
-  w.setBounds({ ...at, ...size });
-  return true;
+/** The slice of the Legion window the overlay follows. */
+export interface OverlayMain { isDestroyed(): boolean; getContentSize(): ArrayLike<number>; getZoom(): number }
+/** The slice of the overlay view that is kept in step with it. */
+export interface OverlayView { getBounds(): Rect; setBounds(r: Rect): void; getZoom(): number; setZoom(z: number): void }
+/** Puts the overlay over the whole content area at the window's zoom. Called on every resize, maximize, restore and zoom; false when nothing changed. */
+export function syncOverlay(main: OverlayMain, view: OverlayView): boolean {
+  if (main.isDestroyed()) return false;
+  let changed = false;
+  const want = overlayBounds(main.getContentSize());
+  const b = view.getBounds();
+  if (b.x !== want.x || b.y !== want.y || b.width !== want.width || b.height !== want.height) { view.setBounds(want); changed = true; }
+  const z = overlayZoom(main.getZoom());
+  if (view.getZoom() !== z) { view.setZoom(z); changed = true; }
+  return changed;
 }
-/** Fits, measures again, and repeats until the size holds (at most 4 rounds): a wider window wraps the text less, which changes the height the page needs. */
-export async function settleConfirmFit(w: ConfirmFitTarget, measure: () => Promise<number>, anchor: () => Rect, workArea: () => WorkArea, pause: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<void> {
-  for (let i = 0; i < 4; i++) {
-    if (w.isDestroyed()) return;
-    const h = await measure();
-    if (!Number.isFinite(h) || !fitConfirm(w, h, anchor(), workArea())) return;
-    await pause(60);
-  }
+
+/** The slice of a window `bringForward` needs. */
+export interface ShowTarget { isDestroyed(): boolean; isMinimized(): boolean; isVisible(): boolean; restore(): void; show(): void; focus(): void }
+/**
+ * A question has to be asked inside the Legion window, so a hidden (tray) or minimized window is restored and focused first. False when there is no
+ * window or it cannot be shown: the question then goes to the system dialog. Nothing is ever asked in a window the person cannot see.
+ */
+export function bringForward(w: ShowTarget | null | undefined): boolean {
+  try {
+    if (!w || w.isDestroyed()) return false;
+    if (w.isMinimized()) w.restore();
+    if (!w.isVisible()) w.show();
+    w.focus();
+    return !w.isDestroyed() && w.isVisible() && !w.isMinimized();
+  } catch { return false; }
 }
 
 // ---------------------------------------------------------------- one question at a time
@@ -214,14 +228,14 @@ export async function orBusy<T>(flow: Promise<T>, busy: T): Promise<T> {
 // ---------------------------------------------------------------- opening the window
 
 export interface PrepareSteps {
-  load(): Promise<unknown>; render(): Promise<unknown>; size(): Promise<unknown>;
+  load(): Promise<unknown>; render(): Promise<unknown>;
   /** Rejects when the page dies before it is shown (the main side wires it to the renderer-gone event). */
   died: Promise<never>;
   /** The most any one step may take, and the most the whole opening may take. */
   stepMs: number; totalMs: number;
 }
 /**
- * Loads the page, draws the question and sizes the window, and fails (so the system dialog takes over) when a step is too slow, the page dies, or
+ * Loads the page and draws the question, and fails (so the system dialog takes over) when a step is too slow, the page dies, or
  * the whole opening runs long. A window that is being opened holds the one confirm lock; nothing here may wait for ever, whatever the page does.
  */
 export async function prepareConfirm(s: PrepareSteps): Promise<void> {
@@ -234,8 +248,6 @@ export async function prepareConfirm(s: PrepareSteps): Promise<void> {
       await within(s.load(), s.stepMs, 'loading the page');
       if (finished) return;
       await within(s.render(), s.stepMs, 'drawing the question');
-      if (finished) return;
-      await within(s.size(), s.stepMs, 'sizing the window');
     })();
     await within(Promise.race([work, s.died]), s.totalMs, 'opening the window');
   } finally { finished = true; for (const t of timers) clearTimeout(t); }

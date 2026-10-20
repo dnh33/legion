@@ -1,5 +1,5 @@
 /**
- * The Legion confirm window, pinned: how its window is made, which questions go through it and which stay with the system, that the update set did
+ * Legion's confirm card, pinned: how its view is made, which questions go through it and which stay with the system, that the update set did
  * not change (an older client rejects a package with a new top-level name), and the wording of every call site.
  */
 import test from 'node:test';
@@ -28,7 +28,7 @@ test('update set: CODE_SET and FULL_PACKAGE_SET are exactly what every installed
   assert.equal(readdirSync(ROOT).includes('confirm-window.html'), false);
 });
 
-test('the window is made like the splash and the update window: sandbox, context isolation, no node, no preload, no dev tools, its own session', () => {
+test('the card is made like the splash and the update window: sandbox, context isolation, no node, no preload, no dev tools, its own session', () => {
   const prefs = /webPreferences: \{([^}]*)\}/.exec(win)?.[1] ?? '';
   for (const must of ['sandbox: true', 'contextIsolation: true', 'nodeIntegration: false', 'webviewTag: false', 'devTools: false', 'partition: CONFIRM_PARTITION']) assert.ok(prefs.includes(must), must);
   assert.doesNotMatch(win, /preload\s*:/, 'no preload');
@@ -36,8 +36,34 @@ test('the window is made like the splash and the update window: sandbox, context
   assert.match(win, /CONFIRM_PARTITION = 'legion-confirm'/, 'no persist: prefix: an in-memory session');
 });
 
-test('a minimized or gone parent is no parent: the window opens on its own, so the lock is never held by a hidden modal', () => {
-  assert.match(win, /const parent = parentIn && !parentIn\.isDestroyed\(\) && !parentIn\.isMinimized\(\) \? parentIn : undefined;/);
+test('the card is an overlay inside the Legion window, never a window of its own: a view on top of the content, over the whole area, removed and closed on every ending', () => {
+  assert.doesNotMatch(win, /new BrowserWindow\(|\bmodal\b|alwaysOnTop|skipTaskbar|screen\.|placeInArea|getDisplay/, 'no window, no parent/modal path, no screen placement');
+  assert.equal((win.match(/new WebContentsView\(/g) ?? []).length, 1, 'a fresh view for every question');
+  assert.match(win, /view\.setBackgroundColor\('#00000000'\)/, 'transparent: the page draws the dim');
+  assert.match(win, /main\.contentView\.addChildView\(view\); \/\/ the last view added is the topmost/);
+  assert.match(win, /main\.contentView\.removeChildView\(view\)/);
+  assert.match(win, /wc\.close\(\{ waitForBeforeUnload: false \}\)/, 'a view\'s web contents are closed by hand');
+  // every ending goes through dispose: the answer, the cancel, the close, the quit, the crash and the fallback
+  assert.equal((win.match(/\bdispose\(\);/g) ?? []).length, 2, 'finish and the fallback path');
+  assert.match(win, /unguardMain\(\);[\s\S]{0,80}dispose\(\);/);
+});
+
+test('the app behind is blocked while the card is open: every key is dropped, the card takes focus back, the window closing or hiding is a cancel', () => {
+  assert.match(win, /mainWc\.on\('before-input-event', dropInput\)/);
+  assert.match(win, /const dropInput = \(e: Electron\.Event\): void => e\.preventDefault\(\);/, 'no key is let through, reload shortcuts included');
+  assert.match(win, /mainWc\.on\('before-mouse-event', dropInput\)/);
+  assert.match(win, /mainWc\.on\('focus', takeFocus\)/); assert.match(win, /main\.on\('focus', takeFocus\)/);
+  assert.match(win, /main\.once\('closed', onMainClosed\)/); assert.match(win, /main\.on\('hide', onMainHidden\)/);
+  for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) assert.ok(win.includes(`'${ev}'`), `follows ${ev}`);
+  assert.match(win, /main\.contentView\.on\('bounds-changed', sync\)/);
+  for (const ev of ['before-input-event', 'before-mouse-event', 'focus', 'zoom-changed', 'bounds-changed', 'closed', 'hide']) assert.ok(win.includes(`removeListener('${ev}'`), `${ev} is unhooked at the end`);
+});
+
+test('a hidden or minimized Legion window is brought forward before the card, and with no window the system dialog asks (never a window of its own)', () => {
+  assert.match(win, /if \(!main\) return native\(undefined, opts, 'there is no Legion window to show the question in'\);\s*\n\s*if \(!bringForward\(main\)\) return native\(undefined, opts, 'the Legion window could not be shown'\);/);
+  assert.match(main, /await confirmWindow\.showHeldMessageBox\(shown\)/, 'the review asks through the own entry of the holder, with no window argument');
+  assert.match(main, /await confirmWindow\.showMessageBox\(opts\)/);
+  assert.doesNotMatch(main, /win\.isVisible\(\) \? await confirmWindow/, 'main no longer decides between a parented and a free window');
 });
 
 test('the page ships: release packaging copies assets whole (it skips only dist/test and node_modules), so no per-file list can leave the page out', () => {
@@ -46,30 +72,29 @@ test('the page ships: release packaging copies assets whole (it skips only dist/
   assert.doesNotMatch(pack, /update-window\.html|splash\.html|confirm-window/, 'no per-file asset list in the packer');
 });
 
-test('the window locks itself down: no new windows, no navigation, no redirects, no webviews, every permission refused, no reload', () => {
+test('the card locks itself down: no new windows, no navigation, no redirects, no webviews, every permission refused, no reload', () => {
   for (const must of ['setWindowOpenHandler(() => ({ action: \'deny\' }))', "'will-navigate'", "'will-redirect'", "'will-attach-webview'", 'setPermissionRequestHandler((_wc, _permission, callback) => callback(false))', 'setPermissionCheckHandler(() => false)', 'setDevicePermissionHandler(() => false)', "'before-input-event'"]) assert.ok(win.includes(must), must);
   assert.match(win, /loadFile\(CONFIRM_PAGE\)/, 'a local file, never a URL');
   assert.doesNotMatch(win, /loadURL|session\.defaultSession|fromPartition\((?!CONFIRM_PARTITION)/);
 });
 
-test('answers are read from this window\'s own web contents only, through the one-time id gate', () => {
+test('answers are read from this view\'s own web contents only, through the one-time id gate', () => {
   assert.equal((win.match(/page-title-updated/g) ?? []).length, 1);
   assert.match(win, /wc\.on\('page-title-updated'/);
   assert.match(win, /createAnswerGate\(nonce, model\.buttons\.length\)/);
   assert.match(win, /randomBytes\(16\)\.toString\('hex'\)/, '128 bits');
-  assert.equal((win.match(/new BrowserWindow\(/g) ?? []).length, 1, 'a fresh window for every question');
   assert.doesNotMatch(main, /legion-confirm/, 'main.ts never reads a confirm answer itself');
   assert.doesNotMatch(read('src/electron/preload.cjs'), /confirm-window|confirmWindow|legion-confirm/, 'the Legion page gets no way to ask or answer');
 });
 
 test('failure falls back to the system dialog with the same question, and nothing ever answers yes by itself', () => {
-  assert.match(win, /return native\(parent, opts, `the question was not accepted/);
-  assert.match(win, /return native\(parent, opts, 'the page file is missing'\)/);
-  assert.match(win, /the window could not be made/);
-  assert.match(win, /the window failed/);
+  assert.match(win, /return native\(nativeParent\(main\), opts, `the question was not accepted/);
+  assert.match(win, /return native\(nativeParent\(main\), opts, 'the page file is missing'\)/);
+  assert.match(win, /the card could not be made/);
+  assert.match(win, /the card failed/);
   // the only places that resolve with a number: an answer from the page, or the cancel index
   const resolves = [...win.matchAll(/(?:finish|resolveAnswer)\(([^,)]*)/g)].map((m) => m[1]!.trim());
-  for (const r of resolves) assert.ok(/^(read\.index|n|cancel|await native\(parent)/.test(r), `unexpected answer source: ${r}`);
+  for (const r of resolves) assert.ok(/^(read\.index|n|cancel|await native\()/.test(r), `unexpected answer source: ${r}`);
   assert.doesNotMatch(win, /confirmAt|defaultIndex|response: 1\b/, 'nothing picks the confirm button');
 });
 
@@ -80,7 +105,6 @@ test('one question at a time: a second is refused as busy (never answered Cancel
   assert.match(win, /export function holdConfirmWindow\(\): boolean \{ if \(busy \|\| held\) return false; held = true; return true; \}/);
   assert.match(win, /log\('a question is already open: this one was not asked'\);\s*throw new ConfirmBusyError\(\);/);
   assert.doesNotMatch(win, /resolveIds/, 'a busy window never makes up a cancel');
-  assert.match(main, /showHeldMessageBox\(win, shown\)[\s\S]*showHeldMessageBox\(shown\)/, 'the review asks through the own entry of the holder');
   assert.match(main, /if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return \{ ok: false, error: 'A confirmation is already open/);
 });
 
@@ -90,8 +114,8 @@ test('which questions moved: the 8 settings handlers and the BSV paths use the w
   const sys = [...main.matchAll(/dialog\.(showMessageBox|showErrorBox|showOpenDialog)\(/g)].map((m) => m[1]);
   assert.deepEqual(sys, ['showMessageBox', 'showMessageBox', 'showErrorBox', 'showOpenDialog'], 'foreign-core question, started-outside notice, restart failure box, folder picker');
   assert.match(main, /async function askRestartForeignCore[\s\S]*?dialog\.showMessageBox/);
-  assert.equal((main.match(/confirmWindow\.showMessageBox\(/g) ?? []).length, 2, 'BSV policy (2 forms)');
-  assert.equal((main.match(/confirmWindow\.showHeldMessageBox\(/g) ?? []).length, 2, 'spend review (2 forms)');
+  assert.equal((main.match(/confirmWindow\.showMessageBox\(/g) ?? []).length, 1, 'BSV policy (one call, no window argument)');
+  assert.equal((main.match(/confirmWindow\.showHeldMessageBox\(/g) ?? []).length, 1, 'spend review (one call, no window argument)');
   assert.doesNotMatch(read('src/electron/updater-main.ts'), /confirm-window|confirmWindow/, 'the updater keeps its own dialogs: they can run while dist and assets are swapped');
   assert.doesNotMatch(read('src/electron/update-window-main.ts'), /confirm-window|confirmWindow/);
 });
@@ -237,8 +261,8 @@ test('BSV policy dialogs: money tone with a tag that matches the network, and ea
 test('a page that dies while it is being drawn goes to the fallback; every step is timed, so the lock is never held for ever', () => {
   assert.match(win, /else if \(phase === 'loading'\) pageDied\(/);
   assert.match(win, /await prepareConfirm\(\{[\s\S]*died, stepMs: LOAD_MS, totalMs: 2 \* LOAD_MS/);
-  assert.match(win, /size: \(\) => settleConfirmFit\(/, 'the size measure is one of the timed steps');
-  assert.doesNotMatch(win, /await settleConfirmFit|await wc\.executeJavaScript|await win\.loadFile/, 'no untimed wait on the page');
+  assert.match(win, /load: \(\) => wc\.loadFile\(CONFIRM_PAGE\),\s*\n\s*render: \(\) =>/, 'loading and drawing are the timed steps');
+  assert.doesNotMatch(win, /await wc\.executeJavaScript|await wc\.loadFile|await settle/, 'no untimed wait on the page');
 });
 
 test('BSV money rows: one row per limit, and every sat figure leads with sat like the amount, BSV in brackets', () => {

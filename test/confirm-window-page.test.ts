@@ -1,5 +1,5 @@
 /**
- * The page of the Legion confirm window (assets/confirm-window.html): static pins on what it may load and how it writes, and its script run against a
+ * The page of Legion's confirm card (assets/confirm-window.html): static pins on what it may load and how it writes, and its script run against a
  * small stand-in for the DOM. The point of both: only the explicit fields make structure, everything from the model goes in as text, and the page
  * answers only by setting its own title.
  */
@@ -151,7 +151,7 @@ test('page DOM: tone, tag, who, title, message, amount and address', () => {
   assert.equal(doc.active, buttons[1], 'focus starts on the default button (Cancel)');
 });
 
-test('page DOM: a click or a key before the window is armed is no answer; after it, one answer, then no more', () => {
+test('page DOM: a click or a key before the card is armed is no answer; after it, one answer, then no more', () => {
   const { win } = boot();
   win.confirmWindow.render(model());
   const buttons = doc.getElementById('ft').getElementsByTagName('button');
@@ -206,7 +206,7 @@ test('page: the money address has a static label above it and the dialog describ
   assert.doesNotMatch(script, /addr-l|getElementById\('addr'\)\.textContent/, 'the label is markup in the file, never written by the model path');
 });
 
-test('page: a button label wraps instead of being cut at the window edge', () => {
+test('page: a button label wraps instead of being cut at the card edge', () => {
   const css = /^  button\{([^}]*)\}/m.exec(html)?.[1] ?? '';
   assert.doesNotMatch(css, /nowrap/);
   assert.match(css, /max-width:100%/);
@@ -238,11 +238,11 @@ test('page DOM: the last check marks the tail its button names, and the tail is 
   assert.equal(addr.children.slice(-2).map((g) => g.textContent).join(''), named, 'the tail is two whole groups');
 });
 
-test('page DOM: a click counts only when its press began after the window was armed', () => {
+test('page DOM: a click counts only when its press began after the card was armed', () => {
   const { win } = boot();
   win.confirmWindow.render(model());
   const b = doc.getElementById('ft').getElementsByTagName('button');
-  doc.fire('pointerdown');            // the press begins before the window is armed (a double click on the page behind)
+  doc.fire('pointerdown');            // the press begins before the card is armed (a double click on the page behind)
   win.confirmWindow.arm();
   b[1]!.onclick!({ detail: 1 });
   assert.equal(doc.title, 'Legion', 'a click whose press began before arming answers nothing');
@@ -251,7 +251,34 @@ test('page DOM: a click counts only when its press began after the window was ar
   assert.equal(doc.title, `legion-confirm:${NONCE}:1`);
 });
 
-test('page DOM: a keyboard click (Space or Enter on a focused button) needs no press, only the armed window', () => {
+test('page DOM: a click with no press seen counts only when its detail is 0 (a keyboard press or a screen reader invoke); a mouse click with no press is no answer', () => {
+  const { win } = boot();
+  win.confirmWindow.render(model());
+  const b = doc.getElementById('ft').getElementsByTagName('button');
+  win.confirmWindow.arm();
+  b[1]!.onclick!({ detail: 1 });
+  assert.equal(doc.title, 'Legion', 'a mouse click (detail above 0) with no recorded press is refused');
+  b[1]!.onclick!({ detail: 2 });
+  assert.equal(doc.title, 'Legion');
+  b[1]!.onclick!({ detail: 0 });
+  assert.equal(doc.title, `legion-confirm:${NONCE}:1`, 'detail 0 and no press: an invoke through the accessibility interface');
+});
+
+test('page DOM: a press that began early stays refused whatever the click says; a key resets the press, and each click uses its press up', () => {
+  const { win } = boot();
+  win.confirmWindow.render(model());
+  const b = doc.getElementById('ft').getElementsByTagName('button');
+  doc.fire('pointerdown');            // early press
+  win.confirmWindow.arm();
+  b[1]!.onclick!({ detail: 0 });
+  assert.equal(doc.title, 'Legion', 'an early press is refused even for a detail 0 click');
+  doc.fire('pointerdown');            // early press again, then a key: the key is a new action
+  doc.fire('keydown', { key: 'Shift' });
+  b[1]!.onclick!({ detail: 0 });
+  assert.equal(doc.title, `legion-confirm:${NONCE}:1`);
+});
+
+test('page DOM: a keyboard click (Space or Enter on a focused button) needs no press, only the armed card', () => {
   const { win } = boot();
   win.confirmWindow.render(model());
   const b = doc.getElementById('ft').getElementsByTagName('button');
@@ -266,9 +293,27 @@ test('page: its fallback tail is the same constant as the model\'s', () => {
   assert.equal(Number(/DEFAULT_TAIL=(\d+)/.exec(script)?.[1]), ADDRESS_TAIL);
 });
 
-test('page: on a very small screen the window scrolls as a whole and the footer sticks, so the buttons never leave the window', () => {
+test('page: on a very small screen the card scrolls as a whole and the footer sticks, so the buttons never leave the card', () => {
   const cw = /^  \.cw\{([^}]*)\}/m.exec(html)?.[1] ?? '';
   assert.match(cw, /overflow-y:auto/);
   const ft = /^  \.ft\{([^}]*)\}/m.exec(html)?.[1] ?? '';
   assert.match(ft, /position:sticky;bottom:0;background:var\(--bg\)/);
+});
+
+test('page: it is an overlay: transparent page, a dimmed backdrop over the whole view, one centred card of at most 480 px, the detail scrolls inside it', () => {
+  const root = /^  html,body\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.match(root, /background:transparent/, 'the app behind shows through the page');
+  const bd = /^  \.bd\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.match(bd, /position:fixed;inset:0/); assert.match(bd, /align-items:center;justify-content:center/); assert.match(bd, /background:var\(--scrim\)/);
+  const cw = /^  \.cw\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.match(cw, /width:min\(480px,100%\)/); assert.match(cw, /max-height:100%/);
+  const det = /^  \.det\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.match(det, /overflow-y:auto/); assert.match(det, /flex:0 1 auto/);
+  assert.match(html, /--scrim:rgba\([^)]*\)/); assert.match(html, /:root\[data-theme=light\][^}]*--scrim:rgba\(/, 'the dim is set for both themes');
+  assert.match(html, /<div class="bd" id="bd">[\r\n]+<div class="cw" id="cw" role="alertdialog"/);
+});
+
+test('page: nothing from a window is left (no drag region, no height call for a window to fit)', () => {
+  assert.doesNotMatch(html, /-webkit-app-region/);
+  assert.doesNotMatch(script, /function height|height:height/);
 });

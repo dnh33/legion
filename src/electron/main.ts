@@ -331,14 +331,14 @@ async function ownCoreCall(method: 'GET' | 'POST' | 'PUT' | 'PATCH', route: stri
  * dialogs from it and sends the core the hash it read. The window can only name a request id. One dialog at a time (the lock is shared with
  * every other confirmation), in the order the cards arrived.
  */
-// Every settings and money confirmation is the Legion confirm window (confirm-window.ts). Its zoom and theme are the main window's, also while that is hidden.
+// Every settings and money confirmation is Legion's confirm card, shown inside the Legion window (confirm-window.ts). Its zoom and theme are the main window's.
 configureConfirmWindow({ getMainWin: () => win, log: (line) => { try { appendFileSync(join(dataDir(), 'core.log'), redact(`[${new Date().toISOString()}] ${line}\n`)); } catch { /* the question is asked all the same */ } } });
 const spendNative = createSpendNative({
   core: (method, route, body, native) => ownCoreCall(method, route, body, native),
   dialog: async (opts) => {
-    // a hidden or closed window must not hide the question: without a visible parent the window opens on its own
+    // the card is shown inside the Legion window, which is restored first when it is hidden or minimized (a tray case)
     const shown = { ...opts, buttons: [...opts.buttons] };
-    const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showHeldMessageBox(win, shown) : await confirmWindow.showHeldMessageBox(shown);
+    const r = await confirmWindow.showHeldMessageBox(shown);
     return r.response;
   },
   // A review waits (the next tick, or the Review button's own message) while any other question is open, and then HOLDS the confirm lock until it is done:
@@ -388,7 +388,7 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
     try {
       const { needsDialog: _n, method: _m, route: _r, body: _b, ...shown } = c; // the words and how to draw them; the route and body stay here
       const opts = { ...shown, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
-      const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showMessageBox(win, opts) : await confirmWindow.showMessageBox(opts);
+      const r = await confirmWindow.showMessageBox(opts);
       if (r.response !== 1) return { ok: false, cancelled: true };
     } catch (e) {
       if (e instanceof ConfirmBusyError) return { ok: false, error: CONFIRM_BUSY }; // lost the lock between the check above and the window: not the person's cancel
