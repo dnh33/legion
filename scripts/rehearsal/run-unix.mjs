@@ -10,7 +10,7 @@
 //            (the one-time step the release notes ask for): the marker appears, the tree is clean, mode is 'apply' and the update to 0.99.0 works.
 //   live     the live release (--live-tag, UNIX_LIVE_TAG, or Latest) is installed with ITS OWN install.sh from its release assets, with the real
 //            github.com origin, and click-updated to the code-only 0.99.0 built from this checkout: the update path users take next. When the
-//            live release's dependency tree differs from this checkout's, the update leg is skipped and says so (the rebuild route covers that).
+//            live release's dependency tree differs from this checkout's, the job FAILS: a green run must never mean nothing was updated (a dependency leg replaces this with the rebuild route).
 //   refuse   no app: an edit in src/ (or an untracked file, or a folder without the marker) makes the installer refuse and leaves the edit; changes
 //            the updater itself makes (a CODE_SET file, .update, build-info.json) do not.
 //   notify   a dependency-changing release (and a code release whose lock differs) offered off Windows is a notice with zero requests for a
@@ -420,10 +420,11 @@ async function scenarioLive() {
   const same = dependencyHash(read(join(install, 'package-lock.json'))) === dependencyHash(read(join(repoRoot, 'package-lock.json')));
   log(`dependency tree of ${tag} vs this checkout: ${same ? 'the same' : 'DIFFERENT'}`);
   if (!same) {
-    // a dependency release cannot take the code route from the live release; the rebuild rehearsal covers that path, not this one
-    const line = `live: SKIPPED the update leg: ${tag}'s dependency tree differs from this checkout's, so the code-only candidate cannot apply to it`;
-    log(line);
+    // Never a green run that tested nothing: a dependency release must rehearse the route the live release really takes with it
+    // (the "run the installer again" notice up to 0.3.5, the rebuild route after). Until that leg exists here, this fails on purpose.
+    const line = `live: ${tag}'s dependency tree differs from this checkout's; the code-only candidate cannot apply to it and this job has no dependency leg yet`;
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`);
+    check(false, line);
     return;
   }
   startServer();
