@@ -25,7 +25,7 @@ Legion is in beta: expect rough edges and the odd bug.
 - **Blender bridge:** local mode (headless Blender on your computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
-- **macOS and Linux:** the one-line installer sets Legion up, and since 0.3.5 that install updates itself. Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. The maintainer uses Windows.
+- **macOS and Linux (experimental):** the one-line installer sets Legion up, and since 0.3.5 that install updates itself. Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. The maintainer uses Windows, so feedback and bug reports from Mac and Linux are very welcome: [report a bug](https://github.com/dnh33/legion/issues/new?template=bug_report.yml).
 - **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, DeepSeek, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
 
 <details><summary>Details</summary>
@@ -273,7 +273,7 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 ## Requirements
 
 - **A Claude sign-in:** a Claude subscription or an API key. You do not need to install Claude Code: Legion runs the `claude` program that comes with the Claude Agent SDK. To sign in once, run `claude` and type `/login`, or on a release install run `scripts\legion-claude.cmd` and type `/login`.
-- **Windows 10/11** is the primary target. macOS and Linux use the one-line installer or a dev install. Caveats: [Status](#status).
+- **Windows 10/11** is the primary target. macOS and Linux are experimental: they use the one-line installer or a dev install. Caveats: [Status](#status).
 - **Node.js 22.12 or newer, for a source install only.** The release package brings its own runtime.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
 
@@ -354,6 +354,8 @@ To update, run setup again from a newer source folder.
 </details>
 
 ### macOS and Linux
+
+Experimental: tested in CI, not yet by hand on a real Mac. If something breaks, please [report it](https://github.com/dnh33/legion/issues/new?template=bug_report.yml).
 
 Use the [one-line install](#one-line-install). For a dev install from source:
 

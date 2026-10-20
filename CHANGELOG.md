@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Mac and Linux are marked experimental.** They install with the one-line installer and update themselves, and they are tested in CI, but not yet by hand on a real Mac. If something breaks on your Mac or Linux machine, please [report it](https://github.com/dnh33/legion/issues/new?template=bug_report.yml): every report helps.
+
 ## [0.3.5] - 2026-10-19
 
 This update installs by itself on Windows. On a Mac or Linux, run the installer once more (see below); after that Legion updates itself there too.
