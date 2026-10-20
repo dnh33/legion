@@ -55,6 +55,8 @@ const KEY_MESSAGE = "Legion needs a key from your computer's keystore to sign ga
 const blank = (): GateSettings => ({ version: 1 });
 /** What a damaged or unreadable file reads as (spec 4.1). A missing file is blank, not this. */
 const damaged = (): GateSettings => ({ version: 1, preset: 'ask' });
+/** The app file's damaged record also holds Claude's own checks OFF (the stricter, old path): a blank file would read as ON, and only the owner's own save turns it on. */
+const damagedApp = (): GateSettings => ({ version: 1, preset: 'ask', claudeOwnChecks: false });
 /** The default when the caller names no presets: only Ask until the caller widens it. */
 const ASK_ONLY: readonly Preset[] = ['ask'];
 
@@ -355,7 +357,7 @@ export class GatesStore {
     if (this.lost && name === 'app') {
       // Ask everywhere: every project (those with a file, those named by `ids`) gets an Ask file, signed. Nothing from disk is imported.
       for (const id of new Set([...this.projects.keys(), ...ids])) { this.projects.set(id, damaged()); this.settle(id); }
-      this.appS = damaged();
+      this.appS = damagedApp();
       if (this.keyState !== 'unreadable') this.lost = false; // an unopenable key cannot verify anything: Ask stays
     } else if (this.lost) this.projects.set(name, damaged());
     this.settle(name);
@@ -400,7 +402,7 @@ export class GatesStore {
     this.appVerified = false; this.appGen = 0; this.maxProjGen = 0;
     if (this.signer && this.keyState !== 'new' && !existsSync(join(this.folder, 'app.json'))) this.lost = true;
     this.appS = this.readOne('app') ?? blank();
-    if (this.lost) { this.outside.add('app'); if (!this.pending.has('app')) this.appS = damaged(); }
+    if (this.lost) { this.outside.add('app'); if (!this.pending.has('app')) this.appS = damagedApp(); }
     for (const n of existsSync(this.folder) ? readdirSync(this.folder) : []) {
       const m = /^(.+)\.json$/.exec(n);
       if (!m || !PROJECT_ID_RE.test(m[1]!)) continue;
@@ -580,7 +582,7 @@ export class GatesStore {
         // not proven to be ours (or no cap): not applied, left on disk for the owner to accept or keep theirs
         this.outside.add(name);
         this.pending.set(name, out);
-        return damaged();
+        return isApp ? damagedApp() : damaged();
       }
       if (verified && !isApp) this.fileGens.set(name, gen);
       // a field this version no longer has (the shell floor switch) is dropped here and gone from the file after this rewrite;
@@ -594,7 +596,7 @@ export class GatesStore {
       // Write the Ask record back only once the damaged original is safely aside, so the write never removes it.
       // A restart then reads Ask from disk instead of a blank file (which would lose the cap).
       if (setAside) this.mark(name);
-      return damaged();
+      return name === 'app' ? damagedApp() : damaged();
     }
   }
 
