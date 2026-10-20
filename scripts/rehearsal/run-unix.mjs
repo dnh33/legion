@@ -8,13 +8,16 @@
 //   frozen   the REAL v0.3.4 is installed with its own install.sh (fetched from raw.githubusercontent at that tag): it has no marker, so it only
 //            gets a notice (mode 'checkout', install() answers 409, no package is requested). Then this checkout's install.sh is run over it
 //            (the one-time step the release notes ask for): the marker appears, the tree is clean, mode is 'apply' and the update to 0.99.0 works.
+//   live     the live release (--live-tag, UNIX_LIVE_TAG, or Latest) is installed with ITS OWN install.sh from its release assets, with the real
+//            github.com origin, and click-updated to the code-only 0.99.0 built from this checkout: the update path users take next. When the
+//            live release's dependency tree differs from this checkout's, the update leg is skipped and says so (the rebuild route covers that).
 //   refuse   no app: an edit in src/ (or an untracked file, or a folder without the marker) makes the installer refuse and leaves the edit; changes
 //            the updater itself makes (a CODE_SET file, .update, build-info.json) do not.
 //   notify   a dependency-changing release (and a code release whose lock differs) offered off Windows is a notice with zero requests for a
 //            *-win-x64.zip; a tampered manifest signature and a downgrade are rejected; a folder without the marker only gets a notice.
 // The update API needs the per-launch admin key, which only the app window holds: the app is started with a DevTools port and the calls are made
 // from inside its page (as scripts/rehearsal/run-reopen.mjs does).
-// usage: node scripts/rehearsal/run-unix.mjs --scenario <update|frozen|refuse|notify> --prepared <dir> --work <dir>
+// usage: node scripts/rehearsal/run-unix.mjs --scenario <update|frozen|live|refuse|notify> --prepared <dir> --work <dir> [--live-tag vX.Y.Z]
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, cpSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -26,7 +29,7 @@ const repoRoot = resolve(here, '..', '..');
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined; };
 const scenario = opt('scenario'), preparedDir = opt('prepared') && resolve(opt('prepared')), work = opt('work') && resolve(opt('work'));
-if (!scenario || !preparedDir || !work) { console.error('usage: node scripts/rehearsal/run-unix.mjs --scenario <update|frozen|refuse|notify> --prepared <dir> --work <dir>'); process.exit(2); }
+if (!scenario || !preparedDir || !work) { console.error('usage: node scripts/rehearsal/run-unix.mjs --scenario <update|frozen|live|refuse|notify> --prepared <dir> --work <dir> [--live-tag vX.Y.Z]'); process.exit(2); }
 if (process.platform === 'win32') { console.error('run-unix.mjs is for macOS and Linux runners'); process.exit(2); }
 const [maj, min] = process.versions.node.split('.').map(Number);
 if (maj < 22 || (maj === 22 && min < 15)) { console.error(`the preload needs module.registerHooks (Node 22.15 or newer); this is ${process.versions.node}`); process.exit(2); }
@@ -386,6 +389,51 @@ async function scenarioFrozen() {
   await updateTo(GOOD, 'unix-good', BASE);
 }
 
+/** The release to rehearse from: --live-tag, else UNIX_LIVE_TAG, else the Latest release (the same redirect install.sh follows). */
+async function liveTag() {
+  const given = opt('live-tag') || process.env.UNIX_LIVE_TAG;
+  if (given) return given;
+  const r = await fetch('https://github.com/dnh33/legion/releases/latest', { redirect: 'manual' });
+  return /\/releases\/tag\/(v[^/?#]+)$/.exec(r.headers.get('location') ?? '')?.[1] ?? '';
+}
+
+async function scenarioLive() {
+  // the live release exactly as a user installs it: its own install.sh from its release assets, the real github.com origin and clone
+  const tag = await liveTag();
+  check(/^v\d+\.\d+\.\d+$/.test(tag), `the live tag is ${tag || '(none found)'}`);
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('no live tag to rehearse from');
+  const ver = tag.slice(1);
+  const r = await fetch(`https://github.com/dnh33/legion/releases/download/${tag}/install.sh`);
+  check(r.ok, `fetched ${tag}'s install.sh from its release assets (HTTP ${r.status})`);
+  if (!r.ok) throw new Error(`no install.sh asset on ${tag}`);
+  const liveSh = join(work, `install-${tag}.sh`); writeFileSync(liveSh, await r.text());
+  const ins = run('install-live', 'sh', [liveSh, '--no-launch', '--version', ver, '--dir', install]);
+  check(ins.status === 0, `${tag} installed with its own installer (exit ${ins.status})`);
+  if (ins.status !== 0) { log(ins.out.split('\n').slice(-25).join('\n')); throw new Error(`the ${tag} install failed`); }
+  check(instVersion() === ver, `package.json says ${ver}`);
+  check(markerOk(), 'the marker .legion-install.json is valid (schema 1, install.sh, dir, head)');
+  check(gitClean(), 'git status is clean after the install');
+  check(/github\.com[/:]dnh33\/legion(\.git)?$/.test(git(install, 'remote', 'get-url', 'origin').out.trim()), 'origin is the real github.com repo');
+
+  // the candidate is built from this checkout; the code route needs the same dependency tree. Both hashes come from the live release's own code.
+  const { dependencyHash } = await import(pathToFileURL(join(install, 'dist', 'src', 'core', 'updater', 'package.js')).href);
+  const same = dependencyHash(read(join(install, 'package-lock.json'))) === dependencyHash(read(join(repoRoot, 'package-lock.json')));
+  log(`dependency tree of ${tag} vs this checkout: ${same ? 'the same' : 'DIFFERENT'}`);
+  if (!same) {
+    // a dependency release cannot take the code route from the live release; the rebuild rehearsal covers that path, not this one
+    const line = `live: SKIPPED the update leg: ${tag}'s dependency tree differs from this checkout's, so the code-only candidate cannot apply to it`;
+    log(line);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`);
+    return;
+  }
+  startServer();
+  startApp(tag);
+  const h0 = await healthy(ver);
+  check(!!h0, `the installed ${ver} starts and reports health`);
+  if (!h0) throw new Error(`${ver} never became healthy`);
+  await updateTo(GOOD, 'unix-good', ver);
+}
+
 async function scenarioRefuse() {
   makeBaselineRepo();
   baselineInstalled();
@@ -501,7 +549,7 @@ async function scenarioNotify() {
 
 try {
   log(`scenario ${scenario} on ${process.platform}-${process.arch}, node ${process.versions.node}, display ${process.env.DISPLAY ?? '(none)'}`);
-  const fn = { update: scenarioUpdate, frozen: scenarioFrozen, refuse: scenarioRefuse, notify: scenarioNotify }[scenario];
+  const fn = { update: scenarioUpdate, frozen: scenarioFrozen, live: scenarioLive, refuse: scenarioRefuse, notify: scenarioNotify }[scenario];
   if (!fn) throw new Error(`unknown scenario ${scenario}`);
   await fn();
 } catch (e) {
