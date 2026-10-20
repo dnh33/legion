@@ -36,6 +36,16 @@ test('the window is made like the splash and the update window: sandbox, context
   assert.match(win, /CONFIRM_PARTITION = 'legion-confirm'/, 'no persist: prefix: an in-memory session');
 });
 
+test('a minimized or gone parent is no parent: the window opens on its own, so the lock is never held by a hidden modal', () => {
+  assert.match(win, /const parent = parentIn && !parentIn\.isDestroyed\(\) && !parentIn\.isMinimized\(\) \? parentIn : undefined;/);
+});
+
+test('the page ships: release packaging copies assets whole (it skips only dist/test and node_modules), so no per-file list can leave the page out', () => {
+  const pack = read('scripts/release-package.mjs');
+  assert.match(pack, /const skip = \(rel\) => rel === 'dist\/test' \|\| rel\.startsWith\('dist\/test\/'\) \|\| rel\.split\('\/'\)\.includes\('node_modules'\);/);
+  assert.doesNotMatch(pack, /update-window\.html|splash\.html|confirm-window/, 'no per-file asset list in the packer');
+});
+
 test('the window locks itself down: no new windows, no navigation, no redirects, no webviews, every permission refused, no reload', () => {
   for (const must of ['setWindowOpenHandler(() => ({ action: \'deny\' }))', "'will-navigate'", "'will-redirect'", "'will-attach-webview'", 'setPermissionRequestHandler((_wc, _permission, callback) => callback(false))', 'setPermissionCheckHandler(() => false)', 'setDevicePermissionHandler(() => false)', "'before-input-event'"]) assert.ok(win.includes(must), must);
   assert.match(win, /loadFile\(CONFIRM_PAGE\)/, 'a local file, never a URL');
@@ -64,8 +74,12 @@ test('failure falls back to the system dialog with the same question, and nothin
 });
 
 test('one question at a time: a second is answered Cancel at once, and a spend review waits instead', () => {
-  assert.match(win, /if \(busy\) \{\s*log\('a question is already open: this one is answered as cancelled'\);\s*return \{ response: resolveIds\(opts\)\.cancelIndex/);
-  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return false;/);
+  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| !holdConfirmWindow\(\)\) return false;/);
+  assert.match(main, /release: \(\) => \{ bsvDialogOpen = false; releaseConfirmWindow\(\); \}/);
+  assert.match(win, /if \(busy \|\| \(held && !holder\)\) \{/, 'a held lock refuses everyone but the holder');
+  assert.match(win, /export function holdConfirmWindow\(\): boolean \{ if \(busy \|\| held\) return false; held = true; return true; \}/);
+  assert.match(win, /log\('a question is already open: this one is answered as cancelled'\);\s*return \{ response: resolveIds\(opts\)\.cancelIndex/);
+  assert.match(main, /showHeldMessageBox\(win, shown\)[\s\S]*showHeldMessageBox\(shown\)/, 'the review asks through the own entry of the holder');
   assert.match(main, /if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return \{ ok: false, error: 'A confirmation is already open/);
 });
 
@@ -75,7 +89,8 @@ test('which questions moved: the 8 settings handlers and the BSV paths use the w
   const sys = [...main.matchAll(/dialog\.(showMessageBox|showErrorBox|showOpenDialog)\(/g)].map((m) => m[1]);
   assert.deepEqual(sys, ['showMessageBox', 'showMessageBox', 'showErrorBox', 'showOpenDialog'], 'foreign-core question, started-outside notice, restart failure box, folder picker');
   assert.match(main, /async function askRestartForeignCore[\s\S]*?dialog\.showMessageBox/);
-  assert.equal((main.match(/confirmWindow\.showMessageBox\(/g) ?? []).length, 4, 'spend review (2 forms) and BSV policy (2 forms)');
+  assert.equal((main.match(/confirmWindow\.showMessageBox\(/g) ?? []).length, 2, 'BSV policy (2 forms)');
+  assert.equal((main.match(/confirmWindow\.showHeldMessageBox\(/g) ?? []).length, 2, 'spend review (2 forms)');
   assert.doesNotMatch(read('src/electron/updater-main.ts'), /confirm-window|confirmWindow/, 'the updater keeps its own dialogs: they can run while dist and assets are swapped');
   assert.doesNotMatch(read('src/electron/update-window-main.ts'), /confirm-window|confirmWindow/);
 });

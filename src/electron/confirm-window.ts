@@ -32,9 +32,17 @@ let host: ConfirmHost = { getMainWin: () => null };
 export function configureConfirmWindow(h: ConfirmHost): void { host = h; }
 const log = (line: string): void => { try { host.log?.(`confirm window: ${line}`); } catch { /* logging must never change an answer */ } };
 
-/** True while a question is open (in the Legion window or the system dialog). Spend reviews wait on this rather than lose their place. */
+/** True while a question is open (in the Legion window or the system dialog). */
 let busy = false;
-export const confirmWindowBusy = (): boolean => busy;
+/**
+ * A hold on the whole confirm lock, for a spend review: from the moment it is taken until it is released only the holder's own questions are asked
+ * (`showHeldMessageBox`); every other question is answered Cancel at once. Without it a settings question could open in the gaps between the review's
+ * own questions, and the review would read that as "no" and deny a request the person never saw.
+ */
+let held = false;
+export const confirmWindowBusy = (): boolean => busy || held;
+export function holdConfirmWindow(): boolean { if (busy || held) return false; held = true; return true; }
+export function releaseConfirmWindow(): void { held = false; }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> => Promise.race([p, sleep(ms).then(() => { throw new Error(`${what} took longer than ${ms} ms`); })]);
@@ -68,7 +76,9 @@ async function native(parent: BrowserWindow | null | undefined, opts: ConfirmOpt
   return r.response;
 }
 
-async function ask(parent: BrowserWindow | null | undefined, opts: ConfirmOptions): Promise<number> {
+async function ask(parentIn: BrowserWindow | null | undefined, opts: ConfirmOptions): Promise<number> {
+  // a parent that is gone or minimized cannot carry a modal window (it would stay hidden with the lock held): the window opens on its own, as from the tray
+  const parent = parentIn && !parentIn.isDestroyed() && !parentIn.isMinimized() ? parentIn : undefined;
   const source = parent && !parent.isDestroyed() ? parent : host.getMainWin();
   const theme = await readTheme(source);
   const nonce = randomBytes(16).toString('hex');
@@ -157,11 +167,10 @@ async function ask(parent: BrowserWindow | null | undefined, opts: ConfirmOption
   });
 }
 
-/** Electron's `dialog.showMessageBox([window, ]options)`, for the questions that move into the Legion window. */
-export async function showMessageBox(a: BrowserWindow | ConfirmOptions | null | undefined, b?: ConfirmOptions): Promise<{ response: number; checkboxChecked: boolean }> {
+async function run(a: BrowserWindow | ConfirmOptions | null | undefined, b: ConfirmOptions | undefined, holder: boolean): Promise<{ response: number; checkboxChecked: boolean }> {
   const parent = b === undefined ? undefined : (a as BrowserWindow | null | undefined);
   const opts = (b === undefined ? a : b) as ConfirmOptions;
-  if (busy) {
+  if (busy || (held && !holder)) {
     log('a question is already open: this one is answered as cancelled');
     return { response: resolveIds(opts).cancelIndex, checkboxChecked: false };
   }
@@ -169,4 +178,9 @@ export async function showMessageBox(a: BrowserWindow | ConfirmOptions | null | 
   try { return { response: await ask(parent, opts), checkboxChecked: false }; } finally { busy = false; }
 }
 
-export const confirmWindow = { showMessageBox };
+/** Electron's `dialog.showMessageBox([window, ]options)`, for the questions that move into the Legion window. */
+export const showMessageBox = (a: BrowserWindow | ConfirmOptions | null | undefined, b?: ConfirmOptions): Promise<{ response: number; checkboxChecked: boolean }> => run(a, b, false);
+/** The same, for the holder of the confirm lock (`holdConfirmWindow`): the one question that may run while it is held. */
+export const showHeldMessageBox = (a: BrowserWindow | ConfirmOptions | null | undefined, b?: ConfirmOptions): Promise<{ response: number; checkboxChecked: boolean }> => run(a, b, true);
+
+export const confirmWindow = { showMessageBox, showHeldMessageBox };

@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
-import { configureConfirmWindow, confirmWindow, confirmWindowBusy } from './confirm-window.js';
+import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, releaseConfirmWindow } from './confirm-window.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
@@ -337,12 +337,13 @@ const spendNative = createSpendNative({
   dialog: async (opts) => {
     // a hidden or closed window must not hide the question: without a visible parent the window opens on its own
     const shown = { ...opts, buttons: [...opts.buttons] };
-    const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showMessageBox(win, shown) : await confirmWindow.showMessageBox(shown);
+    const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showHeldMessageBox(win, shown) : await confirmWindow.showHeldMessageBox(shown);
     return r.response;
   },
-  // a review waits (the next tick, or the Review button's own message) while any other question is open: the confirm window never answers for it
-  acquire: () => { if (bsvDialogOpen || confirmWindowBusy()) return false; bsvDialogOpen = true; return true; },
-  release: () => { bsvDialogOpen = false; },
+  // A review waits (the next tick, or the Review button's own message) while any other question is open, and then HOLDS the confirm lock until it is done:
+  // no other question can take the window between its own reads and questions, and be read as a "no" that denies a request nobody saw.
+  acquire: () => { if (bsvDialogOpen || !holdConfirmWindow()) return false; bsvDialogOpen = true; return true; },
+  release: () => { bsvDialogOpen = false; releaseConfirmWindow(); },
   changed: () => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:bsv-changed'); } catch { /* the window is gone */ } },
   bsvOn: async () => { const r = await ownCoreCall('GET', '/api/bsv'); return r?.status === 200 && (r.json as { enabled?: unknown } | undefined)?.enabled === true; },
 });

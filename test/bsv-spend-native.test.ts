@@ -438,7 +438,8 @@ test('main.ts: the poll is one 3 s timer in main, started after the core is up; 
   assert.doesNotMatch(preload, /spend|cardHash/i, 'the preload adds no spend channel: the existing bsvPolicy channel carries an id only');
   const fn = main.slice(main.indexOf('async function bsvPolicyChange'), main.indexOf('function showWindow'));
   assert.ok(fn.indexOf('parseBsvAction(raw)') < fn.indexOf('isSpendAction(action)'));
-  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return false;/, 'one lock for every confirmation, the confirm window included');
+  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| !holdConfirmWindow\(\)\) return false; bsvDialogOpen = true; return true; \}/, 'one lock for every confirmation, and a review holds the confirm window lock to the end');
+  assert.match(main, /release: \(\) => \{ bsvDialogOpen = false; releaseConfirmWindow\(\); \}/);
   // the dialog options passed to Electron: Cancel is the default and the Escape button
   assert.match(logic, /defaultId: cancelAt, cancelId: cancelAt, confirmAt, noLink: true/);
 });
