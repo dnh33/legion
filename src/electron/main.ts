@@ -1,18 +1,20 @@
 /** Electron main process. */
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, powerMonitor, safeStorage, shell, Tray } from 'electron';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
+import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice, updateBusy } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
+import { formatLine } from '../core/log/logger.js';
+import { CoreRestartState, CrashTracker, RESTART_DELAY_MS, decideRestart, exitLine, restartEnabled, withRestartEnabled, type RestartFacts } from './core-restart-logic.js';
 import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, ensureGatesKey, gatesKeyFilePath, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
@@ -66,6 +68,13 @@ let signals: Signals | undefined;
 let gatesKeyMadeThisSession = false;
 let coreProc: ChildProcess | null = null;
 let quitting = false;
+/** The core child that proved it holds our secret. Only its unexpected exit can restart the core (a start that never got ready is the splash's error). */
+let provenChild: ChildProcess | null = null;
+/** The computer is logging off or shutting down. Its own flag: a logoff another app cancels must not leave the window hidden for good. */
+let sessionEnding = false;
+let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+const crashes = new CrashTracker();
+const restartState = new CoreRestartState();
 let booting = true;
 let splash: BrowserWindow | null = null;
 /** Per-launch admin secret of the core child we spawned (memory only: stdin pipe to the child, IPC to our own renderer; never env, argv or disk). */
@@ -198,6 +207,7 @@ async function spawnCore(port: number): Promise<string | null> {
       env: { ...process.env, ...launch.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
     });
     coreProc = child;
+    appLog('info', 'core-spawn', { pid: child.pid ?? 0 });
     adminSecret = secret;
     nativeSecret = native;
     rendererAdmin = undefined;
@@ -211,9 +221,14 @@ async function spawnCore(port: number): Promise<string | null> {
         ? coreStartHint(launch.mode, err.code)
         : `Could not start core: ${err.message || err}`;
     });
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
+      // killCore clears coreProc BEFORE the exit, so a child that is still coreProc here was not stopped by anything in main
+      const intended = coreProc !== child;
       if (coreProc === child) { coreProc = null; adminSecret = undefined; nativeSecret = undefined; rendererAdmin = undefined; }
       if (!failure) failure = `Core exited (code ${code}). See core.log.`;
+      const proven = provenChild === child;
+      if (proven) provenChild = null;
+      if (!intended && proven) void onCoreCrash(code, signal);
     });
     await new Promise((r) => setTimeout(r, 200));
     return failure;
@@ -246,7 +261,7 @@ async function ensureCore(): Promise<string | null> {
     // Only a core that did not prove itself needs the lookup: its claimed pid must really own the listener before it can be killed.
     const listeners = mine ? undefined : await listenersOn(port);
     const action = coreAction({ health, ownProof: !!mine, busy, selfPid: process.pid, listeners });
-    if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
+    if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; provenChild = mine ? coreProc : null; return null; }
     if (action === 'blocked') {
       dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }).catch(() => {});
       pinned = readConfig(); rendererAdmin = undefined;
@@ -264,7 +279,7 @@ async function ensureCore(): Promise<string | null> {
   while (Date.now() < deadline) {
     // up AND proved to hold our secret (a rogue that grabbed the port first never does)
     const mine = await ownCoreSecret(port);
-    if (mine) { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
+    if (mine) { pinned = { port, token: readConfig().token }; rendererAdmin = mine; provenChild = coreProc; return null; }
     if (!coreProc) return 'Core exited before becoming ready. See core.log.';
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -299,8 +314,80 @@ async function restartCoreQuiet(): Promise<string | null> {
 
 /** Tray "Restart core": the one place that shows the error box. */
 async function restartCore(): Promise<void> {
-  const err = await restartCoreQuiet();
+  const err = await manualRestart();
   if (err) dialog.showErrorBox('Could not restart Legion Core', err);
+}
+
+/** One line into <data>/logs/app.log. Never throws. */
+function appLog(level: 'info' | 'warn', event: string, fields: Record<string, string | number | boolean>): void {
+  try {
+    const dir = join(dataDir(), 'logs');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'app.log'), formatLine(new Date(), level, 'app', event, fields) + '\n');
+  } catch { /* a log line must never stop a restart */ }
+}
+
+/** The Settings switch "Restart Legion Core when it stops unexpectedly". A file in the data folder, because the core it concerns is the one that is dead. On unless it says false. */
+const appSettingsFile = (): string => join(dataDir(), 'app-settings.json');
+function restartSwitchOn(): boolean {
+  let raw: string | null = null;
+  try { raw = readFileSync(appSettingsFile(), 'utf8'); } catch { /* none yet: on */ }
+  return restartEnabled(raw);
+}
+function setRestartSwitch(on: boolean): void {
+  let raw: string | null = null;
+  try { raw = readFileSync(appSettingsFile(), 'utf8'); } catch { /* none yet */ }
+  writeFileSync(appSettingsFile(), withRestartEnabled(raw, on));
+  appLog('info', 'core-restart-switch', { on });
+}
+
+/** Tells the window to read the restart state again (only for changes that do not reload it). */
+function notifyRestartChanged(): void {
+  try { if (win && !win.isDestroyed()) win.webContents.send('legion:core-restart-changed'); } catch { /* the window is gone */ }
+}
+
+/** The person restarts the core (tray, or the banner button): the crash count starts again and the stopped state ends. */
+async function manualRestart(): Promise<string | null> {
+  crashes.reset();
+  restartState.clearStopped();
+  appLog('info', 'core-restart', { note: 'restart asked for by you: the crash count starts again' });
+  const err = await restartCoreQuiet();
+  if (err) { restartState.noteStopped('failed'); notifyRestartChanged(); }
+  return err;
+}
+
+/** The computer is ending the session. The flag clears after a minute, in case another app cancelled the logoff. */
+function markSessionEnding(why: string): void {
+  sessionEnding = true;
+  appLog('info', 'session-end', { note: why });
+  if (sessionTimer) clearTimeout(sessionTimer);
+  sessionTimer = setTimeout(() => { sessionEnding = false; }, 60_000);
+  sessionTimer.unref?.();
+}
+
+/**
+ * Our core child proved itself and then exited with nobody in main asking for it. Restart it once, unless Legion is closing, an update owns
+ * the install, the switch is off, or it keeps stopping (3 in 5 minutes: then the window says so and the person restarts it).
+ */
+async function onCoreCrash(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+  const count = crashes.register();
+  appLog('warn', 'core-exit', { code: code ?? 'none', signal: signal ?? 'none', count, note: exitLine(code, signal, count) });
+  const facts = (): RestartFacts => ({ intended: booting, quitting, updating: updateBusy(root), sessionEnding, enabled: restartSwitchOn(), count });
+  const first = decideRestart(facts());
+  appLog('info', 'core-restart', { note: booting ? 'not restarting: Legion is still starting' : first.log });
+  if (first.action === 'stop-at-limit') { restartState.noteStopped('limit'); notifyRestartChanged(); }
+  if (first.action !== 'restart') return;
+  await sleep(RESTART_DELAY_MS); // a whole-app kill finishes first
+  if (coreProc) { appLog('info', 'core-restart', { note: 'not restarting: a core is already running again' }); return; }
+  const again = decideRestart(facts());
+  if (again.action !== 'restart') { appLog('info', 'core-restart', { note: again.log }); return; }
+  restartState.noteRestarted(); // before the reload that fetches it
+  const err = await restartCoreQuiet();
+  if (err) {
+    restartState.noteStopped('failed');
+    appLog('warn', 'core-restart', { note: `restart failed: ${err}` });
+    notifyRestartChanged();
+  } else appLog('info', 'core-restart', { note: 'restarted' });
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
@@ -449,6 +536,9 @@ function createWindow(showOnReady: boolean): void {
     if (!quitting) { e.preventDefault(); win?.hide(); }
   });
   win.on('closed', () => { win = null; });
+  // Windows: a shutdown, restart or logoff is coming (the cores die with it and must not be restarted)
+  win.on('query-session-end', () => markSessionEnding('query-session-end'));
+  win.on('session-end', () => markSessionEnding('session-end'));
 
   if (existsSync(uiIndex)) {
     console.log('[main] Loading UI from:', uiIndex);
@@ -713,12 +803,31 @@ if (instance.quit) {
     try { mkdirSync(dir, { recursive: true }); return (await shell.openPath(dir)) === ''; } catch { return false; }
   });
 
+  ipcMain.handle('legion:core-restart-state', (e) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { restarted: false, stopped: null };
+    return restartState.take();
+  });
+  ipcMain.handle('legion:core-restart-now', async (e): Promise<{ ok: boolean; error?: string }> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { const err = await manualRestart(); return err ? { ok: false, error: err } : { ok: true }; } catch { return { ok: false, error: 'The restart failed.' }; }
+  });
+  // No argument reads the switch; a boolean sets it.
+  ipcMain.handle('legion:core-restart-option', (e, raw: unknown): { ok: boolean; enabled: boolean; error?: string } => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, enabled: true, error: 'Refused: not the Legion window.' };
+    try { if (typeof raw === 'boolean') setRestartSwitch(raw); return { ok: true, enabled: restartSwitchOn() }; } catch { return { ok: false, enabled: restartSwitchOn(), error: 'The setting could not be saved.' }; }
+  });
+
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => { signals?.stop(); if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
   app.on('window-all-closed', () => { /* stay in tray */ });
   app.on('activate', () => showWindow());
 
   void app.whenReady().then(async () => {
+    // Linux and macOS tell the app about a shutdown here (Windows uses the window events above)
+    try { powerMonitor.on('shutdown', () => markSessionEnding('shutdown')); } catch { /* no power monitor here */ }
     // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
     if ((await holdStartIfUpdating(root, dataDir(), updateHandoff)) === 'exit') { quitting = true; app.exit(0); return; }
     await recoverAtStart(root, dataDir()); // finish or undo an update that was cut off, before the core starts

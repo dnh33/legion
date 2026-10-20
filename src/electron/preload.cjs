@@ -70,6 +70,25 @@ contextBridge.exposeInMainWorld('legion', {
     ipcRenderer.on('legion:open-ask', h);
     return () => ipcRenderer.removeListener('legion:open-ask', h);
   },
+  // Legion Core stopped by itself: what happened ({ restarted, stopped: 'limit' | 'failed' | null }; the restart notice is handed out once).
+  coreRestartState() {
+    return ipcRenderer.invoke('legion:core-restart-state');
+  },
+  // Main says the state changed without a reload (the core was left stopped): read it again.
+  onCoreRestartChanged(cb) {
+    if (typeof cb !== 'function') return () => undefined;
+    const h = () => { try { cb(); } catch (_) { /* ignore */ } };
+    ipcRenderer.on('legion:core-restart-changed', h);
+    return () => ipcRenderer.removeListener('legion:core-restart-changed', h);
+  },
+  // The banner's Restart core button: the same restart as the tray.
+  restartCoreNow() {
+    return ipcRenderer.invoke('legion:core-restart-now');
+  },
+  // Settings: no argument reads "Restart Legion Core when it stops unexpectedly"; a boolean sets it.
+  coreRestartOption(on) {
+    return ipcRenderer.invoke('legion:core-restart-option', typeof on === 'boolean' ? on : undefined);
+  },
   openLogsFolder() {
     return ipcRenderer.invoke('legion:open-logs');
   },
