@@ -245,13 +245,14 @@ test('BSV money rows: one row per limit, and every sat figure leads with sat lik
   const d = spendReviewDialog(card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] }),
     { caps: { perTxSats: 50000, perSessionSats: 100000, per24hSats: 200000 }, armRemainingMs: 250_000 });
   const rows = d.facts!;
-  assert.deepEqual(rows.filter((f) => /limit/i.test(f.label)).map((f) => [f.label, f.value]), [
-    ['Mainnet limit: per transaction', '50,000 sat (0.00050000 BSV)'],
-    ['Mainnet limit: per session', '100,000 sat (0.00100000 BSV)'],
-    ['Mainnet limit: per 24 hours', '200,000 sat (0.00200000 BSV)'],
+  const nb = '\u00a0';
+  assert.deepEqual(rows.filter((f) => /^Limit /.test(f.label)).map((f) => [f.label, f.value]), [
+    ['Limit per transaction', `50,000 sat (0.00050000${nb}BSV)`],
+    ['Limit per session', `100,000 sat (0.00100000${nb}BSV)`],
+    ['Limit per 24 hours', `200,000 sat (0.00200000${nb}BSV)`],
   ]);
-  assert.deepEqual(rows.filter((f) => /^Left after/.test(f.label)).map((f) => f.label), ['Left after this request: per transaction', 'Left after this request: per session', 'Left after this request: per 24 hours']);
-  for (const f of rows.filter((r) => /limit|Left after/i.test(r.label))) assert.doesNotMatch(f.value, /;/, `no row crams several values together: ${f.label}`);
+  assert.deepEqual(rows.filter((f) => /^Left /.test(f.label)).map((f) => f.label), ['Left per transaction', 'Left per session', 'Left per 24 hours']);
+  for (const f of rows.filter((r) => /^(Limit|Left) /.test(r.label))) assert.doesNotMatch(f.value, /;/, `no row crams several values together: ${f.label}`);
   for (const f of [...rows, ...spendLiveDialog(card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] })).facts!]) {
     assert.doesNotMatch(f.value, /BSV \(\d[\d,]* sat\)/, `BSV never leads: ${f.label}: ${f.value}`);
   }

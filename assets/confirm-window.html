@@ -15,7 +15,9 @@
   [hidden]{display:none!important}
   ::selection{background:color-mix(in srgb,var(--accent) 35%,transparent);color:var(--text)}
   html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
-  .cw{height:100%;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:14px/1.4 var(--sans);border:1px solid var(--line-strong);-webkit-user-select:none;user-select:none}
+  .cw{height:100%;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:14px/1.4 var(--sans);border:1px solid var(--line-strong);-webkit-user-select:none;user-select:none;
+    /* last resort on a very small screen: when even the fixed parts do not fit, the window scrolls and the buttons stay put (see .ft) */
+    overflow-x:hidden;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
   .hd{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 24px 0;-webkit-app-region:drag}
   .wm{display:block;height:18px;width:auto;color:var(--cream);flex:none}
   .who{font:11.5px/1.3 var(--mono);color:var(--muted);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -31,7 +33,7 @@
   .det>:not([hidden])~:not([hidden]){margin-top:9px}
   .det p{overflow-wrap:anywhere;text-wrap:pretty;white-space:pre-line}
   #prose p+p{margin-top:9px}
-  .kv{display:grid;grid-template-columns:fit-content(45%) 1fr;gap:4px 12px}
+  .kv{display:grid;grid-template-columns:fit-content(40%) 1fr;gap:4px 12px}
   .kv dt{color:var(--muted);overflow-wrap:anywhere}
   .kv dd{font:12.5px/1.55 var(--mono);color:var(--text);overflow-wrap:anywhere;white-space:pre-line}
   .lst{list-style:none;display:flex;flex-direction:column;gap:6px}
@@ -46,7 +48,7 @@
   .addr-v{font:13.5px/1.5 var(--mono);color:var(--text);letter-spacing:.02em;-webkit-user-select:text;user-select:text}
   .addr-v .g{display:inline-block;margin-right:.6em}
   .addr-v i{font-style:normal;color:var(--gold);font-weight:600}
-  .ft{flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;padding:16px 24px 18px;margin-top:auto}
+  .ft{flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;padding:16px 24px 18px;margin-top:auto;position:sticky;bottom:0;background:var(--bg)}
   .esc{margin-right:auto;flex:1 1 0;min-width:96px;font:11.5px/1.3 var(--mono);color:var(--muted)}
   .esc kbd{font:inherit;border:1px solid var(--line-strong);border-radius:4px;padding:0 5px;color:var(--text-2)}
   button{font:13px/1 var(--sans);color:var(--text);background:var(--surface);border:1px solid var(--line-strong);border-radius:6px;padding:10px 16px;cursor:pointer;flex:0 1 auto;max-width:100%;line-height:1.25;text-align:center;overflow-wrap:anywhere;-webkit-app-region:no-drag}

@@ -265,3 +265,10 @@ test('page DOM: a keyboard click (Space or Enter on a focused button) needs no p
 test('page: its fallback tail is the same constant as the model\'s', () => {
   assert.equal(Number(/DEFAULT_TAIL=(\d+)/.exec(script)?.[1]), ADDRESS_TAIL);
 });
+
+test('page: on a very small screen the window scrolls as a whole and the footer sticks, so the buttons never leave the window', () => {
+  const cw = /^  \.cw\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.match(cw, /overflow-y:auto/);
+  const ft = /^  \.ft\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.match(ft, /position:sticky;bottom:0;background:var\(--bg\)/);
+});

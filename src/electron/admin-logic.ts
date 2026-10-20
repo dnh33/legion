@@ -244,7 +244,7 @@ export function satsText(sats: unknown): string {
 /** A sat figure for a row of the window: sat first, like the big amount, and the BSV in brackets. (The system dialog keeps `satsText`.) */
 const satFirst = (sats: unknown): string => {
   const n = typeof sats === 'number' && Number.isSafeInteger(sats) && sats >= 0 ? sats : 0;
-  return `${n.toLocaleString('en-US')} sat (${Math.floor(n / 1e8)}.${String(n % 1e8).padStart(8, '0')} BSV)`;
+  return `${n.toLocaleString('en-US')} sat (${Math.floor(n / 1e8)}.${String(n % 1e8).padStart(8, '0')}\u00a0BSV)`; // no break before BSV: a narrow row wraps the whole bracket, never an orphan "BSV)"
 };
 
 const CAP_LABEL: Record<CapKey, string> = { perTxSats: 'Per transaction', perSessionSats: 'Per session', per24hSats: 'Per rolling 24 hours', maxOutputs: 'Max outputs', maxFeeSats: 'Fee ceiling' };
@@ -558,7 +558,7 @@ export function spendReviewDialog(c: SpendCard, ctx: ReviewContext | Partial<Rec
   ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
   // For the Legion window the same facts are rows (the amount and the address are drawn large, above), the core's warnings are a list and the sentences are paragraphs.
   const closing = main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.';
-  const capRows = PERIOD_KEYS.map((k) => ({ label: `${main ? 'Mainnet limit' : 'Limit'}: ${PERIOD[k]}`, value: satFirst(caps?.[k]) }));
+  const capRows = PERIOD_KEYS.map((k) => ({ label: `Limit ${PERIOD[k]}`, value: satFirst(caps?.[k]) }));
   const rows = [
     { label: 'Network', value: main ? 'MAINNET (LIVE FUNDS). This is the wallet\'s own claim; the address checks out for this network.' : c.networkLabel },
     { label: 'On your allowlist', value: c.payment.allowlisted ? 'yes' : 'no' },
@@ -568,7 +568,7 @@ export function spendReviewDialog(c: SpendCard, ctx: ReviewContext | Partial<Rec
     { label: 'Agent', value: c.agentId || 'unknown' },
     { label: `Purpose (${SPEND_PURPOSE_NOTE})`, value: c.purpose ? `"${c.purpose}"` : '(none)' },
     ...(caps ? capRows : []),
-    ...PERIOD_KEYS.map((k) => ({ label: `Left after this request: ${PERIOD[k]}`, value: satFirst(c.remaining[k]) })),
+    ...PERIOD_KEYS.map((k) => ({ label: `Left ${PERIOD[k]}`, value: satFirst(c.remaining[k]) })),
     ...(main ? [{ label: 'Armed for one spend; time left', value: left(x.armRemainingMs) }] : []),
   ];
   const prose = [
