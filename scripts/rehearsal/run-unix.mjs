@@ -153,11 +153,21 @@ async function status(ms = 120_000) {
   }, ms, 3000);
   return st;
 }
-/** Asks for a check and returns the status it ends with (the first manual check of a process is not throttled). */
-async function checkNow() {
-  const r = await api('POST', '/api/update/check');
-  if (r?.status === 200 && r.json) return r.json;
-  return status(30_000);
+/**
+ * Asks for a check and returns the status it ends with, or null when no check ran. Retries until the POST itself answers: falling back
+ * to the saved status while the window comes up reads the previous scenario's lastResult (PR #187, unix notify on macos-15-intel).
+ * The first manual check of a process is not throttled; a 429 is retried until the minute is over.
+ */
+async function checkNow(ms = 180_000) {
+  let last = null;
+  const st = await waitFor('the window to run a check', async () => {
+    const r = await api('POST', '/api/update/check');
+    if (r?.status === 200 && r.json) return r.json;
+    last = r;
+    return null;
+  }, ms, 3000);
+  if (!st) log(`no check ran: ${last?.err ?? `HTTP ${last?.status}`}`);
+  return st;
 }
 /** Waits until the status offers `version` (checking now, and again about every 70 s, the throttle being 60 s). */
 async function offered(version) {
@@ -457,6 +467,7 @@ async function scenarioNotify() {
   // (f) a tampered signature
   await notice('unix-badsig', 'a tampered manifest', async () => {
     const st = await checkNow();
+    check(!!st, 'a check ran');
     check(!st?.available, 'nothing is offered');
     check(/^rejected/.test(st?.check?.lastResult ?? ''), `the check says rejected (${st?.check?.lastResult})`);
     await sleep(15_000);
@@ -465,6 +476,7 @@ async function scenarioNotify() {
   // a downgrade
   await notice('unix-old', 'an older release', async () => {
     const st = await checkNow();
+    check(!!st, 'a check ran');
     check(!st?.available, `nothing is offered (${st?.check?.lastResult})`);
     check(newPackages().length === 0, 'no package was requested');
   });
