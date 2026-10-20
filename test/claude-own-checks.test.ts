@@ -300,7 +300,7 @@ test('fallback is detected from the init message: auto asked for but not given s
     assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'fallback');
     assert.equal(r.store.getTask(r.task.id)?.claudeCheckerModel, 'claude-haiku-4-5');
     const line = checkerFallbackLine([{ agent: r.agent.name, model: 'claude-haiku-4-5' }]);
-    assert.match(line, /not available for .+ on claude-haiku-4-5,/);
+    assert.match(line, /not available for .+ on Claude Haiku 4\.5,/);
     assert.equal(thread(r).filter((t) => t === line).length, 1, 'once');
     assert.ok(lines(r).some((t) => t === line));
   });

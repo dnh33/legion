@@ -5,14 +5,23 @@ import type { Preset } from './gates-registry.js';
 
 /** Who had no Claude checker: the agent and the model, each known or not. */
 export interface CheckerWho { agent?: string; model?: string }
+/** A Claude model id as a person says it (`claude-haiku-4-5-20251001` reads "Claude Haiku 4.5"); anything else stays as it is. */
+export function friendlyModel(id: string): string {
+  const cap = (w: string): string => w.charAt(0).toUpperCase() + w.slice(1);
+  const a = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:-(?:\d{8}|latest))?$/.exec(id);
+  if (a) return `Claude ${cap(a[1]!)} ${a[2]}${a[3] ? `.${a[3]}` : ''}`;
+  const b = /^claude-(\d+)(?:-(\d{1,2}))?-(opus|sonnet|haiku)(?:-(?:\d{8}|latest))?$/.exec(id);
+  if (b) return `Claude ${cap(b[3]!)} ${b[1]}${b[2] ? `.${b[2]}` : ''}`;
+  return id;
+}
 const joinNames = (names: string[]): string => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 /** Said once when Claude's checker (Smart) could not be used for a run: before the run (the model has none) or by the init message. It names the agent and the model. */
 export function checkerFallbackLine(who: readonly CheckerWho[] = []): string {
-  const names = [...new Set(who.map((w) => (w.agent && w.model ? `${w.agent} on ${w.model}` : (w.model ?? (w.agent ? `the model ${w.agent} uses` : '')))).filter(Boolean))];
+  const names = [...new Set(who.map((w) => (w.agent && w.model ? `${w.agent} on ${friendlyModel(w.model)}` : (w.model ? friendlyModel(w.model) : (w.agent ? `the model ${w.agent} uses` : '')))).filter(Boolean))];
   return `Claude's checker is not available for ${names.length ? joinNames(names) : 'the model in use'}, so Claude asks you as in Ask.`;
 }
 /** The run chip when a Smart run had no checker: one chip, in place of "Runs as Smart" plus a second one. The full line is its hover and its screen-reader text. */
-export function checkerChipText(model?: string): string { return `Smart: Claude asks as in Ask (no checker for ${model ?? 'its model'})`; }
+export function checkerChipText(model?: string): string { return `Smart: Claude asks as in Ask (no checker for ${model ? friendlyModel(model) : 'its model'})`; }
 
 export const CLAUDE_CHECKS_LABEL = "Claude agents follow Claude's own permission checks";
 export const CLAUDE_CHECKS_LINE = 'Claude decides about its own tools in every preset. Legion still keeps your Block rules, its own files and its own tools, and the stop for catastrophic commands.';
@@ -53,7 +62,7 @@ export const LEARN_MORE_GROUPS: ReadonlyArray<{ title: string; lines: readonly s
 
 /** The one-time notice after the update. */
 export const CLAUDE_NOTICE = {
-  text: "Claude agents now follow Claude's own permission checks in every preset. It is on. Claude decides about its own tools; Legion still keeps your Block rules, its own files and tools, and its stop for catastrophic commands. In Accept edits, Claude agents: file edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask. Other providers keep Legion's checks. You can turn this off in Settings, Gates.",
+  text: "Claude agents now follow Claude's own permission checks in every preset. It is on. Claude decides about its own tools; Legion still keeps your Block rules, its own files and tools, and its stop for catastrophic commands. Accept edits: for Claude agents, file edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask. Other providers keep Legion's checks. You can turn this off in Settings, Gates.",
   open: 'Open Gates',
   dismiss: 'Got it',
 } as const;

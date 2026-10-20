@@ -13,7 +13,7 @@ import { GatesError, GatesStore } from '../src/core/gates-settings/store.js';
 import { makeSigner } from '../src/core/gates-settings/sign.js';
 import {
   ALLOW_RULES_LINE, checkerChipText, checkerFallbackLine, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, CLAUDE_PRESET_LINES,
-  FIRST_RUN_CLAUDE_LINE, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE,
+  FIRST_RUN_CLAUDE_LINE, friendlyModel, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE,
 } from '../src/shared/claude-checks-copy.js';
 import { PRESETS } from '../src/shared/gates-registry.js';
 import { PRESET_STRINGS, presetSubmit, skipSubmit } from '../ui/src/welcome/presetChoiceLogic.js';
@@ -110,6 +110,20 @@ test('the run chip is one chip: "Smart: Claude asks as in Ask (no checker for <m
   assert.doesNotMatch(alone.checker?.title ?? '', /this model/);
 });
 
+test('a model reads as a friendly name where it is known, and as its id where it is not', () => {
+  assert.equal(friendlyModel('claude-haiku-4-5-20251001'), 'Claude Haiku 4.5');
+  assert.equal(friendlyModel('claude-haiku-4-5'), 'Claude Haiku 4.5');
+  assert.equal(friendlyModel('claude-sonnet-4-20250514'), 'Claude Sonnet 4');
+  assert.equal(friendlyModel('claude-opus-4-1-20250805'), 'Claude Opus 4.1');
+  assert.equal(friendlyModel('claude-3-5-haiku-latest'), 'Claude Haiku 3.5');
+  assert.equal(friendlyModel('claude-3-5-sonnet-20241022'), 'Claude Sonnet 3.5');
+  for (const id of ['haiku', 'sonnet-x', 'claude-haiku-4-5[1m]', 'gpt-5', 'deepseek-chat', '']) assert.equal(friendlyModel(id), id, id);
+  assert.equal(checkerFallbackLine([{ agent: 'Scout', model: 'claude-haiku-4-5-20251001' }, { agent: 'Builder', model: 'claude-3-5-haiku-latest' }]),
+    "Claude's checker is not available for Scout on Claude Haiku 4.5 and Builder on Claude Haiku 3.5, so Claude asks you as in Ask.");
+  assert.equal(checkerChipText('claude-haiku-4-5-20251001'), 'Smart: Claude asks as in Ask (no checker for Claude Haiku 4.5)');
+  assert.equal(checkerChipText('haiku'), 'Smart: Claude asks as in Ask (no checker for haiku)');
+});
+
 test('the words: every line is plain, with no em dash and no "this computer"', () => {
   const all = [
     FB, checkerChipText('haiku'), checkerChipText(), CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, OTHER_PROVIDERS_LINE, CLAUDE_CHECKS_OFF_LINE, ALLOW_RULES_LINE, FIRST_RUN_CLAUDE_LINE,
@@ -118,7 +132,8 @@ test('the words: every line is plain, with no em dash and no "this computer"', (
   assert.doesNotMatch(all, /—|–/);
   assert.doesNotMatch(all, /this (computer|machine)/i);
   assert.equal(FB, "Claude's checker is not available for Scout on haiku, so Claude asks you as in Ask.");
-  assert.match(CLAUDE_NOTICE.text, /file edits and file commands in your project run without asking, including deleting and moving files \(rm, mv, cp\)\. Commands like git push still ask\./);
+  assert.match(CLAUDE_NOTICE.text, /Accept edits: for Claude agents, file edits and file commands in your project run without asking, including deleting and moving files \(rm, mv, cp\)\. Commands like git push still ask\./);
+  assert.doesNotMatch(CLAUDE_NOTICE.text, /In Accept edits, Claude agents:/);
   assert.equal(CLAUDE_PRESET_LINES['accept-edits'], 'File edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask.');
   assert.equal(CLAUDE_CHECKS_LABEL, "Claude agents follow Claude's own permission checks");
   assert.equal(OTHER_PROVIDERS_LINE, "Other providers (OpenRouter, DeepSeek, custom) use Legion's own checks.");
