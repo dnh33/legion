@@ -7,6 +7,7 @@ import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { agentModeChange, parseAgentModeChange, resetAgentModeCancelForTests } from '../src/electron/agent-mode-ipc.js';
 import type { AgentModeIpcDeps } from '../src/electron/agent-mode-ipc.js';
 import { createGatesCore, createGatesModule } from '../src/core/gates-settings/index.js';
@@ -252,4 +253,14 @@ test('ipc: the core refusing, or not answering, is said plainly and changes noth
   assert.match((await agentModeChange({ agentId: 'worker', approval: 'full' }, down)).error ?? '', /could not reach its own core/);
   assert.equal(r.dialogs.length, 0);
   assert.deepEqual(r.mode(), ['ask', 'own']);
+}));
+
+test('busy: a loosening question that lost to an open one is "already open"; a retry is not paused as if the person had cancelled', withBoot([true], async (r) => {
+  const real = r.deps.confirm;
+  r.deps.confirm = async () => { throw new ConfirmBusyError(); };
+  assert.deepEqual(await agentModeChange({ agentId: 'worker', approval: 'full' }, r.deps), { ok: false, error: CONFIRM_BUSY });
+  assert.deepEqual(r.mode(), ['ask', 'own']);
+  r.deps.confirm = real;
+  const retry = await agentModeChange({ agentId: 'worker', approval: 'full' }, r.deps);
+  assert.equal(retry.ok, true, retry.error);
 }));

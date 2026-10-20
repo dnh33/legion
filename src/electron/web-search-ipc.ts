@@ -4,6 +4,7 @@
  * API host of each provider), and only after "Confirm" calls the core with the native secret, which the window never has. The key is never put
  * in a dialog, a log line or a reply. Kept free of electron imports so it can be tested with fakes. Modelled on provider-ipc.ts.
  */
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import { KEYS_BLOCKED_MESSAGE } from '../shared/providers-view.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
@@ -47,7 +48,8 @@ export function parseWebSearchChange(raw: unknown): WebSearchChange | undefined 
 
 let open = false;
 
-export async function webSearchChange(raw: unknown, deps: WebSearchIpcDeps): Promise<WebSearchChangeResult> {
+export const webSearchChange = (raw: unknown, deps: WebSearchIpcDeps): Promise<WebSearchChangeResult> => orBusy(webSearchChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function webSearchChangeRun(raw: unknown, deps: WebSearchIpcDeps): Promise<WebSearchChangeResult> {
   const ch = parseWebSearchChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   const cur = await deps.call('GET', '/api/settings/web-search');

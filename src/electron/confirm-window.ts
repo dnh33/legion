@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildModel, CONFIRM_WIDTH, createAnswerGate, nativeOptions, pickTheme, resolveIds, settleConfirmFit, THEME_BG, type ConfirmOptions } from './confirm-window-logic.js';
+import { buildModel, ConfirmBusyError, CONFIRM_WIDTH, createAnswerGate, nativeOptions, pickTheme, prepareConfirm, settleConfirmFit, THEME_BG, type ConfirmOptions } from './confirm-window-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -45,7 +45,6 @@ export function holdConfirmWindow(): boolean { if (busy || held) return false; h
 export function releaseConfirmWindow(): void { held = false; }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> => Promise.race([p, sleep(ms).then(() => { throw new Error(`${what} took longer than ${ms} ms`); })]);
 /** JSON is valid script apart from these two separators in old engines; escaping them costs nothing. */
 const js = (v: unknown): string => JSON.stringify(v).replace(new RegExp('\\u2028', 'g'), '\\u2028').replace(new RegExp('\\u2029', 'g'), '\\u2029');
 
@@ -140,16 +139,25 @@ async function ask(parentIn: BrowserWindow | null | undefined, opts: ConfirmOpti
     });
     // Once the window has been shown, any other way it ends is "no".
     win.on('closed', () => { if (phase === 'shown') finish(cancel, 'the window was closed: cancelled'); else if (phase === 'loading') finish(cancel, 'the window was closed before it was shown: cancelled'); });
-    wc.on('render-process-gone', (_e, d) => { if (phase === 'shown') finish(cancel, `the page stopped (${d.reason}): cancelled`); });
+    // A page that dies while it is being drawn would leave every step below waiting for ever (and the lock held): it goes to the same fallback as a slow one.
+    let pageDied!: (e: Error) => void;
+    const died = new Promise<never>((_, reject) => { pageDied = reject; });
+    died.catch(() => undefined);
+    wc.on('render-process-gone', (_e, d) => {
+      if (phase === 'shown') finish(cancel, `the page stopped (${d.reason}): cancelled`);
+      else if (phase === 'loading') pageDied(new Error(`the page stopped while it was being drawn (${d.reason})`));
+    });
 
     void (async () => {
       try {
-        await withTimeout(win.loadFile(CONFIRM_PAGE), LOAD_MS, 'loading the page');
-        wc.setZoomFactor(zoom);
-        await withTimeout(wc.executeJavaScript(`window.confirmWindow.render(${js(model)})`), LOAD_MS, 'drawing the question');
-        await settleConfirmFit(
-          { isDestroyed: () => win.isDestroyed(), getBounds: () => win.getBounds(), setBounds: (r) => win.setBounds(r), zoom: () => wc.getZoomFactor() },
-          () => wc.executeJavaScript('window.confirmWindow.height()') as Promise<number>, () => anchor, workArea);
+        await prepareConfirm({
+          load: () => win.loadFile(CONFIRM_PAGE),
+          render: () => { wc.setZoomFactor(zoom); return wc.executeJavaScript(`window.confirmWindow.render(${js(model)})`); },
+          size: () => settleConfirmFit(
+            { isDestroyed: () => win.isDestroyed(), getBounds: () => win.getBounds(), setBounds: (r) => win.setBounds(r), zoom: () => wc.getZoomFactor() },
+            () => wc.executeJavaScript('window.confirmWindow.height()') as Promise<number>, () => anchor, workArea),
+          died, stepMs: LOAD_MS, totalMs: 2 * LOAD_MS,
+        });
         if (phase !== 'loading') return;
       } catch (e) {
         if (phase !== 'loading') return;
@@ -171,8 +179,9 @@ async function run(a: BrowserWindow | ConfirmOptions | null | undefined, b: Conf
   const parent = b === undefined ? undefined : (a as BrowserWindow | null | undefined);
   const opts = (b === undefined ? a : b) as ConfirmOptions;
   if (busy || (held && !holder)) {
-    log('a question is already open: this one is answered as cancelled');
-    return { response: resolveIds(opts).cancelIndex, checkboxChecked: false };
+    // Not an answer: nothing was shown, so nobody cancelled. The flow ends with "a confirmation is already open" (orBusy), and a spend review reads it as a refusal.
+    log('a question is already open: this one was not asked');
+    throw new ConfirmBusyError();
   }
   busy = true;
   try { return { response: await ask(parent, opts), checkboxChecked: false }; } finally { busy = false; }

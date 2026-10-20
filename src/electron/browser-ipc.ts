@@ -4,6 +4,7 @@
  * words a native dialog from the request it parsed itself, and only after "Confirm" calls the core with the native secret, which the window never
  * has. Cancel is the default button. Kept free of electron imports so it can be tested with fakes.
  */
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
@@ -38,7 +39,8 @@ export function parseBrowserChange(raw: unknown): BrowserChange | undefined {
 
 let open = false;
 
-export async function browserChange(raw: unknown, deps: BrowserIpcDeps): Promise<BrowserChangeResult> {
+export const browserChange = (raw: unknown, deps: BrowserIpcDeps): Promise<BrowserChangeResult> => orBusy(browserChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function browserChangeRun(raw: unknown, deps: BrowserIpcDeps): Promise<BrowserChangeResult> {
   const ch = parseBrowserChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   const cur = await deps.call('GET', '/api/browser');

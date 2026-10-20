@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
+import { CONFIRM_BUSY, ConfirmBusyError } from './confirm-window-logic.js';
 import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, releaseConfirmWindow } from './confirm-window.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
@@ -389,6 +390,9 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
       const opts = { ...shown, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
       const r = win && !win.isDestroyed() && win.isVisible() ? await confirmWindow.showMessageBox(win, opts) : await confirmWindow.showMessageBox(opts);
       if (r.response !== 1) return { ok: false, cancelled: true };
+    } catch (e) {
+      if (e instanceof ConfirmBusyError) return { ok: false, error: CONFIRM_BUSY }; // lost the lock between the check above and the window: not the person's cancel
+      throw e;
     } finally { bsvDialogOpen = false; }
   }
   const res = await ownCoreCall('POST', c.route, c.body, true);

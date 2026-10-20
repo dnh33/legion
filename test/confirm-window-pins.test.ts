@@ -73,12 +73,13 @@ test('failure falls back to the system dialog with the same question, and nothin
   assert.doesNotMatch(win, /confirmAt|defaultIndex|response: 1\b/, 'nothing picks the confirm button');
 });
 
-test('one question at a time: a second is answered Cancel at once, and a spend review waits instead', () => {
+test('one question at a time: a second is refused as busy (never answered Cancel), and a spend review waits instead', () => {
   assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| !holdConfirmWindow\(\)\) return false;/);
   assert.match(main, /release: \(\) => \{ bsvDialogOpen = false; releaseConfirmWindow\(\); \}/);
   assert.match(win, /if \(busy \|\| \(held && !holder\)\) \{/, 'a held lock refuses everyone but the holder');
   assert.match(win, /export function holdConfirmWindow\(\): boolean \{ if \(busy \|\| held\) return false; held = true; return true; \}/);
-  assert.match(win, /log\('a question is already open: this one is answered as cancelled'\);\s*return \{ response: resolveIds\(opts\)\.cancelIndex/);
+  assert.match(win, /log\('a question is already open: this one was not asked'\);\s*throw new ConfirmBusyError\(\);/);
+  assert.doesNotMatch(win, /resolveIds/, 'a busy window never makes up a cancel');
   assert.match(main, /showHeldMessageBox\(win, shown\)[\s\S]*showHeldMessageBox\(shown\)/, 'the review asks through the own entry of the holder');
   assert.match(main, /if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return \{ ok: false, error: 'A confirmation is already open/);
 });
@@ -231,4 +232,11 @@ test('BSV policy dialogs: money tone with a tag that matches the network, and ea
   assert.ok(cases[0]!.facts!.length === 5 && cases[0]!.facts![0]!.label === 'Per transaction (mainnet limit)');
   assert.match(cases[0]!.windowDetail!, /mainnet limits above/);
   assert.match(cases[0]!.detail, /mainnet limits below/, 'the system dialog keeps its own order and words');
+});
+
+test('a page that dies while it is being drawn goes to the fallback; every step is timed, so the lock is never held for ever', () => {
+  assert.match(win, /else if \(phase === 'loading'\) pageDied\(/);
+  assert.match(win, /await prepareConfirm\(\{[\s\S]*died, stepMs: LOAD_MS, totalMs: 2 \* LOAD_MS/);
+  assert.match(win, /size: \(\) => settleConfirmFit\(/, 'the size measure is one of the timed steps');
+  assert.doesNotMatch(win, /await settleConfirmFit|await wc\.executeJavaScript|await win\.loadFile/, 'no untimed wait on the page');
 });

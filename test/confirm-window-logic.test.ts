@@ -1,7 +1,7 @@
 /** The rules of the Legion confirm window: what a question may ask, how an answer is read, how the window is sized. No electron. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADDRESS_RE, buildModel, confirmFit, createAnswerGate, fitConfirm, LIMITS, nativeOptions, pickTheme, resolveIds, settleConfirmFit, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
+import { ADDRESS_RE, buildModel, CONFIRM_BUSY, ConfirmBusyError, confirmFit, createAnswerGate, fitConfirm, LIMITS, nativeOptions, orBusy, pickTheme, prepareConfirm, resolveIds, settleConfirmFit, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
 
 const NONCE = 'a'.repeat(32);
 const ctx = { nonce: NONCE, theme: 'dark' as const };
@@ -173,4 +173,62 @@ test('a destroyed window is never touched', async () => {
 test('theme: only "light" or "dark" from the page counts; anything else follows the system', () => {
   assert.equal(pickTheme('light', true), 'light'); assert.equal(pickTheme('dark', false), 'dark');
   assert.equal(pickTheme('<script>', true), 'dark'); assert.equal(pickTheme(undefined, false), 'light'); assert.equal(pickTheme('LIGHT', true), 'dark'); assert.equal(pickTheme({}, true), 'dark');
+});
+
+// ---- a busy window is its own answer, never the person's Cancel ----
+
+test('busy: a question that loses to an open one ends its flow with the "already open" error, not with a cancel', async () => {
+  type R = { ok: boolean; error?: string; cancelled?: boolean };
+  const lost: R = { ok: false, error: CONFIRM_BUSY };
+  assert.equal(CONFIRM_BUSY, 'A confirmation is already open. Answer it first.');
+  assert.deepEqual(await orBusy<R>(Promise.reject(new ConfirmBusyError()), lost), lost);
+  assert.deepEqual(await orBusy<R>(Promise.resolve({ ok: true }), lost), { ok: true });
+  assert.deepEqual(await orBusy<R>(Promise.resolve({ ok: false, cancelled: true }), lost), { ok: false, cancelled: true }, 'a real cancel stays a cancel');
+  await assert.rejects(orBusy<R>(Promise.reject(new Error('boom')), lost), /boom/, 'any other failure is not swallowed');
+});
+
+// ---- the window can never hold the lock for good ----
+
+const never = <T = never>(): Promise<T> => new Promise<T>(() => undefined);
+const steps = (o: Partial<Parameters<typeof prepareConfirm>[0]> = {}): Parameters<typeof prepareConfirm>[0] => ({
+  load: async () => undefined, render: async () => undefined, size: async () => undefined, died: never(), stepMs: 40, totalMs: 120, ...o,
+});
+
+test('opening: when every step answers, it is done', async () => {
+  const order: string[] = [];
+  await prepareConfirm(steps({ load: async () => { order.push('load'); }, render: async () => { order.push('render'); }, size: async () => { order.push('size'); } }));
+  assert.deepEqual(order, ['load', 'render', 'size']);
+});
+
+test('opening: a size measure that never answers ends in an error (so the system dialog takes over), not in a hang', async () => {
+  await assert.rejects(prepareConfirm(steps({ size: never })), /sizing the window took longer than 40 ms/);
+});
+
+test('opening: a page that never loads or never draws ends in an error', async () => {
+  await assert.rejects(prepareConfirm(steps({ load: never })), /loading the page took longer/);
+  await assert.rejects(prepareConfirm(steps({ render: never })), /drawing the question took longer/);
+});
+
+test('opening: a page that dies while it is being drawn ends at once, whatever step it was in', async () => {
+  let kill!: (e: Error) => void;
+  const died = new Promise<never>((_, rej) => { kill = rej; });
+  const t0 = Date.now();
+  const run = prepareConfirm(steps({ died, size: never, stepMs: 5000, totalMs: 10_000 }));
+  setTimeout(() => kill(new Error('the page stopped (crashed)')), 10);
+  await assert.rejects(run, /the page stopped \(crashed\)/);
+  assert.ok(Date.now() - t0 < 1000, 'it did not wait for a timeout');
+});
+
+test('opening: a watchdog ends the whole opening even when each step is within its own time', async () => {
+  const slow = (ms: number) => () => new Promise<void>((r) => setTimeout(r, ms));
+  await assert.rejects(prepareConfirm(steps({ load: slow(30), render: slow(30), size: slow(30), stepMs: 50, totalMs: 60 })), /opening the window took longer than 60 ms/);
+});
+
+test('opening: no timer is left running after it ends', async () => {
+  const before = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+  await prepareConfirm(steps({ stepMs: 5000, totalMs: 10_000 }));
+  await assert.rejects(prepareConfirm(steps({ size: never, stepMs: 20, totalMs: 10_000 })));
+  await new Promise((r) => setImmediate(r));
+  const after = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+  assert.equal(after, before);
 });

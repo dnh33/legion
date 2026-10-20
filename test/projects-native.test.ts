@@ -1,6 +1,7 @@
 /** The app's native confirmation for project folder and member changes (control C2, app side). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { countsLine, parseProjectChange, projectChange, workOf } from '../src/electron/project-ipc.js';
 import type { ProjectIpcDeps } from '../src/electron/project-ipc.js';
 
@@ -105,4 +106,12 @@ test('council A9: removing a member says what it touches (runs in progress, open
   // a core that cannot answer a part (no board, an older core) gives no number for it, never an error
   const bare = await workOf({ async call() { return { status: 404, json: {} }; } }, ID);
   assert.equal(countsLine(bare, 'zealot'), '');
+});
+
+test('busy: a question that lost to an open one is "already open", not Cancel, and nothing is written', async () => {
+  const lost = deps(); lost.d.confirm = async () => { throw new ConfirmBusyError(); };
+  const r = await projectChange({ kind: 'members', id: ID, members: ['scout'] }, lost.d);
+  assert.deepEqual(r, { ok: false, error: CONFIRM_BUSY });
+  assert.equal(lost.calls.some((c) => c.method !== 'GET'), false);
+  assert.equal((await projectChange({ kind: 'members', id: ID, members: ['scout'] }, deps().d)).ok, true);
 });

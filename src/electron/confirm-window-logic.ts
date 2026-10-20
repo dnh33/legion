@@ -196,3 +196,42 @@ export async function settleConfirmFit(w: ConfirmFitTarget, measure: () => Promi
     await pause(60);
   }
 }
+
+// ---------------------------------------------------------------- one question at a time
+
+/** What a flow says when its question lost to another one that is open. It is not an answer: nothing was shown, so nobody cancelled. */
+export const CONFIRM_BUSY = 'A confirmation is already open. Answer it first.';
+export class ConfirmBusyError extends Error {
+  constructor() { super(CONFIRM_BUSY); this.name = 'ConfirmBusyError'; }
+}
+/** Runs a flow that asks a question. When that question lost to an open one, the flow ends with `busy`; every other result and failure passes through. */
+export async function orBusy<T>(flow: Promise<T>, busy: T): Promise<T> {
+  try { return await flow; } catch (e) { if (e instanceof ConfirmBusyError) return busy; throw e; }
+}
+
+// ---------------------------------------------------------------- opening the window
+
+export interface PrepareSteps {
+  load(): Promise<unknown>; render(): Promise<unknown>; size(): Promise<unknown>;
+  /** Rejects when the page dies before it is shown (the main side wires it to the renderer-gone event). */
+  died: Promise<never>;
+  /** The most any one step may take, and the most the whole opening may take. */
+  stepMs: number; totalMs: number;
+}
+/**
+ * Loads the page, draws the question and sizes the window, and fails (so the system dialog takes over) when a step is too slow, the page dies, or
+ * the whole opening runs long. A window that is being opened holds the one confirm lock; nothing here may wait for ever, whatever the page does.
+ */
+export async function prepareConfirm(s: PrepareSteps): Promise<void> {
+  const timers: Array<ReturnType<typeof setTimeout>> = [];
+  const within = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
+    Promise.race([p, new Promise<never>((_, reject) => { timers.push(setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms)); })]);
+  try {
+    const work = (async () => {
+      await within(s.load(), s.stepMs, 'loading the page');
+      await within(s.render(), s.stepMs, 'drawing the question');
+      await within(s.size(), s.stepMs, 'sizing the window');
+    })();
+    await within(Promise.race([work, s.died]), s.totalMs, 'opening the window');
+  } finally { for (const t of timers) clearTimeout(t); }
+}

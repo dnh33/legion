@@ -11,6 +11,7 @@
  * Free of electron imports so it is tested with fakes.
  */
 import type { GithubApp } from '../shared/github-area.js';
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { ASKED_BY } from './provider-ipc.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
@@ -31,7 +32,8 @@ export interface ConnectResult { ok: boolean; error?: string; cancelled?: boolea
 let busy = false;
 
 /** `app` picks which GitHub App signs in: read (the default, as before) or write. Each has its own sign-in route on the core. */
-export async function connectGithub(deps: ConnectorIpcDeps, app: GithubApp = 'read'): Promise<ConnectResult> {
+export const connectGithub = (deps: ConnectorIpcDeps, app: GithubApp = 'read'): Promise<ConnectResult> => orBusy(connectGithubRun(deps, app), { ok: false, error: CONFIRM_BUSY });
+async function connectGithubRun(deps: ConnectorIpcDeps, app: GithubApp = 'read'): Promise<ConnectResult> {
   if (app !== 'read' && app !== 'write') return { ok: false, error: 'That GitHub App cannot be signed in here.' };
   if (busy) return { ok: false, error: 'A connect is already in progress.' };
   busy = true;

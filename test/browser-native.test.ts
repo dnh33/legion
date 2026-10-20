@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { browserChange, parseBrowserChange } from '../src/electron/browser-ipc.js';
 import type { BrowserIpcDeps } from '../src/electron/browser-ipc.js';
 
@@ -97,4 +98,12 @@ test('N7: choosing the Edge/Chrome path goes through the same native dialog (and
   const cancel = deps({ confirm: false });
   assert.equal((await browserChange({ kind: 'chromium', path: edge }, cancel.d)).cancelled, true);
   assert.equal(cancel.calls.some((c) => c.method === 'POST'), false);
+});
+
+test('busy: a question that lost to an open one is "already open", not a Cancel by the person, and nothing is written', async () => {
+  const lost = deps(); lost.d.confirm = async () => { throw new ConfirmBusyError(); };
+  const r = await browserChange({ kind: 'chromium', path: 'x' }, lost.d);
+  assert.deepEqual(r, { ok: false, error: CONFIRM_BUSY });
+  assert.equal(lost.calls.some((c) => c.method === 'POST'), false);
+  assert.equal((await browserChange({ kind: 'chromium', path: 'x' }, deps().d)).ok, true, 'the flow is free again');
 });

@@ -4,6 +4,7 @@
  * after "Confirm" calls the core with the native secret, which the window never has. Free of electron imports so it can be tested with fakes.
  */
 import { dialogLine } from './provider-ipc.js';
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import type { ConfirmFact } from './confirm-window-logic.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 
@@ -71,7 +72,8 @@ export function countsLine(w: ProjectWork, agentId: string): string {
 
 let open = false;
 
-export async function projectChange(raw: unknown, deps: ProjectIpcDeps): Promise<ProjectChangeResult> {
+export const projectChange = (raw: unknown, deps: ProjectIpcDeps): Promise<ProjectChangeResult> => orBusy(projectChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function projectChangeRun(raw: unknown, deps: ProjectIpcDeps): Promise<ProjectChangeResult> {
   const ch = parseProjectChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   const cur = await deps.call('GET', `/api/projects/${ch.id}`);

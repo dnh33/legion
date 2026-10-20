@@ -8,6 +8,7 @@
  */
 import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_NAME_MAX, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS, TRUSTED_FOLDER_PATH_MAX } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import type { ConfirmRequest, CoreReply } from './provider-ipc.js';
 
@@ -120,7 +121,8 @@ function titleFor(ch: GatesChange, lines: string[]): string {
   return GENERAL_TITLE;
 }
 
-export async function gatesChange(raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> {
+export const gatesChange = (raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> => orBusy(gatesChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function gatesChangeRun(raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> {
   const ch = parseGatesChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };

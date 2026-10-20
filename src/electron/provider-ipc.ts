@@ -6,6 +6,7 @@
  */
 
 import { KEYS_BLOCKED_MESSAGE } from '../shared/providers-view.js';
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import type { ConfirmExtras } from './confirm-window-logic.js';
 
 export interface CoreReply { status: number; json: any }
@@ -62,7 +63,8 @@ const hostOf = (u: unknown): string => { try { return new URL(String(u)).host; }
 
 let open = false;
 
-export async function providerChange(raw: unknown, deps: ProviderIpcDeps): Promise<ProviderChangeResult> {
+export const providerChange = (raw: unknown, deps: ProviderIpcDeps): Promise<ProviderChangeResult> => orBusy(providerChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function providerChangeRun(raw: unknown, deps: ProviderIpcDeps): Promise<ProviderChangeResult> {
   const ch = parseProviderChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   const cur = await deps.call('GET', '/api/providers');
