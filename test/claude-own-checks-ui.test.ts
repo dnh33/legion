@@ -171,7 +171,7 @@ test('render: the switch is on, says what it means, names where it does not appl
     const open = plain(r.card({ view: view(), busy: false, note: null, fallback: false, defaultOpen: true }));
     assert.ok(open.includes(LEARN_LESS));
     for (const g of LEARN_MORE_GROUPS) { assert.ok(open.includes(g.title), g.title); for (const l of g.lines) assert.ok(open.includes(l), l); }
-    for (const p of PRESETS) assert.ok(open.includes(CLAUDE_PRESET_LINES[p]), `the help lists what Claude does in ${p}`);
+    assert.ok(!open.includes(CLAUDE_PRESET_LINES.smart), 'what each preset does is on the presets themselves, not repeated in the help');
   } finally { cleanup(); }
 });
 

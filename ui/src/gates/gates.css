@@ -160,10 +160,6 @@ button.gate-chip:hover { color: var(--text); }
 .gates-claude-help { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); font-size: 13px; line-height: 1.5; color: var(--text-2); max-width: 74ch; }
 .gates-claude-help h4 { margin: 0 0 4px; font-size: 13px; color: var(--text); }
 .gates-claude-help ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
-.gates-claude-help dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
-.gates-claude-help dl > div { display: contents; }
-.gates-claude-help dt { font-weight: 600; color: var(--text); }
-.gates-claude-help dd { margin: 0; }
 .gates-claude-line { color: var(--text-2); }
 .claude-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 20px 0; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); }
 .claude-notice p { margin: 0; flex: 1 1 320px; max-width: 70ch; color: var(--text-2); font-size: 13px; line-height: 1.45; text-wrap: pretty; }

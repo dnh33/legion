@@ -4,10 +4,9 @@ import { useState } from 'react';
 import { Icon } from '../components/icons';
 import { announce } from '../projects/page/announce';
 import { openSettings, useStore } from '../store';
-import { ALLOW_RULES_LINE, CHECKER_FALLBACK_LINE, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, CLAUDE_PRESET_LINES, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE } from '../../../src/shared/claude-checks-copy';
-import { PRESETS } from '../../../src/shared/gates-registry';
+import { ALLOW_RULES_LINE, CHECKER_FALLBACK_LINE, CLAUDE_CHECKS_LABEL, CLAUDE_CHECKS_LINE, CLAUDE_CHECKS_OFF_LINE, CLAUDE_NOTICE, LEARN_LESS, LEARN_MORE, LEARN_MORE_GROUPS, OTHER_PROVIDERS_LINE } from '../../../src/shared/claude-checks-copy';
 import { GatesNote } from './GatesPresets';
-import { KEYSTORE_LINE, PRESET_LABEL, type GatesView } from './presetsLogic';
+import { KEYSTORE_LINE, type GatesView } from './presetsLogic';
 import { claudeChecksOn, checkerFallbackNow, shouldShowClaudeNotice } from './claudeChecksLogic';
 import { useGatesAction, useGatesView, type GatesChangeRequest, type GatesNote as Note } from './useGatesView';
 import './gates.css';
@@ -35,12 +34,6 @@ export function ClaudeChecksCardView({ view, busy, note, fallback, onToggle, def
       <button type="button" className="btn-ghost sm gates-learn" aria-expanded={open} aria-controls="gates-claude-help" onClick={() => setOpen((v) => !v)}>{open ? LEARN_LESS : LEARN_MORE}</button>
       {open && (
         <div id="gates-claude-help" className="gates-claude-help">
-          <section>
-            <h4>What Claude does in each preset</h4>
-            <dl>
-              {PRESETS.map((p) => <div key={p}><dt>{PRESET_LABEL[p]}</dt><dd>{CLAUDE_PRESET_LINES[p]}</dd></div>)}
-            </dl>
-          </section>
           {LEARN_MORE_GROUPS.map((g) => (
             <section key={g.title}>
               <h4>{g.title}</h4>

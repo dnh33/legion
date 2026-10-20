@@ -6,7 +6,7 @@ import type { Preset } from './gates-registry.js';
 /** Said once when Claude's checker (Smart) could not be used for a run: before the run (the model has none) or by the init message. */
 export const CHECKER_FALLBACK_LINE = "Claude's checker is not available for this model, so Claude asks you as in Ask.";
 /** The short visible text of the run chip in that case; the full line is its hover and its screen-reader text. */
-export const CHECKER_CHIP = 'Asks as in Ask';
+export const CHECKER_CHIP = 'Claude asks as in Ask';
 
 export const CLAUDE_CHECKS_LABEL = "Claude agents follow Claude's own permission checks";
 export const CLAUDE_CHECKS_LINE = 'Claude decides about its own tools in every preset. Legion still keeps your Block rules, its own files and its own tools, and the stop for catastrophic commands.';
