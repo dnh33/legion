@@ -1,0 +1,140 @@
+/** The core restarts itself once after an unexpected stop: the crash tracker (3 in 5 minutes), the decision, the window state, the switch. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  CRASH_LIMIT, CRASH_WINDOW_MS, CoreRestartState, CrashTracker, RESTART_DELAY_MS,
+  decideRestart, exitLine, restartEnabled, type RestartFacts,
+} from '../src/electron/core-restart-logic.js';
+
+const facts = (over: Partial<RestartFacts> = {}): RestartFacts => ({ intended: false, quitting: false, updating: false, sessionEnding: false, enabled: true, count: 1, ...over });
+
+test('limits: 3 crashes in 5 minutes, a 1 second wait', () => {
+  assert.equal(CRASH_LIMIT, 3);
+  assert.equal(CRASH_WINDOW_MS, 300_000);
+  assert.equal(RESTART_DELAY_MS, 1000);
+});
+
+test('tracker: counts crashes inside the window', () => {
+  let t = 1_000_000;
+  const k = new CrashTracker(() => t);
+  assert.equal(k.register(), 1);
+  t += 60_000;
+  assert.equal(k.register(), 2);
+  t += 3 * 60_000 + 59_000; // 4m59s after the first
+  assert.equal(k.register(), 3);
+});
+
+test('tracker: a crash older than 5 minutes no longer counts', () => {
+  let t = 0;
+  const k = new CrashTracker(() => t);
+  k.register();
+  t = 60_000; k.register();
+  t = CRASH_WINDOW_MS + 1; // the first is now 5m00.001s old
+  assert.equal(k.register(), 2, 'the first fell out, the second and the new one count');
+  t = CRASH_WINDOW_MS + 60_001;
+  assert.equal(k.register(), 2, 'the second fell out too');
+});
+
+test('tracker: a crash exactly 5 minutes old still counts (older than the window drops, as the reference does)', () => {
+  let t = 0;
+  const k = new CrashTracker(() => t);
+  k.register();
+  t = CRASH_WINDOW_MS;
+  assert.equal(k.register(), 2);
+});
+
+test('tracker: reset forgets every crash', () => {
+  const k = new CrashTracker(() => 5);
+  k.register(); k.register();
+  k.reset();
+  assert.equal(k.count(), 0);
+  assert.equal(k.register(), 1);
+});
+
+test('decide: the first and second crash restart, the third stops at the limit', () => {
+  assert.equal(decideRestart(facts({ count: 1 })).action, 'restart');
+  assert.equal(decideRestart(facts({ count: 2 })).action, 'restart');
+  const third = decideRestart(facts({ count: 3 }));
+  assert.equal(third.action, 'stop-at-limit');
+  assert.match(third.log, /not restarting: limit/);
+  assert.equal(decideRestart(facts({ count: 4 })).action, 'stop-at-limit');
+});
+
+test('decide: an intended stop is ignored, and says why', () => {
+  const d = decideRestart(facts({ intended: true }));
+  assert.equal(d.action, 'ignore');
+  assert.match(d.log, /not restarting: intended stop/);
+});
+
+test('decide: quitting is ignored', () => {
+  const d = decideRestart(facts({ quitting: true }));
+  assert.equal(d.action, 'ignore');
+  assert.match(d.log, /not restarting: quitting/);
+});
+
+test('decide: a session end (logoff, shutdown) is ignored', () => {
+  const d = decideRestart(facts({ sessionEnding: true }));
+  assert.equal(d.action, 'ignore');
+  assert.match(d.log, /not restarting: session ending/);
+});
+
+test('decide: an update that is applying or swapping is ignored', () => {
+  const d = decideRestart(facts({ updating: true }));
+  assert.equal(d.action, 'ignore');
+  assert.match(d.log, /not restarting: update/);
+});
+
+test('decide: with the switch off nothing restarts, even at the limit', () => {
+  const d = decideRestart(facts({ enabled: false }));
+  assert.equal(d.action, 'ignore');
+  assert.match(d.log, /not restarting: switched off/);
+  assert.equal(decideRestart(facts({ enabled: false, count: 9 })).action, 'ignore');
+});
+
+test('decide: an intended stop wins over everything else', () => {
+  assert.equal(decideRestart(facts({ intended: true, count: 9, enabled: false })).action, 'ignore');
+  assert.match(decideRestart(facts({ intended: true, quitting: true })).log, /intended stop/);
+});
+
+test('decide: restart logs the count', () => {
+  assert.match(decideRestart(facts({ count: 2 })).log, /restarting \(crash 2 of 3 in 5 minutes\)/);
+});
+
+test('exitLine: code, signal and the count in the window', () => {
+  assert.equal(exitLine(1, null, 2), 'Legion Core exited unexpectedly: code 1, signal none, 2 in the last 5 minutes');
+  assert.equal(exitLine(null, 'SIGKILL', 1), 'Legion Core exited unexpectedly: code none, signal SIGKILL, 1 in the last 5 minutes');
+});
+
+test('window state: the restart notice is handed out once', () => {
+  const s = new CoreRestartState();
+  assert.deepEqual(s.take(), { restarted: false, stopped: false });
+  s.noteRestarted();
+  assert.deepEqual(s.take(), { restarted: true, stopped: false });
+  assert.deepEqual(s.take(), { restarted: false, stopped: false }, 'a second read finds nothing');
+});
+
+test('window state: stopped stays until the person restarts the core', () => {
+  const s = new CoreRestartState();
+  s.noteStopped();
+  assert.deepEqual(s.take(), { restarted: false, stopped: true });
+  assert.deepEqual(s.take(), { restarted: false, stopped: true });
+  s.clearStopped();
+  assert.deepEqual(s.take(), { restarted: false, stopped: false });
+});
+
+test('window state: a stop replaces a pending restart notice', () => {
+  const s = new CoreRestartState();
+  s.noteRestarted(); s.noteStopped();
+  assert.deepEqual(s.take(), { restarted: false, stopped: true });
+});
+
+test('switch: on by default, only a real false turns it off', () => {
+  assert.equal(restartEnabled(null), true);
+  assert.equal(restartEnabled('not json'), true);
+  assert.equal(restartEnabled('{}'), true);
+  assert.equal(restartEnabled('{"restartCoreOnCrash":"false"}'), true);
+  assert.equal(restartEnabled('{"restartCoreOnCrash":0}'), true);
+  assert.equal(restartEnabled('[]'), true);
+  assert.equal(restartEnabled('{"restartCoreOnCrash":true}'), true);
+  assert.equal(restartEnabled('{"restartCoreOnCrash":false}'), false);
+});
