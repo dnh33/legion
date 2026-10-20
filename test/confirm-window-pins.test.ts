@@ -10,7 +10,7 @@ import { CODE_SET, FULL_PACKAGE_SET } from '../src/core/updater/apply.js';
 import { agentModeBatch, agentModeChange, resetAgentModeCancelForTests } from '../src/electron/agent-mode-ipc.js';
 import { bsvConfirmation, parseSpendCard, spendLiveDialog, spendResolveDialog, spendReviewDialog, spendUntrustedDialog, type SpendCard } from '../src/electron/admin-logic.js';
 import { connectGithub } from '../src/electron/connector-ipc.js';
-import { buildModel, nativeOptions, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
+import { ADDRESS_TAIL, buildModel, nativeOptions, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
 import { makeConfirm, providerChange } from '../src/electron/provider-ipc.js';
 import { projectChange } from '../src/electron/project-ipc.js';
 import { MAIN_A, TEST_A } from './bsv-net-helpers.js';
@@ -198,7 +198,7 @@ test('BSV on the main network: LIVE FUNDS, step counts from the card, the last c
   const d2 = spendLiveDialog(main);
   assert.deepEqual([d1.toneTag, d1.who, d1.title], ['LIVE FUNDS', 'BSV \u203a spend review 1 of 2', 'LIVE FUNDS: approve a MAINNET payment?']);
   assert.deepEqual([d2.toneTag, d2.who, d2.confirmAt, d2.defaultId, d2.cancelId], ['LAST CHECK', 'BSV \u203a spend review 2 of 2', 0, 1, 1]);
-  assert.deepEqual(d2.buttons, [`Send 25,000 sat to ...${main.payment.recipient.slice(-8)}`, 'Cancel']);
+  assert.deepEqual(d2.buttons, [`Send 25,000 sat to ...${main.payment.recipient.slice(-ADDRESS_TAIL)}`, 'Cancel']);
   assert.equal(d2.address, main.payment.recipient);
   assert.ok(d1.facts!.some((f) => f.label === 'Armed for one spend; time left' && f.value === '4:10'));
   fits(d1); fits(d2);
@@ -239,4 +239,27 @@ test('a page that dies while it is being drawn goes to the fallback; every step 
   assert.match(win, /await prepareConfirm\(\{[\s\S]*died, stepMs: LOAD_MS, totalMs: 2 \* LOAD_MS/);
   assert.match(win, /size: \(\) => settleConfirmFit\(/, 'the size measure is one of the timed steps');
   assert.doesNotMatch(win, /await settleConfirmFit|await wc\.executeJavaScript|await win\.loadFile/, 'no untimed wait on the page');
+});
+
+test('BSV money rows: one row per limit, and every sat figure leads with sat like the amount, BSV in brackets', () => {
+  const d = spendReviewDialog(card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] }),
+    { caps: { perTxSats: 50000, perSessionSats: 100000, per24hSats: 200000 }, armRemainingMs: 250_000 });
+  const rows = d.facts!;
+  assert.deepEqual(rows.filter((f) => /limit/i.test(f.label)).map((f) => [f.label, f.value]), [
+    ['Mainnet limit: per transaction', '50,000 sat (0.00050000 BSV)'],
+    ['Mainnet limit: per session', '100,000 sat (0.00100000 BSV)'],
+    ['Mainnet limit: per 24 hours', '200,000 sat (0.00200000 BSV)'],
+  ]);
+  assert.deepEqual(rows.filter((f) => /^Left after/.test(f.label)).map((f) => f.label), ['Left after this request: per transaction', 'Left after this request: per session', 'Left after this request: per 24 hours']);
+  for (const f of rows.filter((r) => /limit|Left after/i.test(r.label))) assert.doesNotMatch(f.value, /;/, `no row crams several values together: ${f.label}`);
+  for (const f of [...rows, ...spendLiveDialog(card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] })).facts!]) {
+    assert.doesNotMatch(f.value, /BSV \(\d[\d,]* sat\)/, `BSV never leads: ${f.label}: ${f.value}`);
+  }
+  assert.ok(rows.find((f) => f.label === 'Network fee')!.value.startsWith('12 sat ('));
+});
+
+test('BSV address: the "check every character" cue is the label above the address, not a line in the scrolling text', () => {
+  const c = card();
+  for (const d of [spendReviewDialog(c), spendLiveDialog(c), spendUntrustedDialog(c)]) assert.doesNotMatch(d.windowDetail ?? '', /Check every character of the full address above/);
+  assert.match(spendReviewDialog(c).detail, /Recipient \(full address, check every character\):/, 'the system dialog keeps its own label');
 });

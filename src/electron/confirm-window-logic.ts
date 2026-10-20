@@ -25,7 +25,7 @@ export interface ConfirmExtras {
   /** Money: the big amount and the line next to it. */
   amount?: string;
   amountNote?: string;
-  /** Money: the full address, its first and last 4 characters marked. */
+  /** Money: the full address, its first 4 and last ADDRESS_TAIL characters marked. */
   address?: string;
   /** The button that gets the tone colour; -1 for none. Default: the button that is not the cancel button, when there are two. */
   confirmAt?: number;
@@ -44,7 +44,7 @@ export interface ConfirmOptions extends ConfirmExtras {
 export interface ConfirmModel {
   nonce: string; theme: 'dark' | 'light'; tone: ConfirmTone; toneTag: string; who: string;
   title: string; message: string; detail: string; facts: ConfirmFact[]; items: string[];
-  amount: string; amountNote: string; address: string;
+  amount: string; amountNote: string; address: string; addressTail: number;
   buttons: string[]; defaultIndex: number; cancelIndex: number; confirmAt: number;
 }
 
@@ -52,7 +52,9 @@ export const TONE_TAGS: Record<'danger' | 'money', readonly string[]> = {
   danger: ['RESTARTS CORE'],
   money: ['LIVE FUNDS', 'TESTNET', 'LAST CHECK', 'BSV'],
 };
-export const LIMITS = { buttons: 4, button: 80, title: 200, message: 800, detail: 60_000, who: 160, fact: 200, factValue: 2_000, facts: 40, item: 2_000, items: 200, amount: 60, amountNote: 200, address: 64 } as const;
+export const LIMITS = { buttons: 4, button: 48, title: 200, message: 800, detail: 60_000, who: 160, fact: 200, factValue: 2_000, facts: 40, item: 2_000, items: 200, amount: 60, amountNote: 200, address: 64 } as const;
+/** How many characters at the end of an address the last-check button names, and the address marks: one number, so the two can never differ. */
+export const ADDRESS_TAIL = 8;
 export const ADDRESS_RE = /^[A-Za-z0-9]{20,64}$/;
 export const THEME_BG = { dark: '#0b0d10', light: '#f6f4ee' } as const;
 export const CONFIRM_WIDTH = 480;
@@ -134,7 +136,7 @@ export function buildModel(o: ConfirmOptions, ctx: { nonce: string; theme: 'dark
         items: items.map((t, i) => clean(t, LIMITS.item, `item ${i}`, true).trim()),
         amount: o.amount === undefined ? '' : clean(o.amount, LIMITS.amount, 'amount').trim(),
         amountNote: o.amountNote === undefined ? '' : clean(o.amountNote, LIMITS.amountNote, 'amountNote').trim(),
-        address, buttons, defaultIndex, cancelIndex, confirmAt,
+        address, addressTail: ADDRESS_TAIL, buttons, defaultIndex, cancelIndex, confirmAt,
       },
     };
   } catch (e) { return { ok: false, reason: e instanceof Error ? e.message : String(e) }; }

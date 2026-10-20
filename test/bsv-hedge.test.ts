@@ -37,7 +37,7 @@ const SOURCES: Array<{ name: string; text: string }> = [
 const NEG = /\b(nothing|no one|nobody|never|cannot|can't|can not|impossible|no way|none)\b/i;
 const VERB = /\b(sign|signs|signed|signing|spend|spends|spending|send|sends|sent|broadcast\w*|move funds|touch funds|holds? (your )?funds|inscribe\w*)\b/i;
 /** What scopes a universal negative: it is about Legion's own code or tools, in this version, or it is hypothetical. */
-const SCOPE = /(legion'?s? (own|code|tools?|app)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
+const SCOPE = /(legion\\?'?s? (own|code|tools?|app|confirm window)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
 
 const sentences = (t: string) => t.split(/(?<=[.!?])\s+|\n/);
 

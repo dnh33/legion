@@ -171,7 +171,7 @@ test('dialog 2 (untrusted content) is its own dialog with its own button; the Re
 test('none of the new wording makes an unscoped claim the hedge check bans, and the old claim is gone from the policy dialogs', () => {
   const NEG = /\b(nothing|no one|nobody|never|cannot|can't|can not|impossible|no way|none)\b/i;
   const VERB = /\b(sign|signs|signed|signing|spend|spends|spending|send|sends|sent|broadcast\w*|move funds|touch funds|holds? (your )?funds|inscribe\w*)\b/i;
-  const SCOPE = /(legion'?s? (own|code|tools?|app)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
+  const SCOPE = /(legion'?s? (own|code|tools?|app|confirm window)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
   const p = parseSpendCard(card({ requiredConfirmations: ['approve', 'untrusted-content'] }));
   assert.ok(p.ok);
   const texts = [spendReviewDialog(p.card), spendUntrustedDialog(p.card), spendResolveDialog({ requestId: ID('b'), totalSats: 7, agentId: 'a', txid: null, net: 'test' }),
@@ -635,7 +635,7 @@ test('policy dialogs only talk about the spend tool when the core says it is on 
   const BANNED = /risk-free|cannot lose|can't lose|no way to overspend|safe to spend|safe on mainnet|production-ready|cannot be bypassed|\bverified\b|\bsafe\b/i;
   const NEG = /\b(nothing|no one|nobody|never|cannot|can't|can not|impossible|no way|none)\b/i;
   const VERB = /\b(sign|signs|signed|signing|spend|spends|spending|send|sends|sent|broadcast\w*|move funds|touch funds|holds? (your )?funds|inscribe\w*)\b/i;
-  const SCOPE = /(legion'?s? (own|code|tools?|app)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
+  const SCOPE = /(legion'?s? (own|code|tools?|app|confirm window)|no spend tool|this version|this release|a later version|later version|not yet|\byet\b|design|\bwould\b|ordinary tools|\bshell\b)/i;
   for (const tools of [true, false]) {
     const f = { ...ON, spendTools: tools, frozen: { reason: 'x' } } as any;
     const all: string[] = [];

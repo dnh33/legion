@@ -1,7 +1,7 @@
 /** The rules of the Legion confirm window: what a question may ask, how an answer is read, how the window is sized. No electron. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADDRESS_RE, buildModel, CONFIRM_BUSY, ConfirmBusyError, confirmFit, createAnswerGate, fitConfirm, LIMITS, nativeOptions, orBusy, pickTheme, prepareConfirm, resolveIds, settleConfirmFit, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
+import { ADDRESS_RE, ADDRESS_TAIL, buildModel, CONFIRM_BUSY, ConfirmBusyError, confirmFit, createAnswerGate, fitConfirm, LIMITS, nativeOptions, orBusy, pickTheme, prepareConfirm, resolveIds, settleConfirmFit, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
 
 const NONCE = 'a'.repeat(32);
 const ctx = { nonce: NONCE, theme: 'dark' as const };
@@ -231,4 +231,11 @@ test('opening: no timer is left running after it ends', async () => {
   await new Promise((r) => setImmediate(r));
   const after = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
   assert.equal(after, before);
+});
+
+test('address tail: one constant (8) is in every model that has an address, for the button and the marking alike', () => {
+  assert.equal(ADDRESS_TAIL, 8);
+  const a = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn';
+  assert.equal(ok({ ...base, address: a }).addressTail, ADDRESS_TAIL);
+  assert.equal(ok(base).addressTail, ADDRESS_TAIL, 'it is always there; the page marks only when there is an address');
 });

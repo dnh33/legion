@@ -7,7 +7,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { parseSpendCard, spendLiveDialog, type SpendCard } from '../src/electron/admin-logic.js';
+import { ADDRESS_TAIL, buildModel } from '../src/electron/confirm-window-logic.js';
+import { MAIN_A } from './bsv-net-helpers.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const html = readFileSync(`${ROOT}/assets/confirm-window.html`, 'utf8');
@@ -15,13 +19,18 @@ const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[
 
 // ---- static pins ----
 
-test('page: one policy, default-src none, nothing remote, inline style and script only', () => {
+test('page: one policy, default-src none, nothing remote; the one inline script is allowed by its hash, not by unsafe-inline; no image source', () => {
   const csps = [...html.matchAll(/http-equiv="Content-Security-Policy"\s+content="([^"]*)"/gi)].map((m) => m[1]!);
   assert.equal(csps.length, 1);
   assert.match(csps[0]!, /^default-src 'none';/);
-  assert.doesNotMatch(csps[0]!, /https?:|\*|file:|connect-src|frame-src|'unsafe-eval'/);
-  assert.match(csps[0]!, /img-src data:/);
-  assert.match(csps[0]!, /script-src 'unsafe-inline'/);
+  assert.doesNotMatch(csps[0]!, /https?:|\*|file:|connect-src|frame-src|'unsafe-eval'|img-src/);
+  assert.match(csps[0]!, /style-src 'unsafe-inline'/);
+  assert.doesNotMatch(csps[0]!.replace(/style-src 'unsafe-inline'/, ''), /unsafe-inline/, 'only styles are inline');
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+  assert.equal(scripts.length, 1, 'one inline script');
+  const hash = createHash('sha256').update(scripts[0]!, 'utf8').digest('base64');
+  assert.ok(csps[0]!.includes(`script-src 'sha256-${hash}'`), `the policy names this script by its hash (sha256-${hash})`);
+  assert.equal(csps[0]!.match(/script-src[^;]*/g)!.length, 1);
 });
 
 test('page: refers to nothing outside itself (no src, href, url(), @import, import, fetch, XHR, WebSocket, window.open, eval)', () => {
@@ -53,7 +62,7 @@ test('page: it answers only by setting its own title, with the one-time id; no p
 class El {
   tagName: string; id = ''; children: El[] = []; hidden = false; className = ''; disabled = false; tabIndex = 0; type = '';
   scrollTop = 0; scrollHeight = 0; clientHeight = 0; offsetHeight = 0; style: Record<string, string> = {}; parent: El | null = null;
-  attrs: Record<string, string> = {}; text = ''; onclick: (() => void) | null = null; fragment = false;
+  attrs: Record<string, string> = {}; text = ''; onclick: ((ev?: { detail: number }) => void) | null = null; fragment = false;
   constructor(tag: string) { this.tagName = tag.toUpperCase(); }
   get firstChild(): El | null { return this.children[0] ?? null; }
   get lastChild(): El | null { return this.children[this.children.length - 1] ?? null; }
@@ -124,7 +133,7 @@ test('page DOM: facts and items from the explicit fields do make rows and bullet
 test('page DOM: tone, tag, who, title, message, amount and address', () => {
   const { win } = boot();
   const a = '1BvMxQ7hN2kpWd3c8TyLr5Ze9FaQm4Jd8K';
-  win.confirmWindow.render(model({ tone: 'money', toneTag: 'LAST CHECK', theme: 'light', who: 'BSV \u203a spend review 2 of 2', title: 'Last Legion check', message: '', amount: '25,000 sat', amountNote: 'REAL BSV', address: a, buttons: ['Send 25,000 sat to ...Jd8K', 'Cancel'], defaultIndex: 1, cancelIndex: 1, confirmAt: 0 }));
+  win.confirmWindow.render(model({ tone: 'money', toneTag: 'LAST CHECK', theme: 'light', who: 'BSV \u203a spend review 2 of 2', title: 'Last Legion check', message: '', amount: '25,000 sat', amountNote: 'REAL BSV', address: a, buttons: ['Send 25,000 sat to ...aQm4Jd8K', 'Cancel'], defaultIndex: 1, cancelIndex: 1, confirmAt: 0 }));
   assert.equal(doc.getElementById('cw').className, 'cw money');
   assert.equal(doc.documentElement.attrs['data-theme'], 'light');
   assert.equal(doc.getElementById('who').textContent, 'asked by BSV \u203a spend review 2 of 2');
@@ -132,13 +141,13 @@ test('page DOM: tone, tag, who, title, message, amount and address', () => {
   assert.equal(doc.getElementById('ttext').textContent, 'Last Legion check');
   assert.equal(doc.getElementById('m').hidden, true);
   assert.equal(doc.getElementById('amtv').textContent, '25,000 sat'); assert.equal(doc.getElementById('amt').hidden, false);
-  const addr = doc.getElementById('addr');
+  const addr = doc.getElementById('addrv');
   assert.equal(addr.textContent, a, 'the whole address, nothing added');
   const marked = addr.children.flatMap((g) => g.children.filter((c) => c.tagName === 'I')).map((i) => i.textContent).join('');
-  assert.equal(marked, '1BvM' + 'Jd8K', 'the first 4 and the last 4 characters are marked');
+  assert.equal(marked, '1BvM' + a.slice(-8), 'the first 4 and the last 8 characters are marked');
   assert.equal(addr.children[addr.children.length - 1]!.textContent, 'Jd8K', 'groups are counted from the end');
   const buttons = doc.getElementById('ft').getElementsByTagName('button');
-  assert.deepEqual(buttons.map((b) => [b.textContent, b.className]), [['Send 25,000 sat to ...Jd8K', 'go'], ['Cancel', '']]);
+  assert.deepEqual(buttons.map((b) => [b.textContent, b.className]), [['Send 25,000 sat to ...aQm4Jd8K', 'go'], ['Cancel', '']]);
   assert.equal(doc.active, buttons[1], 'focus starts on the default button (Cancel)');
 });
 
@@ -189,4 +198,70 @@ test('page DOM: Tab cycles through the buttons and wraps at both ends (the last 
   doc.fire('keydown', { key: 'Tab', shiftKey: true }); assert.equal(doc.active, b[0]);
   doc.fire('keydown', { key: 'Tab', shiftKey: true }); assert.equal(doc.active, b[1], 'backward from the first wraps to the last');
   assert.equal(doc.title, 'Legion', 'moving focus answers nothing');
+});
+
+test('page: the money address has a static label above it and the dialog describes its amount and address to a screen reader', () => {
+  assert.match(html, /<div class="addr" id="addr" role="group" aria-label="Address" hidden><div class="addr-l">To: check every character<\/div><div class="addr-v" id="addrv"><\/div><\/div>/);
+  assert.match(html, /role="alertdialog" aria-modal="true" aria-labelledby="t" aria-describedby="m amt addr"/);
+  assert.doesNotMatch(script, /addr-l|getElementById\('addr'\)\.textContent/, 'the label is markup in the file, never written by the model path');
+});
+
+test('page: a button label wraps instead of being cut at the window edge', () => {
+  const css = /^  button\{([^}]*)\}/m.exec(html)?.[1] ?? '';
+  assert.doesNotMatch(css, /nowrap/);
+  assert.match(css, /max-width:100%/);
+  assert.match(css, /overflow-wrap:anywhere/);
+});
+
+test('page DOM: the last check marks the tail its button names, and the tail is one constant of the model', () => {
+  const main = parseSpendCard({
+    requestId: 'a'.repeat(40), network: 'main', networkLabel: 'LIVE FUNDS (main network)', hash: 'a'.repeat(64), agentId: 'scout', purpose: 'x',
+    outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], fee: { sats: 12 }, totalSpendSats: 25012,
+    remaining: { perTxSats: 25000, perSessionSats: 75000, per24hSats: 175000 }, warnings: [], requiredConfirmations: ['approve', 'live-funds'],
+  }) as { ok: true; card: SpendCard };
+  assert.equal(main.ok, true);
+  const d2 = spendLiveDialog(main.card);
+  const built = buildModel(d2, { nonce: NONCE, theme: 'dark' });
+  assert.equal(built.ok, true);
+  const m = (built as { model: import('../src/electron/confirm-window-logic.js').ConfirmModel }).model;
+  assert.equal(m.addressTail, ADDRESS_TAIL);
+  assert.equal(ADDRESS_TAIL, 8);
+  const { win } = boot();
+  win.confirmWindow.render(m);
+  const addr = doc.getElementById('addrv');
+  assert.equal(addr.textContent, MAIN_A, 'the whole address, nothing added');
+  const marked = addr.children.flatMap((g) => g.children.filter((c) => c.tagName === 'I')).map((i) => i.textContent);
+  const label = doc.getElementById('ft').getElementsByTagName('button')[0]!.textContent;
+  const named = label.slice(label.indexOf('...') + 3);
+  assert.equal(named.length, ADDRESS_TAIL);
+  assert.equal(marked.join(''), MAIN_A.slice(0, 4) + named, 'the first 4 and exactly the characters the button names');
+  assert.equal(addr.children.slice(-2).map((g) => g.textContent).join(''), named, 'the tail is two whole groups');
+});
+
+test('page DOM: a click counts only when its press began after the window was armed', () => {
+  const { win } = boot();
+  win.confirmWindow.render(model());
+  const b = doc.getElementById('ft').getElementsByTagName('button');
+  doc.fire('pointerdown');            // the press begins before the window is armed (a double click on the page behind)
+  win.confirmWindow.arm();
+  b[1]!.onclick!({ detail: 1 });
+  assert.equal(doc.title, 'Legion', 'a click whose press began before arming answers nothing');
+  doc.fire('pointerdown');            // a fresh press, after arming
+  b[1]!.onclick!({ detail: 1 });
+  assert.equal(doc.title, `legion-confirm:${NONCE}:1`);
+});
+
+test('page DOM: a keyboard click (Space or Enter on a focused button) needs no press, only the armed window', () => {
+  const { win } = boot();
+  win.confirmWindow.render(model());
+  const b = doc.getElementById('ft').getElementsByTagName('button');
+  b[1]!.onclick!({ detail: 0 });
+  assert.equal(doc.title, 'Legion', 'not armed');
+  win.confirmWindow.arm();
+  b[1]!.onclick!({ detail: 0 });
+  assert.equal(doc.title, `legion-confirm:${NONCE}:1`);
+});
+
+test('page: its fallback tail is the same constant as the model\'s', () => {
+  assert.equal(Number(/DEFAULT_TAIL=(\d+)/.exec(script)?.[1]), ADDRESS_TAIL);
 });
