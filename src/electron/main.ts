@@ -662,8 +662,8 @@ if (instance.quit) {
   ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    // the chooser is a system window the page can ask for: it refuses (busy) while a confirm card is open, so it never covers the card
-    const pickFolder = makePickFolder(dialog, () => win, nativeDialogAllowed);
+    // the chooser is a system window the page can ask for: it holds the confirm lock while open, so it never covers a card and no card opens under it
+    const pickFolder = makePickFolder(dialog, () => win, { hold: holdConfirmWindow, release: releaseConfirmWindow });
     try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {

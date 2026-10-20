@@ -21,11 +21,13 @@ const fakeDialog = (reply: { canceled: boolean; filePaths: string[] } = { cancel
   return { calls, showOpenDialog: async (...a: unknown[]) => { calls.push(a); return reply; } };
 };
 const winObj = { id: 'win' };
+/** The confirm lock as main gives it: hold() fails while a card is open (or the lock is held). */
+const fakeLock = (open = false) => { let held = open; return { get held() { return held; }, hold: () => { if (held) return false; held = true; return true; }, release: () => { held = false; } }; };
 
 test('pickFolder: while a card is open the folder chooser is never opened, and the flow ends with the busy text', async () => {
   const d = fakeDialog();
-  let allowed = false;
-  const pick = makePickFolder(d, () => winObj, () => allowed);
+  const lock = fakeLock(true);
+  const pick = makePickFolder(d, () => winObj, lock);
   const asked: unknown[] = [];
   const deps = {
     async call(method: string, route: string) { return method === 'GET' ? { status: 200, json: route === '/api/agents' ? [] : { name: 'Shop', folder: 'C:/work/shop', members: [] } } : { status: 200, json: {} }; },
@@ -36,7 +38,7 @@ test('pickFolder: while a card is open the folder chooser is never opened, and t
   assert.deepEqual(r, { ok: false, error: CONFIRM_BUSY });
   assert.equal(d.calls.length, 0, 'showOpenDialog was never called');
   assert.equal(asked.length, 0, 'no question was asked either');
-  allowed = true;
+  lock.release();
   assert.equal(await pick('C:/start'), 'D:/proj/x');
   assert.equal(d.calls.length, 1, 'with no card open the chooser opens as before');
   assert.equal(d.calls[0]![0], winObj);
@@ -44,10 +46,22 @@ test('pickFolder: while a card is open the folder chooser is never opened, and t
 });
 
 test('pickFolder: a cancelled chooser gives no folder; no Legion window gives no chooser', async () => {
-  assert.equal(await makePickFolder(fakeDialog({ canceled: true, filePaths: [] }), () => winObj, () => true)(), undefined);
+  assert.equal(await makePickFolder(fakeDialog({ canceled: true, filePaths: [] }), () => winObj, fakeLock())(), undefined);
   const d = fakeDialog();
-  assert.equal(await makePickFolder(d, () => null, () => true)(), undefined);
+  assert.equal(await makePickFolder(d, () => null, fakeLock())(), undefined);
   assert.equal(d.calls.length, 0);
+});
+
+test('pickFolder: the chooser holds the confirm lock while it is open, so a card asked meanwhile is busy and never opens under it; freed after, also on error', async () => {
+  const lock = fakeLock();
+  let heldDuring: boolean | undefined;
+  const d = { showOpenDialog: async () => { heldDuring = lock.held; return { canceled: false, filePaths: ['D:/p'] }; } };
+  assert.equal(await makePickFolder(d, () => winObj, lock)(), 'D:/p');
+  assert.equal(heldDuring, true, 'held while the chooser is open');
+  assert.equal(lock.held, false, 'freed when it closes');
+  const bad = { showOpenDialog: async () => { throw new Error('boom'); } };
+  await assert.rejects(makePickFolder(bad, () => winObj, lock)());
+  assert.equal(lock.held, false, 'freed after an error too');
 });
 
 test('waitUntilFree: returns at once when no card is open, and otherwise waits (no refusal) until it is gone', async () => {
@@ -92,7 +106,7 @@ test('the wiring: the page focus is deferred and cleared at the end, the window 
 
 test('the system dialogs a page can reach are guarded: folder chooser and Restart now refuse while a card is open; the outcome notice and the core questions wait', () => {
   assert.match(win, /export const nativeDialogAllowed = \(\): boolean => !confirmWindowBusy\(\);/);
-  assert.match(main, /makePickFolder\(dialog, \(\) => win, nativeDialogAllowed\)/);
+  assert.match(main, /makePickFolder\(dialog, \(\) => win, \{ hold: holdConfirmWindow, release: releaseConfirmWindow \}\)/);
   assert.doesNotMatch(main, /dialog\.showOpenDialog/, 'the chooser lives in the guarded factory');
   assert.match(read('src/electron/project-ipc.ts'), /showOpenDialog/);
   // updater-main keeps its own dialogs and imports nothing from the card (the pin in confirm-window-pins): the host hands it two functions

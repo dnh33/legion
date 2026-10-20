@@ -18,15 +18,18 @@ export interface ProjectIpcDeps {
 interface OpenDialogLike { showOpenDialog(win: any, options: any): Promise<{ canceled: boolean; filePaths: string[] }> }
 /**
  * The folder chooser. It is a system window the Legion page can ask for (before any question), so it never opens while a confirm card is open: it would
- * cover the card and take its mouse and keys. `allowed` is false then, and the flow ends with "a confirmation is already open".
+ * cover the card and take its mouse and keys. It takes the confirm lock while it is open, so the other way round holds too: a card asked meanwhile is
+ * refused as busy instead of opening under the chooser. If the lock is taken, the flow ends with "a confirmation is already open".
  */
-export function makePickFolder(dialog: OpenDialogLike, getWin: () => unknown, allowed: () => boolean): (start?: string) => Promise<string | undefined> {
+export function makePickFolder(dialog: OpenDialogLike, getWin: () => unknown, lock: { hold(): boolean; release(): void }): (start?: string) => Promise<string | undefined> {
   return async (start) => {
-    if (!allowed()) throw new ConfirmBusyError();
     const w = getWin();
     if (!w) return undefined;
-    const r = await dialog.showOpenDialog(w, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
-    return r.canceled ? undefined : r.filePaths[0];
+    if (!lock.hold()) throw new ConfirmBusyError();
+    try {
+      const r = await dialog.showOpenDialog(w, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
+      return r.canceled ? undefined : r.filePaths[0];
+    } finally { lock.release(); }
   };
 }
 export type ProjectChange =
