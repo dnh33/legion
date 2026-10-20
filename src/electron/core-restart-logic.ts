@@ -61,15 +61,17 @@ export function exitLine(code: number | null, signal: string | null, count: numb
   return `Legion Core exited unexpectedly: code ${code ?? 'none'}, signal ${signal ?? 'none'}, ${count} in the last 5 minutes`;
 }
 
-export interface CoreRestartView { restarted: boolean; stopped: boolean }
+/** `stopped`: why the core is left stopped: the crash limit, or a restart that did not come up. */
+export type StoppedWhy = 'limit' | 'failed';
+export interface CoreRestartView { restarted: boolean; stopped: StoppedWhy | null }
 
 /** What the window is told. The restart notice is handed out once; the stopped state stays until the person restarts the core. */
 export class CoreRestartState {
   private restarted = false;
-  private stopped = false;
+  private stopped: StoppedWhy | null = null;
   noteRestarted(): void { this.restarted = true; }
-  noteStopped(): void { this.stopped = true; this.restarted = false; }
-  clearStopped(): void { this.stopped = false; }
+  noteStopped(why: StoppedWhy): void { this.stopped = why; this.restarted = false; }
+  clearStopped(): void { this.stopped = null; }
   take(): CoreRestartView {
     const v = { restarted: this.restarted, stopped: this.stopped };
     this.restarted = false;
@@ -84,4 +86,14 @@ export function restartEnabled(raw: string | null): boolean {
     const j = JSON.parse(raw) as { restartCoreOnCrash?: unknown } | null;
     return !(j && typeof j === 'object' && j.restartCoreOnCrash === false);
   } catch { return true; }
+}
+
+/** The text of app-settings.json with the switch set, every other key kept. A file that does not parse is replaced. */
+export function withRestartEnabled(raw: string | null, on: boolean): string {
+  let base: Record<string, unknown> = {};
+  try {
+    const j = raw === null ? null : JSON.parse(raw);
+    if (j && typeof j === 'object' && !Array.isArray(j)) base = j as Record<string, unknown>;
+  } catch { /* start a fresh file */ }
+  return JSON.stringify({ ...base, restartCoreOnCrash: on }, null, 2) + '\n';
 }

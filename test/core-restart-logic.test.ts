@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CRASH_LIMIT, CRASH_WINDOW_MS, CoreRestartState, CrashTracker, RESTART_DELAY_MS,
-  decideRestart, exitLine, restartEnabled, type RestartFacts,
+  decideRestart, exitLine, restartEnabled, withRestartEnabled, type RestartFacts,
 } from '../src/electron/core-restart-logic.js';
 
 const facts = (over: Partial<RestartFacts> = {}): RestartFacts => ({ intended: false, quitting: false, updating: false, sessionEnding: false, enabled: true, count: 1, ...over });
@@ -107,25 +107,31 @@ test('exitLine: code, signal and the count in the window', () => {
 
 test('window state: the restart notice is handed out once', () => {
   const s = new CoreRestartState();
-  assert.deepEqual(s.take(), { restarted: false, stopped: false });
+  assert.deepEqual(s.take(), { restarted: false, stopped: null });
   s.noteRestarted();
-  assert.deepEqual(s.take(), { restarted: true, stopped: false });
-  assert.deepEqual(s.take(), { restarted: false, stopped: false }, 'a second read finds nothing');
+  assert.deepEqual(s.take(), { restarted: true, stopped: null });
+  assert.deepEqual(s.take(), { restarted: false, stopped: null }, 'a second read finds nothing');
 });
 
 test('window state: stopped stays until the person restarts the core', () => {
   const s = new CoreRestartState();
-  s.noteStopped();
-  assert.deepEqual(s.take(), { restarted: false, stopped: true });
-  assert.deepEqual(s.take(), { restarted: false, stopped: true });
+  s.noteStopped('limit');
+  assert.deepEqual(s.take(), { restarted: false, stopped: 'limit' });
+  assert.deepEqual(s.take(), { restarted: false, stopped: 'limit' });
   s.clearStopped();
-  assert.deepEqual(s.take(), { restarted: false, stopped: false });
+  assert.deepEqual(s.take(), { restarted: false, stopped: null });
+});
+
+test('window state: a restart that failed says so, not "limit"', () => {
+  const s = new CoreRestartState();
+  s.noteStopped('failed');
+  assert.deepEqual(s.take(), { restarted: false, stopped: 'failed' });
 });
 
 test('window state: a stop replaces a pending restart notice', () => {
   const s = new CoreRestartState();
-  s.noteRestarted(); s.noteStopped();
-  assert.deepEqual(s.take(), { restarted: false, stopped: true });
+  s.noteRestarted(); s.noteStopped('limit');
+  assert.deepEqual(s.take(), { restarted: false, stopped: 'limit' });
 });
 
 test('switch: on by default, only a real false turns it off', () => {
@@ -137,4 +143,13 @@ test('switch: on by default, only a real false turns it off', () => {
   assert.equal(restartEnabled('[]'), true);
   assert.equal(restartEnabled('{"restartCoreOnCrash":true}'), true);
   assert.equal(restartEnabled('{"restartCoreOnCrash":false}'), false);
+});
+
+test('switch: writing keeps the other keys and survives a broken file', () => {
+  assert.deepEqual(JSON.parse(withRestartEnabled(null, false)), { restartCoreOnCrash: false });
+  assert.deepEqual(JSON.parse(withRestartEnabled('{"other":1,"restartCoreOnCrash":false}', true)), { other: 1, restartCoreOnCrash: true });
+  assert.deepEqual(JSON.parse(withRestartEnabled('not json', false)), { restartCoreOnCrash: false });
+  assert.deepEqual(JSON.parse(withRestartEnabled('[1]', false)), { restartCoreOnCrash: false });
+  assert.equal(restartEnabled(withRestartEnabled(null, false)), false);
+  assert.equal(restartEnabled(withRestartEnabled(withRestartEnabled(null, false), true)), true);
 });
