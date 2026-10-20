@@ -41,7 +41,7 @@ test('a standing constraint is extracted, and an assistant turn repeating it is 
 });
 
 test('identifiers in tool output are carried - a path is what a task is resumed from', () => {
-  const msgs = [tool('wrote D:\\bots\\legion\\src\\core\\store.ts'), user('ok')];
+  const msgs = [tool('wrote D:\\work\\legion\\src\\core\\store.ts'), user('ok')];
   const items = extractCarriedItems(msgs);
   assert.match(items.map((i) => i.text).join(' '), /store\.ts/);
 });

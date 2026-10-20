@@ -42,9 +42,9 @@ Verify with `git rev-parse --git-common-dir`, never a name or a memory:
 
 | Path | What it is |
 |---|---|
-| `D:/bots/legion` | WORKTREE on `main`. Canonical: what ships, what releases are cut from. |
-| `D:/bots/legion-dev` | STANDALONE CLONE, another branch. NOT canonical. Never build, test or edit in it. |
-| `D:/bots/legion-<topic>` | Topic worktree: `git worktree add D:/bots/legion-<topic> <branch>` |
+| `<checkout>` | WORKTREE on `main`. Canonical: what ships, what releases are cut from. |
+| `<checkout>-dev` | STANDALONE CLONE, another branch. NOT canonical. Never build, test or edit in it. |
+| `<checkout>-<topic>` | Topic worktree: `git worktree add <checkout>-<topic> <branch>` |
 
 `git worktree list` lists all of them with their branch. **Work in a worktree while peers are active:** read-only use of
 a non-canonical clone is fine; building, testing or editing in it during that time is not.

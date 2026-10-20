@@ -78,17 +78,17 @@ test('2: the menu row shows that it scrolls with an arrow on the side that has m
 // ---------------------------------------------------------------- 3 and 4: the folder-trust card in a reopened thread
 
 const msgLines = ['Hook SessionStart in .claude/settings.json runs: node setup.js', 'Environment variables set by .claude/settings.json: TOKEN (values are not shown)'];
-const card = { folder: 'D:\\bots\\qa-trust-repo', lines: msgLines, more: 0 };
-const row = (over: Partial<TrustedRow> = {}): TrustedRow => ({ folder: 'D:\\bots\\qa-trust-repo', current: true, summary: [...msgLines], more: 0, ...over });
+const card = { folder: 'D:\\work\\qa-trust-repo', lines: msgLines, more: 0 };
+const row = (over: Partial<TrustedRow> = {}): TrustedRow => ({ folder: 'D:\\work\\qa-trust-repo', current: true, summary: [...msgLines], more: 0, ...over });
 
 test('3: a folder trusted now with the commands the card names reads as trusted', () => {
   assert.equal(cardTrust(card, [row()]), 'trusted');
-  assert.equal(cardTrust(card, [row({ folder: 'd:/bots/qa-trust-repo/' })]), 'trusted', 'the same folder written another way');
+  assert.equal(cardTrust(card, [row({ folder: 'd:/work/qa-trust-repo/' })]), 'trusted', 'the same folder written another way');
 });
 test('3: not on the list, or on it but its commands changed since it was trusted, stays held back with Trust', () => {
   assert.equal(cardTrust(card, []), 'held');
   assert.equal(cardTrust(card, null), 'held', 'the list could not be read');
-  assert.equal(cardTrust(card, [row({ folder: 'D:\\bots\\other' })]), 'held');
+  assert.equal(cardTrust(card, [row({ folder: 'D:\\work\\other' })]), 'held');
   assert.equal(cardTrust(card, [row({ current: false })]), 'held', 'trusted earlier, changed since');
 });
 test('3: trusted now but the folder holds other commands than the card names: trusted, never Trust again, and the card says it', () => {

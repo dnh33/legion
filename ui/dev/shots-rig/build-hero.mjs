@@ -2,10 +2,13 @@
 // the real design tokens. No new artwork, no invented palette.
 // Usage: node build-hero.mjs <out.png>
 import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import pw from 'file:///D:/bots/legion/node_modules/playwright-core/index.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const R = 'D:/bots/legion';
+// the checkout this script sits in (ui/dev/shots-rig/ -> three levels up)
+const R = fileURLToPath(new URL('../../../', import.meta.url));
+const { default: pw } = await import(pathToFileURL(join(R, 'node_modules/playwright-core/index.js')).href);
 const out = process.argv[2] ?? join(R, 'docs/images/linkedin-00-hero.png');
 
 const relic = readFileSync(join(R, 'docs/art/relic.svg'), 'utf8');
@@ -109,7 +112,7 @@ const html = `<!doctype html>
   </div>
 </body></html>`;
 
-const tmp = join(process.env.TMPDIR || 'C:/Users/Danie/AppData/Local/Temp', 'legion-hero.html');
+const tmp = join(tmpdir(), 'legion-hero.html');
 writeFileSync(tmp, html, 'utf8');
 
 const browser = await pw.chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
