@@ -8,6 +8,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - **Mac and Linux are marked experimental.** They install with the one-line installer and update themselves, and they are tested in CI, but not yet by hand on a real Mac. If something breaks on your Mac or Linux machine, please [report it](https://github.com/dnh33/legion/issues/new?template=bug_report.yml): every report helps.
 
+### Fixed
+
+- **Full no longer asks about ordinary Python edits.** A script given to Python whose code held a doubled backslash (a line that continues, or `\\n` inside a string) was read as the root of your drive, which holds Legion's settings folder. So even Full showed "This command works on Legion's own settings folder" for edits that never touched it. A path that really names Legion's settings, written in the code, is still caught.
+
 ## [0.3.5] - 2026-10-19
 
 This update installs by itself on Windows. On a Mac or Linux, run the installer once more (see below); after that Legion updates itself there too.

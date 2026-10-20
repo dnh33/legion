@@ -588,7 +588,12 @@ class Reader {
   private script(code: string): void {
     this.allRead = false;
     const found = code.match(/[A-Za-z]:[\\/][^'"`\s)]*|(?:\.{1,2}|~)?[\\/][^'"`\s)]+|\.\.?[\\/]|~[^'"`\s)]*/g) ?? [];
-    for (const f of found) this.note(this.probe({ text: f.replace(/\\\\/g, '\\') }, this.where));
+    for (const f of found) {
+      const text = f.replace(/\\\\/g, '\\');
+      // only backslashes: an escape in the code (a line continuation, "\\" in a string), not the root of the drive (that is written `C:\`, which matched above)
+      if (/^\\+$/.test(text)) continue;
+      this.note(this.probe({ text }, this.where));
+    }
     if (!this.names && MARKERS.test(code) && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f))) this.hidden = true;
   }
 }

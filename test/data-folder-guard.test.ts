@@ -149,3 +149,21 @@ test('native paths: another case is the same file where the disk ignores case (W
   const want = process.platform === 'linux' ? 'none' : 'names';
   assert.equal(nhit('rm ~/.LEGION-X/GATES/app.json'), want);
 });
+
+test('code for an interpreter: a backslash escape (\\\\ at a line end, "\\\\n" in a string) is not the drive root, so ordinary Python edits are not carded', { skip: WIN_ONLY }, () => {
+  // Found on a real run (0.3.5): a "python - <<'EOF'" edit whose code held a doubled backslash (a line continuation or an escape inside a
+  // string) read as the root of the drive, which holds the data folder, so even Full carded it as "works on Legion's own settings folder".
+  const real = (body: string) => `cd "C:/work/projA/atmos-open" && python - <<'PYEOF'\n${body}\nPYEOF`;
+  for (const body of [
+    '    assert not bad, "scene files do not match the current schema:\\\\n  " + \\\\',
+    '    ild_ok = early["ild_db"] < 0.0 < late["ild_db"] \\\\',
+    'print("a\\\\\\\\b")',
+    's = s.replace("\\\\r\\\\n", "\\\\n")',
+    'x = "\\\\\\\\"',
+  ]) assert.equal(hit(real(body)), 'none', body);
+  // a real path in the code still counts, in either slash, and so does the drive root written as a path
+  assert.equal(hit(real("open('C:/Users/Fakeuser/AppData/Roaming/legion/projects.json', 'w')")), 'names');
+  assert.equal(hit(real("open('C:\\\\Users\\\\Fakeuser\\\\AppData\\\\Roaming\\\\legion\\\\projects.json', 'w')")), 'names');
+  assert.equal(hit(real("open('\\\\Users\\\\Fakeuser\\\\AppData\\\\Roaming\\\\legion\\\\projects.json', 'w')")), 'names');
+  assert.equal(hit(real("import shutil; shutil.rmtree('C:\\\\')")), 'names');
+});
