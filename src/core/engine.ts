@@ -2597,7 +2597,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (this.modeNow(job, agent) === 'full') {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
-      // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
+      // bypass mode has no canUseTool for ordinary calls: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
       options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch|mcp__legion__web_read|mcp__legion__web_search', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
@@ -2613,6 +2613,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // The card is raised here, in the hook, because a hook `ask` is not known to reach the owner under bypass mode (the probe covered auto only).
       const nativeFull = this.claudeOwnChecks();
       const ownNativeFull = nativeFull ? this.callDecider(job, agent, { egress: false, floorCard: false, guards: false, ownOnly: true, native: true }) : undefined;
+      // Claude Code's bypass mode still asks about a few things it never approves by itself (deleting the working folder or a folder above it, the root, home,
+      // an explicit ask rule of the owner's own Claude settings); checked against SDK 0.3.296 (probe-bypass): canUseTool IS called for them, with reason type
+      // safetyCheck, and with none set Claude denies the call itself. So a Claude agent in Full gets one here, for those prompts only: each becomes a card, even with
+      // "Ask before tools run" off (Claude refuses to auto-approve them), and nothing is allowed without the owner's yes.
+      if (nativeFull) {
+        options.canUseTool = async (toolName, input, o) => {
+          const d = await this.claudePromptCard(job, agent, toolName, input, o);
+          return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
+        };
+      }
       // deny rules survive Full (the one class meant to): a Block rule still stops the tool here, where canUseTool does not exist.
       options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
