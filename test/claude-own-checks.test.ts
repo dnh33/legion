@@ -219,6 +219,57 @@ test('the preset changes to a stricter one mid-run: a hook asks (Claude\'s mode 
   });
 });
 
+test('a provider agent keeps Legion\'s full system while the switch is on: the same calls card through the provider path, and not through a Claude agent\'s hook', async () => {
+  for (const [name, call] of ROWS) {
+    await using({ ownChecks: true }, async (r) => {
+      const c = call(r);
+      // the hook first: a guard card answered on the provider path is shared with an identical call for a few seconds
+      const claude = await r.hookAll(c.tool, c.input);
+      assert.deepEqual([claude.cards, claude.decision], [0, undefined], `${name}: a Claude agent's hook leaves it to Claude`);
+      const provider = await r.run(c.tool, c.input);
+      assert.equal(provider.card, true, `${name}: provider path cards it`);
+      assert.equal(provider.noRemember, true, `${name}: and it is one of Legion's guard cards, not the plain card of the preset`);
+    });
+  }
+});
+
+test('a run that started in Full and is demoted mid-run: Legion\'s Smart judge does not stand in for Claude\'s checks; the owner is asked on a card', async () => {
+  await using({ preset: 'bypass', follow: true, ownChecks: true }, async (r) => {
+    assert.equal(r.options().permissionMode, 'bypassPermissions');
+    const full = await r.hookAll('Bash', { command: 'echo hi' });
+    assert.deepEqual([full.cards, full.decision], [0, undefined], 'still Full: nothing asks');
+    r.core.store.patchProject(r.project.id, { preset: 'smart' });
+    const asked = await r.hookAll('Bash', { command: 'echo hi' });
+    assert.deepEqual([asked.cards, asked.decision], [1, 'deny'], 'demoted: a card (answered no here)');
+    assert.deepEqual((await r.hookAll('Read', { file_path: `${r.projectDir()}/a.txt` })).cards, 0, 'a read stays free');
+    const yes = await r.hookAll('Bash', { command: 'echo hi' }, { allow: true });
+    assert.deepEqual([yes.cards, yes.decision], [1, undefined], 'yes lets Claude run it; the hook answers nothing');
+    r.setRules([rule('gr_block', 'deny', { tools: ['Bash'], commands: ['echo *'] })]);
+    assert.deepEqual([(await r.hookAll('Bash', { command: 'echo hi' })).cards, (await r.hookAll('Bash', { command: 'echo hi' })).decision], [0, 'deny'], 'a Block rule still denies');
+  });
+});
+
+test('the card for Claude\'s prompt offers no Remember (an allow rule would not answer Claude\'s prompts)', async () => {
+  await using({ ownChecks: true }, async (r) => {
+    const fn = (r.options() as { canUseTool: (t: string, i: Record<string, unknown>, o: unknown) => Promise<unknown> }).canUseTool;
+    const p = fn('Bash', { command: 'git commit -m x' }, { signal: new AbortController().signal, toolUseID: 'u7' });
+    await r.tick();
+    assert.equal(r.pending()[0]?.noRemember, true);
+    r.answer(false);
+    await p;
+  });
+});
+
+test('Claude\'s other denials (the owner\'s inherited rules, modes) reach the activity log only; Legion\'s own hook denials are not repeated', async () => {
+  await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
+    r.stream({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 't3', decision_reason_type: 'rule', decision_reason: 'Bash(rm:*) is denied by your settings', message: 'm' });
+    r.stream({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 't4', decision_reason_type: 'hook', message: 'x' });
+    assert.ok(lines(r).some((t) => /Claude denied Bash: Bash\(rm:\*\) is denied by your settings/.test(t)));
+    assert.equal(lines(r).filter((t) => /Claude denied/.test(t)).length, 1);
+    assert.equal(thread(r).filter((t) => /Claude denied|checker blocked/.test(t)).length, 0);
+  });
+});
+
 const lines = (r: GatesRig) => r.activityRead({ taskId: r.task.id }).map((l) => l.text);
 const thread = (r: GatesRig) => r.store.listMessages(r.task.id).map((m) => m.text);
 

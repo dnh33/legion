@@ -1724,7 +1724,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * core there is no setting to read, and the run keeps Legion's own cards as before.
    */
   claudeOwnChecks(): boolean {
-    try { const app = this.gates?.store?.app(); return app !== undefined && app.claudeOwnChecks !== false; } catch { return false; }
+    try {
+      const store = this.gates?.store;
+      const app = store?.app();
+      if (!store || !app) return false;
+      // an app file that did not verify (changed outside Legion, or its key lost) reads as blank, and blank means on: the stricter old path is used instead
+      const v = store.view([]);
+      if (v.changedOutside.includes('app') || v.keyUnreadable) return false;
+      return app.claudeOwnChecks !== false;
+    } catch { return false; }
   }
 
   private readonly docsHosts: ReadonlySet<string> = loadDocsHosts();
@@ -2287,6 +2295,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return this.approvals.request(job.taskId, agent.id, toolName, input, origin ? { roomId: origin.roomId, fromAgentId: origin.fromAgentId, hop: origin.hop } : undefined, {
       onTimeout: (ms) => { timedOut = true; waited = ms; },
       ...this.askExtras(job, agent, toolName, input),
+      // a remembered allow rule would not answer Claude's prompts for a Claude agent (it would skip Claude's checker), so the card does not offer one
+      noRemember: true,
       summary: `${summarizeToolInput(toolName, input)}${reason ? `\nClaude asked: ${reason}` : ''}`,
     }).then((allowed): Decision => {
       if (allowed) return { allow: true };
@@ -2503,9 +2513,26 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // re-reads the mode on every call and, once it is no longer full, decides the call as that mode would, card included.
       // (The web-egress card has its own hook above, so it is left out here: one card per call.)
       const demoted = this.toolDecider(job, agent, { egress: false });
+      // A Claude agent on Claude's own checks that is demoted from Full: bypass mode has no checker and no canUseTool, so Legion's Smart judge must not stand in for
+      // them. Block rules, the floor and Legion's own cards apply as for any Claude agent; everything else Claude would have judged is asked on a card here.
+      const nativeFull = this.claudeOwnChecks();
+      const ownNativeFull = nativeFull ? this.callDecider(job, agent, { egress: false, floorCard: false, guards: false, ownOnly: true, native: true }) : undefined;
       // deny rules survive Full (the one class meant to): a Block rule still stops the tool here, where canUseTool does not exist.
       options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        if (effective() !== 'full' && ownNativeFull) {
+          const tin = (input.tool_input ?? {}) as Record<string, unknown>;
+          const mode = effective();
+          const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+          if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+          const floor = SHELL_TOOLS.has(input.tool_name) ? this.shellFloor(job, agent, input.tool_name, tin, { native: true }) : undefined;
+          if (floor) { const d = await floor; return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.'); }
+          const res = await this.hookCards(job, agent, input.tool_name, tin, mode, input.tool_use_id, ownNativeFull, true);
+          if (!('continue' in res)) return res;
+          if (APPROVAL_READ_ONLY.has(input.tool_name) || isLegionTool(input.tool_name) || !needsApproval('ask', input.tool_name, { capped: job.origin?.approvalCeiling === 'ask' })) return res;
+          const d = await this.claudePromptCard(job, agent, input.tool_name, tin, { decisionReason: 'The approval setting for this run became stricter after it started.' });
+          return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
+        }
         if (effective() !== 'full') {
           const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
@@ -2994,11 +3021,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           this.noteCheckerMode(job, act, msg.permissionMode);
         } else if (msg.subtype === 'permission_denied') {
           // Claude's own checker said no: the owner sees what and why. A denial by Legion's hooks or the owner's own answer is already on record.
-          if (act.nativeChecks && msg.decision_reason_type === 'classifier') {
+          // (the hook and the permission prompt are Legion's own, as is the owner's answer on a card)
+          const kind = String(msg.decision_reason_type ?? '');
+          if (act.nativeChecks && kind !== 'hook' && kind !== 'permissionPromptTool') {
             const why = String(msg.decision_reason ?? msg.message ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) || 'no reason given';
-            const text = `Claude's checker blocked: ${why} (${String(msg.tool_name ?? 'a tool').slice(0, 60)})`;
-            this.addMessage(taskId, 'system', text);
-            this.noteChecker(job, act, text);
+            const tool = String(msg.tool_name ?? 'a tool').slice(0, 60);
+            if (kind === 'classifier') {
+              const text = `Claude's checker blocked: ${why} (${tool})`;
+              this.addMessage(taskId, 'system', text);
+              this.noteChecker(job, act, text);
+            } else this.noteChecker(job, act, `Claude denied ${tool}: ${why}`);
           }
         } else if (msg.subtype === 'compact_boundary') {
           // Claude Code compacted its own context (on /compact, or by itself near the window's end): say so, or the
