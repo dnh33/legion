@@ -182,3 +182,10 @@ test('code for an interpreter: a backslash that stands alone in quotes IS the ro
   assert.equal(hit(`cd "C:/work/projA" && python -c "import shutil; shutil.rmtree('\\\\\\\\')"`), 'names', 'python -c, double quoted');
   assert.equal(hit(`cd "C:/work/projA" && node -e 'require("fs").rmSync("\\\\", { recursive: true })'`), 'names', 'node -e');
 });
+
+test('code for an interpreter: a lone backslash in a paren quote (perl q(), ruby %q()) is still the drive root', { skip: WIN_ONLY }, () => {
+  for (const c of [
+    `cd "C:/work/projA" && perl -MFile::Path=rmtree -e 'rmtree(q(\\\\))'`,
+    `cd "C:/work/projA" && ruby -rfileutils -e 'FileUtils.rm_rf(%q(\\\\))'`,
+  ]) assert.equal(hit(c), 'names', c);
+});

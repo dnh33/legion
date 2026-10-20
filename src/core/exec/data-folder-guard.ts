@@ -46,6 +46,8 @@ const LINKERS = new Set(['mklink', 'ln', 'new-item', 'ni']);
 const ONELINERS = new Set(['node', 'nodejs', 'python', 'python3', 'py', 'perl', 'ruby']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'cmd', 'powershell', 'pwsh']);
 const SKIP_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', 'sudo', 'time', 'env', 'command', 'exec', 'nohup', 'call', 'start', 'xargs', 'builtin', 'noglob']);
+/** A quote's closing mark: the plain quotes, and the bracket pairs of Perl's q() and Ruby's %q[]. */
+const QUOTE_CLOSE: Record<string, string> = { "'": "'", '"': '"', '`': '`', '(': ')', '[': ']', '{': '}', '<': '>' };
 const MARKERS = /homedir|appdata|userprofile|os\.path|pathlib|join\(|resolve\(|environ|getenv|process\.env|\$env:|\bhome\b/i;
 /** The folder variables read from the run's environment. Any other variable is unknown. */
 const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp', 'tmpdir'];
@@ -592,10 +594,10 @@ class Reader {
     for (const m of matches) {
       const text = m[0].replace(/\\\\/g, '\\');
       // Only backslashes: an escape in the code (a line that continues, "\\n" or "\\\\" inside a longer string) is not a path. But a backslash that
-      // stands alone in quotes, as in rmtree('\\'), is the root of the drive: that one still counts.
+      // stands alone in quotes, as in rmtree('\\') or Perl's q(\\), is the root of the drive: that one still counts.
       if (/^\\+$/.test(text)) {
         const before = code[m.index - 1], after = code[m.index + m[0].length];
-        if (!(before !== undefined && /['"`]/.test(before) && after === before)) continue;
+        if (!(before !== undefined && after === (QUOTE_CLOSE[before] ?? null))) continue;
       }
       this.note(this.probe({ text }, this.where));
     }
