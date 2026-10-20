@@ -96,6 +96,11 @@ export interface GateSettings {
   envKeep?: string[];
   /** App file only (at most TRUSTED_FOLDERS_MAX): folders whose own Claude Code settings and skills may run commands, each bound to the sha256 of the content found when the owner trusted it. Adding one is a loosening. */
   trustedFolders?: TrustedFolderRecord[];
+  /**
+   * App file only. Claude agents follow Claude's own permission checks (its modes, its checker) and Legion adds only the checks Claude Code lacks.
+   * Absent means on. `false` is the old way: Legion's own cards and Smart classifier judge Claude's tools. Turning it on is a loosening (Legion asks less).
+   */
+  claudeOwnChecks?: boolean;
   /** App file only: the owner answered the first-run screen "How should your agents ask?". Not a gate; written only by the core when the owner answers, signed with the rest. */
   firstRunChoice?: true;
   /** App file only: the owner dismissed the one-time notice that projects can now set how agents ask. Not a gate; signed with the rest. */
