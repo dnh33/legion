@@ -1,8 +1,8 @@
 /**
  * The Legion confirm window: the one place Legion asks you before it changes a setting or moves money. It is a separate window, owned by this (the main)
- * process and loaded from assets/confirm-window.html. The Legion page cannot ask it anything but the question's words (those come from main too), cannot
- * press its buttons, and cannot read the answer: the page answers by changing ITS OWN title to `legion-confirm:<one-time id>:<button>`, and main reads
- * that only from this window's web contents. There is no preload, no node and no network (the page's policy allows none).
+ * process and loaded from assets/confirm-window.html. The Legion page cannot ask it anything (the words come from main), cannot press its buttons,
+ * and cannot give the answer: the confirm page answers by changing ITS OWN title to `legion-confirm:<one-time id>:<button>`, and main reads that only
+ * from this window's web contents. There is no preload, no node and no network (the page's policy allows none).
  *
  * It takes the place of dialog.showMessageBox for those questions: `confirmWindow.showMessageBox([parent,] options)` gives `{ response }` like Electron's,
  * honouring buttons, defaultId and cancelId. Only one question is open at a time. If the window cannot be shown (the file is missing, it fails to load or
