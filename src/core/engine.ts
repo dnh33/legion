@@ -43,7 +43,7 @@ import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
-import { MAX_READABLE, criticalDeleteRead, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { MAX_READABLE, criticalDeleteRead, longCatastrophic, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
 import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
@@ -2091,11 +2091,19 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
       // a catastrophic command hidden under three or more substitutions is past the depth the refusal reads (it stops at two): read it flat, so the nesting hides nothing.
       // The refusal is Legion's own; the card for what it cannot read is Claude's to give.
-      if (native && (command.match(/\$\(|`/g)?.length ?? 0) >= 3) {
+      // (only for a command short enough to read whole; a longer one is read in windows, below)
+      if (native && command.length <= MAX_READABLE && (command.match(/\$\(|`/g)?.length ?? 0) >= 3) {
         const deep = refuseCatastrophic(command.replace(/\$\(|[`()]/g, ' '), kind);
         if (deep) return Promise.resolve({ allow: false, message: deep });
       }
       if (opts.card === false) return undefined;
+      // a catastrophic command hidden in a command too long to read whole: Legion's card in every preset, Full included (Claude's own checker does not run in Full, and
+      // padding must not step around the stop). Not a refusal: a long heredoc is everyday work. Without such text a long command goes on to Claude.
+      // (over about 64,000 characters the command is not read at all, which would hold up the core: it is carded unread)
+      if (native && command.length > MAX_READABLE) {
+        const hit = longCatastrophic(command, kind);
+        if (hit) return this.longCatastrophicCard(job, agent, toolName, input, hit);
+      }
       // Claude's own parser and checker handle what Legion cannot read, and Claude Code guards the project folder itself: only Legion's own files are left
       if (native) return this.dataFolderCard(job, agent, toolName, input, command, kind, true);
       // the project folder or a folder above it: a card in every mode but Full, a refusal in Full (read from the folder the shell is in)
@@ -2126,6 +2134,36 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ...this.askExtras(job, agent, toolName, input),
       noRemember: true,
       summary: `Legion cannot read what this command will run.\n${shown}\nWhy: ${why}.\nThe safety check cannot judge it by reading it, so you are asked in every approval mode. Allow it only if you know what it does.`,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
+    });
+  }
+
+  /** The call ids the owner said No to, so Claude's own "permission denied" line for the same call is not logged a second time. Capped: an id that never comes back is dropped, oldest first. */
+  private rememberOwnerDenied(act: Active, id: string): void {
+    const set = (act.ownerDenied ??= new Set());
+    set.delete(id); set.add(id);
+    while (set.size > 64) { const oldest = set.values().next().value; if (oldest === undefined) break; set.delete(oldest); }
+  }
+
+  /** The card for a command too long to read whole that holds catastrophic text. No Remember: no rule may skip it. */
+  private longCatastrophicCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, hit: { kind: 'found' | 'unread'; reason: string; part: string }): Promise<{ allow: boolean; message?: string }> {
+    const o = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const what = (hit.reason.replace(/^Refused: /, '').split(/\.\s/)[0] ?? 'dangerous').replace(/\.$/, '');
+    const part = hit.part.length > 1000 ? `${hit.part.slice(0, 1000)}\n(${(hit.part.length - 1000).toLocaleString('en-US')} more characters not shown here)` : hit.part;
+    const found = hit.kind === 'found';
+    const why = found ? 'it holds dangerous text' : 'it is too long to check';
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      // the card's consequence line is read from the start of the command only: classifying a megabyte would hold up the core
+      ...this.askExtras(job, agent, toolName, typeof input.command === 'string' && input.command.length > MAX_READABLE ? { ...input, command: input.command.slice(0, MAX_READABLE) } : input),
+      noRemember: true,
+      summary: found
+        ? `A very long command holds text that is dangerous: ${what}.\nThe dangerous part:\n${part}\nIt is too long for Legion to read whole, so you are asked in every approval mode. Allow it only if you know what it does.`
+        : `Legion cannot check this command: ${what}.\n${part}\nA command this long could hide anything, so you are asked in every approval mode. Allow it only if you know what it does.`,
     }).then((allowed) => {
       if (allowed) return { allow: true };
       const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
@@ -2205,9 +2243,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (keeps && r.moved && act) act.shellMoved = true;
       if (keeps && act) act.shellCwds = r.cwds.length ? r.cwds : undefined;
     } catch { hit = 'hidden'; readFailed = true; if (keeps && act) act.shellMoved = true; }
-    if (hit === 'none' || (full && hit !== 'names')) return undefined;
-    // a Claude agent on Claude's own checks: a path built when the command runs ($X) that cannot be resolved is Claude's to judge. A reader that threw is not that: it still asks.
-    if (native && hit === 'hidden' && !readFailed) return undefined;
+    if (hit === 'none') return undefined;
+    // Full for a Claude agent: Claude's checker does not run, so an unresolved path that NAMES one of the protected files (`rm -rf $DIR/gates`) keeps the card
+    // (the old path refused such a command); other unresolved paths in Full are left alone, as before.
+    const lower = command.toLowerCase();
+    const namedInFull = full && native && hit === 'hidden' && folders.some((f) => lower.includes(basename(f).toLowerCase()));
+    if (full && hit !== 'names' && !namedInFull) return undefined;
+    // a Claude agent on Claude's own checks: a path built when the command runs ($X) that cannot be resolved is Claude's to judge, where Claude judges (not in Full). A reader that threw is not that: it still asks.
+    if (native && !full && hit === 'hidden' && !readFailed) return undefined;
     const o = job.origin;
     let timedOut = false; let waited: number | undefined;
     const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
@@ -2351,7 +2394,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (allowed) return { allow: true };
       const live = this.active.get(job.taskId);
       // the owner's own No: Claude's "permission denied" message for this call is not logged a second time
-      if (live && o?.toolUseID) (live.ownerDenied ??= new Set()).add(o.toolUseID);
+      if (live && o?.toolUseID) this.rememberOwnerDenied(live, o.toolUseID);
       if (live && !live.cancelled) this.mascot('thinking', `${toolName} ${timedOut ? 'not answered' : 'denied'}`);
       if (timedOut) {
         const wait = this.waitedText(waited);
@@ -2638,7 +2681,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         // (an outside ceiling still cards the few that need it, as before)
         const legionOwn = !APPROVAL_READ_ONLY.has(toolName) && !needsApproval('ask', toolName, { capped: job.origin?.approvalCeiling === 'ask' });
         const d = this.takeHookDecided(job, o?.toolUseID) ?? (legionOwn ? { allow: true } : await this.claudeAsk(job, agent, toolName, input, o));
-        if (!d.allow && o?.toolUseID) { const live = this.active.get(job.taskId); if (live) (live.ownerDenied ??= new Set()).add(o.toolUseID); }
+        if (!d.allow && o?.toolUseID) { const live = this.active.get(job.taskId); if (live) this.rememberOwnerDenied(live, o.toolUseID); }
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
     } else {
@@ -3110,7 +3153,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           // (the hook and the permission prompt are Legion's own, as is the owner's answer on a card)
           const kind = String(msg.decision_reason_type ?? '');
           // (an answer of Legion's own, the owner's No on a card, comes back here with whatever type the SDK gives it: matched by the call's id)
-          const ours = act.ownerDenied?.has(String(msg.tool_use_id ?? '')) === true;
+          const deniedId = String(msg.tool_use_id ?? '');
+          const ours = act.ownerDenied?.has(deniedId) === true;
+          act.ownerDenied?.delete(deniedId);
           if (act.nativeChecks && kind !== 'hook' && kind !== 'permissionPromptTool' && !ours) {
             const why = String(msg.decision_reason ?? msg.message ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) || 'no reason given';
             const tool = String(msg.tool_name ?? 'a tool').slice(0, 60);

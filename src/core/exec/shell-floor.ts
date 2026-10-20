@@ -863,6 +863,39 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
   return undefined;
 }
 
+const LONG_WINDOW = 5_000;
+const LONG_STEP = 4_000;
+/** Past this length even the windowed read costs too much for the core (about 1 ms per 1,000 characters, more for odd shapes): such a command is carded unread. */
+export const MAX_READ_IN_PARTS = 64_000;
+/** A line of a window that holds the catastrophic text, so a card can show the dangerous part and not the padding in front of it. */
+function dangerousPart(window: string, shell: ShellKind): string {
+  for (const piece of window.split(/\r?\n|;|&&|\|\|/)) if (piece.trim() && refuseCatastrophic(piece, shell)) return piece.trim();
+  return window;
+}
+
+/**
+ * The catastrophic check for a command too long to read whole (over MAX_READABLE): the same refusal, read in overlapping windows of 5,000 characters
+ * (a step of 4,000), so padding in front of, behind or around the command hides nothing, and the cost stays linear in the length. A window with three
+ * or more substitutions is read flat as well (the refusal itself stops at two levels). A hit comes back with its reason and the dangerous part.
+ * A command over MAX_READ_IN_PARTS is not read at all (that would hold up the core): it comes back as `unread`, to be asked about. A long heredoc or
+ * log with no catastrophic text is no hit, so it goes on.
+ */
+export function longCatastrophic(raw: string, shell: ShellKind = 'sh'): { kind: 'found' | 'unread'; reason: string; part: string } | undefined {
+  if (raw.length > MAX_READ_IN_PARTS) return { kind: 'unread', reason: `it is too long to check, even in parts (${raw.length.toLocaleString('en-US')} characters)`, part: raw.slice(0, 1000) };
+  for (let at = 0; at < raw.length; at += LONG_STEP) {
+    const window = raw.slice(at, at + LONG_WINDOW);
+    let reason = refuseCatastrophic(window, shell);
+    let text = window;
+    if (!reason && (window.match(/\$\(|`/g)?.length ?? 0) >= 3) {
+      text = window.replace(/\$\(|[`()]/g, ' ');
+      reason = refuseCatastrophic(text, shell);
+    }
+    if (reason) return { kind: 'found', reason, part: dangerousPart(text, shell) };
+    if (at + LONG_WINDOW >= raw.length) break;
+  }
+  return undefined;
+}
+
 /* ---------- commands that cannot be read ---------- */
 
 /** Words that open a compound command or a test rather than name a program (`do rm …` runs rm; `[ -f x ]` is a test). */
