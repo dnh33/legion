@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Legion restarts its core when it stops by itself.** If Legion Core stops while Legion is open, Legion starts it again after a second, and the window tells you once: "Legion Core stopped unexpectedly and was restarted. Running tasks were stopped." If it stops 3 times in 5 minutes, Legion stops trying, and a banner says so, points to core.log and offers a Restart core button. Closing Legion, the tray Restart core, an update, and logging off or shutting down never trigger it. Settings, About has a switch, "Restart Legion Core when it stops unexpectedly", on by default. Every stop and every decision is written to logs/app.log.
+
 ## [0.3.7] - 2026-10-21
 
 A security update. It installs by itself on Windows. On a Mac or Linux it changes Legion's dependencies, so close Legion and run the installer once more: `curl -fsSL https://getlegion.xyz | sh` (if you installed with `--dir`, add it again). Your data in `~/.legion` stays.
