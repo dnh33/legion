@@ -136,7 +136,7 @@ test('Continue cancelled: nothing is saved, Ask stays selected, and the note say
   const out: { note: Note | null } = { note: null };
   const r = await continueFrom('bypass', false, SEEDS, runWith(async (c) => { sent.push(c); return { ok: false, cancelled: true }; }, out), undefined);
   assert.deepEqual(r, { done: false, selected: 'ask' });
-  assert.deepEqual(sent, [{ kind: 'app', patch: { preset: 'bypass', firstRunChoice: true } }]);
+  assert.deepEqual(sent, [{ kind: 'app', patch: { preset: 'bypass', firstRunChoice: true, claudeNoticeSeen: true } }]);
   assert.deepEqual(out.note, { tone: 'info', text: CANCELLED_NOTE });
   assert.equal(CANCELLED_NOTE, 'Cancelled. Nothing changed.');
   // a looser pick that is refused (not cancelled) also goes back to Ask and shows the reason
@@ -167,7 +167,7 @@ test('Decide later is remembered: the app file gets firstRunChoice (no preset, n
   const view = (s: GatesStore): GatesView => ({ app: s.app(), projects: {}, unreadable: [], changedOutside: [], canSign: true }) as unknown as GatesView;
   assert.equal(shouldShowPresetChoice(view(store), true, SEEDS), true, 'before: a fresh install sees it');
   await laterFrom(runWith(bridge, { note: null }));
-  assert.deepEqual(sent, [{ kind: 'app', patch: { firstRunChoice: true } }]);
+  assert.deepEqual(sent, [{ kind: 'app', patch: { firstRunChoice: true, claudeNoticeSeen: true } }]);
   assert.equal(store.app().preset, undefined, 'the preset stays unset: today is behavior kept');
   assert.equal(shouldShowPresetChoice(view(store), true, SEEDS), false, 'after: it does not return');
   await store.flush();

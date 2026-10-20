@@ -10,13 +10,19 @@ import './gates.css';
 
 export function RunChips({ task, agent, projects, view }: { task?: Task; agent?: AgentProfile; projects: readonly Project[]; view: GatesView | null }) {
   const c = runChips(task, agent, projects, view);
-  if (!c.runsAs && !c.web) return null;
+  if (!c.runsAs && !c.web && !c.checker) return null;
   return (
     <>
       {c.runsAs && (
         <span className={`chip-pill runs-as${c.runsAs.full ? ' ap-full' : ''}`} title={c.runsAs.title ?? c.runsAs.reason ?? 'How this run asks'}>
           {c.runsAs.text}
           {c.runsAs.reason && <span className="sr-only">. {c.runsAs.title ?? c.runsAs.reason}</span>}
+        </span>
+      )}
+      {c.checker && (
+        <span className="chip-pill checker-chip" title={c.checker.title}>
+          {c.checker.text}
+          <span className="sr-only">. {c.checker.title}</span>
         </span>
       )}
       {c.web && <span className="chip-pill web-chip" title="Pages this run read on the web, and sites you approved for it. Only counts are kept.">{c.web}</span>}

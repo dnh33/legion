@@ -90,12 +90,12 @@ export function listWords(agents: readonly RosterAgent[], preset: Preset, follow
   return { head, lines: [], ...(warn ? { warn } : {}), ...(info ? { info } : {}) };
 }
 
-/** What Decide later sends: only the flag that the question was seen. No preset, so nothing gets looser and no dialog opens. */
-export function skipSubmit(): { patch: { firstRunChoice: true } } { return { patch: { firstRunChoice: true } }; }
+/** What Decide later sends: the flags that the question (and the sentence about Claude's own checks on it) was seen. No preset, so nothing gets looser and no dialog opens. */
+export function skipSubmit(): { patch: { firstRunChoice: true; claudeNoticeSeen: true } } { return { patch: { firstRunChoice: true, claudeNoticeSeen: true } }; }
 
 /** What Continue sends for the chosen preset. Only a looser one raises the native confirm (the core decides; this says so the screen can word the wait). */
-export function presetSubmit(id: Preset): { patch: { preset: Preset; firstRunChoice: true }; needsConfirm: boolean } {
-  return { patch: { preset: id, firstRunChoice: true }, needsConfirm: id !== 'ask' };
+export function presetSubmit(id: Preset): { patch: { preset: Preset; firstRunChoice: true; claudeNoticeSeen: true }; needsConfirm: boolean } {
+  return { patch: { preset: id, firstRunChoice: true, claudeNoticeSeen: true }, needsConfirm: id !== 'ask' };
 }
 
 type Run = (change: GatesChangeRequest, done: string) => Promise<boolean>;

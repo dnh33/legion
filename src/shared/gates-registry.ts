@@ -105,6 +105,8 @@ export interface GateSettings {
   firstRunChoice?: true;
   /** App file only: the owner dismissed the one-time notice that projects can now set how agents ask. Not a gate; signed with the rest. */
   noticeSeen?: true;
+  /** App file only: the owner has seen the one-time notice that Claude agents follow Claude's own permission checks (or the first-run screen that says it). Not a gate; signed with the rest. */
+  claudeNoticeSeen?: true;
   version: 1;
 }
 

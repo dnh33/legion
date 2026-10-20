@@ -11,7 +11,7 @@ import type { GateValue, Preset } from '../shared/gates-registry.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; claudeOwnChecks?: boolean; firstRunChoice?: true; noticeSeen?: true }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; claudeOwnChecks?: boolean; firstRunChoice?: true; noticeSeen?: true; claudeNoticeSeen?: true }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -65,7 +65,7 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
     } else if (k === 'claudeOwnChecks' && isApp) {
       if (typeof x !== 'boolean') return undefined;
       out.claudeOwnChecks = x;
-    } else if ((k === 'firstRunChoice' || k === 'noticeSeen') && isApp) {
+    } else if ((k === 'firstRunChoice' || k === 'noticeSeen' || k === 'claudeNoticeSeen') && isApp) {
       if (x !== true) return undefined;
       out[k] = true;
     } else if (k === 'limit' && !isApp) {

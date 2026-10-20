@@ -27,6 +27,7 @@ import { ProjectView } from './projects/ProjectView';
 import { LiveRegion } from './projects/page/announce';
 import { HoldChip } from './projects/page/HoldChip';
 import { WhatsNew } from './whatsnew/WhatsNew';
+import { ClaudeNotice } from './gates/ClaudeChecks';
 import { initProjects, openAsk } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
@@ -132,6 +133,7 @@ export function App() {
       <AgentRail />
       <main className="center">
         <HoldChip />
+        <ClaudeNotice />
         {settingsOpen ? <SettingsPanel /> : (
           <>
             {view === 'chat' && <><Thread /><Composer /></>}

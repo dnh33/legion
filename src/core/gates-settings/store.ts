@@ -431,8 +431,8 @@ export class GatesStore {
   /** Validates a patch and returns the settings it would give. Throws a 400 for anything wrong; never looks at the key. */
   private build(cur: GateSettings, body: Record<string, unknown>, isApp: boolean): GateSettings {
     if ('shellFloorOff' in body) throw new GatesError(400, "Legion's shell safety floor has no switch.");
-    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen' && k !== 'claudeOwnChecks')) {
-      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, claudeOwnChecks, firstRunChoice and noticeSeen can be changed here.');
+    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen' && k !== 'claudeNoticeSeen' && k !== 'claudeOwnChecks')) {
+      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, claudeOwnChecks, firstRunChoice, noticeSeen and claudeNoticeSeen can be changed here.');
     }
     const out: GateSettings = { ...cur, version: 1 };
     if ('limit' in body) {
@@ -500,7 +500,7 @@ export class GatesStore {
       // absent means on: only the off side is written down
       if (body.claudeOwnChecks) delete out.claudeOwnChecks; else out.claudeOwnChecks = false;
     }
-    for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {
+    for (const flag of ['firstRunChoice', 'noticeSeen', 'claudeNoticeSeen'] as const) {
       if (!(flag in body)) continue;
       if (!isApp) throw new GatesError(400, 'That note is kept for the whole app, not per project.');
       if (body[flag] !== true) throw new GatesError(400, flag + ' can only be set to true.');
@@ -545,7 +545,7 @@ export class GatesStore {
         if (!isApp || raw.claudeOwnChecks !== false) throw new Error('claudeOwnChecks');
         out.claudeOwnChecks = false;
       }
-      for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {
+      for (const flag of ['firstRunChoice', 'noticeSeen', 'claudeNoticeSeen'] as const) {
         if (raw[flag] === undefined) continue;
         if (!isApp || raw[flag] !== true) throw new Error(flag);
         out[flag] = true;
