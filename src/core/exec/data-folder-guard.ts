@@ -587,11 +587,16 @@ class Reader {
   /** A one-liner or here-doc for an interpreter (`node -e`, `python -c`): look for protected paths in its text. */
   private script(code: string): void {
     this.allRead = false;
-    const found = code.match(/[A-Za-z]:[\\/][^'"`\s)]*|(?:\.{1,2}|~)?[\\/][^'"`\s)]+|\.\.?[\\/]|~[^'"`\s)]*/g) ?? [];
-    for (const f of found) {
-      const text = f.replace(/\\\\/g, '\\');
-      // only backslashes: an escape in the code (a line continuation, "\\" in a string), not the root of the drive (that is written `C:\`, which matched above)
-      if (/^\\+$/.test(text)) continue;
+    const matches = [...code.matchAll(/[A-Za-z]:[\\/][^'"`\s)]*|(?:\.{1,2}|~)?[\\/][^'"`\s)]+|\.\.?[\\/]|~[^'"`\s)]*/g)];
+    const found = matches.map((m) => m[0]);
+    for (const m of matches) {
+      const text = m[0].replace(/\\\\/g, '\\');
+      // Only backslashes: an escape in the code (a line that continues, "\\n" or "\\\\" inside a longer string) is not a path. But a backslash that
+      // stands alone in quotes, as in rmtree('\\'), is the root of the drive: that one still counts.
+      if (/^\\+$/.test(text)) {
+        const before = code[m.index - 1], after = code[m.index + m[0].length];
+        if (!(before !== undefined && /['"`]/.test(before) && after === before)) continue;
+      }
       this.note(this.probe({ text }, this.where));
     }
     if (!this.names && MARKERS.test(code) && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f))) this.hidden = true;

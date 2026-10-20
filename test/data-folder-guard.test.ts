@@ -159,11 +159,26 @@ test('code for an interpreter: a backslash escape (\\\\ at a line end, "\\\\n" i
     '    ild_ok = early["ild_db"] < 0.0 < late["ild_db"] \\\\',
     'print("a\\\\\\\\b")',
     's = s.replace("\\\\r\\\\n", "\\\\n")',
-    'x = "\\\\\\\\"',
   ]) assert.equal(hit(real(body)), 'none', body);
   // a real path in the code still counts, in either slash, and so does the drive root written as a path
   assert.equal(hit(real("open('C:/Users/Fakeuser/AppData/Roaming/legion/projects.json', 'w')")), 'names');
   assert.equal(hit(real("open('C:\\\\Users\\\\Fakeuser\\\\AppData\\\\Roaming\\\\legion\\\\projects.json', 'w')")), 'names');
   assert.equal(hit(real("open('\\\\Users\\\\Fakeuser\\\\AppData\\\\Roaming\\\\legion\\\\projects.json', 'w')")), 'names');
   assert.equal(hit(real("import shutil; shutil.rmtree('C:\\\\')")), 'names');
+});
+
+test('code for an interpreter: a backslash that stands alone in quotes IS the root of the drive, and still counts (review of the escape fix)', { skip: WIN_ONLY }, () => {
+  const py = (body: string) => `cd "C:/work/projA" && python - <<'PYEOF'\n${body}\nPYEOF`;
+  for (const body of [
+    "import shutil; shutil.rmtree('\\\\')",
+    'import shutil; shutil.rmtree("\\\\")',
+    "import os; os.chdir('\\\\'); os.remove('Users/Fakeuser/AppData/Roaming/legion/projects.json')",
+    "import os; os.remove(os.path.join('\\\\', 'Users', 'Fakeuser', 'AppData', 'Roaming', 'legion', 'projects.json'))",
+    "from pathlib import Path; (Path('\\\\') / 'Users').unlink()",
+    "r = '\\\\'; open(r + 'Users\\\\Fakeuser\\\\AppData\\\\Roaming\\\\legion\\\\projects.json', 'w')",
+  ]) assert.equal(hit(py(body)), 'names', body);
+  // one-liners, spelled so the interpreter really receives a lone backslash in quotes (in shell double quotes, \\ becomes \ first)
+  assert.equal(hit(`cd "C:/work/projA" && python -c 'import shutil; shutil.rmtree("\\\\")'`), 'names', 'python -c');
+  assert.equal(hit(`cd "C:/work/projA" && python -c "import shutil; shutil.rmtree('\\\\\\\\')"`), 'names', 'python -c, double quoted');
+  assert.equal(hit(`cd "C:/work/projA" && node -e 'require("fs").rmSync("\\\\", { recursive: true })'`), 'names', 'node -e');
 });
