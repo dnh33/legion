@@ -75,6 +75,7 @@ type Listener = (e: Record<string, unknown>) => void;
 const doc = {
   title: 'Legion', active: null as El | null, byId: new Map<string, El>(), listeners: new Map<string, Listener[]>(), created: [] as El[],
   documentElement: new El('html'),
+  get activeElement(): El | null { return doc.active; },
   getElementById(id: string): El { const e = doc.byId.get(id); if (!e) throw new Error(`no element ${id}`); return e; },
   createElement(t: string): El { const e = new El(t); doc.created.push(e); return e; },
   createElementNS(_n: string, t: string): El { return doc.createElement(t); },
@@ -175,4 +176,17 @@ test('page DOM: Escape answers the cancel button; Enter off a button answers the
   win.confirmWindow.arm();
   doc.fire('keydown', { key: 'Enter', target: new El('button') });
   assert.equal(doc.title, 'Legion', 'Enter on a focused button is that button\'s own click, not an answer made by the page');
+});
+
+test('page DOM: Tab cycles through the buttons and wraps at both ends (the last check starts on Cancel and Tab reaches the confirm button)', () => {
+  const { win } = boot();
+  win.confirmWindow.render(model({ buttons: ['Send', 'Cancel'], defaultIndex: 1, cancelIndex: 1, confirmAt: 0 }));
+  win.confirmWindow.arm();
+  const b = doc.getElementById('ft').getElementsByTagName('button');
+  assert.equal(doc.active, b[1]);
+  doc.fire('keydown', { key: 'Tab' }); assert.equal(doc.active, b[0], 'forward from the last wraps to the first');
+  doc.fire('keydown', { key: 'Tab' }); assert.equal(doc.active, b[1]);
+  doc.fire('keydown', { key: 'Tab', shiftKey: true }); assert.equal(doc.active, b[0]);
+  doc.fire('keydown', { key: 'Tab', shiftKey: true }); assert.equal(doc.active, b[1], 'backward from the first wraps to the last');
+  assert.equal(doc.title, 'Legion', 'moving focus answers nothing');
 });

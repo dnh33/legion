@@ -20,17 +20,18 @@
   .wm{display:block;height:18px;width:auto;color:var(--cream);flex:none}
   .who{font:11.5px/1.3 var(--mono);color:var(--muted);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .ttl{flex:none;padding:14px 24px 0}
-  h3{font-size:18px;line-height:1.28;font-weight:600;letter-spacing:-.005em;text-wrap:balance;overflow-wrap:anywhere}
+  h3{display:flex;align-items:baseline;font-size:18px;line-height:1.28;font-weight:600;letter-spacing:-.005em;text-wrap:balance;overflow-wrap:anywhere}
+  #ttext{min-width:0;text-wrap:balance}
   .msg{margin-top:6px;font-size:14px;line-height:1.45;color:var(--text-2);overflow-wrap:anywhere;text-wrap:pretty;white-space:pre-line;-webkit-user-select:text;user-select:text}
   /* the detail scrolls; the title, the message, the amount, the address and the buttons never leave the window */
   .det{flex:0 1 auto;min-height:0;max-height:360px;margin:14px 24px 0;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;
     font-size:13px;line-height:1.55;color:var(--text-2);overflow-y:auto;overflow-x:hidden;-webkit-user-select:text;user-select:text;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
-  .money .det{max-height:160px}
   .det.more{-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
   :root[data-kbd-nav] .det:focus-visible{outline:none;background:var(--hover)}
-  .det>*+*{margin-top:9px}
+  .det>:not([hidden])~:not([hidden]){margin-top:9px}
   .det p{overflow-wrap:anywhere;text-wrap:pretty;white-space:pre-line}
-  .kv{display:grid;grid-template-columns:fit-content(45%) 1fr;gap:2px 12px}
+  #prose p+p{margin-top:9px}
+  .kv{display:grid;grid-template-columns:fit-content(45%) 1fr;gap:4px 12px}
   .kv dt{color:var(--muted);overflow-wrap:anywhere}
   .kv dd{font:12.5px/1.55 var(--mono);color:var(--text);overflow-wrap:anywhere;white-space:pre-line}
   .lst{list-style:none;display:flex;flex-direction:column;gap:6px}
@@ -44,7 +45,7 @@
   .addr .g{display:inline-block;margin-right:.6em}
   .addr i{font-style:normal;color:var(--gold);font-weight:600}
   .ft{flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;padding:16px 24px 18px;margin-top:auto}
-  .esc{margin-right:auto;flex:1 1 0;min-width:140px;font:11.5px/1.3 var(--mono);color:var(--muted)}
+  .esc{margin-right:auto;flex:1 1 0;min-width:96px;font:11.5px/1.3 var(--mono);color:var(--muted)}
   .esc kbd{font:inherit;border:1px solid var(--line-strong);border-radius:4px;padding:0 5px;color:var(--text-2)}
   button{font:13px/1 var(--sans);color:var(--text);background:var(--surface);border:1px solid var(--line-strong);border-radius:6px;padding:10px 16px;cursor:pointer;white-space:nowrap;flex:none;-webkit-app-region:no-drag}
   button:hover{background:var(--hover);border-color:var(--text-2)}
@@ -58,7 +59,7 @@
   .money button.go:hover,:root[data-kbd-nav] .money button.go:focus-visible{background:color-mix(in srgb,var(--gold) 86%,var(--text));border-color:var(--gold)}
   button:disabled{opacity:.6;cursor:default}
   /* the tone also shows in a tag in the title, never as a side stripe */
-  .tone{display:inline-block;vertical-align:baseline;margin-right:8px;font:600 11px/1 var(--mono);letter-spacing:.06em;padding:4px 6px;border-radius:4px;position:relative;top:-2px}
+  .tone{flex:none;display:inline-block;margin-right:8px;font:600 11px/1 var(--mono);letter-spacing:.06em;padding:4px 6px;border-radius:4px;position:relative;top:-2px}
   .danger .tone{color:var(--danger);background:color-mix(in srgb,var(--danger) 14%,transparent)}
   .money .tone{color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
 </style></head>
@@ -112,7 +113,7 @@
       cs=getComputedStyle(c);
       var own=c.getBoundingClientRect().height;
       if(c.id==='det'){var nat=c.scrollHeight+(c.offsetHeight-c.clientHeight), mx=parseFloat(cs.maxHeight);own=isFinite(mx)?Math.min(nat,mx):nat}
-      h+=own+(parseFloat(cs.marginTop)||0)+(parseFloat(cs.marginBottom)||0);
+      h+=own+(c.id==='ft'?0:parseFloat(cs.marginTop)||0)+(parseFloat(cs.marginBottom)||0); // the footer's margin is auto (it sits at the bottom): its used size is not content
     }
     return Math.ceil(h);
   }
@@ -122,7 +123,7 @@
     if(m.theme==='light')root.setAttribute('data-theme','light');else root.removeAttribute('data-theme');
     root.setAttribute('data-kbd-nav','');
     $('cw').className='cw '+m.tone;
-    $('who').textContent=m.who?'asked by '+m.who:'';show($('who'),!!m.who);
+    $('who').textContent=m.who?'asked by '+m.who:'';$('who').title=m.who?'asked by '+m.who:'';show($('who'),!!m.who);
     var tag=$('tag');tag.textContent=m.toneTag;show(tag,!!m.toneTag);
     $('ttext').textContent=m.title;
     var msg=$('m');msg.textContent=m.message;show(msg,!!m.message);
@@ -148,6 +149,16 @@
     updateMore();
     focusDefault();
   }
+  // Tab stays inside the window: the detail (when it scrolls) and the buttons, wrapping at both ends
+  function cycle(e){
+    var list=[],d=$('det'),b=$('ft').getElementsByTagName('button'),i,at;
+    if(d.tabIndex===0)list.push(d);
+    for(i=0;i<b.length;i++)list.push(b[i]);
+    at=list.indexOf(document.activeElement);
+    e.preventDefault();
+    if(!list.length)return;
+    list[at<0?(e.shiftKey?list.length-1:0):(at+(e.shiftKey?list.length-1:1))%list.length].focus();
+  }
   function focusDefault(){var b=$('ft').getElementsByTagName('button')[model.defaultIndex];if(b)b.focus()}
   // Called when the window is shown. A click or a key that lands in the first moments (a double click on the page behind, a key still held) is not an answer.
   function arm(){clearTimeout(armTimer);focusDefault();armTimer=setTimeout(function(){armed=true},GUARD_MS)}
@@ -158,6 +169,7 @@
   document.addEventListener('keydown',function(e){
     document.documentElement.setAttribute('data-kbd-nav','');
     if(!model||e.repeat)return;
+    if(e.key==='Tab'){cycle(e);return}
     if(e.key==='Escape'){e.preventDefault();answer(model.cancelIndex)}
     else if(e.key==='Enter'&&!(e.target&&e.target.tagName==='BUTTON')){e.preventDefault();answer(model.defaultIndex)}
   },true);
