@@ -48,7 +48,10 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'cmd', 'powershell', 'pwsh']);
 const SKIP_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', 'sudo', 'time', 'env', 'command', 'exec', 'nohup', 'call', 'start', 'xargs', 'builtin', 'noglob']);
 /** A quote's closing mark: the plain quotes, and the bracket pairs of Perl's q() and Ruby's %q[]. */
 const QUOTE_CLOSE: Record<string, string> = { "'": "'", '"': '"', '`': '`', '(': ')', '[': ']', '{': '}', '<': '>' };
-const MARKERS = /homedir|appdata|userprofile|os\.path|pathlib|join\(|resolve\(|environ|getenv|process\.env|\$env:|\bhome\b/i;
+/** Code that builds a path from the home folder or the environment: it can reach the data folder without naming it. */
+const HOME_MARKERS = /homedir|appdata|userprofile|expanduser|environ|getenv|process\.env|\$env:|\bhome\b/i;
+/** Code that builds a path from parts. Alone that is ordinary work (nearly every pathlib script); near a protected name it could point there. */
+const BUILD_MARKERS = /os\.path|pathlib|join\(|resolve\(|\bPath\(/i;
 /** The folder variables read from the run's environment. Any other variable is unknown. */
 const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp', 'tmpdir'];
 
@@ -601,7 +604,15 @@ class Reader {
       }
       this.note(this.probe({ text }, this.where));
     }
-    if (!this.names && MARKERS.test(code) && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f))) this.hidden = true;
+    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && this.namesProtected(code)))) this.hidden = true;
+  }
+
+  /** The code names a protected file or folder, or the folder that holds it, by its own name (`"projects.json"`, `/ "gates"`, `"legion"`). */
+  private namesProtected(code: string): boolean {
+    const low = code.toLowerCase();
+    const names = new Set<string>();
+    for (const t of this.ctx.set) for (const n of t.split(/[\\/]+/).filter(Boolean).slice(-2)) names.add(n.toLowerCase());
+    return [...names].some((n) => new RegExp(`(?:^|[^\\w.-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(low));
   }
 }
 

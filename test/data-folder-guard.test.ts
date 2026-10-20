@@ -189,3 +189,25 @@ test('code for an interpreter: a lone backslash in a paren quote (perl q(), ruby
     `cd "C:/work/projA" && ruby -rfileutils -e 'FileUtils.rm_rf(%q(\\\\))'`,
   ]) assert.equal(hit(c), 'names', c);
 });
+
+test('code for an interpreter: path building alone (pathlib, os.path, join) is not "could point there"; from the home folder or near a protected name it is', { skip: WIN_ONLY }, () => {
+  const py = (body: string) => `cd "C:/work/projA" && python - <<'PYEOF'\n${body}\nPYEOF`;
+  // ordinary project edits: no card outside Full either (found on a real run: every pathlib edit was "hidden", so Ask, Smart and Accept edits carded it)
+  for (const body of [
+    'from pathlib import Path\np = Path("src/hrtf.rs")\np.write_text(p.read_text(encoding="utf-8").replace("a", "b"), encoding="utf-8")',
+    'import os\nwith open(os.path.join("src", "main.rs"), "w") as f:\n    f.write("x")',
+    'from pathlib import Path\nfor f in Path("tests").glob("*.py"):\n    print(f.resolve())',
+  ]) assert.equal(hit(py(body)), 'none', body);
+  // built from the home folder or the environment: it could reach the data folder, so it is still hidden (or named)
+  for (const body of [
+    'from pathlib import Path\n(Path.home() / "AppData" / "Roaming" / "legion" / "projects.json").write_text("{}")',
+    'import os\nos.remove(os.path.join(os.environ["APPDATA"], "legion", "projects.json"))',
+    'import os\nos.remove(os.path.expanduser("~") + "/AppData/Roaming/legion/projects.json")',
+  ]) assert.notEqual(hit(py(body)), 'none', body);
+  // built from a variable but naming a protected file or the data folder's own name: still hidden
+  for (const body of [
+    'import os\nbase = input()\nos.remove(os.path.join(base, "projects.json"))',
+    'from pathlib import Path\nimport sys\n(Path(sys.argv[1]) / "gates").rmdir()',
+    'from pathlib import Path\nimport sys\n(Path(sys.argv[1]) / "legion" / "x").unlink()',
+  ]) assert.notEqual(dataFolderHit(py(body), 'sh', dataFolderTargets(DATA), { cwd: 'C:/work/projA', env }), 'none', body); // the real protected set: gates, projects.json, ...
+});
