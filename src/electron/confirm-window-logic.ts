@@ -226,14 +226,17 @@ export interface PrepareSteps {
  */
 export async function prepareConfirm(s: PrepareSteps): Promise<void> {
   const timers: Array<ReturnType<typeof setTimeout>> = [];
+  let finished = false; // once the opening has ended (done, failed or died), no step starts and no timer is made
   const within = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
-    Promise.race([p, new Promise<never>((_, reject) => { timers.push(setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms)); })]);
+    finished ? p : Promise.race([p, new Promise<never>((_, reject) => { timers.push(setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms)); })]);
   try {
     const work = (async () => {
       await within(s.load(), s.stepMs, 'loading the page');
+      if (finished) return;
       await within(s.render(), s.stepMs, 'drawing the question');
+      if (finished) return;
       await within(s.size(), s.stepMs, 'sizing the window');
     })();
     await within(Promise.race([work, s.died]), s.totalMs, 'opening the window');
-  } finally { for (const t of timers) clearTimeout(t); }
+  } finally { finished = true; for (const t of timers) clearTimeout(t); }
 }

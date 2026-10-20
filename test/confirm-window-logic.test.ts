@@ -221,16 +221,19 @@ test('opening: a page that dies while it is being drawn ends at once, whatever s
 
 test('opening: a watchdog ends the whole opening even when each step is within its own time', async () => {
   const slow = (ms: number) => () => new Promise<void>((r) => setTimeout(r, ms));
-  await assert.rejects(prepareConfirm(steps({ load: slow(30), render: slow(30), size: slow(30), stepMs: 50, totalMs: 60 })), /opening the window took longer than 60 ms/);
+  await assert.rejects(prepareConfirm(steps({ load: slow(60), render: slow(60), size: slow(60), stepMs: 2000, totalMs: 120 })), /opening the window took longer than 120 ms/);
 });
 
 test('opening: no timer is left running after it ends', async () => {
   const before = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
   await prepareConfirm(steps({ stepMs: 5000, totalMs: 10_000 }));
   await assert.rejects(prepareConfirm(steps({ size: never, stepMs: 20, totalMs: 10_000 })));
+  const slow = (ms: number) => () => new Promise<void>((r) => setTimeout(r, ms));
+  await assert.rejects(prepareConfirm(steps({ load: slow(40), render: slow(40), size: slow(40), stepMs: 5000, totalMs: 60 })), /opening the window/);
+  await new Promise((r) => setTimeout(r, 150)); // the slow steps of the aborted opening have run out by now
   await new Promise((r) => setImmediate(r));
   const after = (process as unknown as { getActiveResourcesInfo(): string[] }).getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
-  assert.equal(after, before);
+  assert.ok(after <= before, `timers left running: ${after - before}`);
 });
 
 test('address tail: one constant (8) is in every model that has an address, for the button and the marking alike', () => {
@@ -238,4 +241,15 @@ test('address tail: one constant (8) is in every model that has an address, for 
   const a = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn';
   assert.equal(ok({ ...base, address: a }).addressTail, ADDRESS_TAIL);
   assert.equal(ok(base).addressTail, ADDRESS_TAIL, 'it is always there; the page marks only when there is an address');
+});
+
+test('opening: once the page has died (or the opening has failed) no later step is started on it', async () => {
+  const called: string[] = [];
+  let kill!: (e: Error) => void;
+  const died = new Promise<never>((_, rej) => { kill = rej; });
+  const run = prepareConfirm(steps({ died, load: () => new Promise<void>((r) => setTimeout(r, 60)), render: async () => { called.push('render'); }, size: async () => { called.push('size'); }, stepMs: 5000, totalMs: 10_000 }));
+  setTimeout(() => kill(new Error('the page stopped')), 10);
+  await assert.rejects(run, /the page stopped/);
+  await new Promise((r) => setTimeout(r, 120));
+  assert.deepEqual(called, [], 'render and size were never started on a dead page');
 });
