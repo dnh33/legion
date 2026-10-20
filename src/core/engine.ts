@@ -68,7 +68,8 @@ import { leadDoctrineFor } from './lead.js';
 import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
-import type { McpStatusView, TodoItem } from '../shared/types.js';
+import type { Catalog, McpStatusView, TodoItem } from '../shared/types.js';
+import { CHECKER_FALLBACK_LINE } from '../shared/claude-checks-copy.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -231,6 +232,8 @@ export function taintsRun(toolName: string): boolean {
 const startProjectOf = (j: { projectAtStart?: string; outsideOf?: string }): string | undefined => j.projectAtStart ?? j.outsideOf;
 /** How long an answered guard card is shared with an identical call (the PreToolUse hook and canUseTool both ask). */
 const GUARD_MEMO_MS = 5000;
+/** How long a Smart run waits for the model list before it starts without knowing whether the model has Claude's checker. */
+const CATALOG_WAIT_MS = 3000;
 /** How long a hook's answer for one call waits for canUseTool (which, when it is asked at all, is asked right after the hooks). */
 const HOOK_DECIDED_MS = 60_000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
@@ -2827,6 +2830,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     }
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
+    await this.checkAutoSupport(job, act, options, model);
     // Streaming input: the request is the first message of a stream the person can add to while the run works.
     // Plan only: the request is held back until the account check passes. The SDK writes a message to the CLI the moment it reads it, so a
     // stored Console key (which no setting can blank) would otherwise bill the first request before Legion could stop the run.
@@ -2997,12 +3001,37 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     act.sdkMode = given as ClaudeSdkMode;
     if (asked !== 'auto') return;
     if (given === 'auto') { this.patchTask(job.taskId, { claudeChecker: 'on' }); return; }
+    this.markCheckerFallback(job, act);
+  }
+
+  /** The run cannot use Claude's own checker: the task says so (the chip), and the thread and the activity log say it once. */
+  private markCheckerFallback(job: Job, act: Active): void {
     this.patchTask(job.taskId, { claudeChecker: 'fallback' });
     if (act.checkerNoted) return;
     act.checkerNoted = true;
-    const note = "This run could not use Claude's own checker, so Claude asks you before each action that needs a check.";
-    this.addMessage(job.taskId, 'system', note);
-    this.noteChecker(job, act, note);
+    this.addMessage(job.taskId, 'system', CHECKER_FALLBACK_LINE);
+    this.noteChecker(job, act, CHECKER_FALLBACK_LINE);
+  }
+
+  /**
+   * Before a Smart run on Claude's own checks: does the model have the checker? Claude Code lists `supportsAutoMode` per model (no model call). When the list
+   * shows the field for some model but not for this one, the run starts in Claude's default mode (Claude asks) and says so now, not after the first turn.
+   * An unreadable list, a slow one, an older Claude Code that does not report the field, or a model that is not listed: nothing changes and the init message decides.
+   */
+  private async checkAutoSupport(job: Job, act: Active, options: Options, model: ConcreteModel): Promise<void> {
+    if (!act.nativeChecks || act.sdkMode !== 'auto' || !this.bridge.catalog) return;
+    let models: Catalog['models'] | undefined;
+    try {
+      const wait = new Promise<undefined>((res) => { setTimeout(() => res(undefined), CATALOG_WAIT_MS).unref?.(); });
+      const c = await Promise.race([this.bridge.catalog(), wait]);
+      if (c && !c.error) models = c.models;
+    } catch { /* unknown: the init message decides */ }
+    if (!models || !models.some((m) => m.supportsAutoMode === true)) return;
+    const mine = models.find((m) => m.value === model || m.resolvedModel === model);
+    if (!mine || mine.supportsAutoMode === true) return;
+    options.permissionMode = 'default';
+    act.sdkMode = 'default';
+    this.markCheckerFallback(job, act);
   }
 
   /** Process one SDK message; returns an Outcome for `result` messages. */

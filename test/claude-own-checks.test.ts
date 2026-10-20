@@ -11,6 +11,7 @@ import type { GatesRig } from './gates-rig.js';
 import { dataFolderTargets } from '../src/core/exec/canonical-path.js';
 import { claudePermissionMode, startIsStricter } from '../src/core/permission-mode.js';
 import type { GateRule } from '../src/shared/types.js';
+import { CHECKER_FALLBACK_LINE } from '../src/shared/claude-checks-copy.js';
 
 const rule = (id: string, then: GateRule['then'], when: GateRule['when']): GateRule => ({ id, enabled: true, then, when, label: id, source: 'user' });
 const using = async (o: Parameters<typeof gatesRig>[0], body: (r: GatesRig) => Promise<void>) => {
@@ -297,8 +298,8 @@ test('fallback is detected from the init message: auto asked for but not given s
     r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
     r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
     assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'fallback');
-    assert.equal(thread(r).filter((t) => /could not use Claude's own checker/.test(t)).length, 1, 'once');
-    assert.ok(lines(r).some((t) => /could not use Claude's own checker/.test(t)));
+    assert.equal(thread(r).filter((t) => t === CHECKER_FALLBACK_LINE).length, 1, 'once');
+    assert.ok(lines(r).some((t) => t === CHECKER_FALLBACK_LINE));
   });
   await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
     r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'auto' });
@@ -326,4 +327,45 @@ test('the setting: absent means on, off is written down, and turning it on is a 
   assert.equal(keyed.store.app().claudeOwnChecks, undefined);
   assert.equal(keyed.store.preview('app', { claudeOwnChecks: false }).loosens, false, 'off is the tightening direction');
   assert.throws(() => keyed.store.patchProject('proj_aaaaaaaaaaaa', { claudeOwnChecks: true }), /whole app/);
+});
+
+// ---------------------------------------------------------------- slice B: the pre-run check of the model (ruling 1)
+
+const MODELS = (rows: Array<[string, boolean | undefined]>) => async () => ({ commands: [], fetchedAt: '', models: rows.map(([value, auto]) => ({ value, displayName: value, description: '', ...(auto !== undefined ? { supportsAutoMode: auto } : {}) })) });
+
+test('before a Smart run, a model the catalog lists without auto support starts in default and says so once', async () => {
+  // the rig's agent runs on "auto" routing, which resolves to a concrete model; list every alias without auto except a decoy that has it
+  const none = MODELS([['sonnet', undefined], ['opus', undefined], ['haiku', undefined], ['some-other', true]]);
+  await using({ app: 'smart', follow: true, ownChecks: true, catalog: none }, async (r) => {
+    assert.equal(r.options().permissionMode, 'default', 'Claude asks, as in Ask; Legion\'s Smart judge is never used instead');
+    assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'fallback');
+    assert.equal(thread(r).filter((t) => t === CHECKER_FALLBACK_LINE).length, 1, 'once, in the thread');
+    assert.ok(lines(r).some((t) => t === CHECKER_FALLBACK_LINE), 'and in the activity log');
+    // the init message then agrees (default): no second line
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
+    assert.equal(thread(r).filter((t) => t === CHECKER_FALLBACK_LINE).length, 1);
+  });
+});
+
+test('before a Smart run, a model the catalog lists with auto support keeps auto; an unknown catalog changes nothing', async () => {
+  const every = MODELS([['sonnet', true], ['opus', true], ['haiku', true]]);
+  await using({ app: 'smart', follow: true, ownChecks: true, catalog: every }, async (r) => {
+    assert.equal(r.options().permissionMode, 'auto');
+    assert.equal(r.store.getTask(r.task.id)?.claudeChecker, undefined, 'said "on" only when the init message confirms it');
+  });
+  // an older Claude Code that does not report the field at all: nobody has it, so nothing is known and the init message decides
+  const unknown = MODELS([['sonnet', undefined], ['opus', undefined], ['haiku', undefined]]);
+  await using({ app: 'smart', follow: true, ownChecks: true, catalog: unknown }, async (r) => { assert.equal(r.options().permissionMode, 'auto'); });
+  // the catalog cannot be read: same
+  await using({ app: 'smart', follow: true, ownChecks: true, catalog: async () => { throw new Error('down'); } }, async (r) => { assert.equal(r.options().permissionMode, 'auto'); });
+  await using({ app: 'smart', follow: true, ownChecks: true, catalog: async () => ({ commands: [], models: [], fetchedAt: '', error: 'timed out' }) }, async (r) => { assert.equal(r.options().permissionMode, 'auto'); });
+});
+
+test('the catalog is asked only for a Smart run on Claude\'s own checks', async () => {
+  let asked = 0;
+  const catalog = async () => { asked++; return MODELS([['sonnet', undefined], ['x', true]])(); };
+  for (const [app, ownChecks] of [['ask', true], ['accept-edits', true], ['bypass', true], ['smart', false]] as const) {
+    await using({ app, follow: true, ownChecks, catalog }, async (r) => { assert.notEqual(r.store.getTask(r.task.id)?.claudeChecker, 'fallback', `${app} ${ownChecks}`); });
+  }
+  assert.equal(asked, 0);
 });

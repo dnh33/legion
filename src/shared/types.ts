@@ -597,6 +597,8 @@ export interface CatalogModel {
   displayName: string;   // e.g. "Opus 5.5"
   description: string;
   resolvedModel?: string;
+  /** Claude Code's own checker (auto mode) works with this model. Reported only by a Claude Code that knows the field; absent for a model without it. */
+  supportsAutoMode?: boolean;
 }
 
 /** GET /api/catalog: what Claude Code offers on this machine. Probed without a model call, cached. */

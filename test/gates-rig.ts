@@ -57,6 +57,8 @@ export interface RigOptions {
   host?: boolean;
   /** Task 28: a web search provider service over an in-memory key store and a fake fetch. Keys by id ('web:exa'); nothing here touches the network. */
   webSearch?: { cfg?: Partial<WebSearchConfig>; keys?: Record<string, string>; fetchImpl?: typeof fetch };
+  /** The account's model catalog the engine may ask before a Smart run (absent: none, as when the core has not wired it). */
+  catalog?: () => Promise<import('../src/shared/types.js').Catalog>;
   /** The real away core (or any hooks) in place of the rig's stub: the spend ledger and the budget are then the real ones. */
   awayFactory?: NonNullable<Parameters<typeof setup>[0]>['awayFactory'];
 }
@@ -75,6 +77,7 @@ export async function gatesRig(o: RigOptions = {}) {
   for (const [id, key] of Object.entries(o.webSearch?.keys ?? {})) wsKeys.set(id, key, ADAPTERS[id.replace(/^web:/, '') as keyof typeof ADAPTERS].origin(wsCfg)!);
   const ws = o.webSearch ? new WebSearchService({ config: () => wsCfg, keys: wsKeys, ...(o.webSearch.fetchImpl ? { fetchImpl: o.webSearch.fetchImpl } : {}) }) : undefined;
   const r = setup({ gatesCore: true, ...(ws ? { webSearch: ws } : {}), activity: true, ...(o.awayFactory ? { awayFactory: o.awayFactory } : {}), approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
+  if (o.catalog) r.engine.bridge.catalog = o.catalog;
   const core = r.core as GatesCore;
   core.store.patchApp({ claudeOwnChecks: o.ownChecks === true });
   if (o.app) core.store.patchApp({ preset: o.app });
