@@ -1,0 +1,278 @@
+// test/claude-own-checks.test.ts: for Claude agents, Claude's own permission system decides about Claude's tools and Legion adds only what
+// Claude Code lacks (0.3.6, owner rulings 2026-10-20, smart-auto addendum 1 and 2). Each row compares the same call with the switch off (the old
+// path, which is also what a provider agent gets) and on. Hooks run first and an `allow` from one skips Claude's own checker, so no hook may
+// answer allow unless the owner just approved a Legion card for that call.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { gatesRig, noKeyStore, keyedStore } from './gates-rig.js';
+import type { GatesRig } from './gates-rig.js';
+import { dataFolderTargets } from '../src/core/exec/canonical-path.js';
+import { claudePermissionMode, startIsStricter } from '../src/core/permission-mode.js';
+import type { GateRule } from '../src/shared/types.js';
+
+const rule = (id: string, then: GateRule['then'], when: GateRule['when']): GateRule => ({ id, enabled: true, then, when, label: id, source: 'user' });
+const using = async (o: Parameters<typeof gatesRig>[0], body: (r: GatesRig) => Promise<void>) => {
+  const r = await gatesRig(o);
+  try { await body(r); } finally { r.stop(); }
+};
+const DATA = join(homedir(), '.legion-ownchecks');
+const fwd = DATA.replace(/\\/g, '/');
+const dataModule = { id: 'dataguard', protectedPaths: () => dataFolderTargets(DATA) } as never;
+type Call = (r: GatesRig) => { tool: string; input: Record<string, unknown> };
+
+/** The hook answer for one call under both settings: [cards, decision] with the switch off, then on. */
+async function pair(call: Call, o: Parameters<typeof gatesRig>[0] = {}, prep?: (r: GatesRig) => void, withData = false) {
+  const out: Array<[number, string | undefined]> = [];
+  for (const ownChecks of [false, true]) {
+    await using({ ...o, ownChecks }, async (r) => {
+      if (withData) r.engine.setModules([dataModule]);
+      prep?.(r);
+      const c = call(r);
+      const h = await r.hookAll(c.tool, c.input);
+      out.push([h.cards, h.decision]);
+    });
+  }
+  return out;
+}
+
+test('the mode map: each preset sets Claude\'s own mode explicitly, and the switch off keeps today\'s default', async () => {
+  assert.deepEqual((['ask', 'auto-edits', 'smart', 'smart-edits', 'full'] as const).map((m) => claudePermissionMode(m)), ['default', 'acceptEdits', 'auto', 'default', 'bypassPermissions']);
+  for (const [app, want] of [['ask', 'default'], ['accept-edits', 'acceptEdits'], ['smart', 'auto'], ['bypass', 'bypassPermissions']] as const) {
+    await using({ app, follow: true, ownChecks: true }, async (r) => { assert.equal(r.options().permissionMode, want, app); });
+  }
+  // Smart held by Accept edits (the meet) is never looser than either
+  await using({ own: 'auto-edits', preset: 'smart', follow: false, ownChecks: true }, async (r) => { assert.equal(r.options().permissionMode, 'default'); });
+  // switch off: exactly today's path
+  for (const app of ['ask', 'accept-edits', 'smart'] as const) {
+    await using({ app, follow: true, ownChecks: false }, async (r) => { assert.equal(r.options().permissionMode, 'default', `${app} off`); });
+  }
+  await using({ app: 'bypass', follow: true, ownChecks: false }, async (r) => { assert.equal(r.options().permissionMode, 'bypassPermissions'); });
+});
+
+test('a later mode is stricter than the start mode only when Claude\'s start mode is looser', () => {
+  assert.equal(startIsStricter('default', 'ask'), false);
+  assert.equal(startIsStricter('acceptEdits', 'ask'), true);
+  assert.equal(startIsStricter('acceptEdits', 'auto-edits'), false);
+  assert.equal(startIsStricter('auto', 'auto-edits'), true, 'sideways counts as a change: never looser than either');
+  assert.equal(startIsStricter('acceptEdits', 'full'), false);
+  assert.equal(startIsStricter('default', 'smart'), false);
+});
+
+const ROWS: Array<[string, Call]> = [
+  ['an unjudgeable command raises no card for Claude (its own parser and checker handle it)', () => ({ tool: 'Bash', input: { command: 'x=ls; $x' } })],
+  ['a change to a protected file (.git/hooks) is Claude\'s to judge', (r) => ({ tool: 'Write', input: { file_path: `${r.projectDir()}/.git/hooks/pre-commit`, content: 'x' } })],
+  ['reading a credentials file elsewhere is Claude\'s to judge', () => ({ tool: 'Read', input: { file_path: `${homedir()}/.aws/credentials` } })],
+  ['a new web site is Claude\'s to judge', () => ({ tool: 'WebFetch', input: { url: 'https://example.org/a' } })],
+  ['deleting the project folder is Claude\'s to judge', (r) => ({ tool: 'Bash', input: { command: `rm -rf ${r.projectDir()}` } })],
+];
+for (const [name, call] of ROWS) {
+  test(`turned off for Claude agents: ${name}; the old path still cards it`, async () => {
+    const [off, on] = await pair(call);
+    assert.deepEqual(off, [1, 'deny'], 'switch off (the provider path\'s verdict): a Legion card');
+    assert.deepEqual(on, [0, undefined], 'switch on: no Legion card, the hook lets Claude decide');
+  });
+}
+
+const KEPT: Array<[string, Call, Parameters<typeof gatesRig>[0], ((r: GatesRig) => void)?]> = [
+  ['Legion\'s own key files stay guarded', () => ({ tool: 'Read', input: { file_path: `${fwd}/providers/keys.json` } }), {}],
+  ['a command on Legion\'s own settings folder still cards', () => ({ tool: 'Bash', input: { command: `rm -rf ${fwd}/gates` } }), {}],
+  ['a gate Ask rule still cards', () => ({ tool: 'Bash', input: { command: 'echo hi' } }), {}, (r) => r.setRules([rule('gr_ask', 'ask', { tools: ['Bash'], commands: ['echo *'] })])],
+  ['an outside-run ceiling still cards', () => ({ tool: 'Bash', input: { command: 'echo hi' } }), { ceiling: 'ask', originAtStart: true }],
+  ['the web card after connector data still cards', () => ({ tool: 'WebFetch', input: { url: 'https://docs.python.org/3/' } }), {}, (r) => {
+    r.store.tasks.get(r.task.id)!.usedConnectors = true;
+    (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
+  }],
+];
+for (const [name, call, o, prep] of KEPT) {
+  test(`kept for Claude agents: ${name}, with the switch off and on`, async () => {
+    const [off, on] = await pair(call, o, prep, true);
+    assert.deepEqual(off, [1, 'deny']);
+    assert.deepEqual(on, [1, 'deny']);
+  });
+}
+
+test('a gate Block rule and the shell floor deny in both settings, with no card', async () => {
+  const block = await pair(() => ({ tool: 'Bash', input: { command: 'rm foo' } }), {}, (r) => r.setRules([rule('gr_block', 'deny', { tools: ['Bash'], commands: ['rm *'] })]));
+  assert.deepEqual(block, [[0, 'deny'], [0, 'deny']]);
+  const floor = await pair(() => ({ tool: 'Bash', input: { command: 'rm -rf /' } }));
+  assert.deepEqual(floor, [[0, 'deny'], [0, 'deny']]);
+});
+
+test('Smart: the old path lets Legion\'s own judge allow a plain command; for a Claude agent only Claude\'s prompt reaches canUseTool, as a card', async () => {
+  await using({ app: 'smart', follow: true, ownChecks: false }, async (r) => {
+    const h = await r.hookAll('Bash', { command: 'echo hi' });
+    const c = await r.canUse('Bash', { command: 'echo hi' }, h.id);
+    assert.deepEqual([c.cards, c.behavior], [0, 'allow'], 'Legion\'s classifier waved it through');
+  });
+  await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
+    const h = await r.hookAll('Bash', { command: 'echo hi' });
+    assert.deepEqual([h.cards, h.decision], [0, undefined]);
+    const c = await r.canUse('Bash', { command: 'echo hi' }, h.id);
+    assert.deepEqual([c.cards, c.behavior], [1, 'deny'], 'Claude asked, so the owner is asked; the answer was no');
+  });
+});
+
+test('a gate Allow rule does not answer Claude\'s prompt for a Claude agent (it would skip Claude\'s checker)', async () => {
+  const allow = [rule('gr_allow', 'allow', { tools: ['Bash'], commands: ['echo *'] })];
+  await using({ ownChecks: false }, async (r) => {
+    r.setRules(allow);
+    const c = await r.canUse('Bash', { command: 'echo hi' }, 'u-old');
+    assert.deepEqual([c.cards, c.behavior], [0, 'allow'], 'old path: the rule answers');
+  });
+  await using({ ownChecks: true }, async (r) => {
+    r.setRules(allow);
+    const c = await r.canUse('Bash', { command: 'echo hi' }, 'u-new');
+    assert.deepEqual([c.cards, c.behavior], [1, 'deny'], 'Claude\'s prompt becomes a card');
+  });
+});
+
+test('canUseTool for a Claude agent shows Claude\'s prompt as a card and never allows by itself', async () => {
+  await using({ ownChecks: true }, async (r) => {
+    const no = await r.canUse('Bash', { command: 'git push --force origin main' }, 'u1', false, { decisionReason: 'This command requires approval' });
+    assert.deepEqual([no.cards, no.behavior], [1, 'deny']);
+    assert.match(no.summaries[0] ?? '', /git push --force origin main/);
+    assert.match(no.summaries[0] ?? '', /Claude asked: This command requires approval/);
+    assert.match(no.message ?? '', /Do not retry it, rephrase it or reach the same result another way/);
+    const yes = await r.canUse('Bash', { command: 'git push --force origin main' }, 'u2', true);
+    assert.deepEqual([yes.cards, yes.behavior], [1, 'allow']);
+  });
+});
+
+test('Legion\'s own tools keep their own cards: Claude\'s prompt about them is not a second card, except the few an outside ceiling cards', async () => {
+  await using({ ownChecks: true }, async (r) => {
+    const c = await r.canUse('mcp__legion__board_list', {}, 'u5');
+    assert.deepEqual([c.cards, c.behavior], [0, 'allow']);
+  });
+  await using({ ownChecks: true, ceiling: 'ask', originAtStart: true }, async (r) => {
+    const c = await r.canUse('mcp__legion__vm_exec', { command: 'ls' }, 'u6');
+    assert.deepEqual([c.cards, c.behavior], [1, 'deny']);
+  });
+});
+
+test('the denial brake\'s fallback prompt reaches the owner as a normal card showing its reason', async () => {
+  await using({ ownChecks: true }, async (r) => {
+    const reason = '3 consecutive actions were blocked. Please review the transcript before continuing.';
+    const c = await r.canUse('Bash', { command: 'cat x' }, 'u3', false, { decisionReason: reason });
+    assert.equal(c.cards, 1);
+    assert.match(c.summaries[0] ?? '', /3 consecutive actions were blocked/);
+  });
+});
+
+test('an unanswered Claude prompt is denied with a "do not retry" text', async () => {
+  await using({ ownChecks: true, approvalTimeoutMs: 80 }, async (r) => {
+    const fn = (r.options() as { canUseTool: (t: string, i: Record<string, unknown>, o: unknown) => Promise<{ behavior: string; message?: string }> }).canUseTool;
+    const p = fn('Bash', { command: 'git commit -m x' }, { signal: new AbortController().signal, toolUseID: 'u4' });
+    await r.advanceApprovalTimeout();
+    const d = await p;
+    assert.equal(d.behavior, 'deny');
+    assert.match(d.message ?? '', /No one answered the approval request/);
+    assert.match(d.message ?? '', /Do not retry it, rephrase it or reach the same result another way/);
+  });
+});
+
+test('a card a hook already answered is kept for canUseTool: one card per call', async () => {
+  await using({ ownChecks: true, ceiling: 'ask', originAtStart: true }, async (r) => {
+    const yes = await r.hookAll('Bash', { command: 'echo hi' }, { allow: true });
+    assert.deepEqual([yes.cards, yes.decision], [1, 'allow']);
+    const after = await r.canUse('Bash', { command: 'echo hi' }, yes.id);
+    assert.deepEqual([after.cards, after.behavior], [0, 'allow']);
+  });
+});
+
+test('hard rule: with Claude\'s own checks on, no hook answers allow unless the owner just approved a Legion card for that call', async () => {
+  const calls: Array<[string, Record<string, unknown>]> = [
+    ['Bash', { command: 'echo hi' }], ['Bash', { command: 'ls' }], ['Bash', { command: 'x=ls; $x' }], ['Bash', { command: 'git push --force origin main' }],
+    ['Bash', { command: `rm -rf ${fwd}/gates` }], ['Read', { file_path: `${homedir()}/.aws/credentials` }], ['Read', { file_path: `${fwd}/providers/keys.json` }],
+    ['Write', { file_path: 'a.txt', content: 'x' }], ['Edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }], ['WebFetch', { url: 'https://example.org/' }],
+    ['WebSearch', { query: 'x' }], ['Glob', { pattern: '*' }], ['mcp__other__tool', {}], ['AskUserQuestion', {}],
+  ];
+  for (const rigOpts of [{ own: 'ask' as const }, { own: 'auto-edits' as const }, { app: 'smart' as const, follow: true }, { own: 'ask' as const, ceiling: 'ask' as const, originAtStart: true }]) {
+    await using({ ...rigOpts, ownChecks: true }, async (r) => {
+      r.engine.setModules([dataModule]);
+      for (const [tool, input] of calls) {
+        for (const allow of [false, true]) {
+          const h = await r.hookAll(tool, input, { allow });
+          assert.ok(h.decision !== 'allow' || h.cards > 0, `${JSON.stringify(rigOpts)} ${tool} ${JSON.stringify(input)}: allow with no card`);
+        }
+      }
+    });
+  }
+});
+
+test('the preset changes to a stricter one mid-run: a hook asks (Claude\'s mode is fixed at start); a looser one waits for the next run', async () => {
+  await using({ own: 'auto-edits', ownChecks: true }, async (r) => {
+    assert.equal(r.options().permissionMode, 'acceptEdits');
+    const w = { file_path: `${r.projectDir()}/a.txt`, content: 'x' };
+    assert.equal((await r.hookAll('Write', w)).decision, undefined);
+    r.setMode('ask');
+    const h = await r.hookAll('Write', w);
+    assert.deepEqual([h.cards, h.decision], [0, 'ask'], 'routed to canUseTool, where it becomes a card');
+    assert.equal((await r.hookAll('Read', { file_path: w.file_path })).decision, undefined, 'a read stays free');
+    const c = await r.canUse('Write', w, h.id);
+    assert.equal(c.cards, 1);
+  });
+  await using({ own: 'ask', ownChecks: true }, async (r) => {
+    r.setMode('auto-edits');
+    assert.equal((await r.hookAll('Write', { file_path: `${r.projectDir()}/a.txt`, content: 'x' })).decision, undefined, 'looser: no change in this run');
+  });
+});
+
+const lines = (r: GatesRig) => r.activityRead({ taskId: r.task.id }).map((l) => l.text);
+const thread = (r: GatesRig) => r.store.listMessages(r.task.id).map((m) => m.text);
+
+test('Claude\'s checker denial goes to the thread and the activity log; a denial that is not the checker\'s does not', async () => {
+  await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
+    r.stream({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 't1', decision_reason_type: 'classifier', decision_reason: '[Credential Exploration]', message: 'Permission for this action was denied by the Claude Code auto mode classifier.' });
+    r.stream({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 't2', decision_reason_type: 'hook', message: 'x' });
+    assert.deepEqual(thread(r).filter((t) => /checker blocked/.test(t)), ['Claude\'s checker blocked: [Credential Exploration] (Bash)']);
+    assert.ok(lines(r).some((t) => /Claude's checker blocked: \[Credential Exploration\] \(Bash\)/.test(t)));
+  });
+});
+
+test('the headless denial brake ends the run with a plain notice in the thread and the activity log', async () => {
+  await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
+    r.stream({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Agent aborted: too many classifier denials in headless mode'], result: '' });
+    const want = /Claude's checker blocked several actions in a row; the run stopped\. Review what it tried\./;
+    assert.ok(thread(r).some((t) => want.test(t)), thread(r).join(' | '));
+    assert.ok(lines(r).some((t) => want.test(t)));
+  });
+});
+
+test('fallback is detected from the init message: auto asked for but not given shows once; auto given shows nothing', async () => {
+  await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
+    assert.equal(r.options().permissionMode, 'auto');
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
+    assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'fallback');
+    assert.equal(thread(r).filter((t) => /could not use Claude's own checker/.test(t)).length, 1, 'once');
+    assert.ok(lines(r).some((t) => /could not use Claude's own checker/.test(t)));
+  });
+  await using({ app: 'smart', follow: true, ownChecks: true }, async (r) => {
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'auto' });
+    assert.equal(r.store.getTask(r.task.id)?.claudeChecker, 'on');
+    assert.equal(thread(r).filter((t) => /checker/.test(t)).length, 0);
+  });
+  await using({ app: 'ask', follow: true, ownChecks: true }, async (r) => {
+    r.stream({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default' });
+    assert.equal(r.store.getTask(r.task.id)?.claudeChecker, undefined, 'not a Smart run');
+  });
+});
+
+test('the setting: absent means on, off is written down, and turning it on is a loosening', () => {
+  const nokey = noKeyStore();
+  assert.equal(nokey.store.app().claudeOwnChecks, undefined);
+  nokey.store.patchApp({ claudeOwnChecks: false });
+  assert.equal(nokey.store.app().claudeOwnChecks, false);
+  assert.throws(() => nokey.store.patchApp({ claudeOwnChecks: true }), /key/i, 'no signing key: a loosening is refused');
+  const keyed = keyedStore();
+  keyed.store.patchApp({ claudeOwnChecks: false });
+  const prev = keyed.store.preview('app', { claudeOwnChecks: true });
+  assert.equal(prev.loosens, true);
+  assert.match(prev.lines.join(' '), /Claude's own permission checks/);
+  keyed.store.patchApp({ claudeOwnChecks: true });
+  assert.equal(keyed.store.app().claudeOwnChecks, undefined);
+  assert.equal(keyed.store.preview('app', { claudeOwnChecks: false }).loosens, false, 'off is the tightening direction');
+  assert.throws(() => keyed.store.patchProject('proj_aaaaaaaaaaaa', { claudeOwnChecks: true }), /whole app/);
+});

@@ -292,6 +292,8 @@ export interface Task {
   turns?: number;             // cumulative
   /** How the latest run asks, written when the run starts: the mode it was judged by then, and the project it started in (never the live one). Feeds the "Runs as" chip. */
   runsAs?: { mode: RunMode; projectId?: string };
+  /** Smart for a Claude agent: `on` when Claude's own checker judged the run, `fallback` when the run could not use it and Claude asked for each action instead. Absent: not a Smart run on Claude's checks. */
+  claudeChecker?: 'on' | 'fallback';
   /** What the latest run read on the web: distinct pages, and sites the owner approved on a card during the run. Counts only, never addresses or queries. Absent until the run reads something. */
   web?: { pages: number; newSites: number };
   createdAt: string;

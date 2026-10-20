@@ -49,6 +49,8 @@ export interface RigOptions {
   /** The run itself starts with that ceiling's origin, so its hooks and canUseTool (not only `call`) carry it. */
   originAtStart?: boolean;
   approvalTimeoutMs?: number;
+  /** Claude's own permission checks for Claude agents (0.3.6). Off in the rig unless a test asks, so the older tests keep judging Claude's tools the old way. */
+  ownChecks?: boolean;
   /** Names on the owner's keep list for the environment scrub (signed app file). */
   keep?: string[];
   /** The agent a1 has Legion's own host shell on. */
@@ -74,6 +76,7 @@ export async function gatesRig(o: RigOptions = {}) {
   const ws = o.webSearch ? new WebSearchService({ config: () => wsCfg, keys: wsKeys, ...(o.webSearch.fetchImpl ? { fetchImpl: o.webSearch.fetchImpl } : {}) }) : undefined;
   const r = setup({ gatesCore: true, ...(ws ? { webSearch: ws } : {}), activity: true, ...(o.awayFactory ? { awayFactory: o.awayFactory } : {}), approval: o.own ?? 'ask', script: idle, ...(o.approvalTimeoutMs ? { approvalTimeoutMs: o.approvalTimeoutMs } : {}) });
   const core = r.core as GatesCore;
+  core.store.patchApp({ claudeOwnChecks: o.ownChecks === true });
   if (o.app) core.store.patchApp({ preset: o.app });
   if (o.keep) core.store.patchApp({ envKeep: o.keep });
   const body: Record<string, unknown> = {};
@@ -122,6 +125,11 @@ export async function gatesRig(o: RigOptions = {}) {
     }
     return { card, decision };
   };
+  /** The engine's handling of one SDK stream message for the rig's live run (init, permission_denied, result...). */
+  const stream = (msg: Record<string, unknown>): unknown => {
+    const act = (r.engine as unknown as { active: Map<string, unknown> }).active.get(task.id);
+    return engine['handleMessage']!.call(r.engine, job, act, msg);
+  };
   const setMode = (mode: ApprovalMode) => { r.store.agents.get('a1')!.approval = mode; };
   const setRules = (rules: GateRule[]) => { r.config.gates = { rules, presetsVersion: r.config.gates?.presetsVersion ?? 1 } as never; };
   /** The folder the run's project lives in. */
@@ -158,11 +166,11 @@ export async function gatesRig(o: RigOptions = {}) {
     return { cards: approvalEvents() - before, decision, id, summaries, updatedInput };
   };
   /** The run's canUseTool for one call (with the tool use id the SDK passes), each card answered `allow`; `cards` as for hookAll. */
-  const canUse = async (toolName: string, input: Record<string, unknown>, id: string, allow = false) => {
+  const canUse = async (toolName: string, input: Record<string, unknown>, id: string, allow = false, extra: Record<string, unknown> = {}) => {
     const fn = (r.calls[0]!.options as { canUseTool: (t: string, i: Record<string, unknown>, o: unknown) => Promise<{ behavior: string; message?: string }> }).canUseTool;
     const before = approvalEvents();
-    const { out, summaries } = await settle(fn(toolName, input, { signal: new AbortController().signal, toolUseID: id }), allow);
-    return { cards: approvalEvents() - before, behavior: out.behavior, summaries };
+    const { out, summaries } = await settle(fn(toolName, input, { signal: new AbortController().signal, toolUseID: id, ...extra }), allow);
+    return { cards: approvalEvents() - before, behavior: out.behavior, message: out.message, summaries };
   };
   /** A second run of the same agent, starting in the same project (or the project named): its own task and `Active`, the same engine and gates core. Each call to it is judged on its own job. */
   const freshRun = async (fo: { projectId?: string } = {}) => {
@@ -191,7 +199,7 @@ export async function gatesRig(o: RigOptions = {}) {
     const res = await t.handler(args, {});
     return { text: res.content.map((c) => c.text).join('\n'), isError: res.isError === true };
   };
-  return { ...r, webSearch: ws, options, legionTools, toolNames, callTool, activityRead, core, task, job, agent: a1, call, run, hook, hookAll, canUse, approvalEvents, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
+  return { ...r, webSearch: ws, options, legionTools, toolNames, callTool, activityRead, core, task, job, agent: a1, call, run, hook, hookAll, canUse, stream, approvalEvents, pending, answer, tick, setMode, setRules, projectDir, setGateOverride, noteUse, freshRun, advanceApprovalTimeout, stop: () => r.engine.cancel(task.id) };
 }
 export type GatesRig = Awaited<ReturnType<typeof gatesRig>>;
 

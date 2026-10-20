@@ -24,7 +24,7 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
+import { APPROVAL_READ_ONLY, decideGuard, describeWaited, isLegionTool, needsApproval, stricterMode, summarizeToolInput, webChecksApply, webInput, webKind, LEGION_SERVER_NAMES } from './approvals.js';
 import { WebSession } from './web-session.js';
 import { globMatchesAny, secretFileNames, secretReadDetail, secretReadHit, type SecretLocation } from './secret-paths.js';
 import { OWN_WRITE_FILE_TOOLS, WRITE_FILE_TOOLS, protectedWriteHit, startsAtLogin } from './protected-paths.js';
@@ -36,7 +36,8 @@ import { ENV_KEEP_LABEL, ENV_NEVER_PASSED, GATES } from '../shared/gates-registr
 import type { GateValue } from '../shared/gates-registry.js';
 import type { ActivityLog } from './activity/index.js';
 import type { WebSearchService } from './web-search/index.js';
-import type { RunMode } from './permission-mode.js';
+import type { RunMode, ClaudeSdkMode } from './permission-mode.js';
+import { claudePermissionMode, startIsStricter } from './permission-mode.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
@@ -249,6 +250,10 @@ const canonicalJson = (v: unknown): string => {
 function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
+/** Hand the call to Claude Code's permission flow as an ask: it reaches canUseTool, where it becomes a card. Never an allow, so Claude's own checker is not skipped. */
+function preToolAsk(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'ask'; permissionDecisionReason: string } } {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason } };
+}
 /** The owner already decided this call (on a floor card): skip the ordinary permission check for it. */
 function preToolAllow(reason: string, updatedInput?: Record<string, unknown>): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string; updatedInput?: Record<string, unknown> } } {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, ...(updatedInput ? { updatedInput } : {}) } };
@@ -419,6 +424,11 @@ interface Active {
   tainted: boolean;
   /** A build or script file was changed in this run. Used only when the run has no project (with a project the flag lives in the gates core, per project). */
   buildEdited?: boolean;
+  /** This run follows Claude's own permission checks (fixed when the run starts), and the Claude mode it asked for / was given. */
+  nativeChecks?: boolean;
+  sdkMode?: ClaudeSdkMode;
+  /** The "could not use Claude's own checker" note went into the thread already. */
+  checkerNoted?: boolean;
   /** Claude Code's shell keeps its folder between calls: set once a call ran a `cd` the data-folder guard could not prove stays outside the protected set. */
   shellMoved?: boolean;
   /** The folder(s) the run's Claude shell may be in after its last call, when the guard could follow them. */
@@ -1709,6 +1719,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` : 'The user denied this web request.' });
   }
 
+  /**
+   * Claude agents follow Claude's own permission checks (the app's gate setting `claudeOwnChecks`, on unless the owner turned it off). With no gates
+   * core there is no setting to read, and the run keeps Legion's own cards as before.
+   */
+  claudeOwnChecks(): boolean {
+    try { const app = this.gates?.store?.app(); return app !== undefined && app.claudeOwnChecks !== false; } catch { return false; }
+  }
+
   private readonly docsHosts: ReadonlySet<string> = loadDocsHosts();
   /** Guard cards in flight or just answered, by (task, tool, input): the PreToolUse hook and canUseTool both ask, and the owner sees one card. */
   private readonly guardMemo = new Map<string, { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number }>();
@@ -1734,14 +1752,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * for that call. Every card carries `noRemember`. An identical call (same task, tool and input) shares the card for 5 seconds after it opens or is answered,
    * so the hook and canUseTool raise one card. Returns undefined when no guard has anything to say.
    */
-  private askGuards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+  private askGuards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode, native = false): Promise<{ allow: boolean; message?: string }> | undefined {
     const key = `${job.taskId}\u0000${toolName}\u0000${canonicalJson(input)}`;
     const hit = this.guardMemo.get(key);
     if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
     if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
-    const card = this.webGuard(job, agent, toolName, input, mode)
-      ?? this.protectedPathGuard(job, agent, toolName, input, mode)
-      ?? this.secretReadGuard(job, agent, toolName, input, mode);
+    // a Claude agent on Claude's own checks: the new-site check and the protected-path card are Claude's to judge, and of the secret files only Legion's own stay guarded
+    const card = (native ? undefined : this.webGuard(job, agent, toolName, input, mode))
+      ?? (native ? undefined : this.protectedPathGuard(job, agent, toolName, input, mode))
+      ?? this.secretReadGuard(job, agent, toolName, input, mode, native);
     if (!card) return undefined;
     const entry: { p: Promise<{ allow: boolean; message?: string }>; doneAt?: number } = { p: card };
     const done = (): void => { entry.doneAt = Date.now(); };
@@ -1756,8 +1775,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * them is due for goes on as before (continue): the plain card of the preset stays in canUseTool, and nothing new cards (an `ls` or an
    * in-folder read the SDK approves itself stays free). Every answer is kept for canUseTool by the call's id, so the call gets one card.
    */
-  private async hookCards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode, toolUseId: string | undefined, own: (t: string, i: Record<string, unknown>) => Promise<Decision | undefined>): Promise<{ continue: true } | ReturnType<typeof preToolDeny> | ReturnType<typeof preToolAllow>> {
-    const card = this.askGuards(job, agent, toolName, input, mode);
+  private async hookCards(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode, toolUseId: string | undefined, own: (t: string, i: Record<string, unknown>) => Promise<Decision | undefined>, native = false): Promise<{ continue: true } | ReturnType<typeof preToolDeny> | ReturnType<typeof preToolAllow>> {
+    const card = this.askGuards(job, agent, toolName, input, mode, native);
     if (card) {
       const d = await card;
       if (!d.allow) { this.noteHookDecided(job, toolUseId, d); return preToolDeny(d.message ?? 'The user denied this web request.'); }
@@ -1833,10 +1852,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /** Guard (3): reading a password or key file asks, in every mode but Full. The switch is the `secret-file-reads` gate. */
-  private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode): Promise<{ allow: boolean; message?: string }> | undefined {
+  private secretReadGuard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, mode: RunMode, native = false): Promise<{ allow: boolean; message?: string }> | undefined {
     if (mode === 'full' || this.gates?.gate('secret-file-reads', startProjectOf(job)) === false) return undefined;
     const where = this.dataSecretLocation(agent, toolName, input);
-    const found = secretReadDetail(toolName, input, where);
+    // a Claude agent on Claude's own checks: only Legion's own key folders are guarded here, every other secret path is Claude's to judge
+    if (native && !where) return undefined;
+    const found = secretReadDetail(toolName, input, native && where ? { ...where, legionOnly: true } : where);
     if (!found) return undefined;
     // always the full path; a search folder that only CONTAINS Legion's key folders says so, so the owner sees why a plain search asks
     const summary = found.search && where
@@ -2023,7 +2044,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * in Full it is refused at once with the reason and how to write it plainly, so a run nobody watches never waits on a card
    * (owner decision 2026-10-13). Undefined when the floor has nothing to say.
    */
-  private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, opts: { card?: boolean } = {}): Promise<{ allow: boolean; message?: string }> | undefined {
+  private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, opts: { card?: boolean; /** A Claude agent on Claude's own checks: only the refusals and the card for Legion's own data folder apply. */ native?: boolean } = {}): Promise<{ allow: boolean; message?: string }> | undefined {
     if (!SHELL_TOOLS.has(toolName)) return undefined;
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command) return undefined;
@@ -2037,6 +2058,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
       if (opts.card === false) return undefined;
+      // Claude's own parser and checker handle what Legion cannot read, and Claude Code guards the project folder itself: only Legion's own files are left
+      if (opts.native) return this.dataFolderCard(job, agent, toolName, input, command, kind);
       // the project folder or a folder above it: a card in every mode but Full, a refusal in Full (read from the folder the shell is in)
       const critical = this.criticalDeleteTarget(job, agent, toolName, input, command, kind);
       if (critical) return this.criticalDeleteDecision(job, agent, toolName, input, command, critical);
@@ -2046,8 +2069,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (folderCard) return folderCard;
       why = unjudgeableCommand(command, kind);
     } catch {
-      // fail closed: a floor that could not read the command asks the owner
-      if (opts.card === false) return undefined;
+      // fail closed: a floor that could not read the command asks the owner (not for a Claude agent on Claude's own checks: Claude reads the command)
+      if (opts.card === false || opts.native) return undefined;
       why = 'the safety check could not read it';
     }
     if (!why) return undefined;
@@ -2252,6 +2275,33 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /**
+   * Claude asked (canUseTool) about a call it could not decide: the same question reaches the owner as a card, with Claude's reason. This is the whole
+   * decision for a Claude agent on Claude's own checks: Legion's Smart judge, allow rules and preset do not answer it. An unanswered card denies, and the
+   * agent is told plainly not to find another way.
+   */
+  private claudePromptCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, o?: { decisionReason?: string; title?: string }): Promise<Decision> {
+    const reason = (typeof o?.decisionReason === 'string' && o.decisionReason.trim() ? o.decisionReason : typeof o?.title === 'string' ? o.title : '').trim().slice(0, 300);
+    const origin = job.origin;
+    let timedOut = false; let waited: number | undefined;
+    const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what you needed it for, and wait for their answer.';
+    return this.approvals.request(job.taskId, agent.id, toolName, input, origin ? { roomId: origin.roomId, fromAgentId: origin.fromAgentId, hop: origin.hop } : undefined, {
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
+      summary: `${summarizeToolInput(toolName, input)}${reason ? `\nClaude asked: ${reason}` : ''}`,
+    }).then((allowed): Decision => {
+      if (allowed) return { allow: true };
+      const live = this.active.get(job.taskId);
+      if (live && !live.cancelled) this.mascot('thinking', `${toolName} ${timedOut ? 'not answered' : 'denied'}`);
+      if (timedOut) {
+        const wait = this.waitedText(waited);
+        if (origin?.approvalCeiling === 'ask') return { allow: false, message: `No one approved this action: it needs your OK in the Legion app window and nothing was answered within ${wait}. Open the Legion app, then ask for it again. ${stop}` };
+        return { allow: false, message: `No one answered the approval request within ${wait}, so this action was not run. ${stop}` };
+      }
+      return { allow: false, message: `The user denied this action. ${stop}` };
+    });
+  }
+
+  /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
@@ -2265,7 +2315,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * the web-egress card after connector data, Smart's changed-build-file card) and answers undefined for every other call, without a card or a
    * log line: the ask-mode PreToolUse hook uses it, so those cards fire even where an allow rule means canUseTool is never asked.
    */
-  private callDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; floorCard?: boolean; /** false: the hook already ran the guards for this call. */ guards?: boolean; ownOnly?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<Decision | undefined> {
+  private callDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; floorCard?: boolean; /** false: the hook already ran the guards for this call. */ guards?: boolean; ownOnly?: boolean; /** A Claude agent on Claude's own checks: Legion's Smart judge, build card and plain preset card are not used. */ native?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<Decision | undefined> {
     const effective = (): RunMode => this.modeNow(job, agent);
     return async (toolName, input) => {
       const mode = effective();
@@ -2281,11 +2331,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
       if (egress) return egress;
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
-      const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
+      const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false, ...(opts.native ? { native: true } : {}) });
       if (floor) return floor;
       // the guards (the web check first) raise their own card ahead of every allow, the owner's tool-cards switch and the baseline
-      const guard = opts.guards === false ? undefined : this.askGuards(job, agent, toolName, input, mode);
+      const guard = opts.guards === false ? undefined : this.askGuards(job, agent, toolName, input, mode, opts.native === true);
       if (guard) return guard;
+      // Claude's own checks decide the plain card of the preset, Smart's judge, the build card and the allow rules; only a gate ask rule and an outside ceiling are Legion's here
+      if (opts.native && gate.verdict !== 'ask' && !capped) return undefined;
       // a call that goes through with no card: with ownOnly it is left to the normal permission flow (canUseTool notes it there)
       const pass = (): Decision | undefined => { if (opts.ownOnly) return undefined; this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; };
       // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
@@ -2297,7 +2349,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // Smart and smart-edits judge an edit or a command by what saying yes would do (the same classifier the card's consequence line uses)
       const consequence = mode === 'smart' || mode === 'smart-edits' ? this.askExtras(job, agent, toolName, input).consequence : undefined;
       // Smart: a project seen for the first time gets its build-file baseline now, before any command of this run can change a file
-      if (mode === 'smart') { const pid = startProjectOf(job), dir = this.startFolderOf(job); if (pid && dir) this.gates?.buildEdited?.ensureBaseline(pid, dir); }
+      if (mode === 'smart' && !opts.native) { const pid = startProjectOf(job), dir = this.startFolderOf(job); if (pid && dir) this.gates?.buildEdited?.ensureBaseline(pid, dir); }
       // a local build or test run is judged again once an agent changed a build or script file in the project (the fingerprint is taken only here)
       const build = mode === 'smart' && consequence?.tags.includes('runs-code') ? this.buildCheck(job) : undefined;
       const askOpts = { capped, ...(consequence ? { consequence } : {}) };
@@ -2467,6 +2519,43 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         this.noteWouldAsk(job, agent, 'tool-cards', input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return { continue: true };
       }] });
+    } else if (this.claudeOwnChecks()) {
+      // Claude's own permission system decides about Claude's tools (0.3.6). The preset picks Claude's mode, set explicitly every time; Legion's hooks
+      // add only what Claude Code lacks (Block rules, the hard floor, Legion's own files and tools, a gate Ask rule, an outside ceiling) and NEVER answer
+      // allow unless the owner just approved a Legion card for the call: a hook allow makes Claude skip its own checker.
+      const startMode = this.modeNow(job, agent);
+      const want = claudePermissionMode(startMode);
+      options.permissionMode = want;
+      act.nativeChecks = true; act.sdkMode = want;
+      const own = this.callDecider(job, agent, { floorCard: false, guards: false, ownOnly: true, native: true });
+      options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const tin = (input.tool_input ?? {}) as Record<string, unknown>;
+        const mode = effective();
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name, tin), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        // the hard floor: a refusal, or the card for Legion's own data folder; an approved card is final for that call
+        const floor = SHELL_TOOLS.has(input.tool_name) ? this.shellFloor(job, agent, input.tool_name, tin, { native: true }) : undefined;
+        if (floor) {
+          const d = await floor;
+          this.noteHookDecided(job, input.tool_use_id, d);
+          return d.allow ? preToolAllow('The owner approved this command on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+        }
+        const res = await this.hookCards(job, agent, input.tool_name, tin, mode, input.tool_use_id, own, true);
+        // Claude's mode is fixed when the run starts: a preset changed to a stricter one meanwhile asks here, for what Claude would not have asked about
+        if ('continue' in res && startIsStricter(act.sdkMode ?? want, mode) && !APPROVAL_READ_ONLY.has(input.tool_name) && !isLegionTool(input.tool_name)) {
+          return preToolAsk('The approval setting for this run became stricter after it started, so this action needs your OK.');
+        }
+        return res;
+      }] });
+      // canUseTool is asked only for what Claude itself would not decide: it shows Claude's prompt as a card and never allows by itself
+      options.canUseTool = async (toolName, input, o) => {
+        // Legion's own tools (and the browser's) raise their own cards inside their handlers: Claude asking about them is not a second question for the owner
+        // (an outside ceiling still cards the few that need it, as before)
+        const legionOwn = !APPROVAL_READ_ONLY.has(toolName) && !needsApproval('ask', toolName, { capped: job.origin?.approvalCeiling === 'ask' });
+        const d = this.takeHookDecided(job, o?.toolUseID) ?? (legionOwn ? { allow: true } : await this.claudePromptCard(job, agent, toolName, input, o));
+        return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
+      };
     } else {
       options.permissionMode = 'default';
       // Legion's own cards on the hook path (A-H1): the ceiling, a gate ask rule, the web-egress card and Smart's build card. The guards run just before.
@@ -2865,6 +2954,30 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     }
   }
 
+  /** One line about Claude's own checker in the activity log (advisory). */
+  private noteChecker(job: Job, act: Active, text: string): void {
+    void act;
+    try { this.activity?.append({ kind: 'note', text: text.slice(0, 300), taskId: job.taskId, agentId: job.agentId }); } catch { /* advisory */ }
+  }
+
+  /**
+   * The init message says which Claude mode the run really got. Smart asked for auto; a model, plan or CLI without it runs in Claude's default mode
+   * (no error, no warning). That is shown once, in plain words, and Legion's own Smart judge is never used instead.
+   */
+  private noteCheckerMode(job: Job, act: Active, given: unknown): void {
+    if (!act.nativeChecks || typeof given !== 'string') return;
+    const asked = act.sdkMode;
+    act.sdkMode = given as ClaudeSdkMode;
+    if (asked !== 'auto') return;
+    if (given === 'auto') { this.patchTask(job.taskId, { claudeChecker: 'on' }); return; }
+    this.patchTask(job.taskId, { claudeChecker: 'fallback' });
+    if (act.checkerNoted) return;
+    act.checkerNoted = true;
+    const note = "This run could not use Claude's own checker, so Claude asks you before each action that needs a check.";
+    this.addMessage(job.taskId, 'system', note);
+    this.noteChecker(job, act, note);
+  }
+
   /** Process one SDK message; returns an Outcome for `result` messages. */
   private handleMessage(job: Job, act: Active, msg: any): Outcome | undefined {
     const taskId = job.taskId;
@@ -2878,6 +2991,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           act.reached = true;
           this.patchTask(taskId, { sessionId: msg.session_id, resumable: true });
           this.noteMcpInit(act, msg.mcp_servers);
+          this.noteCheckerMode(job, act, msg.permissionMode);
+        } else if (msg.subtype === 'permission_denied') {
+          // Claude's own checker said no: the owner sees what and why. A denial by Legion's hooks or the owner's own answer is already on record.
+          if (act.nativeChecks && msg.decision_reason_type === 'classifier') {
+            const why = String(msg.decision_reason ?? msg.message ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) || 'no reason given';
+            const text = `Claude's checker blocked: ${why} (${String(msg.tool_name ?? 'a tool').slice(0, 60)})`;
+            this.addMessage(taskId, 'system', text);
+            this.noteChecker(job, act, text);
+          }
         } else if (msg.subtype === 'compact_boundary') {
           // Claude Code compacted its own context (on /compact, or by itself near the window's end): say so, or the
           // agent seems to forget early instructions for no visible reason.
@@ -2987,6 +3109,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           ...(!isError && text !== undefined ? { result: this.keepResult(taskId, text) } : {}),
         });
         this.noteSpend(taskId, spent);
+        // Claude's checker blocked too many actions in a row and, with no one to ask, the run stopped: say so in plain words
+        if (isError && typeof text === 'string' && /too many classifier denials/i.test(text)) {
+          const note = "Claude's checker blocked several actions in a row; the run stopped. Review what it tried.";
+          this.addMessage(taskId, 'system', note);
+          this.noteChecker(job, act, note);
+        }
         return { subtype: String(msg.subtype), isError, errorText: isError ? text : undefined };
       }
       default:
