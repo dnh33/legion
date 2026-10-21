@@ -80,6 +80,9 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/electron-upgrade.mjs --check
+        env:
+          # read-only, for GitHub's API (release notes and compare pages of electron/electron)
+          GITHUB_TOKEN: ${{ github.token }}
 
   # Live proof that chains through the compromised eMudhra CA keys fail in Electron's Node, Electron's Chromium and the core's own
   # block on plain Node (test/tls-blocklist-live.test.ts). It talks to the incident tracker's test hosts: an unreachable host skips.
@@ -97,6 +100,8 @@ jobs:
       CI: ""
       ELECTRON_SKIP_BINARY_DOWNLOAD: ""
       LEGION_LIVE_TLS: "1"
+      # the tracker's test hosts unreachable: a failure here, not a green run that tested nothing
+      LEGION_LIVE_TLS_REQUIRE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,6 +111,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # the binary itself, whatever the postinstall decided (it skips when CI is set, and GitHub may not always let a job clear CI)
+      - run: node node_modules/electron/install.js
       - run: npm run build:ts
       - name: a display for the Electron window (Linux)
         if: runner.os == 'Linux'

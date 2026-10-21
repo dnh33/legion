@@ -10,8 +10,9 @@ A security update. It installs by itself on Windows. On a Mac or Linux, close Le
 
 ### Security
 
-- **Legion no longer trusts certificates from a compromised certificate authority.** In October 2026 the private keys of eight eMudhra intermediate certificate authorities turned out to be recoverable, so anyone could use them to make a certificate that passes for any website. Browsers block them through lists they update live; Legion's window and its built-in runtime never get those lists. This update brings Electron 44.9.3, which refuses those certificates in the window and in the connections Legion makes to model providers, GitHub and for updates.
-- **The same block holds when Legion runs on your own Node.js** (a Mac or Linux install, an install from source, or `LEGION_NODE`), until Node.js ships its own fix. Command-line agents that Legion starts, such as Claude Code, bring their own runtime: keep them up to date.
+- **Legion no longer trusts certificates from a compromised certificate authority.** In October 2026 the private keys of eight eMudhra intermediate certificate authorities turned out to be recoverable, so anyone could use them to make a certificate that passes for any website. Browsers block them through lists they update live; Legion's window and its built-in runtime never get those lists. This update brings Electron 44.9.3, which refuses those certificates in the window and in the connections Legion itself makes: to OpenRouter, DeepSeek and the other model providers you add, to web search, to GitHub, and for updates.
+- **The same block holds when Legion runs on your own Node.js** (a Mac or Linux install, an install from source, or `LEGION_NODE`), until Node.js ships its own fix.
+- **Claude agents reach Claude through Claude Code**, which Legion starts and which brings its own runtime, so this update does not change how Claude Code checks certificates. Keep Claude Code up to date.
 - **On a Mac or Linux this update changes Legion's dependencies, so it cannot install by itself there.** Close Legion, then run `curl -fsSL https://getlegion.xyz | sh` (if you installed with `--dir`, add it again). Your data in `~/.legion` stays.
 
 ### Changed

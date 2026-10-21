@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-interface VersionNote { version: string; notes: string; affects: string }
+interface VersionNote { version: string; notes: string; evidence: string; affects: string }
 interface Upgrade { from: string; to: string; date: string; why: string; versions: VersionNote[]; majorsCrossed: Array<{ major: number; guide: string; checked: string }>; apisChecked: Array<{ api: string; where: string; verdict: string }>; checks: string[] }
 interface UpgradeRecord { floor: { version: string; reason: string; source: string }; upgrades: Upgrade[] }
 // The checker is plain JS so the CI step can run it without a build; the shapes above are its contract.
@@ -51,8 +51,10 @@ describe('Electron migration guard', () => {
     assert.ok(bad({ versions: good.versions.slice(0, -1) }).some((p) => /last version/.test(p)), 'the target version itself left out');
     assert.ok(bad({ versions: good.versions.map((v) => ({ ...v, notes: 'https://example.test/notes' })) }).some((p) => /official release notes/.test(p)), 'a non-official source');
     assert.ok(bad({ versions: good.versions.map((v) => ({ ...v, affects: ' ' })) }).some((p) => /what it means for Legion/.test(p)), 'notes cited but not read against Legion');
+    assert.ok(bad({ versions: good.versions.map((v) => ({ ...v, evidence: '' })) }).some((p) => /evidence/.test(p)), 'no line copied from the notes');
+    assert.ok(bad({ versions: good.versions.map((v) => ({ ...v, affects: 'x' })) }).some((p) => /20\+ characters/.test(p)), 'a one-letter reading');
     assert.ok(bad({ apisChecked: [] }).some((p) => /apisChecked/.test(p)), 'no Legion API checked');
-    assert.ok(bad({ from: '43.0.0', versions: [{ version: '44.9.3', notes: 'https://github.com/electron/electron/releases/tag/v44.9.3', affects: 'x' }] }).some((p) => /major 44/.test(p)), 'a major crossed without the breaking-changes guide');
-    assert.ok(bad({ versions: [{ version: '44.9.3-beta.1', notes: 'https://github.com/electron/electron/releases/tag/v44.9.3-beta.1', affects: 'x' }] }).some((p) => /stable/.test(p)), 'a prerelease');
+    assert.ok(bad({ from: '43.0.0', versions: [{ version: '44.9.3', notes: 'https://github.com/electron/electron/releases/tag/v44.9.3', evidence: 'commit c542df1ecb', affects: 'upstream security backports only' }] }).some((p) => /major 44/.test(p)), 'a major crossed without the breaking-changes guide');
+    assert.ok(bad({ versions: [{ version: '44.9.3-beta.1', notes: 'https://github.com/electron/electron/releases/tag/v44.9.3-beta.1', evidence: 'commit c542df1ecb', affects: 'upstream security backports only' }] }).some((p) => /stable/.test(p)), 'a prerelease');
   });
 });

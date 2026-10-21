@@ -45,10 +45,15 @@ function run(cmd: string, args: string[], env: Record<string, string | undefined
   assert.ok(line, `no probe output from ${cmd} (exit ${r.status}): ${(r.stderr ?? '').slice(0, 400)}`);
   return JSON.parse(line) as Record<string, Outcome | string>;
 }
+/** An unreachable test host skips, except with LEGION_LIVE_TLS_REQUIRE=1 (CI), where a run that tested nothing must not be green. */
+function unreachable(t: { skip(msg: string): void }, msg: string): void {
+  if (process.env.LEGION_LIVE_TLS_REQUIRE === '1') assert.fail(`${msg}; LEGION_LIVE_TLS_REQUIRE=1 turns this into a failure`);
+  t.skip(msg);
+}
 /** Asserts each outcome refused the chain as revoked; skips the test when every outcome only says the host was unreachable. */
 function expectRevoked(t: { skip(msg: string): void }, label: string, out: Record<string, Outcome | string>, keys: string[], revoked: RegExp): void {
   const results = keys.map((k) => [k, out[k] as Outcome] as const);
-  if (results.every(([, o]) => !o.trusted && UNREACHABLE.test(o.code ?? ''))) { t.skip(`${label}: test host unreachable (${results.map(([, o]) => o.code).join(', ')})`); return; }
+  if (results.every(([, o]) => !o.trusted && UNREACHABLE.test(o.code ?? ''))) { unreachable(t, `${label}: test host unreachable (${results.map(([, o]) => o.code).join(', ')})`); return; }
   for (const [k, o] of results) {
     assert.equal(o.trusted, false, `${label} ${k} TRUSTS a chain through a compromised eMudhra CA (${out.runtime})`);
     assert.match(o.code ?? '', revoked, `${label} ${k} refused it, but not as revoked: ${o.code}`);
@@ -81,7 +86,7 @@ describe('TLS key block, live (eMudhra test hosts)', { skip: LIVE ? false : 'set
       const install = join(root, 'dist', 'src', 'core', 'tls-blocklist-install.js');
       const control = run(process.execPath, [join(probes, 'node-probe.mjs'), host], {});
       const ctl = [control.https, control.fetch] as Outcome[];
-      if (ctl.every((o) => !o.trusted && UNREACHABLE.test(o.code ?? ''))) { t.skip(`test host unreachable (${ctl.map((o) => o.code).join(', ')})`); return; }
+      if (ctl.every((o) => !o.trusted && UNREACHABLE.test(o.code ?? ''))) { unreachable(t, `test host unreachable (${ctl.map((o) => o.code).join(', ')})`); return; }
       if (!ctl.some((o) => o.trusted)) {
         // Nothing for the block to do. CERT_REVOKED here means Node.js itself now blocks the keys: once every supported Node does, remove src/core/tls-blocklist*.ts.
         t.skip(`plain ${control.runtime} does not trust ${host} even without Legion's block (${ctl.map((o) => o.code).join(', ')})`);
