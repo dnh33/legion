@@ -288,10 +288,10 @@ test('switch file: a stale temp file on the real disk is replaced, never written
 test('switch file: leftover temp files are swept at startup, other files stay', () => {
   const dir = mkdtempSync(join(tmpdir(), 'legion-sw-'));
   try {
-    for (const n of ['app-settings.json', 'app-settings.json.123.tmp', 'app-settings.json.9.tmp', 'other.tmp', 'state.json']) writeFileSync(join(dir, n), 'x');
+    for (const n of ['app-settings.json', 'app-settings.json.123.tmp', 'app-settings.json.9.tmp', 'app-settings.json.1234.tmp', 'app-settings.json.bak.tmp', 'app-settings.json.x.tmp', 'other.tmp', 'state.json']) writeFileSync(join(dir, n), 'x');
     const n = sweepSwitchTemps(dir);
-    assert.equal(n, 2);
-    assert.deepEqual(readdirSync(dir).sort(), ['app-settings.json', 'other.tmp', 'state.json']);
+    assert.equal(n, 3);
+    assert.deepEqual(readdirSync(dir).sort(), ['app-settings.json', 'app-settings.json.bak.tmp', 'app-settings.json.x.tmp', 'other.tmp', 'state.json']);
     assert.equal(sweepSwitchTemps(join(dir, 'nope')), 0, 'a missing folder is fine');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

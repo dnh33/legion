@@ -167,7 +167,7 @@ export function sweepSwitchTemps(dir: string, fs: { list(dir: string): string[];
   try { names = fs.list(dir); } catch { return 0; }
   let n = 0;
   for (const name of names) {
-    if (/^app-settings\.json\..+\.tmp$/.test(name)) { fs.remove(join(dir, name)); n++; }
+    if (/^app-settings\.json\.\d+\.tmp$/.test(name)) { fs.remove(join(dir, name)); n++; }
   }
   return n;
 }
