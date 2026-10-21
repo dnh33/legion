@@ -15,7 +15,7 @@ import { defaultWebSearch, normalizeWebSearch } from './web-search-config.js';
 import type { WebSearchConfig } from './web-search-config.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.3.5';
+export const VERSION = '0.3.7';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
@@ -447,6 +447,8 @@ export function redactConfig<T extends LegionConfig>(cfg: T): T {
 const KEEP_ENV = new Set([
   'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_GIT_BASH_PATH', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+  // the owner's own choice about fork subagents; Legion's default (off) is set in buildChildEnv
+  'CLAUDE_CODE_FORK_SUBAGENT',
 ]);
 const HOST_ENV = /^(CLAUDECODE$|CLAUDE_CODE_|CLAUDE_(PID|SESSION_|AFTER_|AUTO_|AUTOCOMPACT_|PROJECT_|INTERNAL_|ADDITIONAL_|EFFORT|ENABLE_|CHROME_)|CCR_|ANTHROPIC_BASE_URL$)/;
 

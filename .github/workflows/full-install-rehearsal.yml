@@ -59,6 +59,9 @@ on:
       - src/electron/**
       - .gitignore
       - .github/workflows/full-install-rehearsal.yml
+      # a dependency change (an Electron bump) is exactly what this rehearses
+      - package.json
+      - package-lock.json
 
 permissions:
   contents: read

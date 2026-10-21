@@ -50,7 +50,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
       cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), settings: planOnlySettings(config, connectorSettings(config, { probe: true }).settings), abortController: ac,
-      // Pinned: an omitted mode starts auto mode on third-party providers (SDK 0.3.286). A probe leaves no session file.
+      // Pinned: an omitted mode depends on the SDK version and the provider (auto in SDK 0.3.286, default again on third-party providers since 0.3.302). A probe leaves no session file.
       permissionMode: 'default', persistSession: false,
     };
     if (config.claude.executablePath) options.pathToClaudeCodeExecutable = config.claude.executablePath;

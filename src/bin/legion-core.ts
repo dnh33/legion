@@ -2,6 +2,8 @@
 /** Legion Core composition root. */
 // FIRST import, on purpose: it wraps stdout and stderr in the redactor before any other module can write (test/log-wiring.test.ts).
 import { describeError, setFatalSink } from '../core/log/install.js';
+// SECOND import, on purpose: refuses TLS chains through the compromised eMudhra CA keys before any module can connect (test/tls-blocklist.test.ts).
+import '../core/tls-blocklist-install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
 import { ProviderKeyring } from '../core/providers/keyring.js';

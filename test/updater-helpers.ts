@@ -85,6 +85,13 @@ export function fullPackageFiles(version: string, over: { lock?: string; extra?:
 }
 
 export interface Release { version: string; zip: Buffer; fullZip?: Buffer; manifest: Buffer; sig: string; manifestObj: Record<string, unknown> }
+/**
+ * When a test release says it was published, unless the test sets it. A fixed date, never the wall clock: the module rigs pin their
+ * clock at 2026-10-20 (12:00 or 00:00 UTC), and checkPolicy (src/core/updater/manifest.ts) refuses a release dated more than a day
+ * after "now" as future-dated. The wall-clock default turned every rig red once real time passed 2026-10-21 12:00 UTC.
+ */
+export const FIXTURE_PUBLISHED_AT = '2026-10-20T00:00:00Z';
+
 export function makeRelease(k: TestKey, version: string, o: { files?: ZipFile[]; manifest?: Record<string, unknown>; lock?: string; publishedAt?: string; signWith?: TestKey; requiresFullInstall?: boolean; full?: { files?: ZipFile[]; drop?: string[]; pkgVersion?: string } } = {}): Release {
   const lock = o.lock ?? LOCK;
   const zip = makeZip(o.files ?? packageFiles(version, o.lock !== undefined ? { lock } : {}));
@@ -92,7 +99,7 @@ export function makeRelease(k: TestKey, version: string, o: { files?: ZipFile[];
   // full package must carry the SAME lock bytes or checkFullTree refuses it (this mirrors the real release scripts).
   const fullZip = o.full ? makeZip(o.full.files ?? fullPackageFiles(version, { lock, ...o.full })) : undefined;
   const manifestObj = {
-    schema: 1, product: 'legion', channel: 'stable', version, publishedAt: o.publishedAt ?? new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    schema: 1, product: 'legion', channel: 'stable', version, publishedAt: o.publishedAt ?? FIXTURE_PUBLISHED_AT,
     asset: { name: assetNameFor(version), size: zip.length, sha256: sha256(zip) },
     ...(fullZip ? { fullAsset: { name: fullAssetNameFor(version), size: fullZip.length, sha256: sha256(fullZip) } } : {}),
     depsSha256: sha256(lock), requiresFullInstall: o.requiresFullInstall ?? false, notes: 'Test notes <b>x</b>', ...o.manifest,
