@@ -59,5 +59,11 @@ export function checkRecord(record, pin, exists) {
     if (blank(a.where) || !exists(a.where)) out.push(`${at}: apisChecked "${a.api}" names ${a.where}, which is not a file in the repo`);
   }
   if (!Array.isArray(u.checks) || u.checks.length === 0 || u.checks.some(blank)) out.push(`${at}: checks must list what was run to prove Legion still works`);
+  // Citations prove the notes were opened, not understood: a second reader re-derives "affects" for some versions on their own.
+  const rv = u.review;
+  const listed = new Set(vs.map((v) => v.version));
+  if (!rv || blank(rv.by) || thin(rv.verdict) || !Array.isArray(rv.reread) || rv.reread.length < Math.min(2, vs.length) || rv.reread.some((v) => !listed.has(v))) {
+    out.push(`${at}: review needs "by" (a second agent or person, not the author), "reread" (at least 2 of the versions, whose notes they read against Legion's code on their own) and "verdict" (20+ characters)`);
+  }
   return out;
 }
