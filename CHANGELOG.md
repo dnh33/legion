@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-10-21
+
+A security update. It installs by itself on Windows. On a Mac or Linux it changes Legion's dependencies, so close Legion and run the installer once more: `curl -fsSL https://getlegion.xyz | sh` (if you installed with `--dir`, add it again). Your data in `~/.legion` stays.
+
+### Security
+
+- **The app window and Claude agents now refuse the compromised eMudhra certificates too.** 0.3.6 covered the connections Legion makes itself. This update brings Electron 44.9.3, which refuses those certificates in the window and in its own runtime, and Claude Code 2.1.306 (in the Claude Agent SDK 0.3.306), which Claude agents use to reach Claude and which refuses them as well. The Claude Code Legion bundles is the one your Claude agents run, whatever version you installed yourself.
+
+### Changed
+
+- **Fork subagents stay off for now.** The new Claude Agent SDK lets Claude split off a copy of a conversation by default; Legion keeps that off until it is tested with Legion's approval cards, task list and costs. To turn it on yourself, set `CLAUDE_CODE_FORK_SUBAGENT=1` before you start Legion.
+
 ## [0.3.6] - 2026-10-21
 
 A security update. It installs from inside Legion on Windows, Mac and Linux; no installer run is needed.
@@ -12,7 +24,7 @@ A security update. It installs from inside Legion on Windows, Mac and Linux; no 
 
 - **Legion no longer trusts certificates from a compromised certificate authority.** In October 2026 the private keys of eight eMudhra intermediate certificate authorities turned out to be recoverable, so anyone could use them to make a certificate that passes for any website. Browsers block them through lists they update live; the runtime Legion runs on never gets those lists. Legion now refuses those certificates in the connections it makes itself: to OpenRouter, DeepSeek and the other model providers you add, to web search, to GitHub, and for updates.
 - **The app window** gets the same protection from a new Electron in the next update.
-- **Claude agents reach Claude through Claude Code**, which Legion starts and which brings its own runtime, so this update does not change how Claude Code checks certificates. Keep Claude Code up to date.
+- **Claude agents reach Claude through Claude Code**, which Legion bundles and which brings its own runtime, so this update does not change how Claude Code checks certificates. The bundled Claude Code gets the fix in 0.3.7.
 
 ### Changed
 

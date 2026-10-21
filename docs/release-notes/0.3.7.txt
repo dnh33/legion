@@ -1,0 +1,8 @@
+A security update. It installs by itself on Windows.
+
+On Mac or Linux? This update changes Legion's dependencies. Close Legion, then run the installer once more: curl -fsSL https://getlegion.xyz | sh (if you installed with --dir, add it again). Your data in ~/.legion stays.
+
+The window and Claude agents refuse the compromised certificates too
+0.3.6 covered the connections Legion makes itself. Now the app window (Electron 44.9.3) and the Claude Code your Claude agents run (2.1.306) refuse the eight leaked eMudhra certificate authorities as well.
+
+Full detail in CHANGELOG.md.
