@@ -15,7 +15,7 @@ import { defaultWebSearch, normalizeWebSearch } from './web-search-config.js';
 import type { WebSearchConfig } from './web-search-config.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.3.5';
+export const VERSION = '0.3.6';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).

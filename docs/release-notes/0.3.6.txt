@@ -1,0 +1,8 @@
+A security update. It installs by itself on Windows.
+
+On Mac or Linux? Close Legion, then run the installer once more: curl -fsSL https://getlegion.xyz | sh (if you installed with --dir, add it again). Your data in ~/.legion stays.
+
+Certificates from a compromised authority are refused
+The keys of eight eMudhra certificate authorities leaked, so anyone could make a certificate that passes for any website. Legion now refuses those certificates in its window and in its connections to model providers, GitHub and updates.
+
+Full detail in CHANGELOG.md.
