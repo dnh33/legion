@@ -13,7 +13,7 @@ export type RpcIo = {
 };
 
 export type RpcOptions = {
-  /** Default time a request may wait for its response. 0 or Infinity means no limit. */
+  /** Default time a request may wait for its response. 0, Infinity or more than 2^31-1 ms means no limit. */
   requestTimeoutMs?: number;
   /** Receives every line that is not a usable JSON-RPC message (a banner, a log line, a broken fragment). */
   onNoise?: (line: string) => void;
@@ -53,18 +53,52 @@ const Envelope = z.object({
   error: z.object({ code: z.number(), message: z.string(), data: z.unknown().optional() }).optional(),
 });
 
-/** Feed byte or text chunks in, get whole lines out. Handles lines split over chunks, CRLF, blank lines and split UTF-8 characters. */
-export function lineSplitter(onLine: (line: string) => void): (chunk: string | Uint8Array) => void {
+export type LineSplitterOptions = {
+  /** Longest line kept, in UTF-8 bytes. A longer line is dropped up to its newline. Default 16 MiB (ACP carries images and diffs). */
+  maxLineBytes?: number;
+  /** Called once per dropped line with the cap. */
+  onOverflow?: (maxLineBytes: number) => void;
+};
+const DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024;
+const MAX_TIMER_MS = 2 ** 31 - 1; // Node fires a longer timer after 1 ms.
+
+/**
+ * Feed byte or text chunks in, get whole lines out. Handles lines split over chunks, CRLF, blank lines and split UTF-8 characters.
+ * Memory is bounded by the cap and each chunk is scanned once. A last line with no newline is never delivered (ACP ends every message with one).
+ */
+export function lineSplitter(onLine: (line: string) => void, opts: LineSplitterOptions = {}): (chunk: string | Uint8Array) => void {
+  const max = opts.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
   const decoder = new StringDecoder('utf8');
   let tail = '';
+  let tailBytes = 0;
+  let discarding = false; // inside an oversized line, skipping to its newline
   return (chunk) => {
-    tail += typeof chunk === 'string' ? chunk : decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-    let nl = tail.indexOf('\n');
-    while (nl !== -1) {
-      const line = tail.slice(0, nl).replace(/\r$/, '');
-      tail = tail.slice(nl + 1);
-      if (line.trim() !== '') onLine(line);
-      nl = tail.indexOf('\n');
+    const text = typeof chunk === 'string' ? chunk : decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+    let pos = 0;
+    while (pos < text.length) {
+      const nl = text.indexOf('\n', pos);
+      const end = nl === -1 ? text.length : nl;
+      if (!discarding) {
+        const bytes = Buffer.byteLength(text.slice(pos, end));
+        if (tailBytes + bytes > max) {
+          tail = '';
+          tailBytes = 0;
+          discarding = true;
+          opts.onOverflow?.(max);
+        } else {
+          tail += text.slice(pos, end);
+          tailBytes += bytes;
+        }
+      }
+      if (nl === -1) return;
+      if (!discarding) {
+        const line = tail.replace(/\r$/, '');
+        if (line.trim() !== '') onLine(line);
+        tail = '';
+        tailBytes = 0;
+      }
+      discarding = false;
+      pos = nl + 1;
     }
   };
 }
@@ -89,7 +123,7 @@ export class RpcPeer {
     if (this.closed) return Promise.reject(this.closed);
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
-      const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
+      const timer = timeoutMs > 0 && timeoutMs <= MAX_TIMER_MS
         ? setTimeout(() => this.settle(id)?.reject(new RpcTimeout(method, timeoutMs)), timeoutMs)
         : undefined;
       // Registered before the write: an io may answer synchronously.
@@ -130,6 +164,10 @@ export class RpcPeer {
     return p;
   }
 
+  private noise(line: string): void {
+    try { this.opts.onNoise?.(line); } catch { /* a throwing callback must not break the stream */ }
+  }
+
   private send(msg: object): void {
     if (this.closed) return;
     try {
@@ -140,10 +178,11 @@ export class RpcPeer {
   }
 
   private receive(line: string): void {
+    if (this.closed) return; // late lines after close: no handler runs
     let raw: unknown;
-    try { raw = JSON.parse(line); } catch { this.opts.onNoise?.(line); return; }
+    try { raw = JSON.parse(line); } catch { this.noise(line); return; }
     const parsed = Envelope.safeParse(raw);
-    if (!parsed.success) { this.opts.onNoise?.(line); return; }
+    if (!parsed.success) { this.noise(line); return; }
     const m = parsed.data;
     if (m.method !== undefined) {
       if (m.id === undefined || m.id === null) this.onNotificationMessage(m.method, m.params);
@@ -154,7 +193,8 @@ export class RpcPeer {
       if (m.error) p.reject(new RpcError(m.error.code, m.error.message, m.error.data));
       else p.resolve(m.result);
     } else {
-      this.opts.onNoise?.(line);
+      // Includes an error reply with id null (the agent could not parse something we sent): the request it answers waits for its own timeout.
+      this.noise(line);
     }
   }
 
@@ -179,7 +219,7 @@ export class RpcPeer {
     try {
       this.notificationHandlers.get(method)?.(params); // No handler: ignore, as JSON-RPC says for notifications.
     } catch (e) {
-      this.opts.onNoise?.(`handler for notification ${method} failed: ${e instanceof Error ? e.message : String(e)}`);
+      this.noise(`handler for notification ${method} failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }

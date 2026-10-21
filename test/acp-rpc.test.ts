@@ -233,3 +233,88 @@ test('noise split across chunks through lineSplitter does not break the stream',
   assert.equal(await p, 7);
   assert.deepEqual(noise, ['banner text with no braces', 'not json at all']);
 });
+
+test('lineSplitter: a line over the cap is dropped once, reported once, and the next valid line parses', () => {
+  const lines: string[] = [];
+  const overflows: number[] = [];
+  const feed = lineSplitter((l) => lines.push(l), { maxLineBytes: 1024, onOverflow: (limit) => overflows.push(limit) });
+  for (let i = 0; i < 100; i++) feed('x'.repeat(100)); // 10000 bytes, no newline
+  assert.deepEqual(overflows, [1024]);
+  feed('tail of the junk line\n{"ok":1}\n');
+  assert.deepEqual(lines, ['{"ok":1}']);
+  assert.deepEqual(overflows, [1024], 'one report per oversized line');
+});
+
+test('lineSplitter: the default cap is 16 MiB, so a 17 MiB line with no newline is dropped', () => {
+  const lines: string[] = [];
+  const overflows: number[] = [];
+  const feed = lineSplitter((l) => lines.push(l), { onOverflow: (limit) => overflows.push(limit) });
+  const mib = Buffer.alloc(1024 * 1024, 0x78);
+  for (let i = 0; i < 17; i++) feed(mib);
+  assert.deepEqual(overflows, [16 * 1024 * 1024]);
+  feed('\n{"ok":2}\n');
+  assert.deepEqual(lines, ['{"ok":2}']);
+});
+
+test('lineSplitter: a line at the cap passes, an oversized line ending in the same chunk is skipped and the next one survives', () => {
+  const lines: string[] = [];
+  const overflows: number[] = [];
+  const feed = lineSplitter((l) => lines.push(l), { maxLineBytes: 10, onOverflow: (limit) => overflows.push(limit) });
+  feed('0123456789\n' + 'x'.repeat(11) + '\nshort\n');
+  assert.deepEqual(lines, ['0123456789', 'short']);
+  assert.deepEqual(overflows, [10]);
+});
+
+test('a throwing onNoise cannot escape into the io handler', async () => {
+  const f = fakeIo();
+  const peer = new RpcPeer(f.io, { onNoise: () => { throw new Error('callback broke'); } });
+  const p = peer.request<string>('x', {});
+  const id = f.sentJson()[0]!['id'];
+  assert.doesNotThrow(() => f.feed('not json'));
+  f.feed({ jsonrpc: '2.0', id, result: 'fine' });
+  assert.equal(await p, 'fine');
+  peer.onNotification('boom', () => { throw new Error('handler broke'); });
+  assert.doesNotThrow(() => f.feed({ jsonrpc: '2.0', method: 'boom' }));
+});
+
+test('a timeout above the timer limit (2^31-1 ms) means no timeout instead of firing at once', async () => {
+  const f = fakeIo();
+  const peer = new RpcPeer(f.io);
+  const p = peer.request<string>('huge', {}, 2 ** 31);
+  const outcome = await Promise.race([p.then(() => 'settled', () => 'settled'), new Promise((r) => setTimeout(() => r('waiting'), 30))]);
+  assert.equal(outcome, 'waiting');
+  f.feed({ jsonrpc: '2.0', id: f.sentJson()[0]!['id'], result: 'done' });
+  assert.equal(await p, 'done');
+});
+
+test('after close, late lines are dropped: no handler runs and nothing is written', async () => {
+  const f = fakeIo();
+  const peer = new RpcPeer(f.io);
+  let ran = 0;
+  peer.onNotification('n', () => { ran++; });
+  peer.onRequest('r', async () => { ran++; return 1; });
+  peer.close('gone');
+  f.feed({ jsonrpc: '2.0', method: 'n' });
+  f.feed({ jsonrpc: '2.0', id: 1, method: 'r' });
+  await tick();
+  assert.equal(ran, 0);
+  assert.deepEqual(f.sent, []);
+});
+
+test('a response with result null resolves to null', async () => {
+  const f = fakeIo();
+  const peer = new RpcPeer(f.io);
+  const p = peer.request('x', {});
+  f.feed({ jsonrpc: '2.0', id: f.sentJson()[0]!['id'], result: null });
+  assert.equal(await p, null);
+});
+
+test('an agent error reply with id null goes to onNoise and the request waits for its own timeout', async () => {
+  const f = fakeIo();
+  const noise: string[] = [];
+  const peer = new RpcPeer(f.io, { onNoise: (l) => noise.push(l) });
+  const p = peer.request('x', {}, 30);
+  f.feed({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+  assert.equal(noise.length, 1);
+  await assert.rejects(p, RpcTimeout);
+});
