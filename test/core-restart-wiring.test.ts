@@ -54,7 +54,7 @@ test('crash handler: logs, decides with every fact, waits, re-checks, restarts t
   assert.match(f, /noteStopped\('failed'\)/);
   assert.match(f, /noteRestarted\(\)/);
   assert.ok(f.indexOf('noteRestarted()') < f.indexOf('await restartCoreQuiet()'), 'the notice is set before the reload that fetches it');
-  for (const fact of ['quitting', 'updateBusy(', 'sessionEnding', 'restartSwitchOn()', 'booting']) assert.ok(f.includes(fact), `uses ${fact}`);
+  for (const fact of ['quitting', 'updateBusy(', 'sessionEnding', 'restartSwitchStatus(', 'booting']) assert.ok(f.includes(fact), `uses ${fact}`);
 });
 
 test('updates: the host exports applying and the live swap marker as one answer, and the crash handler uses it', () => {
@@ -101,7 +101,7 @@ test('manual restart: the tray and the banner button share one path that forgets
 test('the option lives in app-settings.json in the data folder, read by main with no core', () => {
   assert.match(main, /app-settings\.json/);
   const r = block(main, 'function restartSwitchOn()');
-  assert.match(r, /readRestartSwitch\(/);
+  assert.match(r, /restartSwitchStatus\(/);
   assert.ok(!/ownCoreCall/.test(r));
 });
 
@@ -127,13 +127,27 @@ test('one restart at a time: the tray, the banner and the auto-restart all go th
 
 test('a core that dies while Legion is still starting gets the stopped banner with the button', () => {
   const f = block(main, 'async function onCoreCrash(');
-  assert.match(f, /if \(booting\) \{[^}]*noteStopped\('failed'\)[^}]*notifyRestartChanged\(\)/s);
+  assert.match(f, /action === 'stopped-starting'[\s\S]*?noteStopped\('starting'\)/);
+  assert.match(f, /booting,/, 'booting is a fact for the decision');
 });
 
 test('the switch file: read and written through the careful helpers (temp file and rename; a locked file is not "on")', () => {
   const r = block(main, 'function restartSwitchOn()');
-  assert.match(r, /readRestartSwitch\(/);
+  assert.match(r, /restartSwitchStatus\(/);
   const w = block(main, 'function setRestartSwitch(');
   assert.match(w, /writeRestartSwitch\(/);
   assert.ok(!/writeFileSync/.test(w));
+});
+
+test('killTree: taskkill has a timeout and the promise resolves anyway, so one hung call cannot block every later restart', () => {
+  const k = block(main, 'function killTree(');
+  assert.match(k, /execFile\(plan\.cmd, plan\.args, \{ windowsHide: true, timeout: KILL_TIMEOUT_MS \}, \(\) => done\(\)\)/);
+  assert.match(main, /const KILL_TIMEOUT_MS = 10_000/);
+});
+
+test('the switch file: leftover temp files are swept at startup, and an unreadable file is logged with its code', () => {
+  assert.match(main, /sweepSwitchTemps\(dataDir\(\)\)/);
+  const f = block(main, 'async function onCoreCrash(');
+  assert.match(f, /restartSwitchStatus\(/);
+  assert.match(f, /switchError/);
 });

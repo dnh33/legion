@@ -14,7 +14,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { formatLine } from '../core/log/logger.js';
-import { CoreRestartState, CrashTracker, RESTART_DELAY_MS, SingleFlight, decideRestart, exitLine, readRestartSwitch, writeRestartSwitch, type RestartFacts } from './core-restart-logic.js';
+import { CoreRestartState, CrashTracker, RESTART_DELAY_MS, SingleFlight, decideRestart, exitLine, restartSwitchStatus, sweepSwitchTemps, writeRestartSwitch, type RestartFacts } from './core-restart-logic.js';
 import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, ensureGatesKey, gatesKeyFilePath, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
@@ -156,12 +156,14 @@ function stopForeignPid(pid: number): void {
   } catch { /* already gone */ }
 }
 
+/** taskkill that takes longer than this is given up on, so one hung call cannot hold up every later restart. */
+const KILL_TIMEOUT_MS = 10_000;
 /** Stops our own core child and everything it started: taskkill /T /F on Windows, a signal to its process group elsewhere (it is spawned detached). */
 function killTree(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
   return new Promise((done) => {
     const plan = child.pid ? killPlan(process.platform, child.pid, signal) : null;
     try {
-      if (plan?.kind === 'taskkill') { execFile(plan.cmd, plan.args, { windowsHide: true }, () => done()); return; }
+      if (plan?.kind === 'taskkill') { execFile(plan.cmd, plan.args, { windowsHide: true, timeout: KILL_TIMEOUT_MS }, () => done()); return; }
       if (plan?.kind === 'group') process.kill(plan.pid, plan.signal);
       else child.kill(signal);
     } catch { try { child.kill(signal); } catch { /* already gone */ } }
@@ -334,7 +336,7 @@ function appLog(level: 'info' | 'warn', event: string, fields: Record<string, st
 /** The Settings switch "Restart Legion Core when it stops unexpectedly". A file in the data folder, because the core it concerns is the one that is dead. On unless it says false. */
 const appSettingsFile = (): string => join(dataDir(), 'app-settings.json');
 function restartSwitchOn(): boolean {
-  return readRestartSwitch(appSettingsFile()); // a file that is locked right now reads as "do not restart"
+  return restartSwitchStatus(appSettingsFile()).on; // a file that is locked right now reads as "do not restart"
 }
 function setRestartSwitch(on: boolean): void {
   writeRestartSwitch(appSettingsFile(), on); // temp file and rename
@@ -372,14 +374,15 @@ function markSessionEnding(why: string): void {
 async function onCoreCrash(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
   const count = crashes.register();
   appLog('warn', 'core-exit', { code: code ?? 'none', signal: signal ?? 'none', count, note: exitLine(code, signal, count) });
-  const facts = (): RestartFacts => ({ intended: booting, quitting, updating: updateBusy(root), sessionEnding, enabled: restartSwitchOn(), count });
+  const facts = (): RestartFacts => {
+    const sw = restartSwitchStatus(appSettingsFile());
+    return { intended: false, booting, quitting, updating: updateBusy(root), sessionEnding, enabled: sw.on, ...(sw.error ? { switchError: sw.error } : {}), count };
+  };
   const first = decideRestart(facts());
-  appLog('info', 'core-restart', { note: booting ? 'not restarting: Legion is still starting' : first.log });
+  appLog('info', 'core-restart', { note: first.log });
   if (first.action === 'stop-at-limit') { restartState.noteStopped('limit'); notifyRestartChanged(); }
-  if (booting) { // the splash owns the start; unless Legion is closing, the banner gives the person the button
-    if (!quitting && !sessionEnding && !updateBusy(root)) { restartState.noteStopped('failed'); notifyRestartChanged(); }
-    return;
-  }
+  // the splash owns the start; unless Legion is closing, the banner gives the person the button
+  if (first.action === 'stopped-starting') { restartState.noteStopped('starting'); notifyRestartChanged(); }
   if (first.action !== 'restart') return;
   await sleep(RESTART_DELAY_MS); // a whole-app kill finishes first
   if (coreProc || restartFlight.busy) { appLog('info', 'core-restart', { note: 'not restarting: a core is already running again' }); return; }
@@ -832,6 +835,7 @@ if (instance.quit) {
   void app.whenReady().then(async () => {
     // Linux and macOS tell the app about a shutdown here (Windows uses the window events above)
     try { powerMonitor.on('shutdown', () => markSessionEnding('shutdown')); } catch { /* no power monitor here */ }
+    sweepSwitchTemps(dataDir()); // temp files an interrupted switch save left behind
     // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
     if ((await holdStartIfUpdating(root, dataDir(), updateHandoff)) === 'exit') { quitting = true; app.exit(0); return; }
     await recoverAtStart(root, dataDir()); // finish or undo an update that was cut off, before the core starts

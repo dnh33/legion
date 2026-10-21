@@ -6,7 +6,8 @@
  * recorded in the last 5 minutes. So the first and second stop restart the core, and the third shows the banner instead.
  */
 
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 
 export const CRASH_LIMIT = 3;
 export const CRASH_WINDOW_MS = 5 * 60 * 1000;
@@ -43,18 +44,23 @@ export interface RestartFacts {
   sessionEnding: boolean;
   /** The Settings switch. */
   enabled: boolean;
+  /** Legion is still starting (the splash is up): a core that dies now is the start's failure, not a crash to restart. */
+  booting?: boolean;
+  /** The switch file could not be read (the error code). Then `enabled` is false, and the log says why. */
+  switchError?: string;
   /** Crashes in the window, this one included. */
   count: number;
 }
 
-export type RestartDecision = { action: 'restart' | 'stop-at-limit' | 'ignore'; log: string };
+export type RestartDecision = { action: 'restart' | 'stop-at-limit' | 'stopped-starting' | 'ignore'; log: string };
 
 export function decideRestart(f: RestartFacts): RestartDecision {
   if (f.intended) return { action: 'ignore', log: 'not restarting: intended stop' };
   if (f.quitting) return { action: 'ignore', log: 'not restarting: quitting' };
   if (f.sessionEnding) return { action: 'ignore', log: 'not restarting: session ending' };
   if (f.updating) return { action: 'ignore', log: 'not restarting: update in progress' };
-  if (!f.enabled) return { action: 'ignore', log: 'not restarting: switched off in Settings' };
+  if (f.booting) return { action: 'stopped-starting', log: 'not restarting: Legion is still starting' };
+  if (!f.enabled) return { action: 'ignore', log: f.switchError ? `not restarting: could not read the switch file (${f.switchError})` : 'not restarting: switched off in Settings' };
   if (f.count >= CRASH_LIMIT) return { action: 'stop-at-limit', log: `not restarting: limit reached (${f.count} in the last 5 minutes)` };
   return { action: 'restart', log: `restarting (crash ${f.count} of ${CRASH_LIMIT} in 5 minutes)` };
 }
@@ -64,7 +70,7 @@ export function exitLine(code: number | null, signal: string | null, count: numb
 }
 
 /** `stopped`: why the core is left stopped: the crash limit, or a restart that did not come up. */
-export type StoppedWhy = 'limit' | 'failed';
+export type StoppedWhy = 'limit' | 'failed' | 'starting';
 export interface CoreRestartView { restarted: boolean; stopped: StoppedWhy | null }
 
 /** What the window is told. The restart notice is handed out once; the stopped state stays until the person restarts the core. */
@@ -109,7 +115,7 @@ export interface SwitchFs {
 }
 const realFs: SwitchFs = {
   read: (p) => readFileSync(p, 'utf8'),
-  write: (p, t) => writeFileSync(p, t),
+  write: (p, t) => writeFileSync(p, t, { flag: 'wx' }), // exclusive: never follows a planted link
   rename: (a, b) => renameSync(a, b),
   remove: (p) => { try { unlinkSync(p); } catch { /* already gone */ } },
 };
@@ -120,9 +126,16 @@ const isMissing = (e: unknown): boolean => (e as { code?: string } | null)?.code
  * a permission error) is unknown, and unknown means do not restart: the person's "off" must never flip to "on" for a crash.
  */
 export function readRestartSwitch(path: string, fs: Pick<SwitchFs, 'read'> = realFs): boolean {
+  return restartSwitchStatus(path, fs).on;
+}
+
+/** Like readRestartSwitch, and when the file could not be read it also says why (the error code), for the log. */
+export function restartSwitchStatus(path: string, fs: Pick<SwitchFs, 'read'> = realFs): { on: boolean; error?: string } {
   let raw: string | null = null;
-  try { raw = fs.read(path); } catch (e) { if (!isMissing(e)) return false; }
-  return restartEnabled(raw);
+  try { raw = fs.read(path); } catch (e) {
+    if (!isMissing(e)) return { on: false, error: (e as { code?: string } | null)?.code ?? 'unreadable' };
+  }
+  return { on: restartEnabled(raw) };
 }
 
 /**
@@ -133,13 +146,30 @@ export function writeRestartSwitch(path: string, on: boolean, fs: SwitchFs = rea
   let raw: string | null = null;
   try { raw = fs.read(path); } catch (e) { if (!isMissing(e)) throw e; }
   const tmp = `${path}.${process.pid}.tmp`;
+  const text = withRestartEnabled(raw, on);
   try {
-    fs.write(tmp, withRestartEnabled(raw, on));
+    try { fs.write(tmp, text); } catch (e) {
+      // the temp name is taken (a leftover, or something planted there): remove it, never write through it, and try once more
+      if ((e as { code?: string } | null)?.code !== 'EEXIST') throw e;
+      fs.remove(tmp);
+      fs.write(tmp, text);
+    }
     fs.rename(tmp, path);
   } catch (e) {
     fs.remove(tmp);
     throw e;
   }
+}
+
+/** At startup: removes the temp files an interrupted save left next to app-settings.json. Returns how many. */
+export function sweepSwitchTemps(dir: string, fs: { list(dir: string): string[]; remove(p: string): void } = { list: (d) => readdirSync(d), remove: realFs.remove }): number {
+  let names: string[] = [];
+  try { names = fs.list(dir); } catch { return 0; }
+  let n = 0;
+  for (const name of names) {
+    if (/^app-settings\.json\..+\.tmp$/.test(name)) { fs.remove(join(dir, name)); n++; }
+  }
+  return n;
 }
 
 /** One async job at a time. A caller that arrives while it runs shares that run's answer instead of starting a second one. */

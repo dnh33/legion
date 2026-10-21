@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from './ps-helpers.js';
 import {
-  CORE_OPTION_HINT, CORE_OPTION_LABEL, CORE_RESTARTED_TEXT, CORE_STOPPED_FAILED_TEXT, CORE_STOPPED_LIMIT_TEXT, bannerModel, nextOption, type BannerInput,
+  CORE_OPTION_HINT, CORE_OPTION_LABEL, CORE_RESTARTED_TEXT, CORE_STOPPED_FAILED_TEXT, CORE_STOPPED_LIMIT_TEXT, CORE_STOPPED_STARTING_TEXT, bannerModel, nextOption, type BannerInput,
 } from '../ui/src/coreRestart/coreRestartText.js';
 
 const src = (p: string): string => readFileSync(join(repoRoot, p), 'utf8').replace(/\r\n/g, '\n');
@@ -23,6 +23,14 @@ test('words: a restart that did not come up says so and points to core.log', () 
   assert.equal(CORE_STOPPED_FAILED_TEXT, 'Legion Core stopped unexpectedly and could not be restarted. Details are in core.log in your data folder (Settings, About).');
 });
 
+test('words: a core that stopped while Legion was starting says that, not "could not be restarted"', () => {
+  assert.equal(CORE_STOPPED_STARTING_TEXT, 'Legion Core stopped while Legion was starting. Use Restart core to start it again. Details are in core.log in your data folder (Settings, About).');
+  assert.ok(!/restarted/.test(CORE_STOPPED_STARTING_TEXT));
+  assert.equal(bannerModel(input({ stopped: 'starting' }))!.text, CORE_STOPPED_STARTING_TEXT);
+  assert.equal(bannerModel(input({ stopped: 'starting' }))!.action, 'restart');
+  assert.match(src('ui/src/coreRestart/coreRestartStore.ts'), /v === 'starting'/, 'the store accepts the reason');
+});
+
 test('words: the Settings line and its hint', () => {
   assert.equal(CORE_OPTION_LABEL, 'Restart Legion Core when it stops unexpectedly');
   assert.match(CORE_OPTION_HINT, /^If Legion Core stops on its own, Legion starts it again/);
@@ -30,7 +38,7 @@ test('words: the Settings line and its hint', () => {
 });
 
 test('words: no em dash, no "this computer", no outside product names', () => {
-  for (const t of [CORE_RESTARTED_TEXT, CORE_STOPPED_LIMIT_TEXT, CORE_STOPPED_FAILED_TEXT, CORE_OPTION_LABEL, CORE_OPTION_HINT]) {
+  for (const t of [CORE_RESTARTED_TEXT, CORE_STOPPED_LIMIT_TEXT, CORE_STOPPED_FAILED_TEXT, CORE_STOPPED_STARTING_TEXT, CORE_OPTION_LABEL, CORE_OPTION_HINT]) {
     assert.ok(!t.includes('\u2014'), t);
     assert.ok(!/this (computer|machine)/i.test(t), t);
   }

@@ -7,10 +7,11 @@ export const CORE_RESTARTED_TEXT = 'Legion Core stopped unexpectedly and was res
 const WHERE = 'Details are in core.log in your data folder (Settings, About).';
 export const CORE_STOPPED_LIMIT_TEXT = `Legion Core stopped 3 times in 5 minutes, so Legion did not restart it again. ${WHERE}`;
 export const CORE_STOPPED_FAILED_TEXT = `Legion Core stopped unexpectedly and could not be restarted. ${WHERE}`;
+export const CORE_STOPPED_STARTING_TEXT = `Legion Core stopped while Legion was starting. Use Restart core to start it again. ${WHERE}`;
 export const CORE_OPTION_LABEL = 'Restart Legion Core when it stops unexpectedly';
 export const CORE_OPTION_HINT = 'If Legion Core stops on its own, Legion starts it again. Running tasks are stopped when that happens. After 3 stops in 5 minutes it stops trying and tells you. Off: the core stays stopped until you restart it from the tray.';
 
-export type StoppedWhy = 'limit' | 'failed';
+export type StoppedWhy = 'limit' | 'failed' | 'starting';
 export interface BannerInput {
   restarted: boolean;
   stopped: StoppedWhy | null;
@@ -33,7 +34,7 @@ export interface BannerModel {
 /** What the banner shows, or null for nothing. A stop outranks the notice and cannot be dismissed: only a restart ends it. */
 export function bannerModel(s: BannerInput): BannerModel | null {
   if (s.stopped) {
-    const base = s.stopped === 'limit' ? CORE_STOPPED_LIMIT_TEXT : CORE_STOPPED_FAILED_TEXT;
+    const base = s.stopped === 'limit' ? CORE_STOPPED_LIMIT_TEXT : s.stopped === 'starting' ? CORE_STOPPED_STARTING_TEXT : CORE_STOPPED_FAILED_TEXT;
     return {
       tone: 'stop', role: 'alert', text: s.error ? `${base} Restart failed: ${s.error}` : base,
       action: 'restart', actionLabel: s.busy ? 'Restarting\u2026' : 'Restart core', actionDisabled: s.busy,

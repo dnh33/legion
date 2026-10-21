@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CRASH_LIMIT, CRASH_WINDOW_MS, CoreRestartState, CrashTracker, RESTART_DELAY_MS, SingleFlight,
-  decideRestart, exitLine, readRestartSwitch, restartEnabled, withRestartEnabled, writeRestartSwitch, type RestartFacts,
+  decideRestart, exitLine, readRestartSwitch, restartEnabled, restartSwitchStatus, sweepSwitchTemps, withRestartEnabled, writeRestartSwitch, type RestartFacts,
 } from '../src/electron/core-restart-logic.js';
 
 const facts = (over: Partial<RestartFacts> = {}): RestartFacts => ({ intended: false, quitting: false, updating: false, sessionEnding: false, enabled: true, count: 1, ...over });
@@ -221,4 +221,83 @@ test('single flight: a restart that throws frees the slot', async () => {
   await assert.rejects(sf.run(() => Promise.reject(new Error('boom'))), /boom/);
   assert.equal(sf.busy, false);
   assert.equal(await sf.run(() => Promise.resolve(null)), null);
+});
+
+// round 2
+test('decision: a core that dies while Legion is starting is not restarted and says so; the banner is for the person', () => {
+  const d = decideRestart(facts({ booting: true }));
+  assert.equal(d.action, 'stopped-starting');
+  assert.equal(d.log, 'not restarting: Legion is still starting');
+  for (const over of [{ quitting: true }, { sessionEnding: true }, { updating: true }] as Array<Partial<RestartFacts>>) {
+    assert.equal(decideRestart(facts({ booting: true, ...over })).action, 'ignore', JSON.stringify(over));
+  }
+  assert.equal(decideRestart(facts({ booting: false })).action, 'restart');
+});
+
+test('decision: a switch file that could not be read is logged with the real reason, not as "switched off"', () => {
+  const d = decideRestart(facts({ enabled: false, switchError: 'EBUSY' }));
+  assert.equal(d.action, 'ignore');
+  assert.equal(d.log, 'not restarting: could not read the switch file (EBUSY)');
+  assert.equal(decideRestart(facts({ enabled: false })).log, 'not restarting: switched off in Settings');
+});
+
+test('switch status: on, off, or unreadable with the error code', () => {
+  const err = (code: string) => (): string => { throw Object.assign(new Error('x'), { code }); };
+  assert.deepEqual(restartSwitchStatus('x', { read: err('ENOENT') }), { on: true });
+  assert.deepEqual(restartSwitchStatus('x', { read: err('EBUSY') }), { on: false, error: 'EBUSY' });
+  assert.deepEqual(restartSwitchStatus('x', { read: () => '{"restartCoreOnCrash":false}' }), { on: false });
+  assert.deepEqual(restartSwitchStatus('x', { read: () => '{}' }), { on: true });
+  assert.deepEqual(restartSwitchStatus('x', { read: () => { throw new Error('no code'); } }), { on: false, error: 'unreadable' });
+});
+
+test('switch file: the temp file is created exclusively; a stale one is removed and the write retried once', () => {
+  const calls: string[] = [];
+  let first = true;
+  const fs = {
+    read: (): string => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); },
+    write: (p: string, _t: string): void => { calls.push(`write ${p}`); if (first) { first = false; throw Object.assign(new Error('exists'), { code: 'EEXIST' }); } },
+    rename: (a: string, b: string): void => { calls.push(`rename ${a} ${b}`); },
+    remove: (p: string): void => { calls.push(`remove ${p}`); },
+  };
+  writeRestartSwitch('/d/app-settings.json', true, fs);
+  assert.equal(calls.length, 4);
+  assert.match(calls[0]!, /^write \/d\/app-settings\.json\..*\.tmp$/);
+  assert.match(calls[1]!, /^remove \/d\/app-settings\.json\..*\.tmp$/);
+  assert.equal(calls[2], calls[0]);
+  assert.match(calls[3]!, /^rename .*\.tmp \/d\/app-settings\.json$/);
+  // a second EEXIST gives up: the error reaches the caller and nothing is renamed
+  const renames: string[] = [];
+  assert.throws(() => writeRestartSwitch('/d/app-settings.json', true, { ...fs, write: () => { throw Object.assign(new Error('exists'), { code: 'EEXIST' }); }, rename: (a) => { renames.push(a); } }), /exists/);
+  assert.deepEqual(renames, []);
+});
+
+test('switch file: a stale temp file on the real disk is replaced, never written through', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-sw-'));
+  try {
+    const f = join(dir, 'app-settings.json');
+    const target = join(dir, 'victim.json');
+    writeFileSync(target, 'KEEP');
+    writeFileSync(`${f}.${process.pid}.tmp`, 'STALE');
+    writeRestartSwitch(f, false);
+    assert.equal(readFileSync(target, 'utf8'), 'KEEP');
+    assert.equal(readRestartSwitch(f), false);
+    assert.deepEqual(readdirSync(dir).sort(), ['app-settings.json', 'victim.json']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('switch file: leftover temp files are swept at startup, other files stay', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-sw-'));
+  try {
+    for (const n of ['app-settings.json', 'app-settings.json.123.tmp', 'app-settings.json.9.tmp', 'other.tmp', 'state.json']) writeFileSync(join(dir, n), 'x');
+    const n = sweepSwitchTemps(dir);
+    assert.equal(n, 2);
+    assert.deepEqual(readdirSync(dir).sort(), ['app-settings.json', 'other.tmp', 'state.json']);
+    assert.equal(sweepSwitchTemps(join(dir, 'nope')), 0, 'a missing folder is fine');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('state: a stop while starting is its own reason', () => {
+  const s = new CoreRestartState();
+  s.noteStopped('starting');
+  assert.deepEqual(s.take(), { restarted: false, stopped: 'starting' });
 });

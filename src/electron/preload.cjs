@@ -70,7 +70,7 @@ contextBridge.exposeInMainWorld('legion', {
     ipcRenderer.on('legion:open-ask', h);
     return () => ipcRenderer.removeListener('legion:open-ask', h);
   },
-  // Legion Core stopped by itself: what happened ({ restarted, stopped: 'limit' | 'failed' | null }; the restart notice is handed out once).
+  // Legion Core stopped by itself: what happened ({ restarted, stopped: 'limit' | 'failed' | 'starting' | null }; the restart notice is handed out once).
   coreRestartState() {
     return ipcRenderer.invoke('legion:core-restart-state');
   },

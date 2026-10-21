@@ -17,7 +17,7 @@ export function useCoreRestart<T>(pick: (s: CoreRestartUi) => T): T {
   return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, () => pick(st), () => pick(st));
 }
 
-const validWhy = (v: unknown): StoppedWhy | null => (v === 'limit' || v === 'failed' ? v : null);
+const validWhy = (v: unknown): StoppedWhy | null => (v === 'limit' || v === 'failed' || v === 'starting' ? v : null);
 
 /** Reads what happened from the desktop. The restart notice is handed out once, so a new one starts un-dismissed. */
 export async function refreshCoreRestart(): Promise<void> {
