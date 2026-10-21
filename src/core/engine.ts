@@ -43,7 +43,7 @@ import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
-import { MAX_READABLE, criticalDeleteRead, longCatastrophic, refuseCatastrophic, unjudgeableCommand, windowsShellTexts, type ShellKind } from './exec/shell-floor.js';
+import { MAX_READABLE, collapsedText, criticalDeleteRead, longCatastrophic, recursiveDeleteSnippet, refuseCatastrophic, unjudgeableCommand, windowsShellTexts, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
 import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
@@ -2109,11 +2109,30 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // Windows delete command run from Bash (`cmd /c rd /s`), Legion adds the card: one card, a No denies. Read for every shell call of the run, so the folder a `cd` moved to is known.
       if (native && opts.bypass) {
         // (the folder a `cd` moved to is kept from call to call by this read; for Bash only a `cmd /c` or `powershell -c` script inside the command counts, `rm` is Claude's)
-        const own = this.criticalDeleteTarget(job, agent, toolName, input, command, kind);
+        // A text over MAX_READABLE is read with its blanks collapsed, so padding hides nothing. One that stays too long is not read: when it holds a recursive delete it is carded unread.
+        const readable = (t: string, k: ShellKind): string | undefined => {
+          if (t.length <= MAX_READABLE) return t;
+          const c = collapsedText(t, k);
+          return c !== undefined && c.length <= MAX_READABLE ? c : undefined;
+        };
+        const whole = readable(command, kind);
+        const own = this.criticalDeleteTarget(job, agent, toolName, input, whole ?? command, kind);
         let critical = toolName === 'PowerShell' ? own : undefined;
-        if (!critical && toolName !== 'PowerShell') for (const w of windowsShellTexts(command)) { critical = this.criticalDeleteTarget(job, agent, toolName, input, w.text, w.kind, false); if (critical) break; }
+        let unread = toolName === 'PowerShell' && whole === undefined ? recursiveDeleteSnippet(command) : undefined;
+        if (!critical && toolName !== 'PowerShell') {
+          for (const w of windowsShellTexts(command)) {
+            const t = readable(w.text, w.kind);
+            if (t === undefined) { unread ??= recursiveDeleteSnippet(w.text); continue; }
+            critical = this.criticalDeleteTarget(job, agent, toolName, input, t, w.kind, false);
+            if (critical) break;
+          }
+        }
         if (critical) {
           return this.criticalDeleteDecision(job, agent, toolName, input, command, critical, true).then((d) => d.allow ? (this.dataFolderCard(job, agent, toolName, input, command, kind, true) ?? d) : d);
+        }
+        if (unread !== undefined) {
+          return this.longCatastrophicCard(job, agent, toolName, input, { kind: 'unread', reason: 'it deletes folders and is too long to tell whether one of them is your project folder', part: unread })
+            .then((d) => d.allow ? (this.dataFolderCard(job, agent, toolName, input, command, kind, true) ?? d) : d);
         }
       }
       // Claude's own parser and checker handle what Legion cannot read, and Claude Code guards the project folder itself: only Legion's own files are left

@@ -884,14 +884,18 @@ function dangerousPart(window: string, shell: ShellKind): string {
  */
 const CODE_FED = /(?:^|[\s;&|(`])(?:(?:sudo|env|exec|nohup|time|command)\s+)*(?:\S*[\\/])?(?:(?:ba|z|da|k|c|a|fi|tc)?sh|pwsh|powershell|cmd|eval|source|\.|ssh|su|xargs|at|batch|crontab|expect|python[\d.]*|node|perl|ruby|php|lua|osascript|sqlite3|psql|mysql|deno|bun|iex|invoke-expression)(?:\.exe)?(?=$|[\s;&|)<>])/i;
 
+/** PowerShell text that runs a string as code: Invoke-Expression and iex, a script block made from a string, a call of a string (`& $s`), another shell. */
+const PS_RUNS = /\b(?:invoke-expression|iex|invoke-command|icm|start-job|start-threadjob|scriptblock)\b|::create\s*\(|(?:^|[\s;|({])&\s*[$(]|\b(?:powershell|pwsh|cmd|bash|sh|wsl|python[\d.]*|node)(?:\.exe)?\b/i;
+
 /** A command cut into statements, or the length that made it too long to cut. */
 type Cut = { statements: string[] } | { tooLong: number };
 
 /**
  * Cuts a command into statements for the long scan, in one linear walk. A run of blanks (and a backslash-newline, a PowerShell backtick-newline, a cmd caret-newline)
  * becomes one space, so padding cannot spread a command's words past the scan window. A statement ends at a newline, `;`, `&&` or `||` outside quotes and parentheses
- * (a pipe stays inside it: `base64 -d | sh` needs both sides). A heredoc body (`<<WORD ... WORD`; a PowerShell here-string) is data and is left out, unless the line
- * that opens it feeds a shell or interpreter, or its word never closes (then nothing is trusted). A `<<` inside quotes, a comment or arithmetic is no heredoc.
+ * (a pipe stays inside it: `base64 -d | sh` needs both sides). A heredoc body (`<<WORD ... WORD`; a PowerShell here-string) is data and is left out only
+ * when nothing can run it: the line that opens it does not feed a shell or interpreter, its word closes, it holds no `$(` or backtick (a here-string: and the command
+ * nowhere runs a string, with Invoke-Expression, a script block, `&` or another shell). Otherwise its lines are read like any other. A `<<` inside quotes, a comment or arithmetic is no heredoc.
  * Stops at once when the rest is more than MAX_READ_IN_PARTS long.
  */
 function cutStatements(raw: string, shell: ShellKind): Cut {
@@ -920,7 +924,17 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
   // the work the search for heredoc closers may do: one body costs its length once, so this allows a few that never close and then trusts no heredoc (all lines are read)
   let budget = 3 * L + 10_000;
   let heredocs = true;
-  const over = (): Cut | undefined => (resid > MAX_READ_IN_PARTS ? { tooLong: resid } : undefined);
+  // Can the body between two positions run something: does it hold `$(` or a backtick? Asked at rising positions, so each stretch of text is searched once.
+  const SUBST = /\$\(|`/g;
+  let nextSubst = -2;
+  const holdsSubst = (from: number, to: number): boolean => {
+    if (nextSubst !== -1 && nextSubst < from) { SUBST.lastIndex = from; const m = SUBST.exec(raw); nextSubst = m ? m.index : -1; }
+    return nextSubst !== -1 && nextSubst < to;
+  };
+  // PowerShell text that turns a string into code anywhere in the command: a here-string is then no longer data
+  let runsStrings: boolean | undefined;
+  const psRuns = (): boolean => (runsStrings ??= PS_RUNS.test(raw));
+  const over =(): Cut | undefined => (resid > MAX_READ_IN_PARTS ? { tooLong: resid } : undefined);
   let i = 0;
   while (i < L) {
     const c = raw.charCodeAt(i);
@@ -958,7 +972,8 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
           ls = le + 1;
           if (budget < 0) { found = -1; break; }
         }
-        if (found >= 0 && !CODE_FED.test(parts.join('') + raw.slice(from, i))) {
+        // data only when nothing runs it: the statement before it does not feed a shell, the command nowhere runs a string, and an expandable body holds no `$( )`
+        if (found >= 0 && !CODE_FED.test(parts.join('') + raw.slice(from, i)) && !psRuns() && !(q === '"' && holdsSubst(a + 1, found))) {
           flush(i + 2); parts.push('\n'); end();
           from = Math.min(found + 1, L); i = from;
           const s = over(); if (s) return s;
@@ -996,7 +1011,7 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
       if (pending.length) {
         const words = pending; pending = [];
         // every word must close, and the line that opens them must not feed a shell: otherwise the lines are read like any other
-        let at = i; let all = true;
+        const bodiesFrom = i; let at = i; let all = true;
         for (const w of words) {
           let found = -1;
           for (let ls = at; ls <= L;) {
@@ -1010,7 +1025,8 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
           if (found < 0) { all = false; break; }
           at = Math.min(found + 1, L);
         }
-        if (all && !CODE_FED.test(opener)) { i = at; from = at; }
+        // a body is data when it closes, the line that opens it does not feed a shell, and nothing in it can run (`$(` or a backtick expand in an unquoted body; a quoted one is read too, to be safe)
+        if (all && !CODE_FED.test(opener) && !holdsSubst(bodiesFrom, at)) { i = at; from = at; }
       }
       continue;
     }
@@ -1061,7 +1077,7 @@ function scanText(text: string, shell: ShellKind): { reason: string; part: strin
 
 /**
  * The catastrophic check for a command too long to read whole (over MAX_READABLE): the same refusal, read over the command cut into statements (cutStatements).
- * Padding in front of, behind, around or inside the command hides nothing, a heredoc body is data, and the cost stays linear in the length.
+ * Padding in front of, behind, around or inside the command hides nothing, a heredoc body that cannot run is data, and the cost stays linear in the length.
  * The statements are read in groups of up to 5,000 characters. A statement that is still longer than that once its blanks are collapsed cannot be judged by
  * reading it: it comes back as `unread`, to be asked about (after a try over its first 16,000 characters in windows, to name the dangerous text on the card).
  * A command with more than MAX_READ_IN_PARTS characters outside its heredoc bodies is not read at all. No hit: it goes on.
@@ -1099,6 +1115,29 @@ export function longCatastrophic(raw: string, shell: ShellKind = 'sh'): { kind: 
   const g = readGroup(false); if (g) return g;
   if (oversize !== undefined) return { kind: 'unread', reason: `one statement is too long to check (${oversize.length.toLocaleString('en-US')} characters, even with its blanks collapsed)`, part: oversize.slice(0, 1000) };
   return undefined;
+}
+
+/**
+ * A command's text with its blanks collapsed (and its heredoc bodies cut), for a command that is over MAX_READABLE only because of padding: the delete reader
+ * can then read it like the plain command. Undefined when the command is too long to cut. Quoted text is kept as it is.
+ */
+export function collapsedText(raw: string, shell: ShellKind): string | undefined {
+  if (raw.length > MAX_WALKED) return undefined;
+  const cut = cutStatements(raw, shell);
+  return 'tooLong' in cut ? undefined : cut.statements.join('');
+}
+
+const DELETE_VERB = /(?:^|[\s;&|(){}"'`])(?:remove-item|ri|rm|rmdir|rd|del|erase|rimraf)(?=$|[\s;&|)"'])/i;
+const RECURSE_FLAG = /(?:^|\s)(?:-r[a-z]*(?::\S*)?|\/s)(?=\s|$)/i;
+/**
+ * For a PowerShell or cmd text too long to read: the stretch around a delete verb when the text also has a recursive switch (`-Recurse`, `-r`, `/s`) somewhere, else undefined.
+ * Two plain searches, linear. It cannot tell what is deleted, only that a recursive delete is in there.
+ */
+export function recursiveDeleteSnippet(text: string): string | undefined {
+  const m = DELETE_VERB.exec(text);
+  if (!m || !RECURSE_FLAG.test(text)) return undefined;
+  const at = Math.max(0, m.index - 100);
+  return text.slice(at, at + 1000);
 }
 
 /**
@@ -1556,7 +1595,10 @@ function place(v: string, shell: ShellKind, cwd: string | undefined): Placed {
   const abs = DRIVE.test(w) || w.startsWith('/');
   if (!abs && cwd === undefined) {
     const rel = w.split('/').filter((s) => s && s !== '.');
-    return !rel.length || rel.includes('..') ? 'here' : { rel };
+    // a run of `..` at the start only moves the start: `..\other` is a folder called other, wherever the shell is (the caller asks if any folder of that name could hold the project)
+    const lead = rel.findIndex((s) => s !== '..');
+    const rest = lead < 0 ? [] : rel.slice(lead);
+    return !rest.length || rest.includes('..') ? 'here' : { rel: rest };
   }
   // a working folder is a drive path (Windows) or a POSIX path (Linux, macOS); anything else cannot be placed
   const posixCwd = cwd !== undefined && cwd.startsWith('/');
