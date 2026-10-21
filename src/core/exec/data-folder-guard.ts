@@ -46,7 +46,32 @@ const LINKERS = new Set(['mklink', 'ln', 'new-item', 'ni']);
 const ONELINERS = new Set(['node', 'nodejs', 'python', 'python3', 'py', 'perl', 'ruby']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'cmd', 'powershell', 'pwsh']);
 const SKIP_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', 'sudo', 'time', 'env', 'command', 'exec', 'nohup', 'call', 'start', 'xargs', 'builtin', 'noglob']);
-const MARKERS = /homedir|appdata|userprofile|os\.path|pathlib|join\(|resolve\(|environ|getenv|process\.env|\$env:|\bhome\b/i;
+/** A quote's closing mark: the plain quotes, and the bracket pairs of Perl's q() and Ruby's %q[]. */
+const QUOTE_CLOSE: Record<string, string> = { "'": "'", '"': '"', '`': '`', '(': ')', '[': ']', '{': '}', '<': '>' };
+/** Code that builds a path from the home folder or the environment: it can reach the data folder without naming it. */
+const HOME_MARKERS = /homedir|appdata|userprofile|expanduser|expandvars|homedrive|homepath|pw_dir|environ|getenv|process\.env|\$env:|\bhome\b/i;
+/** Code that builds a path from parts. Alone that is ordinary work (nearly every pathlib script); near a protected name it could point there. */
+const BUILD_MARKERS = /os\.path|pathlib|join\(|resolve\(|dirname\(|\bPath\(/i;
+/**
+ * Path building plus one of these is hidden too, with no protected name in the text. A walk up from the project folder (the project may sit
+ * in the home folder): a bare `".."`, `pardir`, `.parents`, `.parent.parent`. The home folder built from the user name
+ * (`getuser`, `getlogin`, `userInfo`, `sep.join`). A name that is decoded, numbered or looked up when the code runs (`b64decode`, `fromhex`,
+ * `chr`, `fromCharCode`, `atob`, `base64`, `'hex'`, `getattr`, `__import__`, `eval(`, `exec(`).
+ */
+const REACH_MARKERS = /['"]\.\.['"]|\bpardir\b|\.parents\b|\.parent\s*\.\s*parent\b|getuser|getlogin|userinfo|\bsep\.join\(|b64decode|\bunhexlify|fromhex|\bchr\b|fromcharcode|fromcodepoint|\batob\(|base64|['"]hex['"]|\bgetattr\(|__import__|(?<![.\w])(?:eval|exec)\(/i;
+/**
+ * The current folder, written out (`cwd`, `getcwd`, `os.curdir`, `abspath(".")`, `realpath()`, `path.resolve(".")`). With a parent step
+ * (`.parent`, `dirname(`) it walks up out of the project folder. A path the script was given or wrote itself (`abspath(p)`, `__file__`,
+ * `.absolute()` of a variable) is not that: its parent is the folder of a file, the `makedirs(dirname(abspath(p)))` idiom.
+ */
+const ABSOLUTE_MARKERS = /\bcwd\b|getcwd|\bos\.curdir\b|\b(?:abspath|realpath|path\.resolve)\(\s*(?:(['"])\.?\1)?\s*\)/i;
+/** `Path(".").resolve()` (also `Path()`, `Path("")`, `.absolute()`): the current folder made absolute, in a chain or held in a variable. A plain `Path(".")` is a normal base for globs. */
+const CWD_BASE = /\bPath\(\s*(?:(['"])\.?\1)?\s*\)\s*\.\s*(?:resolve|absolute)\(/i;
+/** A drive or filesystem root handed to a path call (`Path("/")`, `Path(os.sep)`, `Path("C:")`, `join("C:", os.sep)`, `splitdrive`): it holds the data folder, and a lone slash is no path to the text reader. */
+const ROOT_ARG = /\b(?:Path|PurePath|join|abspath|realpath|resolve|walk|rmtree|listdir|iterdir|scandir|glob|rmSync|readdirSync)\(\s*(?:['"](?:[\\/]|[A-Za-z]:)['"]|os\.(?:path\.)?sep\b)|\bsplitdrive\b/i;
+const PARENT_STEP = /\.parent\b|\bdirname\(/i;
+/** Python with a version in its name (`python3.12`, `pypy3`) is Python. */
+const isInterpreter = (name: string): boolean => ONELINERS.has(name) || /^(?:python|pypy)\d+(?:\.\d+)*$/.test(name);
 /** The folder variables read from the run's environment. Any other variable is unknown. */
 const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp', 'tmpdir'];
 
@@ -526,7 +551,7 @@ class Reader {
         if (!a.startsWith('-') && !prog) prog = a;
       }
       if (prog) this.child(`${prog} ${list.join(' ')}`, 'pwsh', true);
-    } else if (ONELINERS.has(name)) {
+    } else if (isInterpreter(name)) {
       for (let i = 0; i < args.length; i++) if (/^(-e|-c|-p|--eval|-pe|-ne|-le)$/.test(args[i]!.text) && args[i + 1]) { this.script(args[i + 1]!.text); skip.add(i + 1); }
     } else if (ECHOS.has(name)) {
       ro = outs.length === 0;
@@ -558,7 +583,7 @@ class Reader {
   private docs(docs: Tok[], name: string): void {
     for (const d of docs) {
       if (SHELLS.has(name)) { this.child(d.text, name === 'cmd' ? 'cmd' : name === 'powershell' || name === 'pwsh' ? 'pwsh' : 'sh', true); continue; }
-      if (ONELINERS.has(name)) { this.allRead = false; this.script(d.text); continue; }
+      if (isInterpreter(name)) { this.allRead = false; this.script(d.text); continue; }
       for (const t of tokenize(d.text, 'sh')) for (const s of t.subs ?? []) this.child(s, 'sh', true);
       this.note(this.probe(d, this.where, true));
     }
@@ -587,9 +612,27 @@ class Reader {
   /** A one-liner or here-doc for an interpreter (`node -e`, `python -c`): look for protected paths in its text. */
   private script(code: string): void {
     this.allRead = false;
-    const found = code.match(/[A-Za-z]:[\\/][^'"`\s)]*|(?:\.{1,2}|~)?[\\/][^'"`\s)]+|\.\.?[\\/]|~[^'"`\s)]*/g) ?? [];
-    for (const f of found) this.note(this.probe({ text: f.replace(/\\\\/g, '\\') }, this.where));
-    if (!this.names && MARKERS.test(code) && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f))) this.hidden = true;
+    const matches = [...code.matchAll(/[A-Za-z]:[\\/][^'"`\s)]*|(?:\.{1,2}|~)?[\\/][^'"`\s)]+|\.\.?[\\/]|~[^'"`\s)]*/g)];
+    const found = matches.map((m) => m[0]);
+    for (const m of matches) {
+      const text = m[0].replace(/\\\\/g, '\\');
+      // Only backslashes: an escape in the code (a line that continues, "\\n" or "\\\\" inside a longer string) is not a path. But a backslash that
+      // stands alone in quotes, as in rmtree('\\') or Perl's q(\\), is the root of the drive: that one still counts.
+      if (/^\\+$/.test(text)) {
+        const before = code[m.index - 1], after = code[m.index + m[0].length];
+        if (!(before !== undefined && after === (QUOTE_CLOSE[before] ?? null))) continue;
+      }
+      this.note(this.probe({ text }, this.where));
+    }
+    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && (REACH_MARKERS.test(code) || ROOT_ARG.test(code) || ((ABSOLUTE_MARKERS.test(code) || CWD_BASE.test(code)) && PARENT_STEP.test(code)) || this.namesProtected(code))))) this.hidden = true;
+  }
+
+  /** The code names a protected file or folder, or the folder that holds it, by its own name (`"projects.json"`, `/ "gates"`, `"legion"`). */
+  private namesProtected(code: string): boolean {
+    const low = code.toLowerCase();
+    const names = new Set<string>();
+    for (const t of this.ctx.set) for (const n of t.split(/[\\/]+/).filter(Boolean).slice(-2)) names.add(n.toLowerCase());
+    return [...names].some((n) => new RegExp(`(?:^|[^\\w.-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(low));
   }
 }
 
