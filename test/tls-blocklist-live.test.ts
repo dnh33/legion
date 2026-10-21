@@ -60,24 +60,39 @@ function run(cmd: string, args: string[], env: Record<string, string | undefined
   const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 120_000, env: merged, windowsHide: true, ...(o.cwd ? { cwd: o.cwd } : {}) });
   return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status };
 }
-function probeJson(cmd: string, args: string[], env: Record<string, string | undefined>): Probe {
-  const r = run(cmd, args, env);
-  const line = r.stdout.split('\n').find((l) => l.startsWith('{'));
-  assert.ok(line, `no probe output from ${cmd} (exit ${r.status}): ${r.stderr.slice(0, 400)}`);
-  return JSON.parse(line) as Probe;
-}
 const pick = (p: Probe, keys: string[]): Outcome[] => keys.map((k) => p[k] as Outcome);
 const codes = (os: Outcome[]): string => os.map((o) => (o.trusted ? `TRUSTED ${o.status ?? ''}`.trim() : o.code)).join(', ');
+/** A connection that never got a TLS verdict (timeout, reset, no DNS): "could not ask", neither trusted nor refused. */
+const isNet = (o: Outcome): boolean => !o.trusted && UNREACHABLE.test(o.code ?? '');
+/**
+ * Runs a probe, up to three times while any of its connections could not ask: the tracker's test hosts are slow under load (4-5 s to
+ * connect, seen 2026-10-21), and several CI runners at once time out on single connections.
+ */
+function probeJson(cmd: string, args: string[], env: Record<string, string | undefined>, keys: string[] = ['https', 'fetch']): Probe {
+  let p: Probe | undefined;
+  for (let i = 0; i < 3; i++) {
+    const r = run(cmd, args, env);
+    const line = r.stdout.split('\n').find((l) => l.startsWith('{'));
+    assert.ok(line, `no probe output from ${cmd} (exit ${r.status}): ${r.stderr.slice(0, 400)}`);
+    p = JSON.parse(line) as Probe;
+    if (!pick(p, keys).some(isNet)) break;
+  }
+  return p!;
+}
 /** An unreachable test host skips, except with LEGION_LIVE_TLS_REQUIRE=1 (CI), where a run that tested nothing must not be green. */
 function unreachable(t: { skip(msg: string): void }, msg: string): void {
   if (process.env.LEGION_LIVE_TLS_REQUIRE === '1') assert.fail(`${msg}; LEGION_LIVE_TLS_REQUIRE=1 turns this into a failure`);
   t.skip(msg);
 }
-/** Every outcome must be refused and match `refused`; skips when every outcome only says the host was unreachable. */
-function expectRefused(t: { skip(msg: string): void }, label: string, p: Probe, keys: string[], refused: RegExp): boolean {
+/**
+ * Every connection that got a verdict must be refused and match `refused`. Connections that could not ask are left out (a diagnostic
+ * names them); when none got a verdict, the host counts as unreachable.
+ */
+function expectRefused(t: { skip(msg: string): void; diagnostic?(msg: string): void }, label: string, p: Probe, keys: string[], refused: RegExp): boolean {
   const os = pick(p, keys);
-  if (os.every((o) => !o.trusted && UNREACHABLE.test(o.code ?? ''))) { unreachable(t, `${label}: test host unreachable (${codes(os)})`); return false; }
+  if (os.every(isNet)) { unreachable(t, `${label}: test host unreachable (${codes(os)})`); return false; }
   for (const [i, o] of os.entries()) {
+    if (isNet(o)) { t.diagnostic?.(`${label} ${keys[i]}: could not ask (${o.code}); judged on the other connection`); continue; }
     assert.equal(o.trusted, false, `${label} ${keys[i]} TRUSTS a chain through a compromised eMudhra CA (${p.runtime})`);
     assert.match(o.code ?? '', refused, `${label} ${keys[i]} refused it, but not as revoked: ${o.code}`);
   }
@@ -88,15 +103,18 @@ function expectRefused(t: { skip(msg: string): void }, label: string, p: Probe, 
 function coreBlock(t: { skip(msg: string): void; diagnostic(msg: string): void }, label: string, cmd: string, env: Record<string, string | undefined>, host: string): void {
   const bare = probeJson(cmd, [probe, host], env);
   const b = pick(bare, ['https', 'fetch']);
-  if (b.every((o) => !o.trusted && UNREACHABLE.test(o.code ?? ''))) { unreachable(t, `${label}: test host unreachable (${codes(b)})`); return; }
+  if (b.every(isNet)) { unreachable(t, `${label}: test host unreachable (${codes(b)})`); return; }
   if (!b.some((o) => o.trusted)) {
     if (!/CERT_REVOKED/.test(codes(b))) { t.skip(`${label}: ${host} is refused as an unknown authority even without the block, so it proves nothing here`); return; }
     t.diagnostic(`${label} without the block already refuses ${host} (${codes(b)}): this runtime blocks the keys itself`);
   } else t.diagnostic(`${label} without the block TRUSTS ${host} (${codes(b)}): the block is what refuses it`);
   const guarded = probeJson(cmd, ['--import', block, probe, host], env);
-  for (const [k, o] of [['https', guarded.https], ['fetch', guarded.fetch]] as const) {
-    assert.equal((o as Outcome).trusted, false, `${label} with the block ${k} TRUSTS a chain through a compromised eMudhra CA (${guarded.runtime})`);
-    assert.match((o as Outcome).code ?? '', /CERT_REVOKED/, `${label} with the block ${k} refused it, but not as revoked: ${(o as Outcome).code}`);
+  const g = pick(guarded, ['https', 'fetch']);
+  if (g.every(isNet)) { unreachable(t, `${label} with the block: test host unreachable (${codes(g)})`); return; }
+  for (const [k, o] of [['https', g[0]!], ['fetch', g[1]!]] as const) {
+    if (isNet(o)) { t.diagnostic(`${label} with the block ${k}: could not ask (${o.code}); judged on the other connection`); continue; }
+    assert.equal(o.trusted, false, `${label} with the block ${k} TRUSTS a chain through a compromised eMudhra CA (${guarded.runtime})`);
+    assert.match(o.code ?? '', /CERT_REVOKED/, `${label} with the block ${k} refused it, but not as revoked: ${o.code}`);
   }
 }
 
