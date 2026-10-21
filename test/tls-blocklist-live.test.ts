@@ -160,6 +160,9 @@ describe('TLS key block, live (eMudhra test hosts)', { skip: LIVE ? false : 'set
         HOME: home, USERPROFILE: home, APPDATA: home, LOCALAPPDATA: home, XDG_CONFIG_HOME: home, CLAUDE_CONFIG_DIR: home,
         ANTHROPIC_API_KEY: 'sk-ant-FAKE-EXAMPLE-not-a-key', ANTHROPIC_BASE_URL: `https://${host}`,
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1', DISABLE_AUTOUPDATER: '1',
+        // One retry of at most 45 s each (code.claude.com/docs/en/env-vars: default 10 retries, 10 min per attempt), so a slow test
+        // host ends in a printed timeout, not in silence: an old build that trusts the chain then reports the host's HTTP answer.
+        CLAUDE_CODE_MAX_RETRIES: '1', API_TIMEOUT_MS: '45000',
       }, { clean: true, cwd: home });
       const said = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-3).join(' | ');
       const version = run(claude, ['--version'], { HOME: home, USERPROFILE: home }, { clean: true, cwd: home }).stdout.trim();
