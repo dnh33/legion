@@ -1,6 +1,9 @@
 /** Settings API backend: validate, persist atomically to config.json, apply live. */
 import { existsSync, readFileSync } from 'node:fs';
-import { COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeGates, writeConfigFile } from '../shared/config.js';
+import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, buildAcpView } from '../shared/acp-view.js';
+import type { AcpEntryPatch, AcpPatch, AcpSwitches } from '../shared/acp-view.js';
+import { applyAcpPatch, COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeAcp, normalizeGates, writeConfigFile } from '../shared/config.js';
+import { ENTRY_ID_RE } from '../shared/runtime.js';
 import { budgetCap } from '../shared/continue.js';
 import type { CompactionSettings, GateRule, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
 import { sanitizeRates } from '../shared/vm-usage.js';
@@ -86,6 +89,57 @@ function compactionNum(v: unknown, field: string, lo: number, hi: number, int = 
     throw new SettingsError(`${field} must be ${int ? 'an integer' : 'a number'} between ${lo} and ${hi}`);
   }
   return v;
+}
+
+const ACP_SWITCH_KEYS: Array<keyof AcpSwitches> = ['disasterStop', 'modeMap', 'stripSkipFlags', 'answerOnce'];
+const ACP_IDS_FIELD = (f: string, v: unknown): string => {
+  if (typeof v !== 'string' || !ENTRY_ID_RE.test(v) || v === 'claude') throw new SettingsError(`${f} must be an id of 2 to 32 lowercase letters, digits or dashes, starting with a letter, and not claude`);
+  return v;
+};
+const acpBool = (v: unknown, f: string): boolean => {
+  if (typeof v !== 'boolean') throw new SettingsError(`${f} must be true or false`);
+  return v;
+};
+const acpText = (v: unknown, f: string, max: number): string => {
+  if (typeof v !== 'string' || !v.trim() || v.length > max) throw new SettingsError(`${f} must be text of 1 to ${max} characters`);
+  return v.trim();
+};
+
+/** The agent host block of a patch: strict, known keys only. Merging with the stored settings happens in SettingsService.patch(). */
+function acpPatch(raw: unknown): AcpPatch {
+  if (!isObj(raw)) throw new SettingsError('acp must be an object');
+  const out: AcpPatch = {};
+  if (raw.switches !== undefined) {
+    if (!isObj(raw.switches)) throw new SettingsError('acp.switches must be an object');
+    const sw: Partial<AcpSwitches> = {};
+    for (const k of ACP_SWITCH_KEYS) if (raw.switches[k] !== undefined) sw[k] = acpBool(raw.switches[k], `acp.switches.${k}`);
+    out.switches = sw;
+  }
+  if (raw.watchdogMinutes !== undefined) out.watchdogMinutes = compactionNum(raw.watchdogMinutes, 'acp.watchdogMinutes', ACP_WATCHDOG_MIN_MINUTES, ACP_WATCHDOG_MAX_MINUTES, true);
+  if (raw.firstUseSeen !== undefined) out.firstUseSeen = acpBool(raw.firstUseSeen, 'acp.firstUseSeen');
+  if (raw.remove !== undefined) {
+    if (!Array.isArray(raw.remove) || raw.remove.length > 24) throw new SettingsError('acp.remove must be a list of entry ids');
+    out.remove = raw.remove.map((id, i) => ACP_IDS_FIELD(`acp.remove[${i}]`, id));
+  }
+  if (raw.entries !== undefined) {
+    if (!Array.isArray(raw.entries) || raw.entries.length > 24) throw new SettingsError('acp.entries must be a list');
+    out.entries = raw.entries.map((v, i): AcpEntryPatch => {
+      const f = `acp.entries[${i}]`;
+      if (!isObj(v)) throw new SettingsError(`${f} must be an object`);
+      const e: AcpEntryPatch = { id: ACP_IDS_FIELD(`${f}.id`, v.id) };
+      if (v.label !== undefined) e.label = acpText(v.label, `${f}.label`, 60);
+      if (v.command !== undefined) e.command = acpText(v.command, `${f}.command`, 500);
+      if (v.args !== undefined) {
+        if (!Array.isArray(v.args) || v.args.length > 32 || v.args.some((a) => typeof a !== 'string' || a.length > 500)) throw new SettingsError(`${f}.args must be a list of up to 32 strings`);
+        e.args = v.args as string[];
+      }
+      if (v.env !== undefined) e.env = strMap(v.env, `${f}.env`);
+      if (v.enabled !== undefined) e.enabled = acpBool(v.enabled, `${f}.enabled`);
+      if (v.contained !== undefined) e.contained = acpBool(v.contained, `${f}.contained`);
+      return e;
+    });
+  }
+  return out;
 }
 
 /** Returns a normalised patch; throws SettingsError(400) on bad input. */
@@ -192,6 +246,7 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
     try { out.gates = normalizeGates(raw.gates, { strict: true }); }
     catch (e) { throw new SettingsError(e instanceof Error ? e.message : 'gates is malformed', 400); }
   }
+  if (raw.acp !== undefined) out.acp = acpPatch(raw.acp);
   return out;
 }
 
@@ -215,6 +270,7 @@ export class SettingsService {
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
       compaction: { ...(c.compaction ?? DEFAULT_COMPACTION), contextWindowOverride: c.compaction?.contextWindowOverride ?? null },
       gates: normalizeGates(c.gates ?? DEFAULT_GATES),
+      acp: buildAcpView(normalizeAcp(c.acp)),
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
       ...(this.deps.install ? { install: this.deps.install } : {}),
     };
@@ -225,6 +281,11 @@ export class SettingsService {
     const cfg = this.deps.config;
     for (const [name, e] of Object.entries(p.mcpServers ?? {})) {
       if ((e.type === 'http' || e.type === 'sse') && isSelfMcpUrl(e.url, cfg.port, { headers: e.headers, authToken: cfg.authToken })) throw new SettingsError(`mcpServers.${name} points at Legion's own /mcp endpoint. Agents already have Legion's tools; adding it again would loop.`);
+    }
+    // The agent host block is merged and normalised as a whole, so a custom entry can never gain a built-in entry's powers.
+    const acp = p.acp ? applyAcpPatch(normalizeAcp(cfg.acp), p.acp) : undefined;
+    for (const e of p.acp?.entries ?? []) {
+      if (!acp!.entries.some((x) => x.id === e.id)) throw new SettingsError(`acp.entries: ${e.id} needs a command (a new entry cannot be saved without one)`);
     }
     // Apply to the on-disk JSON (not the in-memory config) so env-derived values are never persisted.
     let disk: any = {};
@@ -244,6 +305,7 @@ export class SettingsService {
         }
       }
       if (p.mcpServers) target.mcpServers = p.mcpServers;
+      if (acp) target.acp = structuredClone(acp);
     };
     apply(disk);
     try { writeConfigFile(this.deps.configPath, JSON.stringify(disk, null, 2)); } catch (e) {

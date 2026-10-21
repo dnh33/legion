@@ -7,6 +7,9 @@ import { dirname, join } from 'node:path';
 import { defaultBlenderConfig, normalizeBlender } from './blender.js';
 import type { BlenderConfig } from './blender.js';
 import { MAX_ROOM_BUDGET_USD } from './comms.js';
+import { ACP_WATCHDOG_DEFAULT_MINUTES, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, BUILTIN_HERMES } from './acp-view.js';
+import type { AcpConfig, AcpEntry, AcpPatch } from './acp-view.js';
+import { ENTRY_ID_RE } from './runtime.js';
 import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, GatesConfig, LegionConfig } from './types.js';
 import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
 import type { ProvidersConfig } from '../core/providers/types.js';
@@ -14,6 +17,8 @@ import { canonicalHost } from './web-verdict.js';
 import { defaultWebSearch, normalizeWebSearch } from './web-search-config.js';
 import type { WebSearchConfig } from './web-search-config.js';
 export { MAX_ROOM_BUDGET_USD };
+export type { AcpConfig, AcpEntry, AcpSwitches } from './acp-view.js';
+export { BUILTIN_HERMES } from './acp-view.js';
 
 export const VERSION = '0.3.7';
 
@@ -59,7 +64,82 @@ export function normalizeFeatures(v: unknown): FeaturesConfig {
   return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
 }
 
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** Optional web search and page read providers (task 28): off by default. */ webSearch: WebSearchConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
+/* ---------------- agent hosts (ACP) ---------------- */
+
+const MAX_ACP_ENTRIES = 12;
+const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const noControl = (s: string) => [...s].every((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127);
+
+export function defaultAcp(): AcpConfig {
+  return {
+    entries: [{ ...BUILTIN_HERMES, args: [...BUILTIN_HERMES.args] }],
+    switches: { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false },
+    watchdogMinutes: ACP_WATCHDOG_DEFAULT_MINUTES,
+    firstUseSeen: false,
+  };
+}
+
+/** A user-added entry, or undefined when it cannot be run (no command, bad args). It is always untested, never contained, and starts switched off. */
+function customEntry(id: string, v: Record<string, unknown>): AcpEntry | undefined {
+  const command = typeof v.command === 'string' ? v.command.trim() : '';
+  if (!command || command.length > 500 || !noControl(command)) return undefined;
+  let args: string[] = [];
+  if (v.args !== undefined) {
+    if (!Array.isArray(v.args) || v.args.length > 32 || v.args.some((a) => typeof a !== 'string' || a.length > 500 || !noControl(a))) return undefined;
+    args = v.args as string[];
+  }
+  const env: Record<string, string> = {};
+  if (isRec(v.env)) {
+    for (const [k, val] of Object.entries(v.env)) {
+      if (typeof val === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && val.length <= 2000 && noControl(val) && Object.keys(env).length < 32) env[k] = val;
+    }
+  }
+  const label = typeof v.label === 'string' && v.label.trim() ? v.label.trim().slice(0, 60) : id;
+  return { id, label, command, args, ...(Object.keys(env).length ? { env } : {}), tested: false, enabled: v.enabled === true };
+}
+
+/** Reads the "acp" part of config.json into the one shape Legion accepts. Whatever is wrong is dropped or clamped, never trusted. */
+export function normalizeAcp(raw: unknown): AcpConfig {
+  const out = defaultAcp();
+  if (!isRec(raw)) return out;
+  if (isRec(raw.switches)) for (const k of Object.keys(out.switches) as Array<keyof AcpConfig['switches']>) out.switches[k] = raw.switches[k] === true;
+  const w = raw.watchdogMinutes;
+  if (typeof w === 'number' && Number.isFinite(w)) out.watchdogMinutes = Math.min(ACP_WATCHDOG_MAX_MINUTES, Math.max(ACP_WATCHDOG_MIN_MINUTES, Math.round(w)));
+  out.firstUseSeen = raw.firstUseSeen === true;
+  const seen = new Set<string>([BUILTIN_HERMES.id]);
+  for (const v of Array.isArray(raw.entries) ? raw.entries : []) {
+    if (!isRec(v) || typeof v.id !== 'string' || !ENTRY_ID_RE.test(v.id) || v.id === 'claude') continue;
+    if (v.id === BUILTIN_HERMES.id) {
+      // Legion's own entry: the file may switch it off or contain it, nothing else.
+      const hermes = out.entries[0]!;
+      hermes.enabled = v.enabled !== false;
+      if (typeof v.contained === 'boolean') hermes.contained = v.contained; else delete hermes.contained;
+      continue;
+    }
+    if (seen.has(v.id) || out.entries.length >= MAX_ACP_ENTRIES) continue;
+    const e = customEntry(v.id, v);
+    if (e) { seen.add(v.id); out.entries.push(e); }
+  }
+  return out;
+}
+
+/** The current agent host settings with a validated patch applied, normalised again so a custom entry can never gain a built-in entry's powers. */
+export function applyAcpPatch(current: AcpConfig, p: AcpPatch): AcpConfig {
+  const byId = new Map<string, Record<string, unknown>>(current.entries.map((e) => [e.id, { ...e }]));
+  for (const id of p.remove ?? []) if (id !== BUILTIN_HERMES.id) byId.delete(id);
+  for (const { tested: _ignored, ...pe } of p.entries ?? []) {
+    const base = byId.get(pe.id) ?? { id: pe.id, label: pe.id, args: [], enabled: false };
+    byId.set(pe.id, { ...base, ...pe });
+  }
+  return normalizeAcp({
+    entries: [...byId.values()],
+    switches: { ...current.switches, ...p.switches },
+    watchdogMinutes: p.watchdogMinutes ?? current.watchdogMinutes,
+    firstUseSeen: p.firstUseSeen ?? current.firstUseSeen,
+  });
+}
+
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; /** Agent hosts reached over the Agent Client Protocol (Hermes is the first). */ acp: AcpConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** Optional web search and page read providers (task 28): off by default. */ webSearch: WebSearchConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
 
 /**
  * Turns one Claude run may take before it stops. Claude Code itself has no cap; this is a safety net, and a run that hits it
@@ -326,6 +406,7 @@ export function defaultConfig(): CoreConfig {
     comms: { ...DEFAULT_COMMS },
     blender: defaultBlenderConfig(),
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
+    acp: defaultAcp(),
     experimental: {},
     features: { projectBoard: true, providers: true },
     webSearch: defaultWebSearch(),
@@ -385,6 +466,7 @@ export function loadConfig(opts: { log?: (line: string) => void } = {}): CoreCon
   cfg.comms = normalizeComms(cfg.comms);
   cfg.blender = normalizeBlender(cfg.blender);
   cfg.providers = normalizeProviders(cfg.providers);
+  cfg.acp = normalizeAcp(cfg.acp);
   cfg.compaction = normalizeCompaction(cfg.compaction);
   cfg.experimental = normalizeExperimental(cfg.experimental);
   cfg.features = normalizeFeatures(cfg.features);

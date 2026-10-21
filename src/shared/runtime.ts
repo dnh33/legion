@@ -14,7 +14,7 @@ export type Runtime = 'claude' | 'provider' | 'acp';
 export const ACP_PREFIX = 'acp';
 
 const PREFIX_RE = /^([a-z][a-z0-9-]{1,31}):(.+)$/;
-const ENTRY_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
+export const ENTRY_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 
 /** A `<id>:<rest>` model value split in two, or undefined for anything else. A Bedrock ARN (`arn:`) is a Claude id, not a prefix. */
 export function splitPrefixed(model: string | undefined): { prefix: string; rest: string } | undefined {

@@ -7,6 +7,7 @@ import type { BlenderStatusView } from './blender.js';
 import type { Project } from './projects.js';
 import type { CiUpdateSummary } from './ci.js';
 import type { Consequence } from './consequence.js';
+import type { AcpConfig, AcpPatch, AcpView } from './acp-view.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -544,6 +545,8 @@ export interface LegionConfig {
    * older config = no rules, exactly today's behaviour (needsApproval stays the floor).
    */
   gates?: GatesConfig;
+  /** Agent hosts reached over the Agent Client Protocol (Hermes is the first). Absent = the defaults: Hermes, every in-between switch off. */
+  acp?: AcpConfig;
 }
 
 /** GET /api/state response */
@@ -631,6 +634,8 @@ export interface SettingsView {
   compaction: CompactionSettings;
   /** Gate rules, normalized (Settings -> Gates). Always present in a view; an old config reads as no rules. */
   gates: GatesConfig;
+  /** Agent hosts: entries with detection state, the in-between switches, the watchdog. */
+  acp: AcpView;
   port: number;
   configPath: string;
   dataDir: string;
@@ -650,6 +655,8 @@ export interface SettingsPatch {
    * stored — a bad rule must never reach a matcher at run time.
    */
   gates?: { rules: GateRule[]; presetsVersion?: number; learn?: boolean };
+  /** Agent hosts: flip a switch, add or change an entry, set the watchdog. Omitted fields are unchanged. */
+  acp?: AcpPatch;
 }
 
 /** State of one MCP server on the most recent run, as the Claude Code process reported it. */
