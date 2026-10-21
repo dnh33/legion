@@ -30,7 +30,8 @@ jobs:
   # Live proof that chains through the compromised eMudhra CA keys are refused by the core's key block (Electron's Node and plain
   # Node), Electron itself (its Node and the window's Chromium) and the Claude Code the Agent SDK bundles:
   # test/tls-blocklist-live.test.ts against the incident tracker's test hosts. An unreachable host fails here (LEGION_LIVE_TLS_REQUIRE).
-  # The controls take the block away, and run the old Electron and Claude Code, and must then see the chain TRUSTED.
+  # The controls take the block away (on Node 22.23.3, before Node's own fix), and run the old Electron and Claude Code, and must then
+  # see the chain TRUSTED.
   tls-live:
     name: TLS key block (live) ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -67,7 +68,12 @@ jobs:
       - name: the core's block, Electron's Node and Chromium, and the bundled Claude Code refuse the chains
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a node --test dist/test/tls-blocklist-live.test.js; else node --test dist/test/tls-blocklist-live.test.js; fi
-      - name: control, without the core's block plain Node must TRUST the chain
+      # Node 22.23.4 and 24.22.1 (2026-10-21) refuse these chains themselves (nodejs/node#66871), so the "node 22" above may no longer
+      # trust them. The block still guards users on older Node, so the control runs on the last 22.x without that fix.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.3
+      - name: control, without the core's block plain Node (22.23.3) must TRUST the chain
         run: |
           cp dist/src/core/tls-blocklist-install.js "$RUNNER_TEMP/block.js"
           echo "export {};" > dist/src/core/tls-blocklist-install.js
