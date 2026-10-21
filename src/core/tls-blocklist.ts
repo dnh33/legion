@@ -42,24 +42,44 @@ export function spkiSha256(der: Buffer): string {
   return createHash('sha256').update(spki).digest('hex');
 }
 
-/** The name of the first blocked CA in a peer chain (leaf first, linked by issuerCertificate), or undefined. Throws on a chain it cannot read. */
-export function blockedKeyIn(cert: ChainCert): string | undefined {
+/** A peer chain whose links do not all verify: the walk would not be the chain the server was verified through. */
+class ChainMismatch extends Error {}
+
+/**
+ * The name of the first blocked CA in a peer chain (leaf first, linked by issuerCertificate), or undefined.
+ *
+ * Node builds that chain for getPeerCertificate by matching names and key ids, not signatures, so a server holding a blocked key
+ * can send a decoy with the blocked CA's name ahead of the real certificate: Node's walk takes the decoy while OpenSSL verifies
+ * through the real one. So every link is checked: it must be signed by the next certificate's key. A certificate with the blocked
+ * key is the only one that can sign for a blocked CA, and it is caught by its key. A walk may end without a root (Node does not
+ * always find the root for a cross-signed one, e.g. Google Trust Services chains); the links up to there are still real.
+ * Throws ChainMismatch when a link does not verify, and on a certificate it cannot read.
+ */
+export function blockedKeyIn(cert: ChainCert, blocked: Readonly<Record<string, string>> = BLOCKED_SPKI_SHA256): string | undefined {
   const seen = new Set<object>();
-  for (let c: ChainCert | undefined = cert; c && !seen.has(c); c = c.issuerCertificate) {
+  let c: ChainCert | undefined = cert;
+  let x = new X509Certificate(cert.raw);
+  while (c && !seen.has(c)) {
     seen.add(c);
-    const hit = BLOCKED_SPKI_SHA256[spkiSha256(c.raw)];
+    const hit = blocked[spkiSha256(c.raw)];
     if (hit) return hit;
+    const next: ChainCert | undefined = c.issuerCertificate;
+    if (!next || next === c) return undefined; // the end of the walk, or a self-issued root
+    const nx = new X509Certificate(next.raw);
+    if (!x.verify(nx.publicKey)) throw new ChainMismatch(`the link from "${x.subject.replace(/\n/g, ', ')}" to "${nx.subject.replace(/\n/g, ', ')}" does not verify`);
+    c = next; x = nx;
   }
   return undefined;
 }
 
 type ServerIdentityCheck = (host: string, cert: ChainCert) => Error | undefined;
 
-/** Wraps a server identity check: a chain with a blocked key, or one that cannot be read, is refused before the host name is checked. */
+/** Wraps a server identity check: a chain with a blocked key, a chain whose links do not verify, or one that cannot be read, is refused before the host name is checked. */
 export function guardServerIdentity(original: ServerIdentityCheck): ServerIdentityCheck {
   return (host, cert) => {
     let hit: string | undefined;
     try { hit = blockedKeyIn(cert); } catch (e) {
+      if (e instanceof ChainMismatch) return Object.assign(new Error(`Legion refuses the certificate chain of ${host}: ${e.message}.`), { code: 'ERR_TLS_CHAIN_MISMATCH' });
       return Object.assign(new Error(`Legion could not read the certificate chain of ${host}: ${e instanceof Error ? e.message : String(e)}`), { code: 'ERR_TLS_CERT_UNREADABLE' });
     }
     if (hit) return Object.assign(new Error(`The certificate chain of ${host} goes through ${hit}, a certificate authority whose key was compromised. Legion refuses it.`), { code: 'CERT_REVOKED' });

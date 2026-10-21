@@ -12,7 +12,10 @@ import { fileURLToPath } from 'node:url';
 import { BLOCKED_SPKI_SHA256, blockedKeyIn, guardServerIdentity, installTlsBlocklist, spkiSha256 } from '../src/core/tls-blocklist.js';
 
 const pems = (text: string): string[] => text.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
-const chainPems = pems(readFileSync(fileURLToPath(new URL('../../test/fixtures/emudhra-dv-g3b-chain.crt', import.meta.url)), 'utf8'));
+const fixture = (name: string): string[] => pems(readFileSync(fileURLToPath(new URL(`../../test/fixtures/${name}`, import.meta.url)), 'utf8'));
+const chainPems = fixture('emudhra-dv-g3b-chain.crt');
+/** A real public chain without a blocked key (api.github.com, captured 2026-10-21): leaf, two intermediates, root. */
+const githubPems = fixture('github-chain.crt');
 
 /** A detailed peer certificate as tls.connect passes it to checkServerIdentity: leaf first, each issuer linked, the last one its own issuer. */
 function peer(list: string[]): tls.DetailedPeerCertificate {
@@ -40,8 +43,20 @@ describe('core TLS key block (eMudhra intermediate CA compromise)', () => {
   });
 
   it('passes a chain without a blocked key, including a lone self-issued root', () => {
-    assert.equal(blockedKeyIn(peer([chainPems[0]!, chainPems[2]!])), undefined);
+    assert.equal(githubPems.length, 4);
+    assert.equal(blockedKeyIn(peer(githubPems)), undefined);
+    assert.equal(blockedKeyIn(peer(githubPems.slice(0, 2))), undefined, 'a chain that ends without a root (as Google Trust Services chains do) is fine');
     assert.equal(blockedKeyIn(peer([tls.rootCertificates[0]!])), undefined);
+  });
+
+  it('follows only links that verify: a decoy that borrows the blocked CA name but not its key is refused, not skipped', () => {
+    // The attack (adversarial review of PR 194): the server sends a decoy with the blocked CA's subject and key id before the
+    // real blocked certificate. Node's walk links by name and picks the decoy; OpenSSL verifies through the real one. Every link
+    // the walk reports must therefore be signed by the next certificate's key.
+    const decoy = githubPems[1]!; // any certificate whose key did not sign the leaf
+    assert.throws(() => blockedKeyIn(peer([chainPems[0]!, decoy])), /does not verify/);
+    const err = guardServerIdentity(() => undefined)('dv-g3b-emudhra.we-have-a-problem.com', peer([chainPems[0]!, decoy]));
+    assert.equal((err as NodeJS.ErrnoException | undefined)?.code, 'ERR_TLS_CHAIN_MISMATCH');
   });
 
   it('refuses a blocked chain with CERT_REVOKED before the host name check, and asks the original check otherwise', () => {
