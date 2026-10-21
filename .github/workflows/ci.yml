@@ -66,6 +66,64 @@ jobs:
       - run: npm run typecheck
       - run: npm run build:ui
 
+  # The Electron migration record (docs/electron-upgrades.json): every stable version between the old and the new pin is listed with
+  # its official release notes, checked against the npm registry and the release pages. test/electron-pin.test.ts checks the rest offline.
+  electron-record:
+    name: Electron upgrade record
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: node scripts/electron-upgrade.mjs --check
+
+  # Live proof that chains through the compromised eMudhra CA keys fail in Electron's Node, Electron's Chromium and the core's own
+  # block on plain Node (test/tls-blocklist-live.test.ts). It talks to the incident tracker's test hosts: an unreachable host skips.
+  # On Linux the OS cannot refuse first, so the old Electron (44.5.1) must fail the same test: that shows the test can fail.
+  tls-live:
+    name: TLS key block (live) ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      # scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set; this job needs the real binary.
+      CI: ""
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ""
+      LEGION_LIVE_TLS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:ts
+      - name: a display for the Electron window (Linux)
+        if: runner.os == 'Linux'
+        run: command -v xvfb-run >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y xvfb; }
+      - name: the pinned Electron and the core's block refuse the chains
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node --test dist/test/tls-blocklist-live.test.js
+      - name: the pinned Electron and the core's block refuse the chains
+        if: runner.os == 'Windows'
+        run: node --test dist/test/tls-blocklist-live.test.js
+      - name: control, Electron 44.5.1 must fail the same test
+        if: runner.os == 'Linux'
+        run: |
+          npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/e451" electron@44.5.1
+          if LEGION_LIVE_TLS_ELECTRON="$RUNNER_TEMP/e451/node_modules/electron/dist/electron" xvfb-run -a node --test dist/test/tls-blocklist-live.test.js; then
+            echo "::error::Electron 44.5.1 passed the live TLS test: the test cannot tell a patched Electron from an unpatched one (or the test hosts were unreachable)"; exit 1
+          fi
+
   # The installer is what Windows users run with Windows PowerShell 5.1 (powershell.exe), from paths with spaces.
   # The unit tests above run under pwsh as well; this job runs the real scripts under 5.1 only.
   installer-windows:
