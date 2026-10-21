@@ -66,6 +66,25 @@ jobs:
       - run: npm run typecheck
       - run: npm run build:ui
 
+  # The Electron migration record (docs/electron-upgrades.json): every stable version between the old and the new pin is listed with
+  # its official release notes and evidence from them, checked against the npm registry and GitHub. test/electron-pin.test.ts checks the
+  # rest offline. How to write it: .claude/skills/upgrading-electron.
+  electron-record:
+    name: Electron upgrade record
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: node scripts/electron-upgrade.mjs --check
+        env:
+          # read-only, for GitHub's API (release notes and compare pages of electron/electron)
+          GITHUB_TOKEN: ${{ github.token }}
+
   # The installer is what Windows users run with Windows PowerShell 5.1 (powershell.exe), from paths with spaces.
   # The unit tests above run under pwsh as well; this job runs the real scripts under 5.1 only.
   installer-windows:
