@@ -118,11 +118,23 @@ jobs:
         run: node --test dist/test/tls-blocklist-live.test.js
       - name: control, Electron 44.5.1 must fail the same test
         if: runner.os == 'Linux'
+        # It must fail for the right reason: the old Electron TRUSTS the chain. A missing binary or an unreachable host proves nothing.
         run: |
           npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/e451" electron@44.5.1
-          if LEGION_LIVE_TLS_ELECTRON="$RUNNER_TEMP/e451/node_modules/electron/dist/electron" xvfb-run -a node --test dist/test/tls-blocklist-live.test.js; then
-            echo "::error::Electron 44.5.1 passed the live TLS test: the test cannot tell a patched Electron from an unpatched one (or the test hosts were unreachable)"; exit 1
-          fi
+          node "$RUNNER_TEMP/e451/node_modules/electron/install.js"
+          old="$RUNNER_TEMP/e451/node_modules/electron/dist/electron"
+          test -x "$old" || { echo "::error::no Electron 44.5.1 binary at $old"; exit 1; }
+          set +e
+          LEGION_LIVE_TLS_ELECTRON="$old" xvfb-run -a node --test dist/test/tls-blocklist-live.test.js > "$RUNNER_TEMP/control.txt" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/control.txt"
+          if [ "$rc" -eq 0 ]; then echo "::error::Electron 44.5.1 passed the live TLS test: it cannot tell a patched Electron from an unpatched one"; exit 1; fi
+          for stack in "Electron's Node" "Electron's Chromium"; do
+            grep -q "$stack [a-zA-Z]* TRUSTS a chain through a compromised eMudhra CA (electron 44.5.1)" "$RUNNER_TEMP/control.txt" \
+              || { echo "::error::Electron 44.5.1 did not fail with \"$stack ... TRUSTS\": the control failed for another reason"; exit 1; }
+          done
+          echo "control ok: Electron 44.5.1 trusts the compromised chain in its Node and its Chromium"
 
   # The installer is what Windows users run with Windows PowerShell 5.1 (powershell.exe), from paths with spaces.
   # The unit tests above run under pwsh as well; this job runs the real scripts under 5.1 only.
