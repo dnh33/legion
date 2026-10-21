@@ -1,0 +1,42 @@
+{
+  "about": "The record every Electron change carries. test/electron-pin.test.ts fails until the last entry ends at the version package.json pins; scripts/electron-upgrade.mjs --check also checks the version list against the npm registry. How to write an entry: .claude/skills/upgrading-electron/SKILL.md.",
+  "floor": {
+    "version": "44.9.1",
+    "reason": "the first 44.x that refuses chains through the eight compromised eMudhra intermediate CAs, in Chromium and in Electron's own Node (TLS, https, fetch)",
+    "source": "https://github.com/electron/electron/pull/55127"
+  },
+  "upgrades": [
+    {
+      "from": "44.5.1",
+      "to": "44.9.3",
+      "date": "2026-10-21",
+      "why": "Security: on 2026-10-17 the private keys of eight eMudhra intermediate CAs were shown to be recoverable. Browsers block them through live lists that Electron does not read. Electron 44.9.1 adds the keys to Chromium's compiled-in blocklist and applies the same list to its Node; 44.9.3 is the newest 44.x and adds upstream security backports.",
+      "versions": [
+        { "version": "44.6.0", "notes": "https://github.com/electron/electron/releases/tag/v44.6.0", "affects": "none: protocol.registerSource is new and unused; the macOS sleep/wake, navigator.usb, webview.findInPage and tzdata fixes touch nothing Legion relies on" },
+        { "version": "44.7.0", "notes": "https://github.com/electron/electron/releases/tag/v44.7.0", "affects": "none: macOS autoUpdater and net.fetch fixes; Legion uses neither (its updater is its own code, its main process only fetches the local core); Chromium security backports" },
+        { "version": "44.7.1", "notes": "https://github.com/electron/electron/releases/tag/v44.7.1", "affects": "none in use: Linux display and GTK crash fixes help the Mac/Linux window; setIgnoreMouseEvents forwarding and WebContentsView re-adding are not used; Chromium 152.0.7977.149" },
+        { "version": "44.7.2", "notes": "https://github.com/electron/electron/releases/tag/v44.7.2", "affects": "none: macOS click and macOS updater fixes; security backports" },
+        { "version": "44.8.0", "notes": "https://github.com/electron/electron/releases/tag/v44.8.0", "affects": "Node inside Electron goes from 24.21.0 to 24.22.0, which runs the core in a Windows package install (covered by the full test suite and the real run); Linux Notification action buttons are additive (signals.ts sets none); net.fetch, utilityProcess and isFullScreen fixes are unused" },
+        { "version": "44.9.0", "notes": "https://github.com/electron/electron/releases/tag/v44.9.0", "affects": "link-opened windows now use the opener's session: every Legion window denies window.open, so nothing opens; setCertificateVerifyProc is not used; macOS app shims are unused" },
+        { "version": "44.9.1", "notes": "https://github.com/electron/electron/releases/tag/v44.9.1", "affects": "the fix: notes are empty, the change is commit e02265be96 (PR 55127): the eight eMudhra keys join Chromium's SPKI blocklist and Node's TLS refuses chains that contain them with CERT_REVOKED" },
+        { "version": "44.9.2", "notes": "https://github.com/electron/electron/releases/tag/v44.9.2", "affects": "none: notes are empty; the commits are a docs note and a test fix" },
+        { "version": "44.9.3", "notes": "https://github.com/electron/electron/releases/tag/v44.9.3", "affects": "none in Legion's code: upstream ANGLE, Chromium, PDFium, Skia and V8 security backports" }
+      ],
+      "majorsCrossed": [],
+      "apisChecked": [
+        { "api": "setWindowOpenHandler / window.open (44.9.0 opener session change)", "where": "src/electron/main.ts", "verdict": "the main window opens links in the system browser and denies the window; the splash denies" },
+        { "api": "setWindowOpenHandler on the update windows", "where": "src/electron/update-window-main.ts", "verdict": "denies every window.open" },
+        { "api": "BrowserWindow webPreferences (contextIsolation, sandbox)", "where": "src/electron/updater-main.ts", "verdict": "unchanged options, unchanged behaviour" },
+        { "api": "Notification (44.8.0 Linux action buttons)", "where": "src/electron/signals.ts", "verdict": "title, body and silent only; no actions, so nothing changes" },
+        { "api": "ELECTRON_RUN_AS_NODE (the core on Electron's Node, 24.21.0 -> 24.22.0)", "where": "src/electron/resolve-node.ts", "verdict": "same launch; the core now gets the patched TLS" },
+        { "api": "the packaged runtime (node_modules/electron/dist -> runtime/electron)", "where": "scripts/build-package.mjs", "verdict": "copies whatever electron is installed; the package carries 44.9.3" }
+      ],
+      "checks": [
+        "Electron's breaking-changes guide has sections per major only; no major is crossed (44 -> 44)",
+        "live probe, Electron 44.5.1: Chromium (net.fetch and a hidden window) and Node (https.get and fetch) both TRUST the chain of dv-g3b-emudhra.we-have-a-problem.com",
+        "live probe, Electron 44.9.3: Chromium says ERR_CERT_REVOKED, Node says CERT_REVOKED, for the same host and the -aaa cross-signed host",
+        "the eight key hashes in both Electron patches match the tracker's impacted-intermediates.json"
+      ]
+    }
+  ]
+}
