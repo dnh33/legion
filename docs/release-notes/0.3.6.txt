@@ -1,0 +1,6 @@
+A security update. It installs from inside Legion on Windows, Mac and Linux.
+
+Certificates from a compromised authority are refused
+The keys of eight eMudhra certificate authorities leaked, so anyone could make a certificate that passes for any website. Legion now refuses those certificates in the connections it makes itself: model providers you add, web search, GitHub and updates. The app window follows in the next update, with a new Electron. Claude agents go through Claude Code, which has its own runtime: keep it up to date.
+
+Full detail in CHANGELOG.md.

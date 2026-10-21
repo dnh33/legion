@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-10-21
+
+A security update. It installs from inside Legion on Windows, Mac and Linux; no installer run is needed.
+
+### Security
+
+- **Legion no longer trusts certificates from a compromised certificate authority.** In October 2026 the private keys of eight eMudhra intermediate certificate authorities turned out to be recoverable, so anyone could use them to make a certificate that passes for any website. Browsers block them through lists they update live; the runtime Legion runs on never gets those lists. Legion now refuses those certificates in the connections it makes itself: to OpenRouter, DeepSeek and the other model providers you add, to web search, to GitHub, and for updates.
+- **The app window** gets the same protection from a new Electron in the next update.
+- **Claude agents reach Claude through Claude Code**, which Legion starts and which brings its own runtime, so this update does not change how Claude Code checks certificates. Keep Claude Code up to date.
+
 ### Changed
 
 - **Mac and Linux are marked experimental.** They install with the one-line installer and update themselves, and they are tested in CI, but not yet by hand on a real Mac. If something breaks on your Mac or Linux machine, please [report it](https://github.com/dnh33/legion/issues/new?template=bug_report.yml): every report helps.

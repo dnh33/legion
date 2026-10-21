@@ -13,6 +13,8 @@ import { createFakeModel } from './fake-model.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'src');
 const load = (p) => import(pathToFileURL(join(root, p)).href);
+// As in the product: the compromised-CA key block goes on node:tls before any other module loads.
+await load('core/tls-blocklist-install.js');
 
 const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { QuestionBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
   { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { createHouseModule }, { createArmoryModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }, { BoardStore, createBoardModule, graphNotes }, { createBrowserModule }, { createCiModule }, { FakeGitHub }, { createConnectorsModule }, { ConnectorKeyring }, { createLogsModule, openLogSink }, { createGateSuggestionsModule }] = await Promise.all([
