@@ -127,6 +127,9 @@ These fail quietly, which is worse than failing loudly:
 - **A pre-release sorts below its own release.** `0.2.1-a` can never work. See `docs/VERSIONING.md`.
 - **ESM caches modules**: a running server keeps stale code until restarted.
 - **Config and state migrations** must be versioned, run once, and never override a later manual choice.
+- **Electron is a migration, not a bump.** It is pinned exactly, and every change needs an entry in
+  `docs/electron-upgrades.json` that cites Electron's own release notes for every version crossed. CI fails without it.
+  Read `.claude/skills/upgrading-electron` first.
 
 ## Releases: Actions builds, the PC signs
 

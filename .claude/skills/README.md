@@ -12,6 +12,7 @@ wrong. Both are needed.
 | [`verifying-changes`](verifying-changes/SKILL.md) | Before claiming a change works, is safe to merge, or is ready to ship |
 | [`public-facing-copy`](public-facing-copy/SKILL.md) | Writing a changelog entry, release notes, README or any UI copy a reader outside the project will see. **Read this before writing `CHANGELOG.md`** — it is scrubbed into the public snapshot |
 | [`multi-agent-safety`](multi-agent-safety/SKILL.md) | Another agent or session may be working in the same repository; before any destructive git command |
+| [`upgrading-electron`](upgrading-electron/SKILL.md) | Changing the Electron version for any reason; `test/electron-pin.test.ts` or the "Electron upgrade record" CI job fails |
 | [`test-temp-dirs`](test-temp-dirs/SKILL.md) | A suite fills the disk by leaking temp dirs; you add or change a test that makes one |
 
 ## Why these exist
