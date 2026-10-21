@@ -12,31 +12,119 @@
       "date": "2026-10-21",
       "why": "Security: on 2026-10-17 the private keys of eight eMudhra intermediate CAs were shown to be recoverable. Browsers block them through live lists that Electron does not read. Electron 44.9.1 adds the keys to Chromium's compiled-in blocklist and applies the same list to its Node; 44.9.3 is the newest 44.x and adds upstream security backports.",
       "versions": [
-        { "version": "44.6.0", "notes": "https://github.com/electron/electron/releases/tag/v44.6.0", "affects": "none: protocol.registerSource is new and unused; the macOS sleep/wake, navigator.usb, webview.findInPage and tzdata fixes touch nothing Legion relies on" },
-        { "version": "44.7.0", "notes": "https://github.com/electron/electron/releases/tag/v44.7.0", "affects": "none: macOS autoUpdater and net.fetch fixes; Legion uses neither (its updater is its own code, its main process only fetches the local core); Chromium security backports" },
-        { "version": "44.7.1", "notes": "https://github.com/electron/electron/releases/tag/v44.7.1", "affects": "none in use: Linux display and GTK crash fixes help the Mac/Linux window; setIgnoreMouseEvents forwarding and WebContentsView re-adding are not used; Chromium 152.0.7977.149" },
-        { "version": "44.7.2", "notes": "https://github.com/electron/electron/releases/tag/v44.7.2", "affects": "none: macOS click and macOS updater fixes; security backports" },
-        { "version": "44.8.0", "notes": "https://github.com/electron/electron/releases/tag/v44.8.0", "affects": "Node inside Electron goes from 24.21.0 to 24.22.0, which runs the core in a Windows package install (covered by the full test suite and the real run); Linux Notification action buttons are additive (signals.ts sets none); net.fetch, utilityProcess and isFullScreen fixes are unused" },
-        { "version": "44.9.0", "notes": "https://github.com/electron/electron/releases/tag/v44.9.0", "affects": "link-opened windows now use the opener's session: every Legion window denies window.open, so nothing opens; setCertificateVerifyProc is not used; macOS app shims are unused" },
-        { "version": "44.9.1", "notes": "https://github.com/electron/electron/releases/tag/v44.9.1", "affects": "the fix: notes are empty, the change is commit e02265be96 (PR 55127): the eight eMudhra keys join Chromium's SPKI blocklist and Node's TLS refuses chains that contain them with CERT_REVOKED" },
-        { "version": "44.9.2", "notes": "https://github.com/electron/electron/releases/tag/v44.9.2", "affects": "none: notes are empty; the commits are a docs note and a test fix" },
-        { "version": "44.9.3", "notes": "https://github.com/electron/electron/releases/tag/v44.9.3", "affects": "none in Legion's code: upstream ANGLE, Chromium, PDFium, Skia and V8 security backports" }
+        {
+          "version": "44.6.0",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.6.0",
+          "evidence": "Added the experimental `protocol.registerSource()` to serve a custom scheme from directories on disk without a JavaScript handler.",
+          "affects": "none: protocol.registerSource is new and unused; the macOS sleep/wake, navigator.usb, webview.findInPage and tzdata fixes touch nothing Legion relies on"
+        },
+        {
+          "version": "44.7.0",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.7.0",
+          "evidence": "Fixed an uncatchable TypeError in `net.fetch` when receiving response headers with non-ASCII characters, and preserved multiple Set-Cookie headers.",
+          "affects": "none: macOS autoUpdater and net.fetch fixes; Legion uses neither (its updater is its own code, its main process only fetches the local core); Chromium security backports"
+        },
+        {
+          "version": "44.7.1",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.7.1",
+          "evidence": "Refactored mouse forwarding on Windows to fix `setIgnoreMouseEvents(true, { forward: true })` related issues.",
+          "affects": "none in use: Linux display and GTK crash fixes help the Mac/Linux window; setIgnoreMouseEvents forwarding and WebContentsView re-adding are not used; Chromium 152.0.7977.149; the Linux fix for asar archives in non-ASCII folders helps a Mac/Linux install whose path has such characters"
+        },
+        {
+          "version": "44.7.2",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.7.2",
+          "evidence": "Fixed interrupted macOS updates leaving a broken app behind.",
+          "affects": "none: macOS click and macOS updater fixes; security backports"
+        },
+        {
+          "version": "44.8.0",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.8.0",
+          "evidence": "Updated Node.js to v24.22.0.",
+          "affects": "Node inside Electron goes from 24.21.0 to 24.22.0, which runs the core in a Windows package install (covered by the full test suite and the real run); Linux Notification action buttons are additive (signals.ts sets none); net.fetch, utilityProcess and isFullScreen fixes are unused; the fix for the mouse cursor over native dialogs on Windows reaches Legion's dialog.showMessageBox prompts and is only better"
+        },
+        {
+          "version": "44.9.0",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.9.0",
+          "evidence": "Fixed link-opened windows not using the opener's session and `webPreferences`.",
+          "affects": "link-opened windows now use the opener's session: every Legion window denies window.open, so nothing opens; setCertificateVerifyProc is not used; macOS app shims are unused"
+        },
+        {
+          "version": "44.9.1",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.9.1",
+          "evidence": "commit e02265be96",
+          "affects": "the fix: notes are empty, the change is commit e02265be96 (PR 55127): the eight eMudhra keys join Chromium's SPKI blocklist and Node's TLS refuses chains that contain them with CERT_REVOKED"
+        },
+        {
+          "version": "44.9.2",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.9.2",
+          "evidence": "commit 5cfb78c4f8",
+          "affects": "none: notes are empty; the commits are a docs note and a test fix"
+        },
+        {
+          "version": "44.9.3",
+          "notes": "https://github.com/electron/electron/releases/tag/v44.9.3",
+          "evidence": "Backported fixes from upstream ANGLE, Chromium, PDFium, Skia and V8.",
+          "affects": "none in Legion's code: upstream ANGLE, Chromium, PDFium, Skia and V8 security backports"
+        }
       ],
       "majorsCrossed": [],
       "apisChecked": [
-        { "api": "setWindowOpenHandler / window.open (44.9.0 opener session change)", "where": "src/electron/main.ts", "verdict": "the main window opens links in the system browser and denies the window; the splash denies" },
-        { "api": "setWindowOpenHandler on the update windows", "where": "src/electron/update-window-main.ts", "verdict": "denies every window.open" },
-        { "api": "BrowserWindow webPreferences (contextIsolation, sandbox)", "where": "src/electron/updater-main.ts", "verdict": "unchanged options, unchanged behaviour" },
-        { "api": "Notification (44.8.0 Linux action buttons)", "where": "src/electron/signals.ts", "verdict": "title, body and silent only; no actions, so nothing changes" },
-        { "api": "ELECTRON_RUN_AS_NODE (the core on Electron's Node, 24.21.0 -> 24.22.0)", "where": "src/electron/resolve-node.ts", "verdict": "same launch; the core now gets the patched TLS" },
-        { "api": "the packaged runtime (node_modules/electron/dist -> runtime/electron)", "where": "scripts/build-package.mjs", "verdict": "copies whatever electron is installed; the package carries 44.9.3" }
+        {
+          "api": "setWindowOpenHandler / window.open (44.9.0 opener session change)",
+          "where": "src/electron/main.ts",
+          "verdict": "the main window opens links in the system browser and denies the window; the splash denies"
+        },
+        {
+          "api": "setWindowOpenHandler on the update windows",
+          "where": "src/electron/update-window-main.ts",
+          "verdict": "denies every window.open"
+        },
+        {
+          "api": "BrowserWindow webPreferences (contextIsolation, sandbox)",
+          "where": "src/electron/updater-main.ts",
+          "verdict": "unchanged options, unchanged behaviour"
+        },
+        {
+          "api": "Notification (44.8.0 Linux action buttons)",
+          "where": "src/electron/signals.ts",
+          "verdict": "title, body and silent only; no actions, so nothing changes"
+        },
+        {
+          "api": "ELECTRON_RUN_AS_NODE (the core on Electron's Node, 24.21.0 -> 24.22.0)",
+          "where": "src/electron/resolve-node.ts",
+          "verdict": "same launch; the core now gets the patched TLS"
+        },
+        {
+          "api": "the packaged runtime (node_modules/electron/dist -> runtime/electron)",
+          "where": "scripts/build-package.mjs",
+          "verdict": "copies whatever electron is installed; the package carries 44.9.3"
+        }
       ],
       "checks": [
         "Electron's breaking-changes guide has sections per major only; no major is crossed (44 -> 44)",
         "live probe, Electron 44.5.1: Chromium (net.fetch and a hidden window) and Node (https.get and fetch) both TRUST the chain of dv-g3b-emudhra.we-have-a-problem.com",
         "live probe, Electron 44.9.3: Chromium says ERR_CERT_REVOKED, Node says CERT_REVOKED, for the same host and the -aaa cross-signed host",
-        "the eight key hashes in both Electron patches match the tracker's impacted-intermediates.json"
-      ]
+        "the eight key hashes in both Electron patches match the tracker's impacted-intermediates.json",
+        "the adversarial review's decoy chain (a look-alike of the blocked CA ahead of the real one) is refused by the core block (ERR_TLS_CHAIN_MISMATCH); before the fix it connected",
+        "the core block on: 15 of 15 real hosts Legion talks to (GitHub, Anthropic, OpenRouter, DeepSeek, npm, search providers, Blender, boat.dev) still connect on Node 24.13.1 and on Electron 44.9.3",
+        "one real Claude run on the candidate core under Electron 44.9.3 (ELECTRON_RUN_AS_NODE): Doctor sees the Claude login, the lead agent answered",
+        "the app built from this branch opened in one hidden window (own data folder, port and profile): Electron/44.9.3 in the user agent, dark and light at 1280x820 and 960x600 at 1.5x, no error lines in the logs"
+      ],
+      "review": {
+        "by": "an independent review agent with its own context (adversarial review of PR 194), 2026-10-21",
+        "reread": [
+          "44.6.0",
+          "44.7.0",
+          "44.7.1",
+          "44.7.2",
+          "44.8.0",
+          "44.9.0",
+          "44.9.1",
+          "44.9.2",
+          "44.9.3"
+        ],
+        "verdict": "read all nine release pages, and the compare pages for the empty 44.9.1 and 44.9.2, against Legion's code; agreed with every affects line and the floor; found two notes missing (44.7.1 asar on Linux, 44.8.0 cursor over native dialogs on Windows), since added"
+      }
     }
   ]
 }

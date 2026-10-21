@@ -35,7 +35,11 @@ Legion code those changes touch. CI enforces that, so an upgrade without the rea
 5. **Prove Legion still runs**, then list it in `checks`: the full suite (CI), `npm run build`, one launch of the real app in its
    own data folder (`.claude/skills/verifying-changes`), and for a TLS or certificate fix the live probe
    (`LEGION_LIVE_TLS=1 node --test dist/test/tls-blocklist-live.test.js`).
-6. **It is a dependency release.** The lock changes, so the next release is a full install (signed full package on Windows, a
+6. **A second reader re-derives it.** A citation proves a page was opened, not understood. Before merge, a reviewer who did not
+   write the record (another agent with its own context, or a person) reads the notes of at least two versions, including any
+   that touch an API Legion uses, against Legion's code without looking at the author's `affects` first, then compares. Write
+   it in the entry's `review`: `by`, `reread` (the versions) and `verdict` (agreements and corrections). CI checks it is there.
+7. **It is a dependency release.** The lock changes, so the next release is a full install (signed full package on Windows, a
    notice on Mac and Linux). Read `.claude/skills/shipping-a-release` before cutting it.
 
 ## Failure modes

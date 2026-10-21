@@ -14,6 +14,9 @@ export function cmpVersion(a, b) {
 }
 const major = (v) => Number(String(v).split('.')[0]);
 const blank = (s) => typeof s !== 'string' || s.trim() === '';
+const thin = (s, n = 20) => blank(s) || s.trim().length < n;
+/** Evidence that the notes were read: a line copied from the release notes, or, for a release with empty notes, the commit that matters. */
+export const COMMIT_EVIDENCE = /^commit ([0-9a-f]{10,40})$/;
 
 /**
  * Every problem with the record for the pinned Electron version, as plain sentences; an empty list means the record is complete.
@@ -39,7 +42,8 @@ export function checkRecord(record, pin, exists) {
     if (cmpVersion(v.version, prev) <= 0) out.push(`${at}: ${v.version} is out of order or not after ${prev}`);
     if (cmpVersion(v.version, u.to) > 0) out.push(`${at}: ${v.version} is past ${u.to}`);
     if (v.notes !== NOTES_URL(v.version)) out.push(`${at}: ${v.version} must cite its official release notes, ${NOTES_URL(v.version)}`);
-    if (blank(v.affects)) out.push(`${at}: ${v.version} needs "affects": what it means for Legion, after reading the notes`);
+    if (thin(v.affects)) out.push(`${at}: ${v.version} needs "affects" (20+ characters): what it means for Legion, after reading the notes`);
+    if (!COMMIT_EVIDENCE.test(v.evidence ?? '') && thin(v.evidence)) out.push(`${at}: ${v.version} needs "evidence": a line copied from its release notes, or "commit <sha>" when the notes are empty`);
     prev = v.version;
   }
   if (vs.length && vs.at(-1).version !== u.to) out.push(`${at}: the last version listed must be ${u.to} itself`);
@@ -51,9 +55,15 @@ export function checkRecord(record, pin, exists) {
   const apis = Array.isArray(u.apisChecked) ? u.apisChecked : [];
   if (apis.length === 0) out.push(`${at}: apisChecked is empty: list the Electron APIs Legion uses that the notes touch, and the verdict`);
   for (const a of apis) {
-    if (blank(a.api) || blank(a.verdict)) out.push(`${at}: an apisChecked entry needs api and verdict`);
+    if (blank(a.api) || thin(a.verdict)) out.push(`${at}: an apisChecked entry needs api and a verdict (20+ characters)`);
     if (blank(a.where) || !exists(a.where)) out.push(`${at}: apisChecked "${a.api}" names ${a.where}, which is not a file in the repo`);
   }
   if (!Array.isArray(u.checks) || u.checks.length === 0 || u.checks.some(blank)) out.push(`${at}: checks must list what was run to prove Legion still works`);
+  // Citations prove the notes were opened, not understood: a second reader re-derives "affects" for some versions on their own.
+  const rv = u.review;
+  const listed = new Set(vs.map((v) => v.version));
+  if (!rv || blank(rv.by) || thin(rv.verdict) || !Array.isArray(rv.reread) || rv.reread.length < Math.min(2, vs.length) || rv.reread.some((v) => !listed.has(v))) {
+    out.push(`${at}: review needs "by" (a second agent or person, not the author), "reread" (at least 2 of the versions, whose notes they read against Legion's code on their own) and "verdict" (20+ characters)`);
+  }
   return out;
 }
