@@ -65,8 +65,10 @@ const REACH_MARKERS = /['"]\.\.['"]|\bpardir\b|\.parents\b|\.parent\s*\.\s*paren
  * `.absolute()` of a variable) is not that: its parent is the folder of a file, the `makedirs(dirname(abspath(p)))` idiom.
  */
 const ABSOLUTE_MARKERS = /\bcwd\b|getcwd|\bos\.curdir\b|\b(?:abspath|realpath|path\.resolve)\(\s*(?:(['"])\.?\1)?\s*\)/i;
-/** `Path(".").resolve().parent`, also `Path()` and `Path("")`: one level up from the project folder, in one chain. (A plain `Path(".")` is a normal base for globs.) */
-const CWD_UP = /\bPath\(\s*(?:(['"])\.?\1)?\s*\)\s*\.\s*(?:resolve|absolute)\(\s*\)\s*\.\s*parent\b/i;
+/** `Path(".").resolve()` (also `Path()`, `Path("")`, `.absolute()`): the current folder made absolute, in a chain or held in a variable. A plain `Path(".")` is a normal base for globs. */
+const CWD_BASE = /\bPath\(\s*(?:(['"])\.?\1)?\s*\)\s*\.\s*(?:resolve|absolute)\(/i;
+/** A drive or filesystem root handed to a path call (`Path("/")`, `Path(os.sep)`, `Path("C:")`, `join("C:", os.sep)`, `splitdrive`): it holds the data folder, and a lone slash is no path to the text reader. */
+const ROOT_ARG = /\b(?:Path|PurePath|join|abspath|realpath|resolve|walk|rmtree|listdir|iterdir|scandir|glob|rmSync|readdirSync)\(\s*(?:['"](?:[\\/]|[A-Za-z]:)['"]|os\.(?:path\.)?sep\b)|\bsplitdrive\b/i;
 const PARENT_STEP = /\.parent\b|\bdirname\(/i;
 /** Python with a version in its name (`python3.12`, `pypy3`) is Python. */
 const isInterpreter = (name: string): boolean => ONELINERS.has(name) || /^(?:python|pypy)\d+(?:\.\d+)*$/.test(name);
@@ -622,7 +624,7 @@ class Reader {
       }
       this.note(this.probe({ text }, this.where));
     }
-    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && (REACH_MARKERS.test(code) || CWD_UP.test(code) || (ABSOLUTE_MARKERS.test(code) && PARENT_STEP.test(code)) || this.namesProtected(code))))) this.hidden = true;
+    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && (REACH_MARKERS.test(code) || ROOT_ARG.test(code) || ((ABSOLUTE_MARKERS.test(code) || CWD_BASE.test(code)) && PARENT_STEP.test(code)) || this.namesProtected(code))))) this.hidden = true;
   }
 
   /** The code names a protected file or folder, or the folder that holds it, by its own name (`"projects.json"`, `/ "gates"`, `"legion"`). */
