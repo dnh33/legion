@@ -10,11 +10,11 @@ A security update. It installs by itself on Windows. On a Mac or Linux it change
 
 ### Security
 
-- **The app window and Claude agents now refuse the compromised eMudhra certificates too.** 0.3.6 covered the connections Legion makes itself. This update brings Electron 44.9.3, which refuses those certificates in the window and in its own runtime, and Claude Code 2.1.306 (in the Claude Agent SDK 0.3.306), which Claude agents use to reach Claude and which refuses them as well. The Claude Code Legion bundles is the one your Claude agents run, whatever version you installed yourself.
+- **The app window and Claude agents now refuse the compromised eMudhra certificates too.** 0.3.6 covered the connections Legion makes itself. This update brings Electron 44.9.3, which refuses those certificates in the window and in its own runtime, and Claude Code 2.1.306 (in the Claude Agent SDK 0.3.306), which Claude agents use to reach Claude and which refuses them as well. Your Claude agents run the Claude Code that Legion bundles, whatever version you installed yourself, unless you set your own in Settings, Claude, Claude executable: then update that one to 2.1.306 or later.
 
 ### Changed
 
-- **Fork subagents stay off for now.** The new Claude Agent SDK lets Claude split off a copy of a conversation by default; Legion keeps that off until it is tested with Legion's approval cards, task list and costs. To turn it on yourself, set `CLAUDE_CODE_FORK_SUBAGENT=1` before you start Legion.
+- **Fork subagents stay off for now.** The new Claude Agent SDK lets Claude split off a copy of a conversation by default; Legion keeps that off until it is tested with Legion's approval cards, task list and costs.
 
 ## [0.3.6] - 2026-10-21
 

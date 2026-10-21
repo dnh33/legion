@@ -61,7 +61,7 @@ async function probe(deps: CatalogDeps, now: () => number): Promise<Catalog> {
       // Only the command and model lists are wanted: do not connect (and tear down) every inherited MCP server for it.
       // disableAllHooks: a listing must not run the owner's SessionStart hooks.
       strictMcpConfig: true, settings: { ...connectorSettings(deps.config, { probe: true }).settings, disableAllHooks: true },
-      // Pinned: an omitted mode defers to settings and starts auto mode on third-party providers (SDK 0.3.286). A probe leaves no session file.
+      // Pinned: an omitted mode defers to settings and then depends on the SDK version and the provider (auto in SDK 0.3.286, default again on third-party providers since 0.3.302). A probe leaves no session file.
       permissionMode: 'default', persistSession: false,
     };
     if (deps.config.claude.executablePath) options.pathToClaudeCodeExecutable = deps.config.claude.executablePath;

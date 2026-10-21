@@ -30,7 +30,8 @@ const block = pathToFileURL(join(root, 'dist', 'src', 'core', 'tls-blocklist-ins
 /**
  * The emSign host serves a chain every runtime here can build to a root it ships, so an unprotected runtime trusts it (the proof).
  * The -aaa host serves the Sectigo cross-signed intermediate without a path to a shipped root: Node and Chromium on Linux refuse it
- * as an unknown authority whatever their version, so for them it only shows "refused".
+ * as an unknown authority whatever their version, so for them it only shows "refused". Claude Code (Bun) builds that chain, so for
+ * it the -aaa host is a real case.
  */
 const HOSTS = [{ host: 'dv-g3b-emudhra.we-have-a-problem.com', buildable: true }, { host: 'ov-g3c-aaa-emudhra.we-have-a-problem.com', buildable: false }];
 const electron = process.env.LEGION_LIVE_TLS_ELECTRON
@@ -51,10 +52,12 @@ const UNREACHABLE = /ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENETU
 
 interface Outcome { trusted: boolean; status?: number; code?: string }
 type Probe = Record<string, Outcome | string> & { runtime: string };
-function run(cmd: string, args: string[], env: Record<string, string | undefined>): { stdout: string; stderr: string; status: number | null } {
-  const merged: NodeJS.ProcessEnv = { ...process.env, ...env };
+/** Runs a probe. `clean` starts from an empty environment (only what the OS needs to start a program) instead of this process's. */
+function run(cmd: string, args: string[], env: Record<string, string | undefined>, o: { clean?: boolean; cwd?: string } = {}): { stdout: string; stderr: string; status: number | null } {
+  const base: NodeJS.ProcessEnv = o.clean ? Object.fromEntries(['PATH', 'Path', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'LANG'].filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]])) : { ...process.env };
+  const merged: NodeJS.ProcessEnv = { ...base, ...env };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete merged[k];
-  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 120_000, env: merged, windowsHide: true });
+  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 120_000, env: merged, windowsHide: true, ...(o.cwd ? { cwd: o.cwd } : {}) });
   return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status };
 }
 function probeJson(cmd: string, args: string[], env: Record<string, string | undefined>): Probe {
@@ -129,16 +132,21 @@ describe('TLS key block, live (eMudhra test hosts)', { skip: LIVE ? false : 'set
       }
     });
 
-    it(`the bundled Claude Code (Claude agents) refuses ${host}`, { skip: buildable ? false : 'one host is enough for Claude Code' }, (t) => {
-      // A made-up key and an empty config folder: nothing real can reach the test host. Without TLS trust the request never leaves;
-      // with it, the host answers HTTP and Claude Code reports an "API Error: <status>".
+    it(`the bundled Claude Code (Claude agents) refuses ${host}`, (t) => {
+      // Nothing real can reach the test host: a made-up key, an empty environment (no tokens, headers or cloud logins from this
+      // process), home and config folders and a working folder that are empty temp folders (no login, no CLAUDE.md). Without TLS
+      // trust the request never leaves; with it, the host answers HTTP and Claude Code reports an "API Error: <status>". Both hosts:
+      // Claude Code builds the cross-signed chain too, and 2.1.296 trusts both.
+      const home = tempDir('legion-tls-claude-');
       const r = run(claude, ['-p', 'hi', '--max-turns', '1'], {
-        CLAUDE_CONFIG_DIR: tempDir('legion-tls-claude-'), ANTHROPIC_API_KEY: 'sk-ant-FAKE-EXAMPLE-not-a-key', ANTHROPIC_BASE_URL: `https://${host}`,
-        ANTHROPIC_AUTH_TOKEN: undefined, CLAUDE_CODE_OAUTH_TOKEN: undefined,
+        HOME: home, USERPROFILE: home, APPDATA: home, LOCALAPPDATA: home, XDG_CONFIG_HOME: home, CLAUDE_CONFIG_DIR: home,
+        ANTHROPIC_API_KEY: 'sk-ant-FAKE-EXAMPLE-not-a-key', ANTHROPIC_BASE_URL: `https://${host}`,
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1', DISABLE_AUTOUPDATER: '1',
-      });
+      }, { clean: true, cwd: home });
       const said = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-3).join(' | ');
-      const version = run(claude, ['--version'], {}).stdout.trim();
+      const version = run(claude, ['--version'], { HOME: home, USERPROFILE: home }, { clean: true, cwd: home }).stdout.trim();
+      // Claude Code retries a host it cannot reach without printing anything: a timeout or no output means "could not ask".
+      if (r.status === null || said === '') { unreachable(t, `Claude Code: no answer within 120 s (test host unreachable?)`); return; }
       if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|timed out|Unable to connect to API: (?!SSL)/i.test(said) && !/SSL|CERT/i.test(said)) { unreachable(t, `Claude Code: test host unreachable (${said})`); return; }
       assert.doesNotMatch(said, /API Error: \d{3}/, `Claude Code TRUSTS a chain through a compromised eMudhra CA (${version}): ${said}`);
       assert.match(said, /SSL|CERT|certificate/i, `Claude Code failed, but not on the certificate (${version}): ${said}`);

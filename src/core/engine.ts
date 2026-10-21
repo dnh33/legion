@@ -335,7 +335,7 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; sc
   if (scrubbing && (config.claude.auth === 'api-key' || providerAuth)) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
   // SDK 0.3.302 turned fork subagents on by default in SDK sessions. They stay off until Legion's cards, task counting and cost are
   // tested with them (owner, 2026-10-21: off in 0.3.7, decided in 0.3.8); the owner's own CLAUDE_CODE_FORK_SUBAGENT wins (KEEP_ENV).
-  if (env.CLAUDE_CODE_FORK_SUBAGENT === undefined) env.CLAUDE_CODE_FORK_SUBAGENT = '0';
+  if (!env.CLAUDE_CODE_FORK_SUBAGENT) env.CLAUDE_CODE_FORK_SUBAGENT = '0'; // unset or empty: off
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {

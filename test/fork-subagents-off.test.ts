@@ -23,6 +23,14 @@ test('every Claude run starts with fork subagents off', () => {
   } finally { if (before === undefined) delete process.env.CLAUDE_CODE_FORK_SUBAGENT; else process.env.CLAUDE_CODE_FORK_SUBAGENT = before; }
 });
 
+test('an empty CLAUDE_CODE_FORK_SUBAGENT counts as unset, so forks stay off', () => {
+  const before = process.env.CLAUDE_CODE_FORK_SUBAGENT;
+  process.env.CLAUDE_CODE_FORK_SUBAGENT = '';
+  try {
+    assert.equal(buildChildEnv(cfg()).CLAUDE_CODE_FORK_SUBAGENT, '0');
+  } finally { if (before === undefined) delete process.env.CLAUDE_CODE_FORK_SUBAGENT; else process.env.CLAUDE_CODE_FORK_SUBAGENT = before; }
+});
+
 test('the owner can turn fork subagents on with their own environment variable', () => {
   const before = process.env.CLAUDE_CODE_FORK_SUBAGENT;
   process.env.CLAUDE_CODE_FORK_SUBAGENT = '1';
