@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
+import { killAllAgentsSync, registerLegionSecrets, sweepStaleAgents } from '../core/acp/process.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -89,6 +90,9 @@ async function main() {
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
   const config = loadConfig({ log: (l) => log(l) });
+  // an agent host child never gets these two values in its environment; agents a crashed earlier core left behind are cleaned up
+  registerLegionSecrets([config.authToken, adminSecret, nativeSecret]);
+  try { sweepStaleAgents(dataDir()); } catch (e) { log('agent sweep failed', e); }
   const store = new Store(dataDir());
   // The one GitHub client (no network until something asks). Everyone else reaches it through getGitHubClient().
   createGitHubClient({ tokens: new TokenStore(join(dataDir(), 'connectors'), connectorKeyring), log: (l) => log(l) });
@@ -205,6 +209,7 @@ async function main() {
     stopReaper();
     for (const m of modules) { try { await m.dispose?.(); } catch { /* ignore */ } }
     for (const id of engine.running()) engine.cancel(id);
+    killAllAgentsSync();
     server.close();
     await store.flush();
     await projects.flush();
