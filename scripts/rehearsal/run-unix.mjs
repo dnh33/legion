@@ -10,7 +10,9 @@
 //            (the one-time step the release notes ask for): the marker appears, the tree is clean, mode is 'apply' and the update to 0.99.0 works.
 //   live     the live release (--live-tag, UNIX_LIVE_TAG, or Latest) is installed with ITS OWN install.sh from its release assets, with the real
 //            github.com origin, and click-updated to the code-only 0.99.0 built from this checkout: the update path users take next. When the
-//            live release's dependency tree differs from this checkout's, the job FAILS: a green run must never mean nothing was updated (a dependency leg replaces this with the rebuild route).
+//            live release's dependency tree differs from this checkout's (an Electron bump), the dependency leg runs instead: the live release
+//            shows the dependency release as a notice that names the installer and fetches nothing, then this checkout's install.sh is run
+//            over it and must rebuild it with the new dependencies, keep ~/.legion and start healthy (liveDependencyLeg).
 //   refuse   no app: an edit in src/ (or an untracked file, or a folder without the marker) makes the installer refuse and leaves the edit; changes
 //            the updater itself makes (a CODE_SET file, .update, build-info.json) do not.
 //   notify   a dependency-changing release (and a code release whose lock differs) offered off Windows is a notice with zero requests for a
@@ -420,11 +422,11 @@ async function scenarioLive() {
   const same = dependencyHash(read(join(install, 'package-lock.json'))) === dependencyHash(read(join(repoRoot, 'package-lock.json')));
   log(`dependency tree of ${tag} vs this checkout: ${same ? 'the same' : 'DIFFERENT'}`);
   if (!same) {
-    // Never a green run that tested nothing: a dependency release must rehearse the route the live release really takes with it
-    // (the "run the installer again" notice up to 0.3.5, the rebuild route after). Until that leg exists here, this fails on purpose.
-    const line = `live: ${tag}'s dependency tree differs from this checkout's; the code-only candidate cannot apply to it and this job has no dependency leg yet`;
+    // Never a green run that tested nothing: a dependency release rehearses the route the live release really takes with it.
+    const line = `live: ${tag}'s dependency tree differs from this checkout's: the dependency leg runs (the notice, then the installer again)`;
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`);
-    check(false, line);
+    log(line);
+    await liveDependencyLeg(tag, ver);
     return;
   }
   startServer();
@@ -433,6 +435,56 @@ async function scenarioLive() {
   check(!!h0, `the installed ${ver} starts and reports health`);
   if (!h0) throw new Error(`${ver} never became healthy`);
   await updateTo(GOOD, 'unix-good', ver);
+}
+
+/**
+ * The live release meets a dependency release (this checkout's lock differs from its own, as with an Electron bump). Off Windows it can
+ * only show it as news and point at the installer (src/core/updater/deps-change.ts); the one-time step is that installer, which
+ * rebuilds node_modules in place. Both are rehearsed with the live release's own code, as a user on it meets them. The release server
+ * offers the dependency layout ('stone', requiresFullInstall with a signed Windows package); the local bare repo, made from this
+ * checkout (its lock, its Electron), stands in for the next release's tag.
+ */
+async function liveDependencyLeg(tag, ver) {
+  makeBaselineRepo();
+  startServer();
+  serve('stone');
+  startApp(tag);
+  const h0 = await healthy(ver);
+  check(!!h0, `the installed ${ver} starts and reports health`);
+  if (!h0) throw new Error(`${ver} never became healthy`);
+  const before = await tree(install);
+  const st = await offered(GOOD);
+  check(!!st, `${GOOD} (a dependency release) is offered to the live ${ver} as news`);
+  check(st?.mode === 'apply', `the live install is updatable (mode ${st?.mode})`);
+  check(st?.available?.requiresFullInstall === true && st?.available?.canFullInstall === false, `it is a notice: requiresFullInstall ${st?.available?.requiresFullInstall}, canFullInstall ${st?.available?.canFullInstall}`);
+  const i = await api('POST', '/api/update/install');
+  const said = i?.json?.error ?? '';
+  check(i?.status === 409 && /run the installer again/.test(said), `install() answers 409 with the installer line (HTTP ${i?.status}: ${said.slice(0, 120) || i?.err})`);
+  check(said.includes('--dir') && (said.includes(install) || said.includes(realpathSync(install))), 'the line names this install folder, so the installer rebuilds this copy and not a second one');
+  await sleep(30_000);
+  check(packageHits().length === 0 && winHits().length === 0, `no package of any kind was requested (${packageHits().length})`);
+  const d = diff(before, await tree(install));
+  check(d.length === 0, `the live install is unchanged by the notice${d.length ? `; differs: ${d.slice(0, 8).join(', ')}` : ''}`);
+  check(dataOk(), '~/.legion survived the notice');
+  killInstalled();
+
+  // the step the notice asks for. Its origin is github.com; the local repo stands in for the next release (test only).
+  check(git(install, 'remote', 'set-url', 'origin', `${siteUrl()}/dnh33/legion.git`).status === 0, 'origin pointed at the local repo (test only)');
+  const re = runInstaller('install-deps');
+  check(re.status === 0, `the installer runs again over the live ${ver} and rebuilds it (exit ${re.status})`);
+  if (re.status !== 0) { log(re.out.split('\n').slice(-25).join('\n')); throw new Error('the installer re-run failed'); }
+  check(instVersion() === BASE, `package.json says ${BASE}`);
+  check(markerOk(), 'the marker is valid');
+  check(gitClean(), `git status is clean${gitClean() ? '' : `: ${git(install, 'status', '--porcelain').out.trim().slice(0, 300)}`}`);
+  check(dataOk(), '~/.legion is untouched by the installer');
+  const pin = readJson(join(repoRoot, 'package.json'))?.devDependencies?.electron;
+  const got = readJson(join(install, 'node_modules', 'electron', 'package.json'))?.version;
+  check(!!got && got === pin, `the rebuilt install has the new Electron (${got} = ${pin})`);
+  electronBin = ''; // node_modules was rebuilt: look the binary up again
+  startApp('after the installer');
+  check(!!(await healthy(BASE)), `${BASE} starts on the rebuilt dependencies and reports health`);
+  const st2 = await status();
+  check(st2?.mode === 'apply', `the mode is apply again (${st2?.mode})`);
 }
 
 async function scenarioRefuse() {

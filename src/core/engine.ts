@@ -328,11 +328,14 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; sc
   const providerAuth = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]);
   const env: Record<string, string | undefined> = scrubbing ? scrubSecretEnv(raw, { ...(opts?.scrub ?? {}), providerAuth }) : raw;
   // The CLI keeps its own credentials for its API calls and strips them from the subprocesses it starts (Bash, hooks, stdio MCP servers), so in api-key mode
-  // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.296). Documented side effect: on Linux, Bash then runs in its own PID namespace.
+  // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.306). Documented side effect: on Linux, Bash then runs in its own PID namespace.
   // https://code.claude.com/docs/en/env-vars (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
   // Only where the CLI holds a credential Legion put in the environment (the api-key, or the cloud logins). In a Claude-login run that credential
   // lives outside the environment, so Legion's scrub and the owner's keep list decide alone: the CLI's own scrub would override the keep list.
   if (scrubbing && (config.claude.auth === 'api-key' || providerAuth)) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
+  // SDK 0.3.302 turned fork subagents on by default in SDK sessions. They stay off until Legion's cards, task counting and cost are
+  // tested with them (owner, 2026-10-21: off in 0.3.7, decided in 0.3.8); the owner's own CLAUDE_CODE_FORK_SUBAGENT wins (KEEP_ENV).
+  if (!env.CLAUDE_CODE_FORK_SUBAGENT) env.CLAUDE_CODE_FORK_SUBAGENT = '0'; // unset or empty: off
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {

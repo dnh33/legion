@@ -27,9 +27,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Live proof that the core's key block refuses chains through the compromised eMudhra CA keys on Electron's Node (a Windows package
-  # install) and on plain Node (Mac, Linux, source installs): test/tls-blocklist-live.test.ts against the incident tracker's test hosts.
-  # An unreachable host fails here (LEGION_LIVE_TLS_REQUIRE). The control removes the block and must then see the chain TRUSTED.
+  # Live proof that chains through the compromised eMudhra CA keys are refused by the core's key block (Electron's Node and plain
+  # Node), Electron itself (its Node and the window's Chromium) and the Claude Code the Agent SDK bundles:
+  # test/tls-blocklist-live.test.ts against the incident tracker's test hosts. An unreachable host fails here (LEGION_LIVE_TLS_REQUIRE).
+  # The controls take the block away (on Node 22.23.3, before Node's own fix), and run the old Electron and Claude Code, and must then
+  # see the chain TRUSTED.
   tls-live:
     name: TLS key block (live) ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -59,19 +61,50 @@ jobs:
       # the binary itself, whatever the postinstall decided (GitHub may not always let a job clear CI)
       - run: node node_modules/electron/install.js
       - run: npm run build:ts
-      - name: the core's block refuses the chains on Electron's Node and on plain Node
-        run: node --test dist/test/tls-blocklist-live.test.js
-      - name: control, without the block the same test must fail because the chain is TRUSTED
+      - name: a display for the Electron window (Linux)
+        if: runner.os == 'Linux'
+        run: command -v xvfb-run >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y xvfb; }
+      # LIVE runs the test, with a display on Linux (the Chromium case needs one).
+      - name: the core's block, Electron's Node and Chromium, and the bundled Claude Code refuse the chains
         run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a node --test dist/test/tls-blocklist-live.test.js; else node --test dist/test/tls-blocklist-live.test.js; fi
+      # Node 22.23.4 and 24.22.1 (2026-10-21) refuse these chains themselves (nodejs/node#66871), so the "node 22" above may no longer
+      # trust them. The block still guards users on older Node, so the control runs on the last 22.x without that fix.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.3
+      - name: control, without the core's block plain Node (22.23.3) must TRUST the chain
+        run: |
+          cp dist/src/core/tls-blocklist-install.js "$RUNNER_TEMP/block.js"
           echo "export {};" > dist/src/core/tls-blocklist-install.js
           set +e
-          node --test dist/test/tls-blocklist-live.test.js > "$RUNNER_TEMP/control.txt" 2>&1
+          node --test --test-name-pattern "plain Node" dist/test/tls-blocklist-live.test.js > "$RUNNER_TEMP/control.txt" 2>&1
           rc=$?
           set -e
+          cp "$RUNNER_TEMP/block.js" dist/src/core/tls-blocklist-install.js
           cat "$RUNNER_TEMP/control.txt"
           if [ "$rc" -eq 0 ]; then echo "::error::the live test passed without the block: it cannot tell a protected core from an unprotected one"; exit 1; fi
-          for rt in "Electron's Node" "plain Node.js"; do
-            grep -q "$rt with the block [a-z]* TRUSTS a chain through a compromised eMudhra CA" "$RUNNER_TEMP/control.txt" \
-              || { echo "::error::without the block, \"$rt\" did not fail with TRUSTS: the control failed for another reason"; exit 1; }
+          grep -q "plain Node.js with the block [a-z]* TRUSTS a chain through a compromised eMudhra CA" "$RUNNER_TEMP/control.txt" \
+            || { echo "::error::without the block, plain Node did not fail with TRUSTS: the control failed for another reason"; exit 1; }
+          echo "control ok: without the block plain Node trusts the compromised chain"
+      # It must fail for the right reason: the old Electron and the old Claude Code TRUST the chain. A missing binary or an unreachable
+      # host proves nothing. Linux only: there the OS cannot refuse first.
+      - name: control, Electron 44.5.1 and Claude Code 2.1.296 must TRUST the chain
+        if: runner.os == 'Linux'
+        run: |
+          npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/old" electron@44.5.1 @anthropic-ai/claude-agent-sdk-linux-x64@0.3.296
+          node "$RUNNER_TEMP/old/node_modules/electron/install.js"
+          oldE="$RUNNER_TEMP/old/node_modules/electron/dist/electron"; oldC="$RUNNER_TEMP/old/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"
+          test -x "$oldE" || { echo "::error::no Electron 44.5.1 binary at $oldE"; exit 1; }
+          test -x "$oldC" || chmod +x "$oldC"; "$oldC" --version
+          set +e
+          LEGION_LIVE_TLS_ELECTRON="$oldE" LEGION_LIVE_TLS_CLAUDE="$oldC" xvfb-run -a node --test dist/test/tls-blocklist-live.test.js > "$RUNNER_TEMP/old.txt" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/old.txt"
+          if [ "$rc" -eq 0 ]; then echo "::error::the old Electron and Claude Code passed the live test: it cannot tell patched from unpatched"; exit 1; fi
+          for who in "Electron's own Node [a-z]*" "Electron's Chromium [a-zA-Z]*" "Claude Code"; do
+            grep -qE "$who TRUSTS a chain through a compromised eMudhra CA" "$RUNNER_TEMP/old.txt" \
+              || { echo "::error::the old build of \"$who\" did not fail with TRUSTS: the control failed for another reason"; exit 1; }
           done
-          echo "control ok: without the block both runtimes trust the compromised chain"
+          echo "control ok: Electron 44.5.1 (Node and Chromium) and Claude Code 2.1.296 trust the compromised chain"
