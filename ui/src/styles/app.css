@@ -840,3 +840,14 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .ft-lines { margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 2px; }
 .ft-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ft-msg { color: var(--danger); font-size: 12.5px; }
+
+/* ---------- core restart: the notice after Legion restarted its core, and the stopped banner (tinted fill + full hairline + icon) ---------- */
+.core-note { display: flex; align-items: center; gap: 10px; margin: 10px 24px 8px; padding: 8px 12px; border-radius: var(--r); border: 1px solid; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.core-note.info { background: var(--warn-soft); border-color: rgba(255, 204, 102, .28); }
+.core-note.stop { background: var(--danger-soft); border-color: rgba(255, 107, 107, .3); }
+.core-note .icon { flex: none; }
+.core-note.info .icon { color: var(--warn); }
+.core-note.stop .icon { color: var(--danger); }
+.core-note > span { flex: 1; min-width: 0; }
+.core-note > button { flex: none; }
+/* end core-note */

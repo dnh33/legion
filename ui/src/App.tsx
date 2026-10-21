@@ -26,6 +26,8 @@ import { LibraryView } from './library/LibraryView';
 import { ProjectView } from './projects/ProjectView';
 import { LiveRegion } from './projects/page/announce';
 import { HoldChip } from './projects/page/HoldChip';
+import { CoreRestartBanner } from './coreRestart/CoreRestartBanner';
+import { startCoreRestart } from './coreRestart/coreRestartStore';
 import { WhatsNew } from './whatsnew/WhatsNew';
 import { initProjects, openAsk } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
@@ -78,7 +80,7 @@ export function App() {
   useWindowAway();
 
   useEffect(() => { reopenGithubAfterReload(); }, []);
-  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); initGithub(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); initGithub(); startCoreRestart(); }, []);
   const projectFilter = useStore((s) => s.projectFilter);
   useEffect(() => { ciProjectChanged(); }, [projectFilter]);
 
@@ -131,6 +133,7 @@ export function App() {
       <TitleBar />
       <AgentRail />
       <main className="center">
+        <CoreRestartBanner />
         <HoldChip />
         {settingsOpen ? <SettingsPanel /> : (
           <>

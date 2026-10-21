@@ -181,6 +181,21 @@ export async function recoverAtStart(installDir: string, dataDirPath: string): P
 let applying = false;
 let dialogOpen = false;
 
+/** True while an update is being applied by this app, or a swap helper holds the live marker. A staged update waiting for idle is not busy. */
+export function updateBusy(installDir: string): boolean {
+  if (applying) return true;
+  try {
+    const markerPath = join(installDir, UPDATE_DIR, MARKER_FILE_NAME);
+    const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
+    return isUpdateInProgress({
+      markerPath, now: () => Date.now(), isPidAlive: alive, getPidStartTime: () => null,
+      createExclusive: () => { throw new Error('read-only here'); },
+      read: (p: string) => { try { return readFileSync(p, 'utf8'); } catch { return null; } },
+      remove: () => undefined, log: () => undefined,
+    }).inProgress;
+  } catch { return false; }
+}
+
 async function applyNow(h: UpdaterHost, force: boolean): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> {
   if (applying) return { ok: false, error: 'An update is already being applied.' };
   applying = true;

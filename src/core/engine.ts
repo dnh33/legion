@@ -234,8 +234,8 @@ const GUARD_MEMO_MS = 5000;
 const HOOK_DECIDED_MS = 60_000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
 const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
-/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
-const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json']);
+/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state, the project list and app-settings.json (the desktop's own switches). */
+const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'app-settings.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
 const WEB_BATCH_MS = 10;
 type Decision = { allow: boolean; message?: string };
@@ -328,11 +328,14 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean; sc
   const providerAuth = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].some((k) => raw[k]);
   const env: Record<string, string | undefined> = scrubbing ? scrubSecretEnv(raw, { ...(opts?.scrub ?? {}), providerAuth }) : raw;
   // The CLI keeps its own credentials for its API calls and strips them from the subprocesses it starts (Bash, hooks, stdio MCP servers), so in api-key mode
-  // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.296). Documented side effect: on Linux, Bash then runs in its own PID namespace.
+  // the key set below is not visible to Claude's Bash. Needs CLI 2.1.251 or later (bundled: 2.1.306). Documented side effect: on Linux, Bash then runs in its own PID namespace.
   // https://code.claude.com/docs/en/env-vars (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
   // Only where the CLI holds a credential Legion put in the environment (the api-key, or the cloud logins). In a Claude-login run that credential
   // lives outside the environment, so Legion's scrub and the owner's keep list decide alone: the CLI's own scrub would override the keep list.
   if (scrubbing && (config.claude.auth === 'api-key' || providerAuth)) env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = '1';
+  // SDK 0.3.302 turned fork subagents on by default in SDK sessions. They stay off until Legion's cards, task counting and cost are
+  // tested with them (owner, 2026-10-21: off in 0.3.7, decided in 0.3.8); the owner's own CLAUDE_CODE_FORK_SUBAGENT wins (KEEP_ENV).
+  if (!env.CLAUDE_CODE_FORK_SUBAGENT) env.CLAUDE_CODE_FORK_SUBAGENT = '0'; // unset or empty: off
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {
@@ -2123,7 +2126,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const all = this.protectedDirs();
     if (!all.length) return undefined;
     const mode = this.modeNow(job, agent);
-    // Full keeps one narrow card: a write or delete that NAMES the gate settings, the gates key, config, state or the project list (normal work
+    // Full keeps one narrow card: a write or delete that NAMES the gate settings, the gates key, config, state, the project list or app-settings.json (normal work
     // never writes them). A path built when the command runs is not carded in Full, and the rest of the data folder keeps Full's freedom.
     const full = (job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full';
     const folders = full ? all.filter((t) => FULL_CARD_NAMES.has(basename(t).toLowerCase())) : all;

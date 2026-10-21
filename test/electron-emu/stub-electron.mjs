@@ -13,3 +13,4 @@ export const screen = { getDisplayMatching: () => ({ workArea: { x: 0, y: 0, wid
 export const nativeTheme = { shouldUseDarkColors: false, on() {} };
 export const session = { fromPartition() { throw new Error('the emulator has no web contents'); } };
 export class WebContentsView { constructor() { throw new Error('the emulator has no web contents'); } }
+export const powerMonitor = { on() {} };

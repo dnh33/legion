@@ -4,10 +4,44 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Legion restarts its core when it stops by itself.** If Legion Core stops while Legion is open, Legion starts it again after a second, and the window tells you once: "Legion Core stopped unexpectedly and was restarted. Running tasks were stopped." If it stops 3 times in 5 minutes, Legion stops trying, and a banner says so, points to core.log and offers a Restart core button. Closing Legion, the tray Restart core, an update, and logging off or shutting down never trigger it. Settings, About has a switch, "Restart Legion Core when it stops unexpectedly", on by default; your agents cannot change it. Every stop and every decision is written to logs/app.log.
+
+### Changed
+
+- **Questions that change a setting or move money are now asked in Legion's confirm card, shown inside Legion.** This covers provider and web search keys and addresses, loosening a gate, trusting a folder, how agents ask, project folders, the browser tool, connecting GitHub, and every BSV payment or limit. The card sits in the middle of the Legion window with the app dimmed behind it, in Legion's colours, with your UI scale and theme. It is not a separate window, and nothing is added to your taskbar. If Legion is hidden in the tray or minimized when a question comes in, Legion comes back first. The Legion page cannot answer one for you, because the answer only counts when it comes from the card, and the app behind it takes no mouse or keys while it is open. Programs running as you can still press its buttons, as they can in any window on your computer. If the card cannot be shown, Legion asks with the system dialog instead, and never answers yes by itself. Only one question is open at a time: if you start a second one, it tells you to answer the first. The same goes for the folder chooser and "Restart now" in Settings: they will not open on top of an open card, and a notice about an update that did not finish waits until the card is answered.
+
+## [0.3.7] - 2026-10-21
+
+A security update. It installs by itself on Windows. On a Mac or Linux it changes Legion's dependencies, so close Legion and run the installer once more: `curl -fsSL https://getlegion.xyz | sh` (if you installed with `--dir`, add it again). Your data in `~/.legion` stays.
+
+### Security
+
+- **The app window and Claude agents now refuse the compromised eMudhra certificates too.** 0.3.6 covered the connections Legion makes itself. This update brings Electron 44.9.3, which refuses those certificates in the window and in its own runtime, and Claude Code 2.1.306 (in the Claude Agent SDK 0.3.306), which Claude agents use to reach Claude and which refuses them as well. Your Claude agents run the Claude Code that Legion bundles, whatever version you installed yourself, unless you set your own in Settings, Claude, Claude executable: then update that one to 2.1.306 or later.
+
+### Changed
+
+- **Fork subagents stay off for now.** The new Claude Agent SDK lets Claude split off a copy of a conversation by default; Legion keeps that off until it is tested with Legion's approval cards, task list and costs.
+
+## [0.3.6] - 2026-10-21
+
+A security update. It installs from inside Legion on Windows, Mac and Linux; no installer run is needed.
+
+### Security
+
+- **Legion no longer trusts certificates from a compromised certificate authority.** In October 2026 the private keys of eight eMudhra intermediate certificate authorities turned out to be recoverable, so anyone could use them to make a certificate that passes for any website. Browsers block them through lists they update live; the runtime Legion runs on never gets those lists. Legion now refuses those certificates in the connections it makes itself: to OpenRouter, DeepSeek and the other model providers you add, to web search, to GitHub, and for updates.
+- **The app window** gets the same protection from a new Electron in the next update.
+- **Claude agents reach Claude through Claude Code**, which Legion bundles and which brings its own runtime, so this update does not change how Claude Code checks certificates. The bundled Claude Code gets the fix in 0.3.7.
+
 ### Changed
 
 - **Mac and Linux are marked experimental.** They install with the one-line installer and update themselves, and they are tested in CI, but not yet by hand on a real Mac. If something breaks on your Mac or Linux machine, please [report it](https://github.com/dnh33/legion/issues/new?template=bug_report.yml): every report helps.
-- **Questions that change a setting or move money are now asked in Legion's confirm card, shown inside Legion.** This covers provider and web search keys and addresses, loosening a gate, trusting a folder, how agents ask, project folders, the browser tool, connecting GitHub, and every BSV payment or limit. The card sits in the middle of the Legion window with the app dimmed behind it, in Legion's colours, with your UI scale and theme. It is not a separate window, and nothing is added to your taskbar. If Legion is hidden in the tray or minimized when a question comes in, Legion comes back first. The Legion page cannot answer one for you, because the answer only counts when it comes from the card, and the app behind it takes no mouse or keys while it is open. Programs running as you can still press its buttons, as they can in any window on your computer. If the card cannot be shown, Legion asks with the system dialog instead, and never answers yes by itself. Only one question is open at a time: if you start a second one, it tells you to answer the first. The same goes for the folder chooser and "Restart now" in Settings: they will not open on top of an open card, and a notice about an update that did not finish waits until the card is answered.
+
+### Fixed
+
+- **Full no longer asks about ordinary Python edits.** A script given to Python whose code held a doubled backslash (a line that continues, or `\\n` inside a string) was read as the root of your drive, which holds Legion's settings folder. So even Full showed "This command works on Legion's own settings folder" for edits that never touched it. A path that really names Legion's settings, written in the code, is still caught.
+- **Ordinary file edits written in Python or Node no longer ask first.** A script that only builds a path from plain parts (`Path("src/a.rs")`, `os.path.join("src", "m.rs")`) was treated as if it might reach Legion's settings. Code that starts from your home folder or the environment, walks up out of the project folder, builds the path from your user name, decodes or assembles a name when it runs, or names a Legion settings file is still checked. Python with a version in its name (`python3.12`) is now read like `python`.
 
 ## [0.3.5] - 2026-10-19
 
