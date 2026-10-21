@@ -1,9 +1,12 @@
 /** The core restarts itself once after an unexpected stop: the crash tracker (3 in 5 minutes), the decision, the window state, the switch. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
-  CRASH_LIMIT, CRASH_WINDOW_MS, CoreRestartState, CrashTracker, RESTART_DELAY_MS,
-  decideRestart, exitLine, restartEnabled, withRestartEnabled, type RestartFacts,
+  CRASH_LIMIT, CRASH_WINDOW_MS, CoreRestartState, CrashTracker, RESTART_DELAY_MS, SingleFlight,
+  decideRestart, exitLine, readRestartSwitch, restartEnabled, withRestartEnabled, writeRestartSwitch, type RestartFacts,
 } from '../src/electron/core-restart-logic.js';
 
 const facts = (over: Partial<RestartFacts> = {}): RestartFacts => ({ intended: false, quitting: false, updating: false, sessionEnding: false, enabled: true, count: 1, ...over });
@@ -152,4 +155,70 @@ test('switch: writing keeps the other keys and survives a broken file', () => {
   assert.deepEqual(JSON.parse(withRestartEnabled('[1]', false)), { restartCoreOnCrash: false });
   assert.equal(restartEnabled(withRestartEnabled(null, false)), false);
   assert.equal(restartEnabled(withRestartEnabled(withRestartEnabled(null, false), true)), true);
+});
+
+// L4: the switch file is read and written with care
+test('switch file: a missing file is on; a file that is locked or unreadable means do not restart', () => {
+  const missing = (): string => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); };
+  assert.equal(readRestartSwitch('x', { read: missing }), true);
+  for (const code of ['EBUSY', 'EACCES', 'EPERM', 'EISDIR']) {
+    const locked = (): string => { throw Object.assign(new Error('locked'), { code }); };
+    assert.equal(readRestartSwitch('x', { read: locked }), false, code);
+  }
+  assert.equal(readRestartSwitch('x', { read: () => '{"restartCoreOnCrash":false}' }), false);
+  assert.equal(readRestartSwitch('x', { read: () => '{}' }), true);
+});
+
+test('switch file: the write goes through a temp file and a rename, keeps other keys, and never overwrites a file it could not read', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-sw-'));
+  try {
+    const f = join(dir, 'app-settings.json');
+    writeRestartSwitch(f, false);
+    assert.equal(readRestartSwitch(f), false);
+    writeFileSync(f, '{"other":1,"restartCoreOnCrash":false}');
+    writeRestartSwitch(f, true);
+    assert.deepEqual(JSON.parse(readFileSync(f, 'utf8')), { other: 1, restartCoreOnCrash: true });
+    assert.deepEqual(readdirSync(dir), ['app-settings.json'], 'no temp file left behind');
+    // the rename is the only write to the real name
+    const writes: string[] = [];
+    const renames: Array<[string, string]> = [];
+    writeRestartSwitch(f, false, { read: () => '{}', write: (p) => { writes.push(p); }, rename: (a, b) => { renames.push([a, b]); }, remove: () => undefined });
+    assert.equal(writes.length, 1);
+    assert.notEqual(writes[0], f, 'the content is written to a temp file first');
+    assert.deepEqual(renames, [[writes[0]!, f]]);
+    // a read that fails with EBUSY: throw, write nothing
+    const w2: string[] = [];
+    assert.throws(() => writeRestartSwitch(f, true, { read: () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); }, write: (p) => { w2.push(p); }, rename: () => undefined, remove: () => undefined }), /EBUSY|busy/);
+    assert.deepEqual(w2, []);
+    // a rename that fails: the temp file is removed and the error reaches the caller
+    const removed: string[] = [];
+    assert.throws(() => writeRestartSwitch(f, true, { read: () => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); }, write: () => undefined, rename: () => { throw new Error('locked'); }, remove: (p) => { removed.push(p); } }), /locked/);
+    assert.equal(removed.length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// M2: one restart at a time
+test('single flight: a second caller shares the restart that is running; a new one starts after it ends', async () => {
+  const sf = new SingleFlight<string | null>();
+  assert.equal(sf.busy, false);
+  let starts = 0;
+  let release!: (v: string | null) => void;
+  const gate = new Promise<string | null>((r) => { release = r; });
+  const a = sf.run(() => { starts++; return gate; });
+  assert.equal(sf.busy, true);
+  const b = sf.run(() => { starts++; return Promise.resolve('second'); });
+  assert.equal(starts, 1);
+  release('ok');
+  assert.equal(await a, 'ok');
+  assert.equal(await b, 'ok');
+  assert.equal(sf.busy, false);
+  assert.equal(await sf.run(() => { starts++; return Promise.resolve('again'); }), 'again');
+  assert.equal(starts, 2);
+});
+
+test('single flight: a restart that throws frees the slot', async () => {
+  const sf = new SingleFlight<string | null>();
+  await assert.rejects(sf.run(() => Promise.reject(new Error('boom'))), /boom/);
+  assert.equal(sf.busy, false);
+  assert.equal(await sf.run(() => Promise.resolve(null)), null);
 });

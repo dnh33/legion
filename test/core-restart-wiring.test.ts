@@ -101,7 +101,7 @@ test('manual restart: the tray and the banner button share one path that forgets
 test('the option lives in app-settings.json in the data folder, read by main with no core', () => {
   assert.match(main, /app-settings\.json/);
   const r = block(main, 'function restartSwitchOn()');
-  assert.match(r, /restartEnabled\(/);
+  assert.match(r, /readRestartSwitch\(/);
   assert.ok(!/ownCoreCall/.test(r));
 });
 
@@ -114,4 +114,26 @@ test('logging: the child pid at spawn, every exit and every decision go to app.l
 test('preload: the window can read the state, hear changes, restart the core and flip the option', () => {
   for (const ch of ['legion:core-restart-state', 'legion:core-restart-now', 'legion:core-restart-option', 'legion:core-restart-changed']) assert.ok(preload.includes(ch), ch);
   for (const fn of ['coreRestartState', 'onCoreRestartChanged', 'restartCoreNow', 'coreRestartOption']) assert.match(preload, new RegExp(`${fn}\\(`), fn);
+});
+
+test('one restart at a time: the tray, the banner and the auto-restart all go through one in-flight guard', () => {
+  assert.match(main, /new SingleFlight<string \| null>\(\)/);
+  const q = block(main, 'async function restartCoreQuiet()');
+  assert.match(q, /restartFlight\.run\(/, 'restartCoreQuiet shares a restart that is already running');
+  const f = block(main, 'async function onCoreCrash(');
+  assert.match(f, /restartFlight\.busy/, 'the auto-restart skips when another restart is running');
+  assert.ok(f.indexOf('restartFlight.busy') > f.indexOf('await sleep(RESTART_DELAY_MS)'), 'checked after the wait');
+});
+
+test('a core that dies while Legion is still starting gets the stopped banner with the button', () => {
+  const f = block(main, 'async function onCoreCrash(');
+  assert.match(f, /if \(booting\) \{[^}]*noteStopped\('failed'\)[^}]*notifyRestartChanged\(\)/s);
+});
+
+test('the switch file: read and written through the careful helpers (temp file and rename; a locked file is not "on")', () => {
+  const r = block(main, 'function restartSwitchOn()');
+  assert.match(r, /readRestartSwitch\(/);
+  const w = block(main, 'function setRestartSwitch(');
+  assert.match(w, /writeRestartSwitch\(/);
+  assert.ok(!/writeFileSync/.test(w));
 });

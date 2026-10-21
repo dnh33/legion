@@ -2,7 +2,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, powerMonitor, safeStorage, shell, Tray } from 'electron';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,7 +14,7 @@ import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-no
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
 import { formatLine } from '../core/log/logger.js';
-import { CoreRestartState, CrashTracker, RESTART_DELAY_MS, decideRestart, exitLine, restartEnabled, withRestartEnabled, type RestartFacts } from './core-restart-logic.js';
+import { CoreRestartState, CrashTracker, RESTART_DELAY_MS, SingleFlight, decideRestart, exitLine, readRestartSwitch, writeRestartSwitch, type RestartFacts } from './core-restart-logic.js';
 import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, ensureGatesKey, gatesKeyFilePath, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
@@ -75,6 +75,8 @@ let sessionEnding = false;
 let sessionTimer: ReturnType<typeof setTimeout> | undefined;
 const crashes = new CrashTracker();
 const restartState = new CoreRestartState();
+/** One core restart at a time: the tray, the banner button, a provider-key restart and the auto-restart share it. */
+const restartFlight = new SingleFlight<string | null>();
 let booting = true;
 let splash: BrowserWindow | null = null;
 /** Per-launch admin secret of the core child we spawned (memory only: stdin pipe to the child, IPC to our own renderer; never env, argv or disk). */
@@ -303,13 +305,15 @@ async function killCore(): Promise<void> {
 /** Tray "Restart core": rotates the admin secret. The window reload re-runs the preload, so the renderer picks up the new secret. */
 /** Restarts our core. Returns the error text and shows no dialog itself: the caller reports it once (the tray shows the box, the Connect flow returns it to the window). */
 async function restartCoreQuiet(): Promise<string | null> {
-  if (coreProc) {
-    await killCore();
-    await waitPortFree((pinned ?? readConfig()).port);
-  }
-  const err = await ensureCore();
-  win?.webContents.reload();
-  return err;
+  return restartFlight.run(async () => {
+    if (coreProc) {
+      await killCore();
+      await waitPortFree((pinned ?? readConfig()).port);
+    }
+    const err = await ensureCore();
+    win?.webContents.reload();
+    return err;
+  });
 }
 
 /** Tray "Restart core": the one place that shows the error box. */
@@ -330,14 +334,10 @@ function appLog(level: 'info' | 'warn', event: string, fields: Record<string, st
 /** The Settings switch "Restart Legion Core when it stops unexpectedly". A file in the data folder, because the core it concerns is the one that is dead. On unless it says false. */
 const appSettingsFile = (): string => join(dataDir(), 'app-settings.json');
 function restartSwitchOn(): boolean {
-  let raw: string | null = null;
-  try { raw = readFileSync(appSettingsFile(), 'utf8'); } catch { /* none yet: on */ }
-  return restartEnabled(raw);
+  return readRestartSwitch(appSettingsFile()); // a file that is locked right now reads as "do not restart"
 }
 function setRestartSwitch(on: boolean): void {
-  let raw: string | null = null;
-  try { raw = readFileSync(appSettingsFile(), 'utf8'); } catch { /* none yet */ }
-  writeFileSync(appSettingsFile(), withRestartEnabled(raw, on));
+  writeRestartSwitch(appSettingsFile(), on); // temp file and rename
   appLog('info', 'core-restart-switch', { on });
 }
 
@@ -376,9 +376,13 @@ async function onCoreCrash(code: number | null, signal: NodeJS.Signals | null): 
   const first = decideRestart(facts());
   appLog('info', 'core-restart', { note: booting ? 'not restarting: Legion is still starting' : first.log });
   if (first.action === 'stop-at-limit') { restartState.noteStopped('limit'); notifyRestartChanged(); }
+  if (booting) { // the splash owns the start; unless Legion is closing, the banner gives the person the button
+    if (!quitting && !sessionEnding && !updateBusy(root)) { restartState.noteStopped('failed'); notifyRestartChanged(); }
+    return;
+  }
   if (first.action !== 'restart') return;
   await sleep(RESTART_DELAY_MS); // a whole-app kill finishes first
-  if (coreProc) { appLog('info', 'core-restart', { note: 'not restarting: a core is already running again' }); return; }
+  if (coreProc || restartFlight.busy) { appLog('info', 'core-restart', { note: 'not restarting: a core is already running again' }); return; }
   const again = decideRestart(facts());
   if (again.action !== 'restart') { appLog('info', 'core-restart', { note: again.log }); return; }
   restartState.noteRestarted(); // before the reload that fetches it

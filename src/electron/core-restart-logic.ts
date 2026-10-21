@@ -6,6 +6,8 @@
  * recorded in the last 5 minutes. So the first and second stop restart the core, and the third shows the banner instead.
  */
 
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+
 export const CRASH_LIMIT = 3;
 export const CRASH_WINDOW_MS = 5 * 60 * 1000;
 /** Wait before restarting, so a whole-app kill (taskkill of the app tree) can finish and show up as quitting first. */
@@ -96,4 +98,58 @@ export function withRestartEnabled(raw: string | null, on: boolean): string {
     if (j && typeof j === 'object' && !Array.isArray(j)) base = j as Record<string, unknown>;
   } catch { /* start a fresh file */ }
   return JSON.stringify({ ...base, restartCoreOnCrash: on }, null, 2) + '\n';
+}
+
+/** The file work behind the switch. Real fs by default; tests pass their own. */
+export interface SwitchFs {
+  read(path: string): string;
+  write(path: string, text: string): void;
+  rename(from: string, to: string): void;
+  remove(path: string): void;
+}
+const realFs: SwitchFs = {
+  read: (p) => readFileSync(p, 'utf8'),
+  write: (p, t) => writeFileSync(p, t),
+  rename: (a, b) => renameSync(a, b),
+  remove: (p) => { try { unlinkSync(p); } catch { /* already gone */ } },
+};
+const isMissing = (e: unknown): boolean => (e as { code?: string } | null)?.code === 'ENOENT';
+
+/**
+ * The switch as main reads it when the core has just died. No file yet: on. A file that cannot be read right now (an antivirus scan holds it,
+ * a permission error) is unknown, and unknown means do not restart: the person's "off" must never flip to "on" for a crash.
+ */
+export function readRestartSwitch(path: string, fs: Pick<SwitchFs, 'read'> = realFs): boolean {
+  let raw: string | null = null;
+  try { raw = fs.read(path); } catch (e) { if (!isMissing(e)) return false; }
+  return restartEnabled(raw);
+}
+
+/**
+ * Saves the switch: the new text goes to a temp file next to the real one and is renamed over it, so a crash or a power cut in the middle
+ * leaves the old file whole. A file that exists but cannot be read is not overwritten (that would drop its other keys): the error is thrown.
+ */
+export function writeRestartSwitch(path: string, on: boolean, fs: SwitchFs = realFs): void {
+  let raw: string | null = null;
+  try { raw = fs.read(path); } catch (e) { if (!isMissing(e)) throw e; }
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    fs.write(tmp, withRestartEnabled(raw, on));
+    fs.rename(tmp, path);
+  } catch (e) {
+    fs.remove(tmp);
+    throw e;
+  }
+}
+
+/** One async job at a time. A caller that arrives while it runs shares that run's answer instead of starting a second one. */
+export class SingleFlight<T> {
+  private pending: Promise<T> | null = null;
+  get busy(): boolean { return this.pending !== null; }
+  run(job: () => Promise<T>): Promise<T> {
+    if (this.pending) return this.pending;
+    const p = job().finally(() => { if (this.pending === p) this.pending = null; });
+    this.pending = p;
+    return p;
+  }
 }
