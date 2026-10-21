@@ -11,6 +11,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Fixed
 
 - **Full no longer asks about ordinary Python edits.** A script given to Python whose code held a doubled backslash (a line that continues, or `\\n` inside a string) was read as the root of your drive, which holds Legion's settings folder. So even Full showed "This command works on Legion's own settings folder" for edits that never touched it. A path that really names Legion's settings, written in the code, is still caught.
+- **Ordinary file edits written in Python or Node no longer ask first.** A script that only builds a path from plain parts (`Path("src/a.rs")`, `os.path.join("src", "m.rs")`) was treated as if it might reach Legion's settings. Code that starts from your home folder or the environment, walks up out of the project folder, builds the path from your user name, decodes or assembles a name when it runs, or names a Legion settings file is still checked. Python with a version in its name (`python3.12`) is now read like `python`.
 
 ## [0.3.5] - 2026-10-19
 

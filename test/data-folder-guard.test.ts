@@ -211,3 +211,68 @@ test('code for an interpreter: path building alone (pathlib, os.path, join) is n
     'from pathlib import Path\nimport sys\n(Path(sys.argv[1]) / "legion" / "x").unlink()',
   ]) assert.notEqual(dataFolderHit(py(body), 'sh', dataFolderTargets(DATA), { cwd: 'C:/work/projA', env }), 'none', body); // the real protected set: gates, projects.json, ...
 });
+
+test('code for an interpreter: path building that walks up from the project folder, reaches the home folder without a home word, or assembles/decodes a name is still hidden (review of the path-building change)', { skip: WIN_ONLY }, () => {
+  const py = (body: string) => `cd "C:/work/projA" && python - <<'PYEOF'\n${body}\nPYEOF`;
+  const nd = (body: string) => `cd "C:/work/projA" && node - <<'JSEOF'\n${body}\nJSEOF`;
+  const real = (c: string) => dataFolderHit(c, 'sh', dataFolderTargets(DATA), { cwd: 'C:/work/projA', env });
+  const both = (c: string) => [hit(c), real(c)];
+  const cards: Array<[string, string]> = [
+    // walk-ups from the project folder (the project may sit inside the home folder, which holds the data folder)
+    ['py cwd().parents[1]', py('from pathlib import Path\nimport shutil\nshutil.rmtree(Path.cwd().parents[1])')],
+    ['py cwd().parent.parent', py('from pathlib import Path\nimport shutil\nshutil.rmtree(Path.cwd().parent.parent)')],
+    ['py cwd() in a variable, then .parent', py('from pathlib import Path\nimport shutil\nhere = Path.cwd()\nshutil.rmtree(here.parent)')],
+    ['py Path("..").resolve().parent', py('from pathlib import Path\nimport shutil\nshutil.rmtree(Path("..").resolve().parent)')],
+    ['py abspath(join("..", ".."))', py('import os, shutil\nshutil.rmtree(os.path.abspath(os.path.join("..", "..")))')],
+    ['py dirname(dirname(getcwd()))', py('import os, shutil\nshutil.rmtree(os.path.dirname(os.path.dirname(os.getcwd())))')],
+    ['py os.pardir', py('import os, shutil\nshutil.rmtree(os.path.abspath(os.path.join(os.pardir, os.pardir)))')],
+    ['py chdir("..") twice, then join(getcwd())', py('import os, shutil\nos.chdir("..")\nos.chdir("..")\nshutil.rmtree(os.path.join(os.getcwd(), "x"))')],
+    ['py base then a split name', py('import os, shutil\nbase = os.path.abspath(os.path.join("..", ".."))\nshutil.rmtree(os.path.join(base, ".leg" + "ion"))')],
+    ['node resolve("..", "..")', nd('const path = require("path");\nrequire("fs").rmSync(path.resolve("..", ".."), { recursive: true });')],
+    ['node join(process.cwd(), "..", "..")', nd('const path = require("path");\nrequire("fs").rmSync(path.join(process.cwd(), "..", ".."), { recursive: true });')],
+    ['node dirname(process.cwd())', nd('const path = require("path");\nrequire("fs").rmSync(path.dirname(path.dirname(process.cwd())), { recursive: true });')],
+    ['python -c abspath(join("..", ".."))', `cd "C:/work/projA" && python -c 'import shutil,os;shutil.rmtree(os.path.abspath(os.path.join("..","..")))'`],
+    ['node -e resolve("..", "..", fromCharCode)', `cd "C:/work/projA" && node -e 'const path=require("path");require("fs").rmSync(path.resolve("..","..",String.fromCharCode(46,108,101,103,105,111,110)),{recursive:true})'`],
+    // the home folder without the word "home": the user profile variables spelled out, a path from the user name, the passwd entry
+    ['py expandvars HOMEDRIVE+HOMEPATH', py('import os, shutil\nshutil.rmtree(os.path.expandvars("%HOMEDRIVE%%HOMEPATH%"))')],
+    ['py expandvars split name', py('import os, shutil\nshutil.rmtree(os.path.expandvars("%USER" + "PROFILE%"))')],
+    ['py os.sep.join Users + user', py('import os, shutil\nuser = os.getlogin()\nshutil.rmtree(os.sep.join(["", "Users", user]))')],
+    ['py getpass.getuser join', py('import getpass, os, shutil\nshutil.rmtree(os.path.join(os.sep, "Users", getpass.getuser()))')],
+    ['py pw_dir', py('import pwd, os, shutil\nshutil.rmtree(pwd.getpwuid(os.getuid()).pw_dir)')],
+    ['node os.userInfo().username join', nd('const path = require("path"), os = require("os");\nrequire("fs").rmSync(path.join("C:", "Users", os.userInfo().username), { recursive: true });')],
+    // a name that is decoded, assembled from numbers, looked up by name or run from a string
+    ['py b64decode + pathlib', py('import base64\nfrom pathlib import Path\nimport shutil\nshutil.rmtree(Path(base64.b64decode("QzovVXNlcnMvRmFrZXVzZXIvLmxlZ2lvbg==").decode()))')],
+    ['py b64decode + os.path.join', py('import base64, os, shutil\nshutil.rmtree(os.path.join(base64.b64decode("QzovVXNlcnMvRmFrZXVzZXIvLmxlZ2lvbg==").decode()))')],
+    ['py bytes.fromhex', py('import os, shutil\nshutil.rmtree(os.path.join("x", bytes.fromhex("2e6c6567696f6e").decode()))')],
+    ['py chr() join', py('import shutil\nshutil.rmtree("".join(chr(c) for c in [67, 58, 47, 85, 115, 101, 114, 115]))')],
+    ['py map(chr)', py('import shutil\nshutil.rmtree("".join(map(chr, [67, 58, 47])))')],
+    ['py getattr(Path, "ho"+"me")', py('from pathlib import Path\ngetattr(Path, "ho" + "me")().joinpath(".leg" + "ion").unlink()')],
+    ['py __import__', py('import os\n__import__("shutil").rmtree(os.path.join("x", "y"))')],
+    ['py eval', py('import os\neval("__import__(chr(115)+chr(104))").rmtree(os.path.join("x"))')],
+    ['node fromCharCode', nd('const path = require("path");\nrequire("fs").rmSync(path.join(String.fromCharCode(67, 58)), { recursive: true });')],
+    ['node base64 Buffer', nd('const path = require("path");\nrequire("fs").rmSync(path.join(Buffer.from("QzovVXNlcnM=", "base64").toString()), { recursive: true });')],
+    ['node atob', nd('const path = require("path");\nrequire("fs").rmSync(path.join(atob("QzovVXNlcnM=")), { recursive: true });')],
+    // an interpreter named with a version (python3.12, py3.11) is read like python
+    ['python3.12 heredoc, home', `cd "C:/work/projA" && python3.12 - <<'PYEOF'\nfrom pathlib import Path\nimport shutil\nshutil.rmtree(Path.home())\nPYEOF`],
+    ['python3.12 -c, walk-up', `cd "C:/work/projA" && python3.12 -c 'import shutil,os;shutil.rmtree(os.path.abspath(os.path.join("..","..")))'`],
+  ];
+  for (const [name, c] of cards) for (const h of both(c)) assert.notEqual(h, 'none', name);
+  // ordinary edits stay free: building a path from plain parts, a relative parent folder, the cwd as a base, a regex exec, a join of words
+  const free: Array<[string, string]> = [
+    ['py Path write_text', py('from pathlib import Path\np = Path("src/a.rs")\np.write_text(p.read_text(encoding="utf-8").replace("a", "b"), encoding="utf-8")')],
+    ['py os.path.join open', py('import os\nopen(os.path.join("src", "m.rs"), "w").write("x")')],
+    ['py Path.glob + resolve', py('from pathlib import Path\nfor f in Path("tests").glob("*.py"):\n    print(f.resolve())')],
+    ['py new file in a new folder', py('from pathlib import Path\np = Path("src/new/mod.rs")\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text("pub fn f() {}")')],
+    ['py makedirs(dirname(relative))', py('import os\np = os.path.join("src", "new", "mod.rs")\nos.makedirs(os.path.dirname(p), exist_ok=True)\nopen(p, "w").write("x")')],
+    ['py getcwd as the base of a project file', py('import os\nopen(os.path.join(os.getcwd(), "src", "m.rs"), "w").write("x")')],
+    ['py rglob and join of words', py('from pathlib import Path\nnames = [f.name for f in Path("src").rglob("*.rs")]\nprint(", ".join(names))')],
+    ['py decode of a file', py('from pathlib import Path\ntext = Path("src/a.txt").read_bytes().decode("utf-8")\nPath("src/b.txt").write_text(text.upper())')],
+    ['node path.join write', nd('const fs = require("fs"), path = require("path");\nfs.writeFileSync(path.join("src", "a.js"), "x");')],
+    ['node cwd as the base of a project file', nd('const fs = require("fs"), path = require("path");\nfs.writeFileSync(path.join(process.cwd(), "src", "a.js"), "x");')],
+    ['node resolve + regex exec', nd('const fs = require("fs"), path = require("path");\nconst p = path.resolve("src", "a.js");\nconst m = /v(d+)/.exec(fs.readFileSync(p, "utf8"));\nfs.writeFileSync(p, String(m));')],
+    ['node -e join', `cd "C:/work/projA" && node -e 'console.log(require("path").join("a","b"))'`],
+    ['python -c join', `cd "C:/work/projA" && python -c 'import os;print(os.path.join("a","b"))'`],
+    ['python3.12 benign heredoc', `cd "C:/work/projA" && python3.12 - <<'PYEOF'\nfrom pathlib import Path\nPath("src/a.rs").write_text("x")\nPYEOF`],
+  ];
+  for (const [name, c] of free) for (const h of both(c)) assert.equal(h, 'none', name);
+});

@@ -49,9 +49,21 @@ const SKIP_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until'
 /** A quote's closing mark: the plain quotes, and the bracket pairs of Perl's q() and Ruby's %q[]. */
 const QUOTE_CLOSE: Record<string, string> = { "'": "'", '"': '"', '`': '`', '(': ')', '[': ']', '{': '}', '<': '>' };
 /** Code that builds a path from the home folder or the environment: it can reach the data folder without naming it. */
-const HOME_MARKERS = /homedir|appdata|userprofile|expanduser|environ|getenv|process\.env|\$env:|\bhome\b/i;
+const HOME_MARKERS = /homedir|appdata|userprofile|expanduser|expandvars|homedrive|homepath|pw_dir|environ|getenv|process\.env|\$env:|\bhome\b/i;
 /** Code that builds a path from parts. Alone that is ordinary work (nearly every pathlib script); near a protected name it could point there. */
-const BUILD_MARKERS = /os\.path|pathlib|join\(|resolve\(|\bPath\(/i;
+const BUILD_MARKERS = /os\.path|pathlib|join\(|resolve\(|dirname\(|\bPath\(/i;
+/**
+ * Path building plus one of these is hidden too, with no protected name in the text. A walk up from the project folder (the project may sit
+ * in the home folder): a bare `".."`, `pardir`, `.parents`, `.parent.parent`. The home folder built from the user name
+ * (`getuser`, `getlogin`, `userInfo`, `sep.join`). A name that is decoded, numbered or looked up when the code runs (`b64decode`, `fromhex`,
+ * `chr`, `fromCharCode`, `atob`, `base64`, `'hex'`, `getattr`, `__import__`, `eval(`, `exec(`).
+ */
+const REACH_MARKERS = /['"]\.\.['"]|\bpardir\b|\.parents\b|\.parent\s*\.\s*parent\b|getuser|getlogin|userinfo|\bsep\.join\(|b64decode|\bunhexlify|fromhex|\bchr\b|fromcharcode|fromcodepoint|\batob\(|base64|['"]hex['"]|\bgetattr\(|__import__|(?<![.\w])(?:eval|exec)\(/i;
+/** A path made absolute from the cwd or the file. With a parent step (`.parent`, `dirname(`) it walks up out of the project folder; a relative path's parent cannot. */
+const ABSOLUTE_MARKERS = /\bcwd\b|getcwd|abspath|realpath|\.absolute\(|__file__|__dirname/i;
+const PARENT_STEP = /\.parent\b|\bdirname\(/i;
+/** Python with a version in its name (`python3.12`, `pypy3`) is Python. */
+const isInterpreter = (name: string): boolean => ONELINERS.has(name) || /^(?:python|pypy)\d+(?:\.\d+)*$/.test(name);
 /** The folder variables read from the run's environment. Any other variable is unknown. */
 const KNOWN = ['home', 'userprofile', 'appdata', 'localappdata', 'temp', 'tmp', 'tmpdir'];
 
@@ -531,7 +543,7 @@ class Reader {
         if (!a.startsWith('-') && !prog) prog = a;
       }
       if (prog) this.child(`${prog} ${list.join(' ')}`, 'pwsh', true);
-    } else if (ONELINERS.has(name)) {
+    } else if (isInterpreter(name)) {
       for (let i = 0; i < args.length; i++) if (/^(-e|-c|-p|--eval|-pe|-ne|-le)$/.test(args[i]!.text) && args[i + 1]) { this.script(args[i + 1]!.text); skip.add(i + 1); }
     } else if (ECHOS.has(name)) {
       ro = outs.length === 0;
@@ -563,7 +575,7 @@ class Reader {
   private docs(docs: Tok[], name: string): void {
     for (const d of docs) {
       if (SHELLS.has(name)) { this.child(d.text, name === 'cmd' ? 'cmd' : name === 'powershell' || name === 'pwsh' ? 'pwsh' : 'sh', true); continue; }
-      if (ONELINERS.has(name)) { this.allRead = false; this.script(d.text); continue; }
+      if (isInterpreter(name)) { this.allRead = false; this.script(d.text); continue; }
       for (const t of tokenize(d.text, 'sh')) for (const s of t.subs ?? []) this.child(s, 'sh', true);
       this.note(this.probe(d, this.where, true));
     }
@@ -604,7 +616,7 @@ class Reader {
       }
       this.note(this.probe({ text }, this.where));
     }
-    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && this.namesProtected(code)))) this.hidden = true;
+    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && (REACH_MARKERS.test(code) || (ABSOLUTE_MARKERS.test(code) && PARENT_STEP.test(code)) || this.namesProtected(code))))) this.hidden = true;
   }
 
   /** The code names a protected file or folder, or the folder that holds it, by its own name (`"projects.json"`, `/ "gates"`, `"legion"`). */
