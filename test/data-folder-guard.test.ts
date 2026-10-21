@@ -149,3 +149,9 @@ test('native paths: another case is the same file where the disk ignores case (W
   const want = process.platform === 'linux' ? 'none' : 'names';
   assert.equal(nhit('rm ~/.LEGION-X/GATES/app.json'), want);
 });
+
+test('app-settings.json (the desktop switches) is a protected target: an agent cannot flip the owner\'s choice', () => {
+  assert.ok(dataFolderTargets(NDATA).includes(join(NDATA, 'app-settings.json')));
+  assert.ok(nhit(`echo {} > "${fd}/app-settings.json"`) !== 'none');
+  assert.ok(nhit(`rm ${fd}/app-settings.json`) !== 'none');
+});
