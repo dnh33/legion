@@ -185,7 +185,7 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
     catalog,
 
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
-      // Claude agents have the skills natively; only a provider run needs the tools.
+      // Claude agents have the skills natively, and an agent host run (Hermes) has its own; only a provider run needs the tools.
       if (job?.runtime !== 'provider') return {};
       return { [ARMORY_SERVER_NAME]: buildArmoryServer(agent, job, catalog) };
     },

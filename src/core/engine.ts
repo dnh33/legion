@@ -68,7 +68,7 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView, TodoItem } from '../shared/types.js';
-import { providerPrefix } from './providers/runtime.js';
+import { parseAcpModel, runtimeOf } from '../shared/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
 import { messagesTokens, isSummaryMessage } from './providers/compaction.js';
@@ -552,8 +552,8 @@ export class Engine {
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
     // A token client (MCP, curl) never moves a run between Claude and a provider, or between providers: that decides where the owner's data goes.
-    if (p.source === 'mcp' && p.model && (providerPrefix(p.model) || providerPrefix(agent.model)) && p.model !== agent.model) {
-      throw new EngineError('Provider models can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
+    if (p.source === 'mcp' && p.model && (runtimeOf(p.model) !== 'claude' || runtimeOf(agent.model) !== 'claude') && p.model !== agent.model) {
+      throw new EngineError('Provider models and agent hosts can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
     }
     const overriding = !!p.modelOverrideBy && !!p.model;
     if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
@@ -1190,11 +1190,11 @@ export class Engine {
     if (slashNo) throw new EngineError(slashNo, 400);
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
-    const provAgent = providerPrefix(agent.model);
-    if (picked && provAgent && decision.model !== agent.model) {
-      // a bot's pick never moves a provider agent to another model or to Claude (that would send the owner's data somewhere else)
+    const offClaudeAgent = runtimeOf(agent.model) !== 'claude';
+    if (picked && offClaudeAgent && decision.model !== agent.model) {
+      // a bot's pick never moves a provider or agent host agent to another model or to Claude (that would send the owner's data somewhere else)
       decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own provider setting` };
-    } else if (picked && !provAgent && providerPrefix(decision.model)) {
+    } else if (picked && !offClaudeAgent && runtimeOf(decision.model) !== 'claude') {
       const own = rankModel(modelRank(agent.model));
       decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot pick a provider; using ${own}` };
     } else if (picked && modelRank(decision.model) > modelRank(agent.model)) {
@@ -2553,7 +2553,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     // A Claude task's real context is Claude Code's own session, not the rows stored here. Legion's summariser would only
     // add a summary row Claude never reads, so this hands the job to Claude Code's built-in /compact in that session.
     const agentModel = this.store.getAgent(task.agentId)?.model;
-    if (!task.provider && !providerPrefix(model) && !providerPrefix(agentModel)) {
+    // An agent host (Hermes) keeps its own context; Legion has no summariser or /compact for it.
+    if (runtimeOf(model) === 'acp' || runtimeOf(agentModel) === 'acp') return { ok: false, detail: 'Compacting is not supported for this agent.' };
+    if (!task.provider && runtimeOf(model) === 'claude' && runtimeOf(agentModel) === 'claude') {
       if (!task.sessionId) return { ok: false, detail: 'There is nothing to compact yet. Send a message first, then compact.' };
       const f = focus?.trim();
       try {
@@ -2596,6 +2598,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ok: true,
       detail: `Compacted ${before} to about ${after} estimated tokens.${lost}`,
     };
+  }
+
+  /**
+   * One run on an agent host (an `acp:<entry>` model). Only the built-in Hermes entry is known so far, and its runtime is not wired in yet,
+   * so it fails in plain words; any other entry id is one nobody set up. Never falls back to Claude or a provider.
+   */
+  private runAgentHost(model: string): Outcome {
+    const entryId = parseAcpModel(model)?.entryId;
+    const text = entryId === 'hermes'
+      ? 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.'
+      : `The agent host "${entryId ?? model.slice('acp:'.length)}" is not set up. Choose another model for this agent in Settings.`;
+    return { subtype: 'error_during_execution', isError: true, errorText: text };
   }
 
   /** One run on a non-Claude provider (the seam into src/core/providers). Never falls back to Claude: a failure is the task's error. */
@@ -2695,6 +2709,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
+    // An agent host value is never a provider and never Claude: it is decided before either is asked.
+    if (runtimeOf(model) === 'acp') return this.runAgentHost(model);
     const pr = this.providers?.resolve(model);
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
     // Never the Claude path: a `<id>:<model>` value whose provider resolves to nothing (no provider runtime at all,

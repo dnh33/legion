@@ -17,6 +17,7 @@ import type { ProviderKeys } from './secrets.js';
 import { runToolLoop } from './tool-loop.js';
 import type { ProviderEntry, ProviderHost, ProviderRunResult, ProvidersConfig, ResolvedModel } from './types.js';
 import type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
+import { providerIdOf, runtimeOf, splitPrefixed } from '../../shared/runtime.js';
 
 export interface RuntimeDeps {
   /** Live: Settings edits replace `providers` on this object. */
@@ -44,12 +45,8 @@ export const PROVIDER_LIMITS_TEXT: string[] = [
 /** A provider's model list is fetched again once it is this old (the picker opens it at most once a day). */
 const MODELS_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** `<provider>:<model>` shape check only (a Bedrock ARN is not one). Whether the provider exists is the runtime's business. */
-const PREFIX_RE = /^([a-z][a-z0-9-]{1,31}):(.+)$/;
-export function providerPrefix(model: string | undefined): string | undefined {
-  const m = typeof model === 'string' ? PREFIX_RE.exec(model) : null;
-  return m && m[1] !== 'arn' ? m[1] : undefined;
-}
+/** The provider id a `<provider>:<model>` value names (shape check only: a Bedrock ARN and an agent host `acp:` value are not one). Whether the provider exists is the runtime's business. */
+export const providerPrefix = providerIdOf;
 
 export class ProviderRuntime {
   private readonly tests = new Map<string, { at: string; ok: boolean; detail: string }>();
@@ -109,16 +106,15 @@ export class ProviderRuntime {
    * run instead of sending the id to Claude.
    */
   resolve(model: string | undefined): ResolvedModel | undefined {
-    const m = typeof model === 'string' ? PREFIX_RE.exec(model) : null;
-    if (!m || m[1] === 'arn') return undefined;
-    const id = m[1]!;
+    if (runtimeOf(model) !== 'provider') return undefined;
+    const { prefix: id, rest } = splitPrefixed(model)!;
     const entry = this.cfg.entries[id] ?? PROVIDER_PRESETS.find((p) => p.id === id)?.entry;
     if (!entry && !PRESET_IDS.has(id)) return undefined;
-    return { providerId: id, model: m[2]!, ...(entry ? { entry } : {}) };
+    return { providerId: id, model: rest, ...(entry ? { entry } : {}) };
   }
 
   /** True when `model` names a provider (configured, preset, or just provider-shaped): used by the caps that keep a bot on the owner's provider. */
-  isProviderModel(model: string | undefined): boolean { return providerPrefix(model) !== undefined; }
+  isProviderModel(model: string | undefined): boolean { return runtimeOf(model) === 'provider'; }
 
   private target(id: string, entry: ProviderEntry): ProviderTarget {
     const ep = checkEndpoint(entry.baseUrl, { allowPrivate: entry.allowPrivateNetwork === true });

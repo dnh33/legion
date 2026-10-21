@@ -4,6 +4,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { TaskOrigin } from '../shared/comms.js';
+import type { Runtime } from '../shared/runtime.js';
 import type { AgentProfile, RunMode, Task } from '../shared/types.js';
 import type { Handler } from './server.js';
 
@@ -24,8 +25,8 @@ export interface ModuleJob {
   markConnectorData?(): void;
   /** The project this run belongs to, resolved by the engine (active project, agent is a member). Never taken from a tool argument. */
   projectId?: string;
-  /** Which runtime the servers are for: a Claude (SDK) run, or a run on a model provider. Set by the engine, never by a tool. */
-  runtime?: 'claude' | 'provider';
+  /** Which runtime the servers are for: a Claude (SDK) run, a run on a model provider, or a run on an agent host. Set by the engine, never by a tool. */
+  runtime?: Runtime;
 }
 
 /** What the engine tells a module while it builds a run's system prompt. */
