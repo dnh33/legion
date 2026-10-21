@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import { RpcError, RpcPeer } from '../src/core/acp/rpc.js';
 import type { AcpEntry } from '../src/shared/acp-view.js';
-import { startAgentProcess, type AgentProcess } from '../src/core/acp/process.js';
+import { registerLegionSecrets, startAgentProcess, type AgentProcess } from '../src/core/acp/process.js';
 
 // The fake agent is what Tasks 5 and 6 test against: these tests pin the wire shapes it speaks.
 const FAKE = fileURLToPath(new URL('./acp-fake-agent.js', import.meta.url));
+registerLegionSecrets([]);
 const started: AgentProcess[] = [];
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -80,7 +81,8 @@ test('fake cancel: session/cancel ends the waiting turn as cancelled', async () 
   await a.init();
   const { sessionId } = await a.newSession();
   const turn = a.prompt(sessionId);
-  while (!a.notes.length) await sleep(20);
+  const end = Date.now() + 8000;
+  while (!a.notes.length) { if (Date.now() > end) throw new Error('no update arrived'); await sleep(20); }
   a.peer.notify('session/cancel', { sessionId });
   assert.equal((await turn).stopReason, 'cancelled');
   await a.p.stop();

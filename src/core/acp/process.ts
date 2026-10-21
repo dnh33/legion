@@ -16,11 +16,12 @@
  *  - Every started PID is written to <dataDir>/acp-pids.json and swept at the next start, with an identity check against PID reuse.
  */
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { accessSync, constants, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, extname, isAbsolute, join } from 'node:path';
 import { type AcpEntry, containedArgs } from '../../shared/acp-view.js';
 import { scrubHostSessionEnv } from '../../shared/config.js';
 import { redact, registerSecret } from '../log/redact.js';
+import { renameWithRetry } from '../../shared/rename-retry.js';
 import { type RpcIo, lineSplitter } from './rpc.js';
 
 export interface AgentProcess {
@@ -57,10 +58,25 @@ const SKIP_FLAGS = ['HERMES_YOLO_MODE', 'HERMES_IGNORE_RULES', 'HERMES_SAFE_MODE
 // ---------------------------------------------------------------- environment
 
 let legionSecrets: string[] = [];
-/** The core calls this once at start with the values that must never reach an agent: the bearer token and the admin secret. */
+let secretsRegistered = false;
+/**
+ * The core calls this once at start with the values that must never reach an agent: the bearer token and the admin secrets.
+ * Until it has been called nothing is started (fail closed), so a caller that forgets it cannot leak by accident.
+ */
 export function registerLegionSecrets(values: ReadonlyArray<string | undefined>): void {
   legionSecrets = values.filter((v): v is string => typeof v === 'string' && v.length >= 8).map((v) => v.toLowerCase());
+  secretsRegistered = true;
   for (const v of values) registerSecret(v);
+}
+/** A secret that appears later, such as a per-run tool token: call it when the value is issued. */
+export function addLegionSecret(value: string): void {
+  if (value.length >= 8) legionSecrets.push(value.toLowerCase());
+  registerSecret(value);
+}
+/** For tests: back to "no secrets registered". */
+export function forgetLegionSecrets(): void { legionSecrets = []; secretsRegistered = false; }
+function requireSecrets(): void {
+  if (!secretsRegistered) throw new AgentLaunchError('refused', 'the core has not registered its secrets yet, so no agent program is started');
 }
 
 function setEnv(out: Record<string, string>, name: string, value: string, platform: NodeJS.Platform): void {
@@ -89,15 +105,22 @@ export function buildAgentEnv(o: { entryEnv?: Record<string, string> | undefined
 
 // ---------------------------------------------------------------- launch
 
-export interface LaunchSpec { file: string; args: string[]; windowsVerbatimArguments?: boolean }
+export interface LaunchSpec { file: string; args: string[]; windowsVerbatimArguments?: boolean; /** Added to the child's environment. */ env?: Record<string, string> }
+
+/** What the OS shows as the program of a process we started from this file: the full path on Windows, the file name elsewhere. */
+export function imageOf(file: string): string { return process.platform === 'win32' ? file : basename(file); }
 
 const sysRoot = () => process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
 const sys32 = (name: string) => join(sysRoot(), 'System32', name);
 const isFile = (p: string) => { try { return statSync(p).isFile(); } catch { return false; } };
 const WIN_RUNNABLE = new Set(['.com', '.exe', '.bat', '.cmd']);
 
-/** Characters allowed in a path or argument that goes through cmd.exe. Everything else is refused, never escaped. */
-const CMD_SAFE = /^[\p{L}\p{M}\p{N} _.,:;=+@/\\()[\]{}~#'-]*$/u;
+/**
+ * Characters allowed in a path or argument that goes through cmd.exe. Everything else is refused, never escaped.
+ * Letters are cased letters, other letters (CJK and the like), marks and digits. Modifier letters (category Lm, such as U+02BA and U+02C6)
+ * are left out on purpose: Windows can map those to a quote or a caret for programs that read the ANSI form of the command line.
+ */
+const CMD_SAFE = /^[\p{Lu}\p{Ll}\p{Lo}\p{M}\p{N} _.,:;=+@/\\()[\]{}~#'-]*$/u;
 
 /** The one line cmd.exe runs: every part in double quotes, trailing backslashes doubled so they cannot swallow the closing quote. */
 export function cmdLine(file: string, args: readonly string[]): string {
@@ -147,13 +170,14 @@ export function resolveCommand(command: string, env: Record<string, string | und
 export function launchSpec(command: string, args: readonly string[], env: Record<string, string | undefined>, platform: NodeJS.Platform = process.platform): LaunchSpec {
   const file = resolveCommand(command, env, platform);
   if (platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
-    return { file: sys32('cmd.exe'), args: ['/d', '/v:off', '/s', '/c', `"${cmdLine(file, args)}"`], windowsVerbatimArguments: true };
+    // NoDefaultCurrentDirectoryInExePath: a command inside the shim is never looked up in the current (project) folder
+    return { file: sys32('cmd.exe'), args: ['/d', '/v:off', '/s', '/c', `"${cmdLine(file, args)}"`], windowsVerbatimArguments: true, env: { NoDefaultCurrentDirectoryInExePath: '1' } };
   }
   return { file, args: [...args] };
 }
 
 function spawnOptions(spec: LaunchSpec, cwd: string | undefined, env: Record<string, string>): SpawnOptions {
-  return { ...(cwd ? { cwd } : {}), env, shell: false, windowsHide: true, detached: false, ...(spec.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}) };
+  return { ...(cwd ? { cwd } : {}), env: spec.env ? { ...env, ...spec.env } : env, shell: false, windowsHide: true, detached: false, ...(spec.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}) };
 }
 
 // ---------------------------------------------------------------- killing
@@ -173,63 +197,91 @@ export async function killPid(child: Killable): Promise<void> {
   });
 }
 
-export function killPidSync(child: Killable): void {
+/** With no time left (`timeoutMs` 0) the process is ended directly (TerminateProcess on Windows), without starting taskkill. */
+export function killPidSync(child: Killable, timeoutMs = 5000): void {
   if (!isLive(child)) return;
-  if (process.platform !== 'win32') { try { process.kill(child.pid, 'SIGKILL'); } catch { /* gone */ } return; }
-  spawnSync(sys32('taskkill.exe'), ['/PID', String(child.pid), '/F'], { stdio: 'ignore', windowsHide: true, shell: false, timeout: 5000 });
+  if (process.platform !== 'win32' || timeoutMs <= 0) { try { process.kill(child.pid, 'SIGKILL'); } catch { /* gone */ } return; }
+  spawnSync(sys32('taskkill.exe'), ['/PID', String(child.pid), '/F'], { stdio: 'ignore', windowsHide: true, shell: false, timeout: timeoutMs });
 }
 
 // ---------------------------------------------------------------- pid file and sweep
 
-interface PidRecord { pid: number; startedAt: number }
+interface PidRecord { pid: number; startedAt: number; /** The program of the process, as the OS shows it (see imageOf). */ image: string }
+const MAX_PID_RECORDS = 32;
+const SWEEP_BUDGET_MS = 10_000;
 
+const validRecord = (a: unknown): a is PidRecord => {
+  const r = a as Partial<PidRecord> | null;
+  return !!r && typeof r === 'object' && Number.isInteger(r.pid) && r.pid! > 0 && r.pid! <= 2 ** 31 - 1 && Number.isFinite(r.startedAt)
+    && typeof r.image === 'string' && r.image.length > 0 && r.image.length <= 1024;
+};
+
+/** The valid records, at most 32: the file is in the data folder and is read as untrusted (a malformed or oversized file cannot stall the start). */
 function readPids(dataDir: string): PidRecord[] {
   try {
     const raw = JSON.parse(readFileSync(join(dataDir, PID_FILE), 'utf8')) as { agents?: unknown };
-    if (!Array.isArray(raw.agents)) return [];
-    return raw.agents.filter((a): a is PidRecord => !!a && Number.isInteger((a as PidRecord).pid) && (a as PidRecord).pid > 0 && Number.isFinite((a as PidRecord).startedAt));
+    return Array.isArray(raw.agents) ? raw.agents.filter(validRecord).slice(0, MAX_PID_RECORDS) : [];
   } catch { return []; }
 }
+/** Temp file, then rename over the old one: a crash never leaves a torn file. */
 function writePids(dataDir: string, agents: PidRecord[]): void {
-  try { mkdirSync(dataDir, { recursive: true }); writeFileSync(join(dataDir, PID_FILE), JSON.stringify({ version: 1, agents })); } catch { /* the file only helps a later cleanup */ }
+  const file = join(dataDir, PID_FILE);
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dataDir, { recursive: true });
+    try { unlinkSync(tmp); } catch { /* none left over */ }
+    writeFileSync(tmp, JSON.stringify({ version: 1, agents: agents.slice(-MAX_PID_RECORDS) }), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    renameWithRetry(tmp, file);
+  } catch { try { unlinkSync(tmp); } catch { /* nothing to remove */ } /* the file only helps a later cleanup */ }
 }
 
-/** When the process with this PID started (ms since the epoch), or undefined when that cannot be read. */
-function startTimeOf(pid: number): number | undefined {
+/** When the process with this PID started (ms since the epoch) and its program as the OS shows it, or undefined when that cannot be read. */
+function processInfoOf(pid: number, timeoutMs: number): { startedAt: number; image: string } | undefined {
   if (!Number.isInteger(pid) || pid <= 0) return undefined;
   if (process.platform === 'win32') {
     const ps = join(sysRoot(), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    const r = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-Command', `[DateTimeOffset]::new((Get-Process -Id ${pid}).StartTime).ToUnixTimeMilliseconds()`], { encoding: 'utf8', windowsHide: true, shell: false, timeout: 15_000 });
-    const n = Number((r.stdout ?? '').trim());
-    return r.status === 0 && Number.isFinite(n) && n > 0 ? n : undefined;
+    const script = `$p = Get-Process -Id ${pid} -ErrorAction Stop; '' + [DateTimeOffset]::new($p.StartTime).ToUnixTimeMilliseconds() + '|' + $p.Path`;
+    const r = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, shell: false, timeout: timeoutMs });
+    const m = /^(\d+)\|(.+)$/.exec((r.stdout ?? '').trim());
+    return r.status === 0 && m ? { startedAt: Number(m[1]), image: m[2]! } : undefined;
   }
   for (const ps of ['/bin/ps', '/usr/bin/ps']) {
-    const r = spawnSync(ps, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', shell: false, timeout: 5000, env: { LC_ALL: 'C', PATH: '/usr/bin:/bin' } });
+    const r = spawnSync(ps, ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)], { encoding: 'utf8', shell: false, timeout: timeoutMs, env: { LC_ALL: 'C', PATH: '/usr/bin:/bin' } });
     if (r.error) continue;
-    const t = Date.parse((r.stdout ?? '').trim());
-    return r.status === 0 && Number.isFinite(t) ? t : undefined;
+    const m = /^(\w{3} \w{3}\s+\d+ \d\d:\d\d:\d\d \d{4})\s+(.+)$/.exec((r.stdout ?? '').trim());
+    const t = m ? Date.parse(m[1]!) : NaN;
+    return r.status === 0 && m && Number.isFinite(t) ? { startedAt: t, image: basename(m[2]!.trim()) } : undefined;
   }
   return undefined;
+}
+
+/** The recorded program is the program running under that PID. On Linux `comm` is cut at 15 characters. */
+function sameImage(recorded: string, actual: string): boolean {
+  if (process.platform === 'win32') return recorded.toLowerCase() === actual.toLowerCase();
+  return recorded === actual || (actual.length >= 15 && recorded.startsWith(actual));
 }
 
 const exists = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
 const START_TOLERANCE_MS = 5000;
 
 /**
- * Core start: clean up agents a core that died without cleaning left behind. An entry whose process is gone is dropped. A live one
- * is killed only when its start time matches the time recorded at spawn (a PID reused by another program starts at another time);
- * when the start time cannot be read the entry is dropped and the process left alone.
+ * Core start: clean up agents a core that died without cleaning left behind. The file is data an agent could have written, so it is
+ * trusted for nothing but a list of candidates. An entry whose process is gone is dropped. A live one is killed only when BOTH its start
+ * time matches the time recorded at spawn (within 5 s) AND its program is the one recorded (a PID reused by another program differs in
+ * at least one). When either cannot be read, or the time budget is used up, the entry is dropped and the process left alone.
  */
-export function sweepStaleAgents(dataDir: string): { killed: number[]; dropped: number[] } {
+export function sweepStaleAgents(dataDir: string, opts: { budgetMs?: number } = {}): { killed: number[]; dropped: number[] } {
   const killed: number[] = [];
   const dropped: number[] = [];
   const keep: PidRecord[] = [];
+  const deadline = Date.now() + (opts.budgetMs ?? SWEEP_BUDGET_MS);
   const mine = new Set([...live.keys()].map((c) => c.pid));
   for (const rec of readPids(dataDir)) {
     if (rec.pid === process.pid || mine.has(rec.pid)) { keep.push(rec); continue; }
     if (!exists(rec.pid)) { dropped.push(rec.pid); continue; }
-    const started = startTimeOf(rec.pid);
-    if (started !== undefined && Math.abs(started - rec.startedAt) <= START_TOLERANCE_MS) {
+    const left = deadline - Date.now();
+    const info = left > 0 ? processInfoOf(rec.pid, Math.min(15_000, Math.max(1000, left))) : undefined;
+    if (info && Math.abs(info.startedAt - rec.startedAt) <= START_TOLERANCE_MS && sameImage(rec.image, info.image)) {
       killPidSync({ pid: rec.pid, exitCode: null, signalCode: null });
       killed.push(rec.pid);
     } else dropped.push(rec.pid);
@@ -243,10 +295,11 @@ export function sweepStaleAgents(dataDir: string): { killed: number[]; dropped: 
 const live = new Map<ChildProcess, string>();
 let hooked = false;
 
-/** Kill every agent this core started, now. Called on shutdown and on process exit; kills the PIDs only. */
-export function killAllAgentsSync(): void {
+/** Kill every agent this core started, now (about `budgetMs` in all, 5 s by default; an agent left after that is ended without a helper process). */
+export function killAllAgentsSync(budgetMs = 5000): void {
+  const deadline = Date.now() + budgetMs;
   for (const [child, dataDir] of [...live]) {
-    killPidSync(child);
+    killPidSync(child, Math.max(0, deadline - Date.now()));
     live.delete(child);
     writePids(dataDir, readPids(dataDir).filter((r) => r.pid !== child.pid));
   }
@@ -285,9 +338,16 @@ export function startAgentProcess(
   opts: { cwd: string; extraEnv?: Record<string, string>; stripSkipFlags: boolean; dataDir: string },
   deps: { spawn?: SpawnFn } = {},
 ): AgentProcess {
+  requireSecrets();
   const env = buildAgentEnv({ entryEnv: entry.env, extraEnv: opts.extraEnv, stripSkipFlags: opts.stripSkipFlags });
   const spec = launchSpec(entry.command, containedArgs(entry), env);
-  const child = (deps.spawn ?? (spawn as SpawnFn))(spec.file, spec.args, { ...spawnOptions(spec, opts.cwd, env), stdio: ['pipe', 'pipe', 'pipe'] });
+  let child: ChildProcess;
+  try {
+    child = (deps.spawn ?? (spawn as SpawnFn))(spec.file, spec.args, { ...spawnOptions(spec, opts.cwd, env), stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (e) {
+    // spawn can throw at once (a NUL in the environment, a bad option); the message can quote a value, so only its code is kept
+    throw new AgentLaunchError('spawn-failed', `${entry.command}: the system refused to start it (${(e as NodeJS.ErrnoException).code ?? 'error'})`);
+  }
   child.once('error', () => undefined); // a failed start or kill is reported through exit and the ring, never as an uncaught event
   const stdin = child.stdin;
   stdin?.on('error', () => undefined); // EPIPE after the agent left
@@ -304,7 +364,7 @@ export function startAgentProcess(
 
   live.set(child, opts.dataDir);
   if (!hooked) { hooked = true; process.on('exit', killAllAgentsSync); }
-  writePids(opts.dataDir, [...readPids(opts.dataDir).filter((r) => r.pid !== pid), { pid, startedAt: Date.now() }]);
+  writePids(opts.dataDir, [...readPids(opts.dataDir).filter((r) => r.pid !== pid), { pid, startedAt: Date.now(), image: imageOf(spec.file) }]);
 
   const fireClose = () => {
     if (closed) return;
@@ -368,35 +428,56 @@ export function startAgentProcess(
 
 // ---------------------------------------------------------------- one-shot commands
 
-/** Run `command args` once and collect its output (each stream capped at 1 MiB). A start failure is a result, not a throw. */
+/**
+ * Run `command args` once and collect its output (each stream capped at 1 MiB). A start failure is a result, not a throw.
+ * It settles when the program exits (a short grace for the last output), or about 1.5 s after a timeout kill: something the program
+ * started can keep the pipes open for good, and the Doctor must not wait for it. The pipes are then closed from this side.
+ */
 export async function runAgentCli(
   command: string,
   args: string[],
   opts: { timeoutMs: number; env?: NodeJS.ProcessEnv; cwd?: string },
 ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
-  const env = (opts.env ?? buildAgentEnv({ stripSkipFlags: false })) as Record<string, string>;
+  const failed = (message: string) => ({ code: null, stdout: '', stderr: redact(message), timedOut: false });
+  let env: Record<string, string>;
   let spec: LaunchSpec;
-  try { spec = launchSpec(command, args, env); } catch (e) {
-    return { code: null, stdout: '', stderr: redact(e instanceof Error ? e.message : String(e)), timedOut: false };
-  }
+  try {
+    requireSecrets();
+    env = buildAgentEnv({ base: opts.env ?? process.env, stripSkipFlags: false }); // a caller's env passes the same filter as an agent's
+    spec = launchSpec(command, args, env);
+  } catch (e) { return failed(e instanceof Error ? e.message : String(e)); }
   return await new Promise((resolve) => {
-    const child = spawn(spec.file, spec.args, { ...spawnOptions(spec, opts.cwd, env), stdio: ['ignore', 'pipe', 'pipe'] });
+    let child: ChildProcess;
+    try { child = spawn(spec.file, spec.args, { ...spawnOptions(spec, opts.cwd, env), stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) {
+      resolve(failed(`${command}: the system refused to start it (${(e as NodeJS.ErrnoException).code ?? 'error'})`));
+      return;
+    }
     let stdout = '';
     let stderr = '';
     let timedOut = false;
     let settled = false;
+    const timers: NodeJS.Timeout[] = [];
     const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      for (const t of timers) clearTimeout(t);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       resolve({ code, stdout, stderr: redact(stderr), timedOut });
     };
-    const timer = setTimeout(() => { timedOut = true; void killPid(child); }, opts.timeoutMs);
+    timers.push(setTimeout(() => {
+      timedOut = true;
+      void killPid(child);
+      timers.push(setTimeout(() => finish(null), 1500));
+    }, opts.timeoutMs));
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (d: string) => { if (stdout.length < CLI_OUTPUT_CAP) stdout += d.slice(0, CLI_OUTPUT_CAP - stdout.length); });
     child.stderr?.on('data', (d: string) => { if (stderr.length < CLI_OUTPUT_CAP) stderr += d.slice(0, CLI_OUTPUT_CAP - stderr.length); });
+    child.stdout?.on('error', () => undefined);
+    child.stderr?.on('error', () => undefined);
     child.once('error', (e) => { stderr += `${stderr ? '\n' : ''}${e.message}`; finish(null); });
+    child.once('exit', (code) => { timers.push(setTimeout(() => finish(code), CLOSE_AFTER_EXIT_MS)); });
     child.once('close', (code) => finish(code));
   });
 }

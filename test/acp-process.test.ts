@@ -2,8 +2,8 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, delimiter, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -11,10 +11,11 @@ import { RpcPeer } from '../src/core/acp/rpc.js';
 import { clearRegisteredSecrets, registerSecret } from '../src/core/log/redact.js';
 import type { AcpEntry } from '../src/shared/acp-view.js';
 import {
-  AgentLaunchError, buildAgentEnv, cmdLine, killAllAgentsSync, killPid, killPidSync, launchSpec, registerLegionSecrets, resolveCommand,
+  AgentLaunchError, addLegionSecret, buildAgentEnv, forgetLegionSecrets, imageOf, cmdLine, killAllAgentsSync, killPid, killPidSync, launchSpec, registerLegionSecrets, resolveCommand,
   runAgentCli, startAgentProcess, sweepStaleAgents, type AgentProcess,
 } from '../src/core/acp/process.js';
 
+registerLegionSecrets([]); // the agent host refuses to start anything until the core has registered its secrets
 const FAKE = fileURLToPath(new URL('./acp-fake-agent.js', import.meta.url));
 const WIN = process.platform === 'win32';
 const started: AgentProcess[] = [];
@@ -225,6 +226,7 @@ test('stop: closes stdin, waits the grace time, kills the PID and leaves the bac
   const p = begin(entry('hang', ['--daemon', '--report', report]));
   await handshake(p);
   const { daemonPid } = reportOf(report) as { daemonPid: number };
+  extraPids.add(daemonPid); // before any assert, so a failure cannot leak the detached sleeper
   assert.ok(alive(daemonPid) && alive(p.pid));
   const t0 = Date.now();
   await within(p.stop(400), 10_000, 'stop');
@@ -232,7 +234,6 @@ test('stop: closes stdin, waits the grace time, kills the PID and leaves the bac
   assert.ok(elapsed >= 350, `waited the grace time (${elapsed} ms)`);
   assert.ok(!alive(p.pid), 'the agent is killed');
   assert.ok(alive(daemonPid), 'the background service is not (no tree kill)');
-  extraPids.add(daemonPid);
   const ex = await within(p.exited, 3000, 'exited');
   assert.ok(ex.code !== 0 || ex.signal !== null, 'killed, not a clean exit');
 });
@@ -276,31 +277,36 @@ test('killPid never touches a PID after the child exited (PID reuse guard)', asy
 
 // ---------------------------------------------------------------- pid file and sweep
 
-test('pid file: written at start, removed at exit', async () => {
+test('pid file: written at start with the program image, removed at exit, no temp file left behind', async () => {
   const dataDir = tempDir('acp-data-');
   const p = begin(entry('ok'), { dataDir });
-  const rec = JSON.parse(readFileSync(join(dataDir, 'acp-pids.json'), 'utf8')) as { agents: Array<{ pid: number; startedAt: number }> };
+  const rec = JSON.parse(readFileSync(join(dataDir, 'acp-pids.json'), 'utf8')) as { agents: Array<{ pid: number; startedAt: number; image: string }> };
   assert.equal(rec.agents.length, 1);
   assert.equal(rec.agents[0]!.pid, p.pid);
   assert.ok(Math.abs(rec.agents[0]!.startedAt - Date.now()) < 5000);
+  assert.equal(rec.agents[0]!.image, imageOf(process.execPath));
   await handshake(p);
   await p.stop();
   assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'acp-pids.json'), 'utf8')).agents, []);
+  assert.deepEqual(readdirSync(dataDir), ['acp-pids.json'], 'written by temp file and rename: nothing else is left');
 });
+
+const sleeperProc = () => { const c = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', windowsHide: true }); extraPids.add(c.pid!); return c; };
+const pidFile = (dataDir: string) => join(dataDir, 'acp-pids.json');
+const NODE_IMAGE = imageOf(process.execPath);
 
 test('sweep: a recorded PID that is gone is dropped; a live one of ours is killed; a live PID that is not ours is left alone', async () => {
   const dataDir = tempDir('acp-data-');
-  const sleeper = () => { const c = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', windowsHide: true }); extraPids.add(c.pid!); return c; };
   const gone = spawn(process.execPath, ['-e', ''], { stdio: 'ignore', windowsHide: true });
   await new Promise<void>((r) => gone.once('exit', () => r()));
-  const ours = sleeper();
-  const stranger = sleeper();
+  const ours = sleeperProc();
+  const stranger = sleeperProc();
   await waitFor(() => alive(ours.pid!) && alive(stranger.pid!));
   const now = Date.now();
-  writeFileSync(join(dataDir, 'acp-pids.json'), JSON.stringify({ version: 1, agents: [
-    { pid: gone.pid, startedAt: now - 1000 },
-    { pid: ours.pid, startedAt: now },
-    { pid: stranger.pid, startedAt: now - 3_600_000 }, // another program that reuses the PID: started at another time
+  writeFileSync(pidFile(dataDir), JSON.stringify({ version: 1, agents: [
+    { pid: gone.pid, startedAt: now - 1000, image: NODE_IMAGE },
+    { pid: ours.pid, startedAt: now, image: NODE_IMAGE },
+    { pid: stranger.pid, startedAt: now - 3_600_000, image: NODE_IMAGE }, // another program that reuses the PID: started at another time
   ] }));
   const ourExit = new Promise<void>((r) => ours.once('exit', () => r()));
   const res = sweepStaleAgents(dataDir);
@@ -308,14 +314,53 @@ test('sweep: a recorded PID that is gone is dropped; a live one of ours is kille
   assert.deepEqual([...res.dropped].sort(), [gone.pid, stranger.pid].sort());
   await within(ourExit, 8000, 'ours killed');
   assert.ok(alive(stranger.pid!), 'a process that is not ours is not killed');
-  assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'acp-pids.json'), 'utf8')).agents, []);
+  assert.deepEqual(JSON.parse(readFileSync(pidFile(dataDir), 'utf8')).agents, []);
   stranger.kill();
+});
+
+test('sweep: a forged record (live PID, matching start time, wrong or missing program image) kills nothing', async () => {
+  const dataDir = tempDir('acp-data-');
+  const victim = sleeperProc();
+  await waitFor(() => alive(victim.pid!));
+  const now = Date.now();
+  writeFileSync(pidFile(dataDir), JSON.stringify({ version: 1, agents: [
+    { pid: victim.pid, startedAt: now, image: WIN ? 'C:\Windows\System32\notepad.exe' : 'notepad' },
+    { pid: victim.pid, startedAt: now }, // no image: malformed, ignored
+  ] }));
+  const res = sweepStaleAgents(dataDir);
+  assert.deepEqual(res.killed, []);
+  assert.ok(alive(victim.pid!), 'the victim lives');
+  assert.deepEqual(JSON.parse(readFileSync(pidFile(dataDir), 'utf8')).agents, []);
+  victim.kill();
+});
+
+test('sweep: malformed records are ignored and at most 32 records are looked at', () => {
+  const dataDir = tempDir('acp-data-');
+  const agents: unknown[] = [null, 'x', { pid: -5, startedAt: 1, image: 'a' }, { pid: 1.5, startedAt: 1, image: 'a' }, { pid: 2 ** 40, startedAt: 1, image: 'a' }, { pid: 99, startedAt: 'now', image: 'a' }, { pid: 99, startedAt: 1, image: 7 }];
+  for (let i = 0; i < 1000; i++) agents.push({ pid: 2_000_000_000 + i, startedAt: 1, image: 'a' }); // no such processes
+  writeFileSync(pidFile(dataDir), JSON.stringify({ version: 1, agents }));
+  const res = sweepStaleAgents(dataDir);
+  assert.deepEqual(res.killed, []);
+  assert.ok(res.dropped.length <= 32, `looked at ${res.dropped.length} records`);
+  assert.deepEqual(JSON.parse(readFileSync(pidFile(dataDir), 'utf8')).agents, []);
+});
+
+test('sweep: a time budget that is used up leaves the rest alone (dropped, not killed)', async () => {
+  const dataDir = tempDir('acp-data-');
+  const ours = sleeperProc();
+  await waitFor(() => alive(ours.pid!));
+  writeFileSync(pidFile(dataDir), JSON.stringify({ version: 1, agents: [{ pid: ours.pid, startedAt: Date.now(), image: NODE_IMAGE }] }));
+  const res = sweepStaleAgents(dataDir, { budgetMs: 0 });
+  assert.deepEqual(res.killed, []);
+  assert.deepEqual(res.dropped, [ours.pid]);
+  assert.ok(alive(ours.pid!));
+  ours.kill();
 });
 
 test('sweep: a missing or broken pid file is fine', () => {
   const dataDir = tempDir('acp-data-');
   assert.deepEqual(sweepStaleAgents(dataDir), { killed: [], dropped: [] });
-  writeFileSync(join(dataDir, 'acp-pids.json'), '{not json');
+  writeFileSync(pidFile(dataDir), '{not json');
   assert.deepEqual(sweepStaleAgents(dataDir), { killed: [], dropped: [] });
 });
 
@@ -379,4 +424,89 @@ test('runAgentCli: a missing program and a relative path are results, not throws
   assert.match(rel.stderr, /relative path/);
   const withEnv = await runAgentCli(process.execPath, ['-e', 'console.log(process.env.ONLY_THIS ?? "none", process.env.HERMES_HOME ?? "no-hh")'], { timeoutMs: 15_000, env: { ...process.env, ONLY_THIS: 'yes' } as NodeJS.ProcessEnv });
   assert.match(withEnv.stdout, /^yes /);
+});
+
+// ---------------------------------------------------------------- fix round 1
+
+test('runAgentCli: a timeout settles even when the program started something that keeps its pipes open', async () => {
+  const dir = tempDir('acp-gc-');
+  const gcFile = join(dir, 'gc.pid');
+  const js = `require('fs').writeFileSync('${gcFile.replace(/\\/g, '/')}',String(process.pid));setInterval(()=>{},1000)`;
+  const shim = join(dir, WIN ? 'shim.cmd' : 'shim');
+  writeFileSync(shim, WIN ? `@echo off\r\n"${process.execPath}" -e "${js}"\r\n` : `#!/bin/sh\n"${process.execPath}" -e "${js}"\n`);
+  if (!WIN) chmodSync(shim, 0o755);
+  try {
+    const t0 = Date.now();
+    const r = await within(runAgentCli(shim, [], { timeoutMs: 800 }), 7000, 'runAgentCli settles after the timeout');
+    assert.equal(r.timedOut, true);
+    assert.ok(Date.now() - t0 < 6000);
+  } finally {
+    // the grandchild is ours: kill it by the PID it wrote
+    try { const pid = Number(readFileSync(gcFile, 'utf8')); if (pid > 0) { extraPids.add(pid); process.kill(pid, 'SIGKILL'); } } catch { /* never started or gone */ }
+  }
+});
+
+test('runAgentCli: an env passed by the caller goes through the same filter (LEGION_*, values holding a Legion secret)', async () => {
+  const token = 'tok_cli_0123456789abcdef0123456789ab';
+  registerLegionSecrets([token]);
+  try {
+    const r = await runAgentCli(process.execPath, ['-e', 'console.log(JSON.stringify(process.env))'], { timeoutMs: 15_000, env: { ...process.env, LEGION_PORT: '4747', HOLDS: `a-${token}-b`, KEEP_ME: 'k' } as NodeJS.ProcessEnv });
+    const env = JSON.parse(r.stdout) as Record<string, string>;
+    assert.equal(env.KEEP_ME, 'k');
+    assert.ok(!('LEGION_PORT' in env) && !('HOLDS' in env));
+  } finally { registerLegionSecrets([]); }
+});
+
+test('secrets fail closed: nothing starts before the core registered its secrets; a per-run token can be added later', async () => {
+  forgetLegionSecrets();
+  try {
+    assert.throws(() => startAgentProcess(entry('ok'), { cwd: tempDir('acp-cwd-'), stripSkipFlags: false, dataDir: tempDir('acp-data-') }), (e) => e instanceof AgentLaunchError && e.code === 'refused' && /secrets/.test(e.message));
+    const r = await runAgentCli(process.execPath, ['-e', 'console.log(1)'], { timeoutMs: 5000 });
+    assert.equal(r.code, null);
+    assert.match(r.stderr, /secrets/);
+  } finally { registerLegionSecrets([]); }
+
+  const runToken = 'run_tok_0123456789abcdef0123456789';
+  addLegionSecret(runToken);
+  try {
+    const r = await runAgentCli(process.execPath, ['-e', 'console.log(JSON.stringify(process.env))'], { timeoutMs: 15_000, env: { ...process.env, HOLDS_RUN: runToken } as NodeJS.ProcessEnv });
+    assert.ok(!('HOLDS_RUN' in (JSON.parse(r.stdout) as Record<string, string>)));
+  } finally { registerLegionSecrets([]); }
+});
+
+test('a synchronous error from spawn (NUL in the environment) becomes spawn-failed, never a throw of another kind', async () => {
+  assert.throws(() => startAgentProcess(entry('ok'), { cwd: tempDir('acp-cwd-'), stripSkipFlags: false, dataDir: tempDir('acp-data-'), extraEnv: { BAD: 'a\0b' } }),
+    (e) => e instanceof AgentLaunchError && e.code === 'spawn-failed');
+  const r = await runAgentCli(process.execPath, ['-e', 'console.log(1)'], { timeoutMs: 5000, env: { BAD: 'a\0b' } as NodeJS.ProcessEnv });
+  assert.equal(r.code, null);
+  assert.ok(r.stderr.length > 0);
+});
+
+test('cmdLine: letters that Windows can map to a quote or a caret (modifier letters, fullwidth forms) are refused', () => {
+  for (const bad of ['a\u02BAb', 'a\u02C6b', 'a\uFF02b', 'a\uFF3Eb', 'a\u201Cb']) {
+    assert.throws(() => cmdLine('C:\\x.cmd', [bad]), (e) => e instanceof AgentLaunchError && e.code === 'refused', JSON.stringify(bad));
+  }
+  assert.equal(cmdLine('C:\\x.cmd', ['日本語', 'Ærø']), '"C:\\x.cmd" "日本語" "Ærø"');
+});
+
+test('cmd.exe route (Windows): the child cannot resolve commands from its current folder', { skip: !WIN }, async () => {
+  const dir = tempDir('acp-cmd-');
+  const shim = join(dir, 'env.cmd');
+  writeFileSync(shim, '@echo off\r\necho [%NoDefaultCurrentDirectoryInExePath%]\r\n');
+  await withEnv({ NoDefaultCurrentDirectoryInExePath: undefined }, async () => {
+    const viaCmd = await runAgentCli(shim, [], { timeoutMs: 10_000 });
+    assert.equal(viaCmd.stdout.trim(), '[1]');
+    const viaExe = await runAgentCli(process.execPath, ['-e', 'console.log(process.env.NoDefaultCurrentDirectoryInExePath ?? "unset")'], { timeoutMs: 10_000 });
+    assert.equal(viaExe.stdout.trim(), 'unset', 'a direct launch keeps the user environment as it is');
+  });
+});
+
+test('killAllAgentsSync: a used-up time budget still ends every agent', async () => {
+  const dataDir = tempDir('acp-data-');
+  const a = begin(entry('hang'), { dataDir });
+  const b = begin(entry('hang'), { dataDir });
+  await Promise.all([a, b].map(handshake));
+  killAllAgentsSync(0);
+  await within(Promise.all([a.exited, b.exited]), 8000, 'both exited');
+  assert.ok(!alive(a.pid) && !alive(b.pid));
 });
