@@ -97,6 +97,7 @@ test('component: the banner uses role from the model, a real button, and no side
   const css = src('ui/src/styles/app.css');
   const block = css.slice(css.indexOf('.core-note {'), css.indexOf('/* end core-note */'));
   assert.ok(block.length > 40);
+  assert.match(block, /margin: 10px 24px 8px;/, 'a gap under the banner as well as over it');
   assert.ok(!/border-left|border-inline-start|inset 2px/.test(block), 'state is a tinted fill with a full hairline');
 });
 
