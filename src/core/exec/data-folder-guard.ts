@@ -59,8 +59,14 @@ const BUILD_MARKERS = /os\.path|pathlib|join\(|resolve\(|dirname\(|\bPath\(/i;
  * `chr`, `fromCharCode`, `atob`, `base64`, `'hex'`, `getattr`, `__import__`, `eval(`, `exec(`).
  */
 const REACH_MARKERS = /['"]\.\.['"]|\bpardir\b|\.parents\b|\.parent\s*\.\s*parent\b|getuser|getlogin|userinfo|\bsep\.join\(|b64decode|\bunhexlify|fromhex|\bchr\b|fromcharcode|fromcodepoint|\batob\(|base64|['"]hex['"]|\bgetattr\(|__import__|(?<![.\w])(?:eval|exec)\(/i;
-/** A path made absolute from the cwd or the file. With a parent step (`.parent`, `dirname(`) it walks up out of the project folder; a relative path's parent cannot. */
-const ABSOLUTE_MARKERS = /\bcwd\b|getcwd|abspath|realpath|\.absolute\(|__file__|__dirname/i;
+/**
+ * The current folder, written out (`cwd`, `getcwd`, `os.curdir`, `abspath(".")`, `realpath()`, `path.resolve(".")`). With a parent step
+ * (`.parent`, `dirname(`) it walks up out of the project folder. A path the script was given or wrote itself (`abspath(p)`, `__file__`,
+ * `.absolute()` of a variable) is not that: its parent is the folder of a file, the `makedirs(dirname(abspath(p)))` idiom.
+ */
+const ABSOLUTE_MARKERS = /\bcwd\b|getcwd|\bos\.curdir\b|\b(?:abspath|realpath|path\.resolve)\(\s*(?:(['"])\.?\1)?\s*\)/i;
+/** `Path(".").resolve().parent`, also `Path()` and `Path("")`: one level up from the project folder, in one chain. (A plain `Path(".")` is a normal base for globs.) */
+const CWD_UP = /\bPath\(\s*(?:(['"])\.?\1)?\s*\)\s*\.\s*(?:resolve|absolute)\(\s*\)\s*\.\s*parent\b/i;
 const PARENT_STEP = /\.parent\b|\bdirname\(/i;
 /** Python with a version in its name (`python3.12`, `pypy3`) is Python. */
 const isInterpreter = (name: string): boolean => ONELINERS.has(name) || /^(?:python|pypy)\d+(?:\.\d+)*$/.test(name);
@@ -616,7 +622,7 @@ class Reader {
       }
       this.note(this.probe({ text }, this.where));
     }
-    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && (REACH_MARKERS.test(code) || (ABSOLUTE_MARKERS.test(code) && PARENT_STEP.test(code)) || this.namesProtected(code))))) this.hidden = true;
+    if (!this.names && !found.some((f) => /^[A-Za-z]:[\\/]/.test(f)) && (HOME_MARKERS.test(code) || (BUILD_MARKERS.test(code) && (REACH_MARKERS.test(code) || CWD_UP.test(code) || (ABSOLUTE_MARKERS.test(code) && PARENT_STEP.test(code)) || this.namesProtected(code))))) this.hidden = true;
   }
 
   /** The code names a protected file or folder, or the folder that holds it, by its own name (`"projects.json"`, `/ "gates"`, `"legion"`). */
