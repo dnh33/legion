@@ -21,7 +21,13 @@ import { tempDir } from './tmp-cleanup.js';
 const LIVE = process.env.LEGION_LIVE_TLS === '1';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const probes = join(root, 'test', 'fixtures', 'tls-probe');
-const HOSTS = ['dv-g3b-emudhra.we-have-a-problem.com', 'ov-g3c-aaa-emudhra.we-have-a-problem.com'];
+/**
+ * The emSign host serves a chain any verifier can build to a root it ships, so an unpatched stack trusts it (the proof).
+ * The -aaa host serves the Sectigo cross-signed intermediate without the path to a shipped root; a verifier that does not fetch
+ * missing issuers (Node, Chromium on Linux) refuses it as an unknown authority whatever its version, so for Chromium it only
+ * shows "refused". Electron's Node still names it revoked: its block also checks the certificates the server sent.
+ */
+const HOSTS = [{ host: 'dv-g3b-emudhra.we-have-a-problem.com', buildable: true }, { host: 'ov-g3c-aaa-emudhra.we-have-a-problem.com', buildable: false }];
 const electron = process.env.LEGION_LIVE_TLS_ELECTRON
   || join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron');
 /** Opted in but no Electron: a failure, so a CI job whose install skipped the download can never pass without testing anything. */
@@ -50,7 +56,7 @@ function expectRevoked(t: { skip(msg: string): void }, label: string, out: Recor
 }
 
 describe('TLS key block, live (eMudhra test hosts)', { skip: LIVE ? false : 'set LEGION_LIVE_TLS=1 to run (talks to the incident tracker)' }, () => {
-  for (const host of HOSTS) {
+  for (const { host, buildable } of HOSTS) {
     it(`Electron's Node refuses ${host}`, (t) => {
       requireElectron();
       const out = run(electron, [join(probes, 'node-probe.mjs'), host], { ELECTRON_RUN_AS_NODE: '1' });
@@ -64,10 +70,11 @@ describe('TLS key block, live (eMudhra test hosts)', { skip: LIVE ? false : 'set
       const out = run(electron, [join(probes, 'electron-main-probe.cjs'), `--user-data-dir=${tempDir('legion-tls-probe-')}`, ...linux], { LEGION_PROBE_HOST: host, ELECTRON_RUN_AS_NODE: undefined });
       // ERR_CERT_REVOKED is Electron's own block. On Windows, Chromium asks the OS to verify, and a Windows that already has
       // Microsoft's update distrusts these CAs itself (ERR_CERT_AUTHORITY_INVALID) whatever the Electron version: still refused,
-      // but it proves nothing about Electron, so the strict proof runs on Linux in CI (Electron 44.5.1 must fail there).
-      const strict = process.platform !== 'win32' || process.env.LEGION_LIVE_TLS_STRICT === '1';
+      // but it proves nothing about Electron, so the strict proof runs on Linux in CI (Electron 44.5.1 must fail there), on the
+      // host whose chain can be built.
+      const strict = buildable && (process.platform !== 'win32' || process.env.LEGION_LIVE_TLS_STRICT === '1');
       expectRevoked(t, "Electron's Chromium", out, ['netFetch', 'window'], strict ? /ERR_CERT_REVOKED/ : /ERR_CERT_(REVOKED|AUTHORITY_INVALID)/);
-      for (const k of ['netFetch', 'window']) if (/AUTHORITY_INVALID/.test((out[k] as Outcome).code ?? '')) t.diagnostic(`${k}: refused by the operating system's own trust store, not by Electron's block`);
+      for (const k of ['netFetch', 'window']) if (/AUTHORITY_INVALID/.test((out[k] as Outcome).code ?? '')) t.diagnostic(`${k}: refused as an unknown authority (the OS trust store, or a chain no verifier here can complete), not by Electron's block`);
     });
 
     it(`plain Node.js with the core's key block refuses ${host}`, (t) => {
