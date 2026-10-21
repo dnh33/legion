@@ -37,7 +37,7 @@ export const CLAUDE_PRESET_LINES: Record<Preset, string> = {
   ask: 'Claude asks before it edits files or runs commands. Reading files and simple listing commands run without asking.',
   'accept-edits': 'File edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask.',
   smart: "Claude's own checker decides. Anything it is unsure about comes to you.",
-  bypass: "Claude never asks. Your Block rules and Legion's stop for catastrophic commands still apply.",
+  bypass: "Claude runs everything without asking, except deleting your project folder or a folder above it, which still asks. Your Block rules and Legion's stop on disastrous commands always apply.",
 };
 
 /** The help panel behind "Learn more": four short groups. */

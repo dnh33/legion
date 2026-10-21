@@ -136,15 +136,16 @@ test('L2: a 1 MB command with many substitutions is not read in a way that holds
   });
 });
 
-test('L2: a 60,000-character command with substitutions and no catastrophic text is read in windows and goes on with no card', async () => {
+test('L2: a 60,000-character command of many lines with substitutions and no catastrophic text is read statement by statement and goes on with no card', async () => {
   await using({ preset: 'bypass', follow: true, ownChecks: true }, async (r) => {
     const floor = (r.engine as unknown as { shellFloor: (j: unknown, a: unknown, t: string, i: Record<string, unknown>, o: unknown) => Promise<{ allow: boolean }> | undefined }).shellFloor;
-    const command = `echo ${'x $(echo y) '.repeat(4_900)}`;
+    // (one statement of 60,000 characters is "too long to read" and is carded; lines are read one by one)
+    const command = 'echo x $(echo y) $(echo z) $(echo w)\n'.repeat(1_700);
     assert.ok(command.length > 55_000 && command.length < 64_000);
     const t = performance.now();
     const out = floor.call(r.engine, r.job, r.agent, 'Bash', { command }, { native: true });
     assert.equal(out, undefined);
-    assert.ok(performance.now() - t < 400, 'read in windows, linear');
+    assert.ok(performance.now() - t < 400, 'read in groups, linear');
   });
 });
 

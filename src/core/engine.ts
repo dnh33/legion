@@ -43,7 +43,7 @@ import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
-import { MAX_READABLE, criticalDeleteRead, longCatastrophic, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { MAX_READABLE, criticalDeleteRead, longCatastrophic, refuseCatastrophic, unjudgeableCommand, windowsShellTexts, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
 import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
@@ -2074,7 +2074,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * in Full it is refused at once with the reason and how to write it plainly, so a run nobody watches never waits on a card
    * (owner decision 2026-10-13). Undefined when the floor has nothing to say.
    */
-  private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, opts: { card?: boolean; /** A Claude agent on Claude's own checks: only the refusals and the card for Legion's own data folder apply. */ native?: boolean } = {}): Promise<{ allow: boolean; message?: string }> | undefined {
+  private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, opts: { card?: boolean; /** A Claude agent on Claude's own checks: only the refusals and the card for Legion's own data folder apply. */ native?: boolean; /** Claude's own bypass mode is in force for this run (it started in Full). */ bypass?: boolean } = {}): Promise<{ allow: boolean; message?: string }> | undefined {
     if (!SHELL_TOOLS.has(toolName)) return undefined;
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command) return undefined;
@@ -2103,6 +2103,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (native && command.length > MAX_READABLE) {
         const hit = longCatastrophic(command, kind);
         if (hit) return this.longCatastrophicCard(job, agent, toolName, input, hit);
+      }
+      // Claude's bypass mode skips its own check for a PowerShell `Remove-Item -Recurse` on the working folder or a folder above it (Claude Code docs, permission modes,
+      // "Remove-Item in PowerShell"; Bash `rm` it still asks about, and that prompt reaches the owner through canUseTool). So in Full, for the PowerShell tool and for a
+      // Windows delete command run from Bash (`cmd /c rd /s`), Legion adds the card: one card, a No denies. Read for every shell call of the run, so the folder a `cd` moved to is known.
+      if (native && opts.bypass) {
+        // (the folder a `cd` moved to is kept from call to call by this read; for Bash only a `cmd /c` or `powershell -c` script inside the command counts, `rm` is Claude's)
+        const own = this.criticalDeleteTarget(job, agent, toolName, input, command, kind);
+        let critical = toolName === 'PowerShell' ? own : undefined;
+        if (!critical && toolName !== 'PowerShell') for (const w of windowsShellTexts(command)) { critical = this.criticalDeleteTarget(job, agent, toolName, input, w.text, w.kind, false); if (critical) break; }
+        if (critical) {
+          return this.criticalDeleteDecision(job, agent, toolName, input, command, critical, true).then((d) => d.allow ? (this.dataFolderCard(job, agent, toolName, input, command, kind, true) ?? d) : d);
+        }
       }
       // Claude's own parser and checker handle what Legion cannot read, and Claude Code guards the project folder itself: only Legion's own files are left
       if (native) return this.dataFolderCard(job, agent, toolName, input, command, kind, true);
@@ -2176,12 +2188,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * directly under one, or the home folder (Claude Code's critical paths). Read from the folder the shell is in: Claude's shell
    * keeps its folder between calls, so the folder a `cd` moved to is where the NEXT command is read; Legion's host shell takes one per call.
    */
-  private criticalDeleteTarget(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind): string | undefined {
-    const keeps = !toolName.startsWith('mcp__host__');
+  private criticalDeleteTarget(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, kind: ShellKind, track = true): string | undefined {
+    // Claude's shell keeps its folder between calls (Legion's host shell takes one per call); a read with `track` off (a script inside the command) leaves the kept folders alone
+    const shellKeeps = !toolName.startsWith('mcp__host__');
+    const keeps = track && shellKeeps;
     const act = this.active.get(job.taskId);
     const start = this.gateCwd(agent, toolName, input);
     const folder = this.projectOf(job.taskId, agent.id)?.folder;
-    const carried = keeps && act ? act.critCwds : undefined;
+    const carried = shellKeeps && act ? act.critCwds : undefined;
     // a command too long to read is carded anyway; it may hold a cd, so the folder is not known after it
     if (command.length > MAX_READABLE) { if (keeps && act) act.critCwds = null; return undefined; }
     let r: ReturnType<typeof criticalDeleteRead>;
@@ -2194,10 +2208,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return r.reason ? (r.target ?? 'the project folder') : undefined;
   }
 
-  /** The card (every mode but Full) or the refusal (Full, or a ceiling that lifts nothing) for a delete of what holds the project. A ceiling never loosens it. */
-  private criticalDeleteDecision(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, target: string): Promise<{ allow: boolean; message?: string }> {
+  /** The card (every mode but Full) or the refusal (Full, or a ceiling that lifts nothing) for a delete of what holds the project. A ceiling never loosens it. With `card`, Full gets the card too (a Claude agent in Claude's bypass mode). */
+  private criticalDeleteDecision(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, command: string, target: string, card = false): Promise<{ allow: boolean; message?: string }> {
     const mode = this.modeNow(job, agent);
-    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
+    if (!card && (job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
       return Promise.resolve({ allow: false, message: `Not run: this command deletes ${target}, which holds the project. With full access such a command is refused rather than asked about. If it really must go, tell the user and let them delete it.` });
     }
     const o = job.origin;
@@ -2619,7 +2633,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // "Ask before tools run" off (Claude refuses to auto-approve them), and nothing is allowed without the owner's yes.
       if (nativeFull) {
         options.canUseTool = async (toolName, input, o) => {
-          const d = await this.claudePromptCard(job, agent, toolName, input, o);
+          const d = this.takeHookDecided(job, o?.toolUseID) ?? await this.claudePromptCard(job, agent, toolName, input, o);
           return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
         };
       }
@@ -2650,8 +2664,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
         // (a Claude agent on Claude's own checks: only the catastrophic refusals and the card for Legion's own settings files; nothing is refused as unjudgeable)
-        const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>, nativeFull ? { native: true } : {});
-        if (floor) { const d = await floor; if (!d.allow) return preToolDeny(d.message ?? 'The user denied this action.'); }
+        const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>, nativeFull ? { native: true, bypass: true } : {});
+        if (floor) {
+          const d = await floor;
+          if (!d.allow) return preToolDeny(d.message ?? 'The user denied this action.');
+          // a Yes on this card also answers Claude's own prompt for the same call (canUseTool reads it by the call's id): one card per call
+          if (nativeFull) this.noteHookDecided(job, input.tool_use_id, d);
+        }
         // the run goes through with no card: when the owner's own setting would have asked, the activity log says so
         this.noteWouldAsk(job, agent, 'tool-cards', input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return { continue: true };
