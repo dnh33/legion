@@ -150,6 +150,12 @@ test('native paths: another case is the same file where the disk ignores case (W
   assert.equal(nhit('rm ~/.LEGION-X/GATES/app.json'), want);
 });
 
+test('app-settings.json (the desktop switches) is a protected target: an agent cannot flip the owner\'s choice', () => {
+  assert.ok(dataFolderTargets(NDATA).includes(join(NDATA, 'app-settings.json')));
+  assert.ok(nhit(`echo {} > "${fd}/app-settings.json"`) !== 'none');
+  assert.ok(nhit(`rm ${fd}/app-settings.json`) !== 'none');
+});
+
 test('code for an interpreter: a backslash escape (\\\\ at a line end, "\\\\n" in a string) is not the drive root, so ordinary Python edits are not carded', { skip: WIN_ONLY }, () => {
   // Found on a real run (0.3.5): a "python - <<'EOF'" edit whose code held a doubled backslash (a line continuation or an escape inside a
   // string) read as the root of the drive, which holds the data folder, so even Full carded it as "works on Legion's own settings folder".

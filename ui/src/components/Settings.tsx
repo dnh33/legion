@@ -21,6 +21,7 @@ import { NotificationsSection } from '../away/NotificationsSection';
 import { SoundsSection } from '../sound/SoundsSection';
 import { SpendingSection } from '../away/SpendingSection';
 import { AccessibilitySection } from '../a11y/AccessibilitySection';
+import { CoreRestartRow } from '../coreRestart/CoreRestartRow';
 import { NAV, groupNav, settingsUnreachableLine } from './settingsNav';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
 import { RELEASES } from '../whatsnew/releases';
@@ -820,6 +821,7 @@ function AboutSection({ s }: { s: SettingsView }) {
         ))}
       </dl>
       <TipsRow version={version} />
+      <CoreRestartRow />
       <UpdatePanel />
       <BrowserSection />
     </div>
