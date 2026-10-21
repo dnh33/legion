@@ -118,7 +118,7 @@ test('F2: in Full a padded PowerShell recursive delete of the project folder get
       ['Bash', `powershell -NoProfile -Command "Remove-Item -Recurse -Force '${p}'"${SPACE}`],
       // padding that cannot be collapsed: the command is too long to read, and it deletes recursively
       ['PowerShell', `Remove-Item -Recurse -Force "${p}"${';'.repeat(11_000)}`],
-      ['PowerShell', `Remove-Item -Recurse -Force .\\dist${';'.repeat(11_000)}`],
+      // (a run of `;` now collapses like blanks, so `.\dist` + `;` is read and free: see claude-own-checks-fix5 N1)
       ['Bash', `cmd /c rd /s /q "${p}"${';'.repeat(11_000)}`],
     ];
     for (const [tool, command] of cmds) {

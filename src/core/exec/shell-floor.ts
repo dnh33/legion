@@ -800,7 +800,8 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
   if (hidden) return `Refused: this command is ${hidden}. Text that is decoded or encoded cannot be read before it runs, so it is blocked for every agent, even full access. Run the command itself, written out plainly.`;
   // Quoted text of several words on a line that runs no text is data (a commit message, a grep pattern): read it as a
   // space. A one-word quote (`format "c:"`) is kept, unquoted, so quoting a target cannot hide it.
-  const text = runsText(cmd) ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? '')));
+  const runs = runsText(cmd) || (shell === 'pwsh' && PS_STRING_RUNS.test(cmd));
+  const text = runs ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? '')));
   // a Git Bash doubled switch (bcdedit //delete, cipher //w) is the switch the program receives
   const scan = text.replace(/[\^"']/g, '').toLowerCase().replace(/(^|\s)\/\/(?=[a-z?][\w:?.-]*(?:\s|$))/g, '$1/');
   for (const [re, what] of [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS]) if (re.test(scan)) return say(what);
@@ -852,7 +853,7 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
       if (inner) return inner;
     }
     // one plain scan per quote; only when something on the line runs text (a shell's -c, eval, ssh, a pipe into sh)
-    if (runsText(cmd)) for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+    if (runs) for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
       const t = m[1] ?? m[2] ?? '';
       if (!/\s/.test(t)) continue;
       // text after `alias x=` or `trap '…'` or a here-string is a command too
@@ -884,8 +885,13 @@ function dangerousPart(window: string, shell: ShellKind): string {
  */
 const CODE_FED = /(?:^|[\s;&|(`])(?:(?:sudo|env|exec|nohup|time|command)\s+)*(?:\S*[\\/])?(?:(?:ba|z|da|k|c|a|fi|tc)?sh|pwsh|powershell|cmd|eval|source|\.|ssh|su|xargs|at|batch|crontab|expect|python[\d.]*|node|perl|ruby|php|lua|osascript|sqlite3|psql|mysql|deno|bun|iex|invoke-expression)(?:\.exe)?(?=$|[\s;&|)<>])/i;
 
-/** PowerShell text that runs a string as code: Invoke-Expression and iex, a script block made from a string, a call of a string (`& $s`), another shell. */
-const PS_RUNS = /\b(?:invoke-expression|iex|invoke-command|icm|start-job|start-threadjob|scriptblock)\b|::create\s*\(|(?:^|[\s;|({])&\s*[$(]|\b(?:powershell|pwsh|cmd|bash|sh|wsl|python[\d.]*|node)(?:\.exe)?\b/i;
+/**
+ * PowerShell text that turns a string into something that runs: a script block made from a string, a call of a string (`& $s`), the engine's InvokeScript and
+ * ExpandString, Add-Type, or a script file (`.ps1`, `.psm1`, `.bat`, `.cmd`: a here-string saved to one and run). The short refusal reads quoted text as a command when this is in the line.
+ */
+const PS_STRING_RUNS = /\b(?:scriptblock|invokescript|expandstring|add-type)\b|::create\s*\(|(?:^|[\s;|({])&\s*[$(]|\.(?:ps1|psm1|bat|cmd)\b/i;
+/** PowerShell text that runs a string as code: Invoke-Expression and iex, Invoke-Command, a job, the forms above, another shell. */
+const PS_RUNS = new RegExp(`${PS_STRING_RUNS.source}|\\b(?:invoke-expression|iex|invoke-command|icm|start-job|start-threadjob)\\b|\\b(?:powershell|pwsh|cmd|bash|sh|wsl|python[\\d.]*|node)(?:\\.exe)?\\b`, 'i');
 
 /** A command cut into statements, or the length that made it too long to cut. */
 type Cut = { statements: string[] } | { tooLong: number };
@@ -907,6 +913,7 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
   let depth = 0;
   let tick = false;
   let pending: string[] = [];
+  let pendingQuoted: boolean[] = [];
   const sh = shell === 'sh'; const ps = shell === 'pwsh'; const cmd = shell === 'cmd';
   // blanks: space, tab, CR, FF, VT; PowerShell also takes every Unicode space as a separator
   const blank = (c: number): boolean => c === 32 || c === 9 || c === 13 || c === 12 || c === 11 || (ps && c > 127 && (c === 0xa0 || c === 0x85 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000));
@@ -919,6 +926,7 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
     let s = parts.join('').trim();
     parts = [];
     if (sh && s.includes('<<')) s = s.replace(/(?<!<)<<(?!<)-?/g, '<');
+    if (!s && sep === ';' && statements.length && statements[statements.length - 1]!.endsWith(';')) return; // a run of `;` is one separator, like a run of blanks
     if (s || sep !== '\n') statements.push(s + sep);
   };
   // the work the search for heredoc closers may do: one body costs its length once, so this allows a few that never close and then trusts no heredoc (all lines are read)
@@ -1010,6 +1018,7 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
       const s = over(); if (s) return s;
       if (pending.length) {
         const words = pending; pending = [];
+        const quoted = pendingQuoted.every(Boolean); pendingQuoted = [];
         // every word must close, and the line that opens them must not feed a shell: otherwise the lines are read like any other
         const bodiesFrom = i; let at = i; let all = true;
         for (const w of words) {
@@ -1025,8 +1034,9 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
           if (found < 0) { all = false; break; }
           at = Math.min(found + 1, L);
         }
-        // a body is data when it closes, the line that opens it does not feed a shell, and nothing in it can run (`$(` or a backtick expand in an unquoted body; a quoted one is read too, to be safe)
-        if (all && !CODE_FED.test(opener) && !holdsSubst(bodiesFrom, at)) { i = at; from = at; }
+        // a body is data when it closes and nothing runs it: the line that opens it does not feed a shell and does not pipe (a pipe can end in one, even on the line after the body),
+        // and it cannot expand: a quoted word keeps `$(` and backticks as plain text, an unquoted body is read when it holds either
+        if (all && !CODE_FED.test(opener) && !opener.includes('|') && (quoted || !holdsSubst(bodiesFrom, at))) { i = at; from = at; }
       }
       continue;
     }
@@ -1043,15 +1053,15 @@ function cutStatements(raw: string, shell: ShellKind): Cut {
       // <<WORD or <<-WORD: the word, with its quotes and backslashes taken off, is the line that closes the body
       let j = i + 2; if (raw.charCodeAt(j) === 45) j++;
       while (j < L && blank(raw.charCodeAt(j))) j++;
-      let word = '';
+      let word = ''; let wordQuoted = false;
       while (j < L) {
         const d = raw.charCodeAt(j);
-        if (d === 39 || d === 34) { const k = raw.indexOf(raw[j]!, j + 1); if (k < 0) { j = L; break; } word += raw.slice(j + 1, k); j = k + 1; continue; }
-        if (d === 92) { if (j + 1 < L) word += raw[j + 1]; j += 2; continue; }
+        if (d === 39 || d === 34) { const k = raw.indexOf(raw[j]!, j + 1); if (k < 0) { j = L; break; } word += raw.slice(j + 1, k); j = k + 1; wordQuoted = true; continue; }
+        if (d === 92) { if (j + 1 < L) word += raw[j + 1]; j += 2; wordQuoted = true; continue; }
         if (blank(d) || d === 10 || d === 59 || d === 38 || d === 124 || d === 60 || d === 62 || d === 40 || d === 41) break;
         word += raw[j]; j++;
       }
-      if (word && heredocs) pending.push(word);
+      if (word && heredocs) { pending.push(word); pendingQuoted.push(wordQuoted); }
       i = Math.max(Math.min(j, L), i + 2);
       continue;
     }
@@ -1127,8 +1137,8 @@ export function collapsedText(raw: string, shell: ShellKind): string | undefined
   return 'tooLong' in cut ? undefined : cut.statements.join('');
 }
 
-const DELETE_VERB = /(?:^|[\s;&|(){}"'`])(?:remove-item|ri|rm|rmdir|rd|del|erase|rimraf)(?=$|[\s;&|)"'])/i;
-const RECURSE_FLAG = /(?:^|\s)(?:-r[a-z]*(?::\S*)?|\/s)(?=\s|$)/i;
+const DELETE_VERB = /(?:^|[\s;&|(){}"'`])(?:remove-item|ri|rm|rmdir|rd|del|erase|rimraf)(?=$|[\s;&|)"'/])/i;
+const RECURSE_FLAG = /(?:^|[^\w-])-r[a-z]*|\/s(?!\w)/i;
 /**
  * For a PowerShell or cmd text too long to read: the stretch around a delete verb when the text also has a recursive switch (`-Recurse`, `-r`, `/s`) somewhere, else undefined.
  * Two plain searches, linear. It cannot tell what is deleted, only that a recursive delete is in there.
