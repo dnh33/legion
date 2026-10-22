@@ -169,7 +169,7 @@ async function playScript(id: unknown): Promise<void> {
         ];
         await new Promise<Record<string, unknown>>((resolve) => {
           waiting.set(rid, resolve);
-          out({ jsonrpc: '2.0', id: rid, method: 'session/request_permission', params: { sessionId: 'sess_fake_1', toolCall: { toolCallId: st.id, title: st.title, kind: st.kind ?? 'execute', status: 'pending', ...(st.rawInput ? { rawInput: st.rawInput } : {}) }, options } });
+          out({ jsonrpc: '2.0', id: rid, method: 'session/request_permission', params: { sessionId: 'sess_fake_1', toolCall: { toolCallId: st.id, title: st.title, kind: st.kind ?? 'execute', status: 'pending', ...(st.rawInput ? { rawInput: st.rawInput } : {}), ...(st.content ? { content: st.content } : {}) }, options } });
         });
         break;
       }

@@ -80,9 +80,9 @@ import type { RunToken, RunToolsHost } from './acp/run-tokens.js';
 import { RUN_TOOL_WAIT_MAX_S } from './acp/run-tools.js';
 import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
-import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf } from './acp/run-helpers.js';
+import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
-import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_SESSION_RESET_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, disasterNote, named, refusalText, toolPolicyText } from './acp/texts.js';
+import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, disasterNote, named, refusalText, toolPolicyText } from './acp/texts.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
 import { messagesTokens, isSummaryMessage } from './providers/compaction.js';
@@ -2687,24 +2687,37 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   /** The shells a command of an agent host may be written for on this computer. */
   private acpShellKinds(): ShellKind[] { return process.platform === 'win32' ? ['sh', 'cmd', 'pwsh'] : ['sh']; }
 
+  /** The data folder guard's reading of a command against some targets. One seam for the three checks below, so a reader that fails is one thing to handle. */
+  private acpFolderRead(command: string, kind: ShellKind, targets: string[], folder: string): ReturnType<typeof dataFolderRead>['hit'] {
+    return dataFolderRead(command, kind, targets, { cwd: folder }).hit;
+  }
+
   /**
-   * What a request names of Legion's protected files and folders, or of the agent's own home, in words ("Legion's own settings: gates"), or undefined.
-   * A command is read by the data folder guard (paths resolved from the agent's folder), never by a word it merely shares with a folder name.
-   * Display only, except in Bypass, where it turns the answer into a card.
+   * What a request names of Legion's protected files and folders, or of the agent's own home, in words ("Legion's own settings: gates"), and
+   * why Legion could not read what it names (`unreadable`). Every path of a request is checked (a multi-file patch holds several), a command is
+   * read by the data folder guard (paths resolved from the agent's folder), never by a word it merely shares with a folder name. A reader that
+   * fails, or a path that cannot be read, is `unreadable`: the caller treats it like a hit, never like a miss.
+   * Display only, except in Bypass, where either turns the answer into a card.
    */
-  private acpProtectedName(folder: string, entry: AcpEntry, r: MappedPermission): string | undefined {
-    const command = typeof r.input.command === 'string' && r.input.command.length <= MAX_READABLE ? r.input.command : '';
-    const path = typeof r.input.file_path === 'string' ? r.input.file_path : r.diff?.path;
+  private acpTouches(folder: string, entry: AcpEntry, r: MappedPermission): { settings?: string; unreadable?: string } {
+    const command = typeof r.input.command === 'string' ? r.input.command : '';
+    const readable = command.length > 0 && command.length <= MAX_READABLE;
+    const found = requestPaths(r);
+    let unreadable = found.unreadable;
     const own = new Set(hermesHomes(entry, this.agentHost?.hermesHome));
     const kinds = this.acpShellKinds();
     for (const t of this.acpOffLimits(entry)) {
       const name = basename(t);
       if (!name) continue;
-      let hit = path !== undefined && pathInside(t, resolve(folder, path));
-      if (!hit && command) { try { hit = commandNamesPath(command, t) || kinds.some((k) => dataFolderRead(command, k, [t], { cwd: folder }).hit === 'names'); } catch { hit = false; } }
-      if (hit) return `${own.has(t) ? `${entry.label}'s` : "Legion's"} own settings: ${name}`;
+      let hit = false;
+      try {
+        hit = found.paths.some((p) => pathInside(t, resolve(folder, p)));
+        // the whole path in the text is a cheap, exact test, so it runs on a command of any length; the guard reads only one it can hold
+        if (!hit && command) hit = commandNamesPath(command, t) || (readable && kinds.some((k) => this.acpFolderRead(command, k, [t], folder) === 'names'));
+      } catch { unreadable ??= 'Legion could not read it safely'; }
+      if (hit) return { settings: `${own.has(t) ? `${entry.label}'s` : "Legion's"} own settings: ${name}`, ...(unreadable ? { unreadable } : {}) };
     }
-    return undefined;
+    return unreadable ? { unreadable } : {};
   }
 
   /** Why a command must never run, when the owner turned the disaster stop on: a whole drive or home folder, hidden code, or Legion's own settings folder. */
@@ -2715,7 +2728,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     try {
       for (const kind of kinds) { const refused = refuseCatastrophic(command, kind); if (refused) return refused; }
       const folders = [...this.protectedDirs(), ...(this.agentHost ? [this.agentHost.dataDir] : [])];
-      for (const kind of kinds) if (dataFolderRead(command, kind, folders, { cwd: folder }).hit === 'names') return "It works on Legion's own settings folder.";
+      for (const kind of kinds) if (this.acpFolderRead(command, kind, folders, folder) === 'names') return "It works on Legion's own settings folder.";
     } catch { return 'Legion could not read it safely.'; }
     return undefined;
   }
@@ -2729,7 +2742,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     try {
       for (const kind of kinds) { const why = unjudgeableCommand(command, kind); if (why) return why; }
       const folders = [...this.protectedDirs(), ...(this.agentHost ? [this.agentHost.dataDir] : [])];
-      for (const kind of kinds) if (dataFolderRead(command, kind, folders, { cwd: folder }).hit === 'hidden') return "a path in it is built when it runs and could point at Legion's own settings folder";
+      for (const kind of kinds) if (this.acpFolderRead(command, kind, folders, folder) === 'hidden') return "a path in it is built when it runs and could point at Legion's own settings folder";
     } catch { return 'Legion could not read it safely'; }
     return undefined;
   }
@@ -2756,19 +2769,21 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const no = (): { optionId: string } | { cancelled: true } => (reject ? { optionId: reject.optionId } : { cancelled: true });
     const why = sw?.disasterStop ? this.acpDisaster(folder, entry, r) : undefined;
     if (why) { this.addMessage(job.taskId, 'system', named(disasterNote(why), entry.label)); return no(); }
-    const settings = this.acpProtectedName(folder, entry, r);
+    const { settings, unreadable } = this.acpTouches(folder, entry, r);
     let unjudged: string | undefined;
-    if (sw?.modeMap && this.acpBypass(job, agent, entry)) {
-      // Bypass promises no cards except for the owner's settings: a request that touches them, or that Legion cannot read, is asked about
-      unjudged = !settings && sw.disasterStop ? this.acpUnjudged(folder, r) : undefined;
+    const bypass = sw?.modeMap === true && this.acpBypass(job, agent, entry);
+    if (bypass) {
+      // Bypass promises no cards except for the owner's settings. A request that touches them, or whose files Legion cannot read, always asks (the
+      // disaster stop switch does not matter). A command Legion cannot judge asks only when the owner turned the disaster stop on.
+      unjudged = !settings && !unreadable && sw.disasterStop ? this.acpUnjudged(folder, r) : undefined;
       const once = r.options.find((o) => o.kind === 'allow_once');
-      if (once && !settings && !unjudged) return { optionId: once.optionId };
+      if (once && !settings && !unreadable && !unjudged) return { optionId: once.optionId };
     }
     const shown = sw?.answerOnce ? r.options.filter((o) => o.kind !== 'allow_always') : r.options;
     if (shown.length === 0) return no();
     const o = job.origin;
     const projectId = this.projectOf(job.taskId, agent.id)?.id;
-    const lead = [...(settings ? [`This touches ${settings}`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : [])];
+    const lead = [...(settings ? [`This touches ${settings}`] : []), ...(bypass && unreadable ? [`Legion cannot tell which files this touches: ${unreadable}. So it asks you, even in Bypass.`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : [])];
     const answer = await this.approvals.requestAcp(job.taskId, agent.id, {
       toolName: r.toolName, title: r.title, summary: cardSummary(r, lead), input: r.input, options: shown,
       waitMs: permissionWaitOf(this.agentHost?.permissionWaitMs),
@@ -2851,7 +2866,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     try {
       const folder = this.acpFolder(job, agent);
       const off = this.acpOffLimits(entry);
-      if (isAdminShare(folder) || off.some((t) => pathInside(t, folder) || pathInside(folder, t))) return fail(say(HERMES_CWD_TEXT));
+      // the long-path, device and NT object spellings name the same folder as the plain one: the rule reads the plain spelling, and a spelling it cannot read is refused
+      const plain = process.platform === 'win32' ? plainWindowsPath(folder) : folder;
+      if (plain === undefined || isAdminShare(plain) || off.some((t) => pathInside(t, plain) || pathInside(plain, t))) return fail(say(HERMES_CWD_TEXT));
       mkdirSync(folder, { recursive: true });
       // Another agent, a room or an outside app started this run and it is capped or tainted: the owner says yes before Hermes gets it
       const from = job.origin;
@@ -2889,11 +2906,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         session = await start(resumeId);
       } catch (e) {
         if (resumeId === undefined || act.cancelled) throw e;
-        const gone = e instanceof AcpRefusal && e.reason === 'not-found';
-        // a passing failure (a slow start, a crash) keeps the stored conversation: only a conversation the agent no longer has, or one it will not take this tool list on, is let go
-        if (!gone && !this.acpPolicyOf(e)) throw e;
+        // only a conversation the agent no longer has is let go. A passing failure (a slow start, a crash) and a refused tool list (Hermes needs an update, or is
+        // still holding the earlier list) keep it: the conversation exists and can be continued once that is put right
+        if (!(e instanceof AcpRefusal && e.reason === 'not-found')) throw e;
         this.patchTask(taskId, { acp: undefined });
-        if (!gone) { this.addMessage(taskId, 'system', say(HERMES_SESSION_RESET_TEXT)); throw e; }
         await proc?.stop();
         this.addMessage(taskId, 'system', say(HERMES_SESSION_GONE_TEXT));
         fresh = true;

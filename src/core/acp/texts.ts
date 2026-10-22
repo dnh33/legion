@@ -32,7 +32,6 @@ export const HERMES_REFUSED_TEXT = 'Hermes declined to continue this task.';
 export const HERMES_BASELINE_TEXT = 'Hermes does not say how many tokens this earlier conversation used, so this first turn is not counted.';
 export const HERMES_SESSION_GONE_TEXT = 'Hermes no longer has the earlier conversation, so Legion started a new one with your message.';
 /** The stored conversation was let go because Hermes would not take Legion's tools on it: nothing was lost yet, but the next message cannot continue it. */
-export const HERMES_SESSION_RESET_TEXT = "Hermes could not continue the earlier conversation with Legion's tools, so your next message starts a new one.";
 /** A custom entry that is not tested with Legion never runs Full or Bypass. */
 export const HERMES_UNTESTED_TEXT = 'Hermes is not tested with Legion yet, so it runs in Ask mode: Full access and Bypass are not used for it. Every request it makes asks you first.';
 

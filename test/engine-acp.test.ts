@@ -764,16 +764,6 @@ test('F6: a resume that fails for a passing reason keeps the stored conversation
   assert.equal(r.rows(end.id).filter((m) => /new one|new conversation/.test(m.text)).length, 0, 'nothing says a new conversation began');
 });
 
-test('F6: when Hermes will not take the tool list on that conversation, the stored one is cleared and the thread says the next message starts a new one', async () => {
-  const r = rig({ fakeArgs: ['--fail-resume', 'acp_mcp_policy_conflict'], steps: [END()] });
-  const old = r.store.upsertTask({ id: 'old7', agentId: 'herm', title: 'old', status: 'done', source: 'ui', requestedModel: 'auto', model: 'acp:hermes', acp: { entryId: 'hermes', sessionId: 'sess_fake_1' }, createdAt: '', updatedAt: '' } as Task);
-  const end = await r.done(r.engine.startTask({ agentId: 'herm', prompt: 'again', source: 'ui', continueTaskId: old.id } as any));
-  assert.equal(end.status, 'error');
-  assert.match(end.error ?? '', /Legion's tools/);
-  assert.equal(r.store.getTask(end.id)?.acp, undefined);
-  assert.ok(r.rows(end.id).some((m) => m.role === 'system' && /next message starts a new/.test(m.text)));
-});
-
 test('F7: a cancel while the agent is still starting stops its process at once', async () => {
   const r = rig({ fakeArgs: ['--init-delay', '5000'], steps: [END()] });
   const t = await r.run();
@@ -847,4 +837,164 @@ test('F12: an error from the agent is redacted before it reaches the task or the
 
   const gone = rig({ entry: { id: 'acme', label: 'Acme Agent', tested: false, command: join(tempDir('legion-nocmd-'), 'no-such-program') }, model: 'acp:acme' });
   assert.match((await gone.done(await gone.run())).error ?? '', /^Acme Agent was not found/);
+});
+
+// ---------------------------------------------------------------- fix round 2 (re-review F3, F9, F8, F6, F13; R45, R46)
+
+const BS = String.fromCharCode(92);
+const patchOf = (...files: string[]): string => ['*** Begin Patch', ...files.map((f) => `*** Update File: ${f}`), '*** End Patch'].join('\n');
+/** A V4A patch request the way Hermes sends it: the paths joined with ", " into one display string (edit_approval.py:106-126), the patch itself as the diff text. */
+const V4A = (id: string, display: string, body?: string): Step => ({
+  op: 'permission', id, title: `Approve edit: ${display}`, kind: 'edit',
+  rawInput: { tool: 'patch', arguments: { mode: 'patch', ...(body !== undefined ? { patch: body } : {}) } },
+  content: [{ type: 'diff', path: display, oldText: null, newText: body ?? 'x' }],
+});
+const NOPATH = (id: string): Step => ({ op: 'permission', id, title: 'patch', kind: 'edit', rawInput: { tool: 'patch', arguments: { mode: 'patch' } } });
+const bypassRig = (switches: Partial<AcpSwitches> = {}, extra: RigOpts = {}) => rig({ approval: 'full', gates: BYPASS, switches: { modeMap: true, ...switches }, ...extra });
+
+test('F3 round 2: a multi-file patch is split and EVERY path is checked; a path Legion cannot read gets a card, never an auto-allow', async () => {
+  const r = bypassRig();
+  const gates = join(r.dataDir, 'gates', 'rules.json');
+  const homeFile = join(r.hermesHome, 'config.yaml');
+  r.setScript([
+    V4A('edit-approval-1', `a.txt, ${gates}`, patchOf('a.txt', gates)),
+    V4A('edit-approval-2', `a.txt, ${homeFile}`),
+    V4A('edit-approval-3', 'a.txt, b.txt', patchOf('a.txt', homeFile)),
+    NOPATH('edit-approval-4'),
+    EDIT('edit-approval-5', 'a\u0000b'),
+    V4A('edit-approval-6', 'a.txt, b.txt', patchOf('a.txt', 'b.txt')),
+    END(),
+  ]);
+  const t = await r.run();
+  const seen: ApprovalRequest[] = [];
+  for (let i = 0; i < 5; i++) { const c = await r.nextCard(); seen.push(c); r.broker.resolve(c.id, false); }
+  const end = await r.done(t);
+  assert.equal(end.status, 'done');
+  assert.match(seen[0]!.summary, /Legion's own settings: gates/, 'the second path of the join is the protected one');
+  assert.match(seen[1]!.summary, /Hermes's own settings: hermes-home/, 'split from the display string alone');
+  assert.match(seen[2]!.summary, /Hermes's own settings/, 'the patch text names a file the display string hides');
+  assert.match(seen[3]!.summary, /cannot tell/, 'a patch with no path at all');
+  assert.match(seen[4]!.summary, /cannot tell/, 'a path with a character no file name has');
+  assert.deepEqual(outcomeOf(r.answersTo(9105)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'a plain multi-file patch inside the folder is still answered without a card');
+});
+
+test('F3 round 2: a network or device spelling of a file path gets a card in Bypass (Windows)', { skip: process.platform !== 'win32' }, async () => {
+  const r = bypassRig();
+  const drive = r.dataDir.slice(0, 1);
+  r.setScript([
+    EDIT('edit-approval-1', `${BS}${BS}localhost${BS}${drive}$${r.dataDir.slice(2)}${BS}gates${BS}x`),
+    EDIT('edit-approval-2', `${BS}${BS}?${BS}${join(r.dataDir, 'gates', 'x')}`),
+    EDIT('edit-approval-3', `${BS}${BS}?${BS}Volume{00000000-0000-0000-0000-000000000000}${BS}x`),
+    END(),
+  ]);
+  const t = await r.run();
+  for (let i = 0; i < 3; i++) { const c = await r.nextCard(); assert.match(c.summary, /cannot tell|own settings/, `request ${i}`); r.broker.resolve(c.id, false); }
+  assert.equal((await r.done(t)).status, 'done');
+});
+
+test('F3 round 2: when the reader of a command fails, Bypass asks (fail closed); with disasterStop on the request is refused, never allowed', async () => {
+  for (const disasterStop of [false, true]) {
+    const r = bypassRig({ disasterStop });
+    (r.engine as any).acpFolderRead = () => { throw new Error('reader broke'); };
+    r.setScript([CMD('perm-check-1', 'ls'), END()]);
+    const t = await r.run();
+    if (disasterStop) {
+      await r.done(t);
+      assert.equal(r.broker.pending().length, 0, 'refused, no card');
+    } else {
+      const c = await r.nextCard();
+      assert.match(c.summary, /cannot tell/);
+      r.broker.resolve(c.id, false);
+      await r.done(t);
+    }
+    assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'deny' }, `disasterStop ${disasterStop}: nothing auto-allowed`);
+  }
+});
+
+test('R45: in Bypass a request that touches Legion\'s settings or the Hermes home gets a card with disasterStop off too; only the card for a command Legion cannot judge stays tied to it', async () => {
+  const r = bypassRig({ disasterStop: false });
+  const gates = join(r.dataDir, 'gates', 'rules.json');
+  r.setScript([
+    CMD('perm-check-1', `echo ${'a'.repeat(10_050)} > ${gates}`),
+    CMD('perm-check-2', `type ${join(r.hermesHome, 'config.yaml')}`),
+    EDIT('edit-approval-3', join(r.hermesHome, '.env')),
+    CMD('perm-check-4', 'rm -rf "$X/gates"'),
+    END(),
+  ]);
+  const t = await r.run();
+  for (let i = 0; i < 3; i++) { const c = await r.nextCard(); assert.match(c.summary, /own settings/, `request ${i}`); r.broker.resolve(c.id, false); }
+  assert.equal((await r.done(t)).status, 'done');
+  assert.deepEqual(outcomeOf(r.answersTo(9103)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'a path built at run time is the unjudged class: tied to disasterStop, which is off');
+});
+
+test('F9 round 2: the cwd rule reads Windows long-path and device spellings of a folder (Windows)', { skip: process.platform !== 'win32' }, async () => {
+  const drive = (r: ReturnType<typeof rig>) => r.dataDir.slice(0, 1);
+  const picks: Array<[string, (r: ReturnType<typeof rig>) => string]> = [
+    ['long path', (r) => `${BS}${BS}?${BS}${r.dataDir}`],
+    ['long path, inside', (r) => `${BS}${BS}?${BS}${join(r.dataDir, 'sub')}`],
+    ['long path UNC admin share', (r) => `${BS}${BS}?${BS}UNC${BS}localhost${BS}${drive(r)}$${r.dataDir.slice(2)}`],
+    ['device path', (r) => `${BS}${BS}.${BS}${r.dataDir}`],
+    ['NT object path', (r) => `${BS}??${BS}${r.dataDir}`],
+    ['the Hermes home as a long path', (r) => `${BS}${BS}?${BS}${r.hermesHome}`],
+    ['a volume name Legion cannot read', () => `${BS}${BS}?${BS}Volume{00000000-0000-0000-0000-000000000000}${BS}x`],
+  ];
+  for (const [name, pick] of picks) {
+    const r = rig();
+    r.store.upsertAgent({ ...r.hermes, cwd: pick(r) });
+    const end = await r.done(await r.run());
+    assert.equal(end.error, HERMES_CWD_TEXT, name);
+    assert.equal(existsSync(r.logFile), false, `${name}: the agent was never started`);
+  }
+});
+
+test('F8 round 2: a huge card wait is clamped, so the timer never fires early and the card stays open', async () => {
+  const r = rig({ agentHost: { permissionWaitMs: 3_000_000_000 }, steps: [CMD('perm-check-1', 'ls'), END()] });
+  const t = await r.run();
+  const c = await r.nextCard();
+  await sleep(250);
+  assert.equal(r.broker.pending().length, 1, 'the card is still open (a timer past 2^31-1 ms fires after 1 ms)');
+  const left = Date.parse(c.expiresAt ?? '') - Date.now();
+  assert.ok(left > 1_000_000 && left < 2 ** 31, `${left} ms left`);
+  r.broker.resolve(c.id, true);
+  await r.done(t);
+});
+
+test('R46: a resume that Hermes refuses for its tool list (unavailable or conflict) keeps the stored conversation; only a conversation that is gone clears it', async () => {
+  for (const code of ['acp_mcp_policy_unavailable', 'acp_mcp_policy_conflict']) {
+    const r = rig({ fakeArgs: ['--fail-resume', code], steps: [END()] });
+    const old = r.store.upsertTask({ id: 'old46', agentId: 'herm', title: 'old', status: 'done', source: 'ui', requestedModel: 'auto', model: 'acp:hermes', acp: { entryId: 'hermes', sessionId: 'sess_fake_1' }, createdAt: '', updatedAt: '' } as Task);
+    const end = await r.done(r.engine.startTask({ agentId: 'herm', prompt: 'again', source: 'ui', continueTaskId: old.id } as any));
+    assert.equal(end.status, 'error', code);
+    assert.match(end.error ?? '', /tool list|Legion's tools/, code);
+    assert.equal(r.store.getTask(end.id)?.acp?.sessionId, 'sess_fake_1', `${code}: the conversation is still the task's`);
+    assert.equal(r.rows(end.id).filter((m) => /next message starts a new/.test(m.text)).length, 0, code);
+  }
+  const gone = rig({ steps: [END()] });
+  const old = gone.store.upsertTask({ id: 'old47', agentId: 'herm', title: 'old', status: 'done', source: 'ui', requestedModel: 'auto', model: 'acp:hermes', acp: { entryId: 'hermes', sessionId: 'sess_missing' }, createdAt: '', updatedAt: '' } as Task);
+  const end = await gone.done(gone.engine.startTask({ agentId: 'herm', prompt: 'again', source: 'ui', continueTaskId: old.id } as any));
+  assert.equal(end.status, 'done', 'a conversation that is gone starts a new one');
+});
+
+test('F13: Bypass never answers for a run another agent or app started with a cap or a taint', async () => {
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ['capped (ask)', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask' }],
+    ['tainted but uncapped (full)', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'full', tainted: true }],
+    ['capped and tainted', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true }],
+  ];
+  for (const [name, origin] of cases) {
+    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+    const t = await r.run('hi', { origin });
+    const first = await r.nextCard();
+    assert.match(first.summary, /Another agent or app asked Hermes/, `${name}: the hand-off card comes first`);
+    r.broker.resolve(first.id, true);
+    await until(() => r.broker.pending().some((p) => p.id !== first.id));
+    const c = r.broker.pending()[0]!;
+    assert.match(c.summary, /ls/, `${name}: the command itself is a card, not an auto-answer`);
+    r.broker.resolve(c.id, false);
+    await r.done(t);
+    assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'deny' }, name);
+  }
+  const owner = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+  assert.equal((await owner.done(await owner.run())).status, 'done');
+  assert.deepEqual(outcomeOf(owner.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'control: the owner\'s own Bypass run is answered without a card');
 });
