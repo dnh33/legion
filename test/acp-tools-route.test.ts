@@ -404,6 +404,27 @@ describe('acp tools route', () => {
       assert.equal(dead.status, 401);
     });
 
+    it('a call the agent host cancels aborts the signal its decision was given, so a card waiting on that call can close', async () => {
+      const a = run('t-sig', 'zealot');
+      let given: AbortSignal | undefined;
+      let sawAbort = false;
+      (a.host as { authorize: (n: string, i: Record<string, unknown>, s?: AbortSignal) => Promise<{ allow: boolean }> }).authorize = async (_n, _i, signal) => {
+        given = signal;
+        await new Promise<void>((r) => { if (signal?.aborted) r(); else signal?.addEventListener('abort', () => r(), { once: true }); });
+        sawAbort = signal?.aborted === true;
+        return { allow: false };
+      };
+      const c = await connect(a.run.token);
+      const ctl = new AbortController();
+      const pending = c.callTool({ name: 'ask', arguments: { agent: 'scout', message: 'x' } }, undefined, { signal: ctl.signal }).catch(() => undefined);
+      for (let i = 0; i < 100 && given === undefined; i++) await sleep(20);
+      assert.ok(given instanceof AbortSignal, 'the decision is given the call\'s own signal');
+      ctl.abort();
+      await pending;
+      for (let i = 0; i < 100 && !sawAbort; i++) await sleep(20);
+      assert.equal(sawAbort, true, 'the host\'s cancel reaches the decision');
+    });
+
     it('a cancelled run cuts the call too', async () => {
       const a = run('t-can', 'zealot', { hold: true });
       const c = await connect(a.run.token);

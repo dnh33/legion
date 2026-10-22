@@ -23,10 +23,9 @@ export const isRouteTool = (name: string): boolean => /^mcp__editor_legion_[0-9a
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-/** The text of a card for one request: the settings line first when it applies, then the command or the file and its change. */
-export function cardSummary(r: MappedPermission, protectedName: string | undefined): string {
-  const lines: string[] = [];
-  if (protectedName) lines.push(`This touches Legion's own settings: ${protectedName}`);
+/** The text of a card for one request: the lead lines first (a settings line, why Legion asks), then the command or the file and its change. */
+export function cardSummary(r: MappedPermission, lead: readonly string[] = []): string {
+  const lines: string[] = [...lead];
   const command = typeof r.input.command === 'string' ? r.input.command : undefined;
   const description = typeof r.input.description === 'string' ? r.input.description : undefined;
   if (command) lines.push(clip(command, 1000));
@@ -37,9 +36,26 @@ export function cardSummary(r: MappedPermission, protectedName: string | undefin
     if (path) lines.push(clip(path, 300));
     if (r.text) lines.push(clip(r.text, 600));
   }
-  if (lines.length === (protectedName ? 1 : 0)) lines.push(r.title);
+  if (lines.length === lead.length) lines.push(r.title);
   return lines.join('\n').slice(0, 1500);
 }
+
+/** True when the command text holds the whole path of `target` (either slash, any case). A word the path merely shares with the command is not enough. */
+export function commandNamesPath(command: string, target: string): boolean {
+  const norm = (x: string): string => x.split('\\').join('/').toLowerCase().replace(/\/+$/, '');
+  const t = norm(target);
+  return t.length > 0 && norm(command).includes(t);
+}
+
+/** The card's wait for an agent's request, in ms: what the owner's setting gives (a number or a function read at each request), else the agent's default. */
+export function permissionWaitOf(setting: number | (() => number) | undefined): number {
+  let ms: number | undefined;
+  try { ms = typeof setting === 'function' ? setting() : setting; } catch { ms = undefined; }
+  return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms : HERMES_SELF_DENY_MS;
+}
+
+/** A network path to a drive's administrative share (two separators, a host, then C$ and so on): the same folder as a local path, by a name the path rules do not fold. */
+export const isAdminShare = (p: string): boolean => /^[\\/]{2}[^\\/]+[\\/][a-z]\$(?:[\\/]|$)/i.test(p);
 
 /** The folders that hold the agent's own settings: its home, the platform default when none is set, and any home the entry sets. */
 export function hermesHomes(entry: AcpEntry, override: string | undefined, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] {

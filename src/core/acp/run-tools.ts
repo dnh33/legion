@@ -138,7 +138,7 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
     try {
       const signal = AbortSignal.any([host.signal, grant.signal, requestGone, extra.signal, cancelled.signal]);
       const call = {
-        noteToolUse: (n: string, i: string, x: unknown) => host.noteToolUse(n, i, x), authorize: (n: string, x: Record<string, unknown>) => host.authorize(n, x), signal,
+        noteToolUse: (n: string, i: string, x: unknown) => host.noteToolUse(n, i, x), authorize: (n: string, x: Record<string, unknown>) => host.authorize(n, x, signal), signal,
         cancelled: () => grant.signal.aborted || host.cancelled(),
       };
       let done: { text: string; isError: boolean; cancelled?: true };

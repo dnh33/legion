@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -14,6 +14,7 @@ import { defaultConfig } from '../src/shared/config.js';
 import { TURN_LIMIT_PREFIX, BUDGET_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { AcpEntry, AcpSwitches } from '../src/shared/acp-view.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, ChatMessage, Task } from '../src/shared/types.js';
+import { registerSecret } from '../src/core/log/redact.js';
 import { forgetLegionSecrets, registerLegionSecrets } from '../src/core/acp/process.js';
 import { findRunGrant, issueRunToken, revokeAllRunTokens } from '../src/core/acp/run-tokens.js';
 import type { RunToken } from '../src/core/acp/run-tokens.js';
@@ -52,6 +53,8 @@ interface RigOpts {
   gates?: Record<string, unknown>;
   fakeArgs?: string[];
   tokens?: RunToken[];
+  /** The agent's model, when it is not the built-in entry. */
+  model?: string;
 }
 
 function rig(o: RigOpts = {}) {
@@ -74,7 +77,7 @@ function rig(o: RigOpts = {}) {
   const entry: AcpEntry = { id: 'hermes', label: 'Hermes', command: process.execPath, args: [FAKE, '--mode', 'script', '--script', scriptFile, '--log', logFile, '--report', reportFile, ...(o.fakeArgs ?? [])], tested: true, enabled: true, ...o.entry };
   config.acp = { ...config.acp, entries: [entry], switches: { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false, ...o.switches } };
   const hermes: AgentProfile = {
-    id: 'herm', name: 'Herm', emoji: '*', description: 'acts through Hermes', systemPrompt: '', model: 'acp:hermes',
+    id: 'herm', name: 'Herm', emoji: '*', description: 'acts through Hermes', systemPrompt: '', model: o.model ?? 'acp:hermes',
     vm: { enabled: false, size: 'default', idleStopMinutes: 15 }, approval: o.approval ?? 'ask', mcpServers: [], createdAt: '', updatedAt: '',
     ...(o.cwd === null ? {} : { cwd: o.cwd ?? work }),
   };
@@ -584,4 +587,264 @@ test('cancel(taskId): session.cancel then stop; open cards are denied; the task 
   await until(() => r.msgs().some((m) => m.method === 'session/cancel'), 5000); // the task is marked at once; the wire follows
   await until(() => !alive(pid), 8000);
   assert.ok(c.id);
+});
+
+// ---------------------------------------------------------------- fix round 1 (review F1 to F12)
+
+type Authorize = (name: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<{ allow: boolean; message?: string }>;
+/** The run's tool decision, as the Legion tool route calls it. */
+async function authorizeOf(r: ReturnType<typeof rig>): Promise<Authorize> {
+  await until(() => r.tokens.length === 1 && findRunGrant(r.tokens[0]!.token)?.host() !== undefined);
+  return findRunGrant(r.tokens[0]!.token)!.host()!.authorize as unknown as Authorize;
+}
+const BYPASS = { gate: (id: string) => (id === 'tool-cards' ? false : true), switchedOff: () => false };
+const EDIT = (id: string, path: string): Step => ({ op: 'permission', id, title: 'write_file: x', kind: 'edit', rawInput: { tool: 'write_file', arguments: { path } } });
+const THREE = [
+  { optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+  { optionId: 'deny_always', name: 'Deny always', kind: 'reject_always' },
+];
+
+test('F1: the audit line says allowed only when the picked option allows; a no can name the reject option the owner picked, reject_always included', async () => {
+  const bus = new EventBus();
+  const broker = new ApprovalBroker(bus);
+  const events: any[] = [];
+  bus.on((e) => events.push(e));
+  const ask = () => { const p = broker.requestAcp('t1', 'a1', { toolName: 'Bash', title: 'x', summary: 'ls', input: {}, options: THREE, waitMs: 60_000 }); return { p, id: broker.pending().at(-1)!.id }; };
+  const allowedOf = (id: string) => events.filter((e) => e.type === 'approval.resolved' && e.approvalId === id).at(-1)?.allowed;
+
+  const a = ask();
+  assert.equal(broker.resolve(a.id, true, undefined, 'deny'), true);
+  assert.deepEqual(await a.p, { kind: 'option', optionId: 'deny' });
+  assert.equal(allowedOf(a.id), false, 'a reject option is never logged as allowed');
+
+  const b = ask();
+  broker.resolve(b.id, false, undefined, 'deny_always');
+  assert.deepEqual(await b.p, { kind: 'option', optionId: 'deny_always' }, 'a no that names a shown reject option sends that option');
+  assert.equal(allowedOf(b.id), false);
+
+  const c = ask();
+  assert.throws(() => broker.resolve(c.id, false, undefined, 'allow_once'), /allow/, 'a no cannot name an option that allows');
+  assert.equal(broker.pending().length, 1, 'the card stays open after the refused answer');
+  assert.throws(() => broker.resolve(c.id, false, undefined, 'not_on_the_card'), /not on this card/);
+  broker.resolve(c.id, false);
+  assert.deepEqual(await c.p, { kind: 'denied' });
+  assert.equal(allowedOf(c.id), false);
+
+  const d = ask();
+  broker.resolve(d.id, true, undefined, 'allow_once');
+  assert.deepEqual(await d.p, { kind: 'option', optionId: 'allow_once' });
+  assert.equal(allowedOf(d.id), true);
+});
+
+test('F1: Hermes\'s reject_always goes back verbatim when the owner picks it on a no', async () => {
+  const r = rig({ steps: [CMD('perm-check-1', 'ls', { options: THREE }), END()] });
+  const t = await r.run();
+  const c = await r.nextCard();
+  assert.deepEqual(c.acpOptions?.map((o) => o.kind), ['allow_once', 'reject_once', 'reject_always']);
+  r.broker.resolve(c.id, false, undefined, 'deny_always');
+  await r.done(t);
+  assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'deny_always' });
+});
+
+test('F2: a Claude run that stops at the spend limit still reads as the paused spend-limit card when the SDK sends error text (Claude behaviour is untouched)', async () => {
+  const r = rig();
+  const queryFn = ((_p: unknown) => {
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 's9' };
+      yield { type: 'result', subtype: 'error_max_budget_usd', is_error: true, errors: ['Reached maximum budget ($1)'], total_cost_usd: 1, num_turns: 2, session_id: 's9' };
+    })();
+    return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined });
+  }) as unknown as QueryFn;
+  const eng = new Engine({ store: r.store, bus: r.bus, vms: {} as any, approvals: r.broker, config: r.config, queryFn, boatConfigured: () => false });
+  const end = await eng.waitFor(eng.startTask({ agentId: 'clau', prompt: 'x', source: 'ui' } as any).id, 10_000);
+  assert.equal(end.status, 'error');
+  assert.ok((end.error ?? '').startsWith(BUDGET_LIMIT_PREFIX), end.error);
+});
+
+test('F3: in Bypass with disasterStop on, a command Legion cannot judge (too long, a path built at run time) or one that touches Legion\'s settings gets a card; a plain command still does not', async () => {
+  const r = rig({ approval: 'full', gates: BYPASS, switches: { modeMap: true, disasterStop: true } });
+  r.setScript([CMD('perm-check-1', `echo ${'a'.repeat(10_050)}`), CMD('perm-check-2', 'rm -rf "$X/gates"'), EDIT('edit-approval-3', join(r.dataDir, 'config.json')), CMD('perm-check-4', 'ls'), END()]);
+  const t = await r.run();
+  const seen: ApprovalRequest[] = [];
+  for (let i = 0; i < 3; i++) { const c = await r.nextCard(); seen.push(c); r.broker.resolve(c.id, false); }
+  const end = await r.done(t);
+  assert.equal(end.status, 'done');
+  assert.match(seen[0]!.summary, /cannot tell/, 'a command too long to read says why it asks');
+  assert.match(seen[1]!.summary, /cannot tell/, 'a path built at run time says why it asks');
+  assert.match(seen[2]!.summary, /Legion's own settings: config\.json/);
+  for (const id of [9100, 9101, 9102]) assert.deepEqual(outcomeOf(r.answersTo(id)[0]!), { outcome: 'selected', optionId: 'deny' }, `request ${id} was answered by the owner`);
+  assert.deepEqual(outcomeOf(r.answersTo(9103)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'a plain command is still answered without a card');
+});
+
+test('F3: in Bypass a request that touches Legion\'s settings gets a card even with disasterStop off (the Bypass text promises it)', async () => {
+  const r = rig({ approval: 'full', gates: BYPASS, switches: { modeMap: true } });
+  r.setScript([EDIT('edit-approval-1', join(r.dataDir, 'gates', 'rules.json')), CMD('perm-check-2', 'ls'), END()]);
+  const t = await r.run();
+  const c = await r.nextCard();
+  assert.match(c.summary, /Legion's own settings: gates/);
+  r.broker.resolve(c.id, false);
+  await r.done(t);
+  assert.deepEqual(outcomeOf(r.answersTo(9101)[0]!), { outcome: 'selected', optionId: 'allow_once' });
+});
+
+test('F4: a custom entry (not tested) never runs Full or Bypass: Ask mode, a card for every request, and the thread says why once', async () => {
+  const r = rig({ approval: 'full', gates: BYPASS, switches: { modeMap: true }, entry: { tested: false }, steps: [CMD('perm-check-1', 'ls'), END()] });
+  const t = await r.run();
+  const c = await r.nextCard();
+  assert.match(c.summary, /ls/, 'Bypass did not answer for it');
+  r.broker.resolve(c.id, true);
+  const end = await r.done(t);
+  assert.equal(end.status, 'done');
+  assert.deepEqual(r.msgs().filter((m) => m.method === 'session/set_mode').map((m) => m.params.modeId), ['default']);
+  const notes = r.rows(t.id).filter((m) => m.role === 'system' && /not tested/.test(m.text));
+  assert.equal(notes.length, 1, 'said once');
+  assert.match(notes[0]!.text, /Hermes/);
+  assert.doesNotMatch(notes[0]!.text, new RegExp(String.fromCharCode(0x2013) + "|" + String.fromCharCode(0x2014)));
+});
+
+test('F5: a call the host cancels closes its own card at once, and nothing reads as a refusal by the owner', async () => {
+  const r = rig({ steps: [{ op: 'wait', ms: 6000 }, END()] });
+  const t = await r.run();
+  const authorize = await authorizeOf(r);
+  const ac = new AbortController();
+  const decision = authorize('mcp__zzz__thing', { a: 1 }, ac.signal);
+  const c = await r.nextCard();
+  ac.abort();
+  const d = await decision;
+  assert.equal(d.allow, false);
+  assert.doesNotMatch(d.message ?? '', /user denied/i);
+  assert.equal(r.broker.pending().length, 0, 'the card is gone');
+  const closed = r.events.find((e) => e.type === 'approval.resolved' && e.approvalId === c.id);
+  assert.equal(closed.note, ACP_CLOSED_NOTE);
+  assert.equal(r.broker.resolve(c.id, true), false);
+  assert.equal(r.broker.lateNote(c.id), ACP_LATE_NOTE);
+  r.engine.cancel(t.id);
+  await r.done(t);
+});
+
+test('F5: overlapping calls each keep their own deadline', async () => {
+  const r = rig({ agentHost: { toolWaitMs: 900 }, steps: [{ op: 'wait', ms: 8000 }, END()] });
+  const t = await r.run();
+  const authorize = await authorizeOf(r);
+  const first = authorize('mcp__zzz__one', {});
+  const c1 = await r.nextCard();
+  await sleep(450);
+  const second = authorize('mcp__zzz__two', {});
+  await until(() => r.broker.pending().length === 2);
+  const c2 = r.broker.pending().find((p) => p.id !== c1.id)!;
+  const left = Date.parse(c2.expiresAt ?? '') - Date.now();
+  assert.ok(left > 700, `the second call's card has its own 900 ms from its own start (${left} ms left), not the first call's deadline`);
+  assert.equal((await first).allow, false);
+  assert.ok(r.broker.pending().some((p) => p.id === c2.id), 'the second card is still open when the first closed');
+  r.broker.resolve(c2.id, true);
+  assert.equal((await second).allow, true);
+  r.engine.cancel(t.id);
+  await r.done(t);
+});
+
+test('F5: at the deadline the call is told no one answered, never "The user denied this action"', async () => {
+  const r = rig({ agentHost: { toolWaitMs: 300 }, steps: [{ op: 'wait', ms: 4000 }, END()] });
+  const t = await r.run();
+  const authorize = await authorizeOf(r);
+  const d = await authorize('mcp__zzz__thing', {});
+  assert.equal(d.allow, false);
+  assert.match(d.message ?? '', /No one answered/);
+  assert.doesNotMatch(d.message ?? '', /user denied/i);
+  r.engine.cancel(t.id);
+  await r.done(t);
+});
+
+test('F6: a resume that fails for a passing reason keeps the stored conversation and starts nothing new', async () => {
+  const r = rig({ fakeArgs: ['--fail-resume', 'timed out waiting for the background helper'], steps: [END()] });
+  const old = r.store.upsertTask({ id: 'old6', agentId: 'herm', title: 'old', status: 'done', source: 'ui', requestedModel: 'auto', model: 'acp:hermes', acp: { entryId: 'hermes', sessionId: 'sess_fake_1', cumulative: { input: 5, output: 5 } }, createdAt: '', updatedAt: '' } as Task);
+  const end = await r.done(r.engine.startTask({ agentId: 'herm', prompt: 'again', source: 'ui', continueTaskId: old.id } as any));
+  assert.equal(end.status, 'error');
+  assert.equal(r.store.getTask(end.id)?.acp?.sessionId, 'sess_fake_1', 'the conversation is still the task\'s');
+  assert.equal(r.rows(end.id).filter((m) => /new one|new conversation/.test(m.text)).length, 0, 'nothing says a new conversation began');
+});
+
+test('F6: when Hermes will not take the tool list on that conversation, the stored one is cleared and the thread says the next message starts a new one', async () => {
+  const r = rig({ fakeArgs: ['--fail-resume', 'acp_mcp_policy_conflict'], steps: [END()] });
+  const old = r.store.upsertTask({ id: 'old7', agentId: 'herm', title: 'old', status: 'done', source: 'ui', requestedModel: 'auto', model: 'acp:hermes', acp: { entryId: 'hermes', sessionId: 'sess_fake_1' }, createdAt: '', updatedAt: '' } as Task);
+  const end = await r.done(r.engine.startTask({ agentId: 'herm', prompt: 'again', source: 'ui', continueTaskId: old.id } as any));
+  assert.equal(end.status, 'error');
+  assert.match(end.error ?? '', /Legion's tools/);
+  assert.equal(r.store.getTask(end.id)?.acp, undefined);
+  assert.ok(r.rows(end.id).some((m) => m.role === 'system' && /next message starts a new/.test(m.text)));
+});
+
+test('F7: a cancel while the agent is still starting stops its process at once', async () => {
+  const r = rig({ fakeArgs: ['--init-delay', '5000'], steps: [END()] });
+  const t = await r.run();
+  await until(() => agentPid(r.reportFile) !== undefined);
+  const pid = agentPid(r.reportFile)!;
+  r.engine.cancel(t.id);
+  await until(() => !alive(pid), 2500).catch(() => assert.fail('the agent process was left running while it started'));
+  assert.equal((await r.done(t)).status, 'cancelled');
+});
+
+test('F8: the card deadline comes from one function the owner\'s Hermes setting can feed, read at each request', async () => {
+  let ms = 300;
+  const r = rig({ agentHost: { permissionWaitMs: () => ms }, steps: [CMD('perm-check-1', 'ls'), CMD('perm-check-2', 'ls'), END()] });
+  const t = await r.run();
+  const c1 = await r.nextCard();
+  const left1 = Date.parse(c1.expiresAt ?? '') - Date.now();
+  assert.ok(left1 > 0 && left1 <= 300, `first card ${left1} ms`);
+  ms = 5000;
+  r.broker.resolve(c1.id, true);
+  const c2 = await (async () => { await until(() => r.broker.pending().length === 1 && r.broker.pending()[0]!.id !== c1.id); return r.broker.pending()[0]!; })();
+  const left2 = Date.parse(c2.expiresAt ?? '') - Date.now();
+  assert.ok(left2 > 1000, `second card ${left2} ms: the new value was read`);
+  r.broker.resolve(c2.id, true);
+  await r.done(t);
+});
+
+test('F9: the cwd rule holds for case, a trailing separator, a relative path, a link into the data folder and an administrative share', async () => {
+  const BS = String.fromCharCode(92);
+  const picks: Array<(r: ReturnType<typeof rig>) => string> = [
+    (r) => r.dataDir.toUpperCase(),
+    (r) => r.dataDir + (process.platform === 'win32' ? BS : '/'),
+    (r) => join(r.dataDir, '..', 'data', 'x'),
+    (r) => { const link = join(r.work, 'link'); symlinkSync(r.dataDir, link, 'junction'); return link; },
+  ];
+  if (process.platform === 'win32') picks.push((r) => `${BS}${BS}localhost${BS}${r.dataDir.slice(0, 1)}$${r.dataDir.slice(2)}`);
+  for (const pick of picks) {
+    const r = rig();
+    r.store.upsertAgent({ ...r.hermes, cwd: pick(r) });
+    const end = await r.done(await r.run());
+    assert.equal(end.error, HERMES_CWD_TEXT, pick.toString());
+    assert.equal(existsSync(r.logFile), false, 'the agent was never started');
+  }
+});
+
+test('F11: a command that only shares a word with a protected folder (data, the Hermes home name) does not say it touches Legion\'s settings; a real touch of the agent\'s own home says so in its own words', async () => {
+  const r = rig();
+  r.setScript([CMD('perm-check-1', 'cat data.txt && echo hermes-home'), CMD('perm-check-2', `type ${join(r.hermesHome, 'config.yaml')}`), END()]);
+  const t = await r.run();
+  const c1 = await r.nextCard();
+  assert.doesNotMatch(c1.summary, /own settings/);
+  r.broker.resolve(c1.id, true);
+  await until(() => r.broker.pending().length === 1 && r.broker.pending()[0]!.id !== c1.id);
+  const c2 = r.broker.pending()[0]!;
+  assert.match(c2.summary, /This touches Hermes's own settings/);
+  assert.doesNotMatch(c2.summary, /Legion's own settings/);
+  r.broker.resolve(c2.id, true);
+  await r.done(t);
+});
+
+test('F12: an error from the agent is redacted before it reaches the task or the thread, and the runtime is named by its entry', async () => {
+  registerSecret('secret-value-12345');
+  const r = rig({ entry: { id: 'acme', label: 'Acme Agent', tested: false }, model: 'acp:acme', fakeArgs: ['--fail-new', 'boom secret-value-12345 done'] });
+  const end = await r.done(await r.run());
+  assert.equal(end.status, 'error');
+  assert.match(end.error ?? '', /^Acme Agent failed\./);
+  assert.doesNotMatch(end.error ?? '', /secret-value-12345|Hermes/);
+  assert.ok(!r.rows(end.id).some((m) => m.text.includes('secret-value-12345')), 'nor in the thread');
+
+  const dog = rig({ entry: { id: 'acme', label: 'Acme Agent', tested: false }, model: 'acp:acme', agentHost: { watchdogMs: 300 }, steps: [{ op: 'wait', ms: 30_000 }, END()] });
+  assert.match((await dog.done(await dog.run())).error ?? '', /^Acme Agent stopped answering/);
+
+  const gone = rig({ entry: { id: 'acme', label: 'Acme Agent', tested: false, command: join(tempDir('legion-nocmd-'), 'no-such-program') }, model: 'acp:acme' });
+  assert.match((await gone.done(await gone.run())).error ?? '', /^Acme Agent was not found/);
 });

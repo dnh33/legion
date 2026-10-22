@@ -25,7 +25,7 @@
  *               so a test can say exactly what the agent does in one turn. A permission step waits for the client's answer; the answer is in the --log.
  *   stream      a prompt streams --chunks chunks (default 15), one every --interval ms (default 100), to the session named by --to (default its own),
  *               then ends the turn; session/cancel stops the stream and ends the turn "cancelled"
- * Flags: --fail-new <message> [--fail-code n] [--fail-in-data]  makes session/new fail (the message goes in error.data.details, with the message "Internal error", when --fail-in-data is given:
+ * Flags: --init-delay <ms> delays the initialize answer in any mode; --fail-resume <details> makes session/resume and session/load fail with those details; --fail-new <message> [--fail-code n] [--fail-in-data]  makes session/new fail (the message goes in error.data.details, with the message "Internal error", when --fail-in-data is given:
  *   the shape the Python ACP SDK gives an exception raised in a Hermes handler); --no-resume drops the resume capability.
  * --fail-set-model <message> / --fail-set-mode <message> make that call fail. --with-close advertises sessionCapabilities.close and answers session/close
  *   (Hermes advertises no close). --cancel-error makes the `cancel` and `stream` modes answer the open prompt with an error after session/cancel
@@ -190,6 +190,7 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
   switch (method) {
     case 'initialize':
       if (mode === 'slow-init') await sleep(Number(opt('--delay') ?? 1500));
+      if (opt('--init-delay') !== undefined) await sleep(Number(opt('--init-delay')));
       if (mode === 'noise') out('Fake agent v0.0.0 starting (this line is not JSON)');
       reply(id, {
         protocolVersion: mode === 'bad-version' ? 99 : 1,
@@ -215,6 +216,7 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
     case 'session/resume':
     case 'session/load': {
       const sid = String((msg.params as Record<string, unknown> | undefined)?.sessionId);
+      if (opt('--fail-resume') !== undefined) { fail(id, -32603, 'Internal error', { details: opt('--fail-resume') }); return; }
       if (sid === 'sess_missing') { fail(id, -32603, 'Internal error', { details: 'not_found' }); return; }
       if (method === 'session/load') update({ sessionUpdate: 'agent_message_chunk', content: text('old history') }, sid);
       reply(id, method === 'session/resume' ? { models: { availableModels: [{ modelId: 'prov:model-a', name: 'Model A' }], currentModelId: 'prov:model-a' } } : {});

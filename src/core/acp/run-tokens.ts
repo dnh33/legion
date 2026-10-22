@@ -24,7 +24,9 @@ import type { AcpStdioServer } from './session.js';
 export const RUN_ROUTE = '/mcp/run/legion';
 
 /** What a run hands over so its tools can be served: the in-process tool servers and the per-call callbacks of a provider run. */
-export type RunToolsHost = Pick<ProviderHost, 'servers' | 'authorize' | 'noteToolUse' | 'onToolCall' | 'onToolResult' | 'onNotice' | 'cancelled' | 'signal'> & {
+export type RunToolsHost = Pick<ProviderHost, 'servers' | 'noteToolUse' | 'onToolCall' | 'onToolResult' | 'onNotice' | 'cancelled' | 'signal'> & {
+  /** The approval decision for one call. `signal` aborts when the agent host cancels this one call (or the run ends): a card raised for it closes then. */
+  authorize(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<{ allow: boolean; message?: string }>;
   /** Taken out of every result before it is stored or sent (the run's secrets). Absent: the log redactor (src/core/log/redact.js) is used, never nothing. */
   redact?(text: string): string;
 };
