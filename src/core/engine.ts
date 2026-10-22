@@ -18,7 +18,7 @@ import { AWAY_COPY } from '../shared/away-copy.js';
 import type { BuildSnapshot } from './gates-settings/build-edited.js';
 import { isBuildFile } from '../shared/build-files.js';
 import { liveSecrets } from './kg/index.js';
-import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TOKEN_LIMIT_PREFIX, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
@@ -1333,11 +1333,15 @@ export class Engine {
       const turnLimit = outcome.subtype === 'error_max_turns' && (!outcome.errorText || !!providerStop);
       const limitTurns = providerStop ? Number(providerStop[1]) : this.config.claude.maxTurns;
       // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
-      const budgetLimit = outcome.subtype === 'error_max_budget_usd';
+      // A Hermes token-limit stop has its own words: Hermes reports tokens, never money, so the spend-limit wording would be false for it.
+      const tokenLimit = outcome.subtype === 'error_max_budget_usd' && !!tokenStop;
+      const budgetLimit = outcome.subtype === 'error_max_budget_usd' && !tokenStop;
       // the cap this run really had: a brief's budget when it lowered the owner's (Fascia 3b)
       const cap = this.perRunBudget(job);
-      const budgetWhere = tokenStop ? ` (${tokenStop[1]} tokens this task)` : cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
-      const text = turnLimit
+      const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
+      const text = tokenLimit
+        ? `${TOKEN_LIMIT_PREFIX} (${tokenStop![1]} tokens this task) before finishing. The work so far is kept. To go on, raise the token limit in Settings, Agent hosts, then continue the task.`
+        : turnLimit
         ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
         : budgetLimit
           ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
@@ -1347,9 +1351,10 @@ export class Engine {
       const shown = why ? `${why}\n\nClaude said: ${text}` : text;
       this.patchTask(job.taskId, { status: 'error', error: shown, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
+      this.addMessage(job.taskId, 'system', tokenLimit ? `${TOKEN_LIMIT_PREFIX} (${tokenStop![1]} tokens this task).` : turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
       // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
+      else if (tokenLimit) this.mascot('idle', 'paused at the token limit');
       else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
       else this.mascot('error', text.slice(0, 120));
     } else {

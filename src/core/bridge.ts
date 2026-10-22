@@ -1,5 +1,5 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
-import { BUDGET_LIMIT_PREFIX, TURN_LIMIT_PREFIX } from '../shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, TOKEN_LIMIT_PREFIX, TURN_LIMIT_PREFIX } from '../shared/continue.js';
 import { randomUUID } from 'node:crypto';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import type { AgentProfile, Catalog, ChatMessage, ConcreteModel, ModelChoice, StartTrigger, Task, TaskSource } from '../shared/types.js';
@@ -339,7 +339,7 @@ export class Bridge {
    * run's last message (what it had done and what was next), so a hand-off that ran out of room still returns its work.
    */
   private withWorkSoFar(t: Task, error: string): string {
-    if (!error.startsWith(TURN_LIMIT_PREFIX) && !error.startsWith(BUDGET_LIMIT_PREFIX)) return error;
+    if (!error.startsWith(TURN_LIMIT_PREFIX) && !error.startsWith(BUDGET_LIMIT_PREFIX) && !error.startsWith(TOKEN_LIMIT_PREFIX)) return error;
     let last: string | undefined;
     try {
       const msgs = this.store.listMessages(t.id);

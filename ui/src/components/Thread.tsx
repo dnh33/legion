@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
-import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
+import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause, isTokenPause } from '../../../src/shared/continue';
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
 import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
 import { shortcutRefused } from '../a11y/keyClockCore';
@@ -93,6 +93,7 @@ export function Thread() {
   // a turn-limit or spend-limit stop is a pause with the work kept, not a failure: it gets its own card
   const paused = isLimitPause(task);
   const budgetPaused = isBudgetPause(task);
+  const tokenPaused = isTokenPause(task);
   const pausedBudget = budgetPaused ? budgetLimitFromError(task?.error) : undefined;
   const pausedTurns = paused ? /\((\d+) turns this run\)/.exec(task?.error ?? '')?.[1] : undefined;
   // the history already ends with the engine's own "Cancelled" line: the thread must not say it twice
@@ -328,10 +329,10 @@ export function Thread() {
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">
                   <Icon name="pause" size={14} />
-                  <div className="err-body">{budgetPaused ? <><b>Paused at the spend limit</b><p>{pausedBudget ? `This run reached its spend limit of ${pausedBudget}` : 'This run reached its spend limit'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></> : <><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></>}</div>
+                  <div className="err-body">{tokenPaused ? <><b>Paused at the token limit</b><p>This task used the token limit set for its agent host before finishing. The work so far is kept. Raise the limit in Settings, Agent hosts, then Continue picks up where it stopped.</p></> : budgetPaused ? <><b>Paused at the spend limit</b><p>{pausedBudget ? `This run reached its spend limit of ${pausedBudget}` : 'This run reached its spend limit'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></> : <><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></>}</div>
                   <div className="err-actions">
                     {task.resumable && <button className="btn sm primary" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button>}
-                    <button className="link-btn" onClick={() => openSettings('claude')}>Raise the limit</button>
+                    <button className="link-btn" onClick={() => openSettings(tokenPaused ? 'hosts' : 'claude')}>Raise the limit</button>
                   </div>
                 </div>
               ) : (

@@ -11,7 +11,7 @@ import { Engine } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
 import { Store } from '../src/core/store.js';
 import { defaultConfig } from '../src/shared/config.js';
-import { TURN_LIMIT_PREFIX, BUDGET_LIMIT_PREFIX } from '../src/shared/continue.js';
+import { TURN_LIMIT_PREFIX, BUDGET_LIMIT_PREFIX, TOKEN_LIMIT_PREFIX, isLimitPause } from '../src/shared/continue.js';
 import type { AcpEntry, AcpSwitches } from '../src/shared/acp-view.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, ChatMessage, Task } from '../src/shared/types.js';
 import { registerSecret } from '../src/core/log/redact.js';
@@ -386,7 +386,7 @@ test('a session the agent no longer has is not a Claude resume: the thread start
 
 // ---------------------------------------------------------------- limits (Task 3b)
 
-test('maxSteps: the call after the limit cancels the turn and the task pauses on the turn-limit card; maxTokensPerTask pauses on the spend-limit card', async () => {
+test('maxSteps: the call after the limit cancels the turn and the task pauses on the turn-limit card; maxTokensPerTask pauses on the token-limit card (never the spend-limit words)', async () => {
   const tool = (i: number): Step => ({ op: 'tool', id: `c${i}`, title: `terminal: ls ${i}`, kind: 'execute', rawInput: { command: 'ls' } });
   const r = rig({ entry: { maxSteps: 2 }, steps: [tool(1), tool(2), tool(3), { op: 'waitCancel' }, END()] });
   const end = await r.done(await r.run());
@@ -396,7 +396,11 @@ test('maxSteps: the call after the limit cancels the turn and the task pauses on
   const tk = rig({ entry: { maxTokensPerTask: 1000 }, steps: [END({ inputTokens: 800, outputTokens: 400 })] });
   const e2 = await tk.done(await tk.run());
   assert.equal(e2.status, 'error');
-  assert.ok((e2.error ?? '').startsWith(BUDGET_LIMIT_PREFIX) && /1,?200 tokens|1000 tokens/.test(e2.error ?? ''), e2.error);
+  assert.ok((e2.error ?? '').startsWith(TOKEN_LIMIT_PREFIX) && /1,?200 tokens|1000 tokens/.test(e2.error ?? ''), e2.error);
+  assert.doesNotMatch(e2.error ?? '', /spend|dollar|\$/i, 'Hermes reports tokens, never money');
+  assert.match(e2.error ?? '', /raise the token limit/i);
+  assert.ok(isLimitPause({ status: 'error', error: e2.error }), 'still a pause with the work kept, not a failure');
+  assert.ok(!/[\u2013\u2014]/.test(e2.error ?? ''));
 });
 
 // ---------------------------------------------------------------- before the process starts
