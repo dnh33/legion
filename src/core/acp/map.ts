@@ -86,31 +86,35 @@ function firstLocation(u: Rec): string | undefined {
   return Array.isArray(u.locations) ? str(rec(u.locations[0])?.path) : undefined;
 }
 
+type Described = { toolName: string; input: Record<string, unknown> };
+
+/** One mapper per ACP tool kind. A table keyed by kind name; any other kind falls through to the raw name and input. */
+const DESCRIBERS: Readonly<Record<string, (u: Rec, args: Rec) => Described>> = {
+  execute: (_u, args) => {
+    const command = str(args.command);
+    return { toolName: 'Bash', input: command !== undefined ? { ...args, command } : { ...args } };
+  },
+  edit: (u, args) => {
+    const path = str(args.path) ?? str(args.file_path) ?? diffOf(u.content)?.path ?? firstLocation(u);
+    return { toolName: 'Write', input: path !== undefined ? { ...args, file_path: path } : { ...args } };
+  },
+  read: (u, args) => {
+    const path = str(args.path) ?? str(args.file_path) ?? firstLocation(u);
+    return { toolName: 'Read', input: path !== undefined ? { ...args, file_path: path } : { ...args } };
+  },
+  fetch: (_u, args) => {
+    const url = str(args.url);
+    return { toolName: 'WebFetch', input: url !== undefined ? { ...args, url } : { ...args } };
+  },
+};
+
 /** Legion's tool name and input for one call or request. */
-function describe(u: Rec): { toolName: string; input: Record<string, unknown> } {
+function describe(u: Rec): Described {
   const kind = str(u.kind) ?? 'other';
   const raw = rec(u.rawInput);
-  const args = argsOf(raw);
-  switch (kind) {
-    case 'execute': {
-      const command = str(args.command);
-      return { toolName: 'Bash', input: command !== undefined ? { ...args, command } : { ...args } };
-    }
-    case 'edit': {
-      const path = str(args.path) ?? str(args.file_path) ?? diffOf(u.content)?.path ?? firstLocation(u);
-      return { toolName: 'Write', input: path !== undefined ? { ...args, file_path: path } : { ...args } };
-    }
-    case 'read': {
-      const path = str(args.path) ?? str(args.file_path) ?? firstLocation(u);
-      return { toolName: 'Read', input: path !== undefined ? { ...args, file_path: path } : { ...args } };
-    }
-    case 'fetch': {
-      const url = str(args.url);
-      return { toolName: 'WebFetch', input: url !== undefined ? { ...args, url } : { ...args } };
-    }
-    default:
-      return { toolName: rawName(u), input: raw ? { ...raw } : {} };
-  }
+  const mapper = Object.hasOwn(DESCRIBERS, kind) ? DESCRIBERS[kind] : undefined;
+  if (mapper) return mapper(u, argsOf(raw));
+  return { toolName: rawName(u), input: raw ? { ...raw } : {} };
 }
 
 /**
