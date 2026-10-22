@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import type { AcpEntry } from '../src/shared/acp-view.js';
 import { registerLegionSecrets, startAgentProcess, type AgentProcess } from '../src/core/acp/process.js';
-import { RpcClosed } from '../src/core/acp/rpc.js';
-import { ACP_CANCEL_GRACE_MS, AcpRefusal, AcpSession, type AcpCallbacks, type AcpStdioServer } from '../src/core/acp/session.js';
+import { RpcClosed, RpcError } from '../src/core/acp/rpc.js';
+import { ACP_CANCEL_GRACE_MS, ACP_PERMISSION_PAUSE_CAP_MS, AcpRefusal, AcpSession, type AcpCallbacks, type AcpStdioServer } from '../src/core/acp/session.js';
 import type { MappedPermission, MappedTool } from '../src/core/acp/map.js';
 
 // The session driver against the fake agent. Wire shapes: https://agentclientprotocol.com (initialization, session-setup, prompt-turn,
@@ -99,10 +99,29 @@ test('open: Hermes refusals map to a reason and keep Hermes\'s own message (plai
 
 test('open: a failure that closes the connection with the reason on stderr is still mapped (the daemon could not start)', async () => {
   const h = launch('ok');
-  const stub = { ...h.p, io: h.p.io, stderrTail: () => 'RuntimeStartError: windows_breakaway_unavailable' } as AgentProcess;
+  let tail = '';
+  const stub = { ...h.p, io: h.p.io, stderrTail: () => tail } as AgentProcess;
   h.p.killNow();
   await h.p.exited;
-  await assert.rejects(AcpSession.open(stub, initOf()), (e) => e instanceof AcpRefusal && e.reason === 'breakaway');
+  const opening = AcpSession.open(stub, initOf());
+  tail = 'RuntimeStartError: windows_breakaway_unavailable\n'; // written after the call started
+  await assert.rejects(opening, (e) => e instanceof AcpRefusal && e.reason === 'breakaway');
+});
+
+test('open: a refusal reason that was already on stderr before the call started is not read as the reason for this failure', async () => {
+  const h = launch('ok');
+  const old = 'RuntimeStartError: windows_breakaway_unavailable\nNo LLM provider configured. Run `hermes setup`\n';
+  let tail = old;
+  const stub = { ...h.p, io: h.p.io, stderrTail: () => tail } as AgentProcess;
+  h.p.killNow();
+  await h.p.exited;
+  const opening = AcpSession.open(stub, initOf());
+  tail = `${old}unrelated line after the call started\n`; // new output that names no reason
+  await assert.rejects(opening, (e) => !(e instanceof AcpRefusal) && /not reading|closed/.test((e as Error).message));
+  // a reason line that is new (the same text as an old one) still counts
+  const again = AcpSession.open(stub, initOf());
+  tail = `${tail}RuntimeStartError: windows_breakaway_unavailable\n`;
+  await assert.rejects(again, (e) => e instanceof AcpRefusal && e.reason === 'breakaway');
 });
 
 test('open: resume uses session/resume when the agent offers it, resends the shim, keeps the id, and a missing id is AcpRefusal not-found', async () => {
@@ -158,10 +177,13 @@ test('prompt: chunks, thoughts and tool calls reach the callbacks; the update in
   assert.equal(one.r.updates[0]!.status, 'completed');
   assert.deepEqual(one.r.usage, [{ input: 100, output: 20 }]);
   assert.deepEqual(end1.usage, { input: 100, output: 20 });
+  assert.deepEqual(end1.cumulative, { input: 100, output: 20 }, 'the latest cumulative counters, for the caller to store');
+  assert.equal(end1.baselineUnknown, undefined, 'a new session starts at 0: the baseline is known');
   const two = recorder();
   const end2 = await a.session.prompt('again', two.cb);
   assert.deepEqual(two.r.usage, [{ input: 150, output: 40 }]);
   assert.deepEqual(end2.usage, { input: 150, output: 40 });
+  assert.deepEqual(end2.cumulative, { input: 250, output: 60 });
   const sent = a.msgs().filter((m) => m.method === 'session/prompt');
   assert.deepEqual(sent[0]!.params, { sessionId: 'sess_fake_1', prompt: [{ type: 'text', text: 'hi' }] });
   await a.p.stop();
@@ -283,6 +305,7 @@ test('a session/update and a permission request for another sessionId are ignore
   assert.ok(!r.text.join('').includes('LEAK'));
   assert.equal(r.perms.length, 0, 'no card for another session');
   assert.deepEqual(r.text, ['hello ', 'world']);
+  await waitFor(() => a.msgs().some((m) => m.id === 9002)); // the agent logs Legion's answer a moment after the turn has ended
   assert.deepEqual(a.msgs().find((m) => m.id === 9002)!.result, { outcome: { outcome: 'cancelled' } });
   assert.ok(a.msgs().every((m) => m.params?.sessionId === undefined || m.params.sessionId === 'sess_fake_1'), 'Legion only ever names its own session');
   await a.p.stop();
@@ -319,10 +342,124 @@ test('watchdog: an open permission request pauses it; the window restarts when t
   await a.p.stop();
 });
 
-test('watchdog: a turn that keeps updating is never cancelled', async () => {
-  const a = await open('ok', { watchdogMs: 5_000 });
-  const end = await a.session.prompt('hi', recorder().cb);
+test('watchdog: a slow turn that keeps updating is never cancelled (each own-session update restarts the window)', async () => {
+  // 15 chunks, one every 100 ms: the stream lasts 1.5 s, well past the 400 ms window, but no gap is longer than the window
+  const a = await open('stream', { watchdogMs: 400 }, ['--chunks', '15', '--interval', '100']);
+  const { r, cb } = recorder();
+  const t0 = Date.now();
+  const end = await a.session.prompt('hi', cb);
   assert.equal(end.stopReason, 'end_turn');
+  assert.ok(Date.now() - t0 > 1200, `the turn must outlast the window (${Date.now() - t0} ms)`);
+  assert.equal(r.text.length, 15);
   assert.ok(!a.methods().includes('session/cancel'));
   await a.p.stop();
+});
+
+test('watchdog: updates for another sessionId do not restart the window (the turn is cancelled)', async () => {
+  // the agent streams to sess_other every 100 ms for up to 10 s and stops at session/cancel
+  const a = await open('stream', { watchdogMs: 400, cancelGraceMs: 5_000 }, ['--chunks', '100', '--interval', '100', '--to', 'sess_other']);
+  const { r, cb } = recorder();
+  const t0 = Date.now();
+  const end = await a.session.prompt('hi', cb);
+  const took = Date.now() - t0;
+  assert.equal(end.stopReason, 'watchdog');
+  assert.ok(took >= 350 && took < 3000, `took ${took} ms`);
+  assert.deepEqual(r.text, [], 'nothing from the other session reached the callbacks');
+  assert.equal(a.msgs().filter((m) => m.method === 'session/cancel').length, 1);
+  await a.p.stop();
+});
+
+test('watchdog: an open permission request pauses it only up to the cap; after that the watchdog runs again and cancels the card', async () => {
+  assert.equal(ACP_PERMISSION_PAUSE_CAP_MS, 305_000, 'Hermes denies a waiting approval itself after 300 s; the cap adds a small margin');
+  const a = await open('permission', { watchdogMs: 200, permissionPauseCapMs: 400, cancelGraceMs: 5_000 });
+  const { cb } = recorder({ onPermission: () => new Promise(() => undefined) }); // the card is never answered
+  const t0 = Date.now();
+  const end = await a.session.prompt('hi', cb);
+  const took = Date.now() - t0;
+  assert.equal(end.stopReason, 'watchdog');
+  assert.ok(took >= 550 && took < 3000, `paused for the cap (400 ms), then one window (200 ms): took ${took} ms`);
+  assert.equal(a.msgs().filter((m) => m.method === 'session/cancel').length, 1);
+  assert.deepEqual(a.msgs().find((m) => m.id === 9001)!.result, { outcome: { outcome: 'cancelled' } });
+  await a.p.stop();
+});
+
+// ---------------------------------------------------------------- an error answer after Legion's cancel
+
+test('cancel: an error answer to the prompt after cancel() or after the watchdog ends the turn cancelled / watchdog, not a rejection', async () => {
+  const a = await open('cancel', {}, ['--cancel-error']);
+  const one = recorder();
+  const turn = a.session.prompt('hi', one.cb);
+  await waitFor(() => one.r.text.length > 0);
+  await a.session.cancel();
+  assert.equal((await turn).stopReason, 'cancelled');
+  await a.p.stop();
+
+  const b = await open('cancel', { watchdogMs: 300 }, ['--cancel-error']);
+  assert.equal((await b.session.prompt('hi', recorder().cb)).stopReason, 'watchdog');
+  assert.equal(b.msgs().filter((m) => m.method === 'session/cancel').length, 1);
+  await b.p.stop();
+});
+
+test('prompt: an error answer when Legion did not cancel still rejects', async () => {
+  const a = await open('ok', {}, ['--prompt-error']);
+  await assert.rejects(a.session.prompt('hi', recorder().cb), (e) => e instanceof RpcError && /something broke|Internal error/.test(e.message + JSON.stringify(e.data)));
+  await a.p.stop();
+});
+
+// ---------------------------------------------------------------- usage baseline
+
+test('usage: a stored baseline makes the first resumed turn count only its own tokens; the turn end carries the cumulative counters', async () => {
+  const a = await open('ok', { resumeId: 'sess_fake_1', usageBaseline: { input: 60, output: 10 } });
+  const one = recorder();
+  const end1 = await a.session.prompt('hi', one.cb); // the agent reports 100/20 cumulative
+  assert.deepEqual(end1.usage, { input: 40, output: 10 });
+  assert.deepEqual(one.r.usage, [{ input: 40, output: 10 }]);
+  assert.deepEqual(end1.cumulative, { input: 100, output: 20 });
+  assert.equal(end1.baselineUnknown, undefined);
+  const end2 = await a.session.prompt('again', recorder().cb); // 250/60
+  assert.deepEqual(end2.usage, { input: 150, output: 40 });
+  assert.deepEqual(end2.cumulative, { input: 250, output: 60 });
+  await a.p.stop();
+});
+
+test('usage: a resumed session without a baseline counts 0 for its first turn and says so; later turns count normally', async () => {
+  const a = await open('ok', { resumeId: 'sess_fake_1' });
+  const one = recorder();
+  const end1 = await a.session.prompt('hi', one.cb);
+  assert.deepEqual(end1.usage, { input: 0, output: 0 });
+  assert.deepEqual(one.r.usage, [{ input: 0, output: 0 }]);
+  assert.equal(end1.baselineUnknown, true);
+  assert.deepEqual(end1.cumulative, { input: 100, output: 20 }, 'the caller stores this as the new baseline');
+  const end2 = await a.session.prompt('again', recorder().cb);
+  assert.deepEqual(end2.usage, { input: 150, output: 40 });
+  assert.equal(end2.baselineUnknown, undefined);
+  await a.p.stop();
+});
+
+// ---------------------------------------------------------------- a failed set_model / set_mode
+
+test('open: a failed session/set_model closes the new session when the agent offers session/close, then throws', async () => {
+  const h = launch('ok', ['--fail-set-model', 'model blew up', '--with-close']);
+  await assert.rejects(AcpSession.open(h.p, initOf({ modelId: 'prov:model-b' })), /model blew up/);
+  const m = h.msgs();
+  assert.deepEqual(m.filter((x) => x.method === 'session/close').map((x) => x.params), [{ sessionId: 'sess_fake_1' }]);
+  assert.equal(m.at(-1)!.method, 'session/close', 'the close comes after the failed call');
+  await h.p.stop();
+
+  const g = launch('ok', ['--fail-set-mode', 'mode blew up', '--with-close']);
+  await assert.rejects(AcpSession.open(g.p, initOf({ mode: 'dont_ask' })), /mode blew up/);
+  assert.deepEqual(g.methods().filter((x) => x === 'session/close'), ['session/close']);
+  await g.p.stop();
+});
+
+test('open: a failed session/set_model without session/close in the agent\'s capabilities sends no close, and a resumed session is never closed', async () => {
+  const h = launch('ok', ['--fail-set-model', 'model blew up']);
+  await assert.rejects(AcpSession.open(h.p, initOf({ modelId: 'x' })), /model blew up/);
+  assert.ok(!h.methods().includes('session/close'));
+  await h.p.stop();
+
+  const g = launch('ok', ['--fail-set-model', 'model blew up', '--with-close']);
+  await assert.rejects(AcpSession.open(g.p, initOf({ modelId: 'x', resumeId: 'sess_fake_1' })), /model blew up/);
+  assert.ok(!g.methods().includes('session/close'), 'the session existed before this call: it is not ours to close');
+  await g.p.stop();
 });

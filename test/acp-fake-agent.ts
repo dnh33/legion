@@ -21,8 +21,14 @@
  *   overflow    a prompt first writes one 17 MiB line, then behaves like ok
  *   plan        like ok, with a plan update (two entries) before the first chunk
  *   foreign     like ok, with an update and a permission request for another session (sess_other) in the middle of the turn
+ *   stream      a prompt streams --chunks chunks (default 15), one every --interval ms (default 100), to the session named by --to (default its own),
+ *               then ends the turn; session/cancel stops the stream and ends the turn "cancelled"
  * Flags: --fail-new <message> [--fail-code n] [--fail-in-data]  makes session/new fail (the message goes in error.data.details, with the message "Internal error", when --fail-in-data is given:
  *   the shape the Python ACP SDK gives an exception raised in a Hermes handler); --no-resume drops the resume capability.
+ * --fail-set-model <message> / --fail-set-mode <message> make that call fail. --with-close advertises sessionCapabilities.close and answers session/close
+ *   (Hermes advertises no close). --cancel-error makes the `cancel` and `stream` modes answer the open prompt with an error after session/cancel
+ *   (Hermes admitted_turn_failed) instead of "cancelled".
+ * --prompt-error makes every session/prompt fail with an error (no cancel involved).
  * session/resume and session/load answer {} for sess_fake_1 (load first replays one old message) and fail with details "not_found" for sess_missing.
  * --report writes { argv, env, cwd, pid, mode, daemonPid? } at start. --log appends every message the agent receives (one JSON per line).
  * --daemon starts a detached sleeper that must outlive this agent (the Hermes background service) and reports its PID as daemonPid.
@@ -63,16 +69,30 @@ const text = (t: string) => ({ type: 'text', text: t });
 
 let turns = 0;
 let pendingPrompt: unknown; // the id of a prompt waiting for session/cancel
+let streamStopped = false; // session/cancel arrived while a `stream` prompt was running
+const answerCancelled = (id: unknown) => (argv.includes('--cancel-error') ? fail(id, -32603, 'Internal error', { details: 'admitted_turn_failed' }) : reply(id, { stopReason: 'cancelled' }));
 const waiting = new Map<unknown, (msg: Record<string, unknown>) => void>(); // requests we sent, waiting for the client's answer
 
 async function prompt(id: unknown): Promise<void> {
   turns += 1;
+  if (argv.includes('--prompt-error')) { fail(id, -32603, 'Internal error', { details: 'something broke' }); return; }
   if (mode === 'hang') return;
   if (mode === 'crash') { process.stderr.write('Traceback (most recent call last):\n  fake agent crashed on purpose\n'); process.exit(1); }
   if (mode === 'overflow') out('x'.repeat(17 * 1024 * 1024));
   if (mode === 'cancel') {
     update({ sessionUpdate: 'agent_message_chunk', content: text('working') });
     pendingPrompt = id;
+    return;
+  }
+  if (mode === 'stream') {
+    const n = Number(opt('--chunks') ?? 15);
+    const gap = Number(opt('--interval') ?? 100);
+    const to = opt('--to') ?? 'sess_fake_1';
+    for (let i = 0; i < n && !streamStopped; i += 1) {
+      update({ sessionUpdate: 'agent_message_chunk', content: text(`chunk ${i} `) }, to);
+      await sleep(gap);
+    }
+    if (streamStopped) answerCancelled(id); else reply(id, { stopReason: 'end_turn' });
     return;
   }
   if (mode === 'permission') {
@@ -128,7 +148,7 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
       if (mode === 'noise') out('Fake agent v0.0.0 starting (this line is not JSON)');
       reply(id, {
         protocolVersion: mode === 'bad-version' ? 99 : 1,
-        agentCapabilities: { loadSession: true, ...(argv.includes('--no-resume') ? {} : { sessionCapabilities: { resume: {}, list: {}, fork: {} } }), promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } },
+        agentCapabilities: { loadSession: true, ...(argv.includes('--no-resume') ? {} : { sessionCapabilities: { resume: {}, list: {}, fork: {}, ...(argv.includes('--with-close') ? { close: {} } : {}) } }), promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } },
         agentInfo: { name: 'fake-agent', title: 'Fake agent', version: '0.0.1-fake' },
         authMethods: [],
       });
@@ -156,14 +176,21 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
       return;
     }
     case 'session/set_model':
-    case 'session/set_mode':
+    case 'session/set_mode': {
+      const failure = opt(method === 'session/set_model' ? '--fail-set-model' : '--fail-set-mode');
+      if (failure !== undefined) fail(id, -32603, failure);
+      else reply(id, {});
+      return;
+    }
+    case 'session/close':
       reply(id, {});
       return;
     case 'session/prompt':
       await prompt(id);
       return;
     case 'session/cancel':
-      if (mode === 'cancel' && pendingPrompt !== undefined) { reply(pendingPrompt, { stopReason: 'cancelled' }); pendingPrompt = undefined; }
+      if (mode === 'cancel' && pendingPrompt !== undefined) { answerCancelled(pendingPrompt); pendingPrompt = undefined; }
+      if (mode === 'stream') streamStopped = true;
       return;
     default:
       if (id !== undefined && method !== undefined) fail(id, -32601, `Method not found: ${String(method)}`);
