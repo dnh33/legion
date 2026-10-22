@@ -1390,6 +1390,7 @@ export class Engine {
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge, questions: this.questions,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
+      ...(runtime !== 'claude' ? { honourAbort: true } : {}), // a Claude run keeps its behaviour
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
       // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
       // a provider change is handed over to the next Claude run of this conversation (its own list is behind)

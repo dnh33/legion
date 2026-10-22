@@ -679,7 +679,10 @@ export function createServer(ctx: CoreContext): Server {
    */
   const handleRunMcp = async (req: IncomingMessage, res: ServerResponse, body: unknown, grant: RunGrant) => {
     const gone = new AbortController();
-    const mcp = serverForRun(grant, gone.signal);
+    // each stdio shim names its own connection, so a cancel from one shim cannot reach a call of another on the same key
+    const sent = req.headers['x-legion-shim'];
+    const connection = typeof sent === 'string' && /^[0-9a-f-]{8,64}$/.test(sent) ? sent : '';
+    const mcp = serverForRun(grant, gone.signal, connection);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { gone.abort(); void transport.close(); void mcp.close(); });
     await mcp.connect(transport);

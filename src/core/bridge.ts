@@ -275,7 +275,9 @@ export class Bridge {
     if (refused) throw new BridgeError(refused);
   }
 
-  async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number; model?: ModelChoice; brief?: Brief } = {}): Promise<AskResult> {
+  /** `opts.signal`: when it aborts the caller no longer waits and the agent it asked is stopped (a run that cancels one tool call, not the whole task). */
+  async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number; model?: ModelChoice; brief?: Brief; signal?: AbortSignal } = {}): Promise<AskResult> {
+    if (opts.signal?.aborted) throw new BridgeError('Cancelled');
     const model = this.checkModel(opts.model);
     const { caller, target, hop, refund } = this.resolve(callerTaskId, agentRef, message, 'ask', opts.brief);
     const { taskId, done } = this.startHandoff(refund, () => {
@@ -290,12 +292,23 @@ export class Bridge {
     if (!set) { set = new Set(); this.pendingAsks.set(callerTaskId, set); }
     set.add(taskId);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
     try {
       const timeoutMs = clampTimeout(opts.timeoutSeconds) * 1000;
       const r = await Promise.race([
         done,
         new Promise<'timeout'>((res) => { timer = setTimeout(() => res('timeout'), timeoutMs); }),
+        new Promise<'aborted'>((res) => {
+          if (!opts.signal) return;
+          onAbort = () => res('aborted');
+          if (opts.signal.aborted) onAbort(); else opts.signal.addEventListener('abort', onAbort, { once: true });
+        }),
       ]);
+      if (r === 'aborted') {
+        const t = this.store.getTask(taskId);
+        if (t && isLive(t)) this.engine.cancel(taskId); // nobody is waiting for this work any more
+        throw new BridgeError('Cancelled: you stopped waiting for this answer, so the other agent was told to stop.');
+      }
       if (r === 'timeout') {
         const t = this.store.getTask(taskId);
         // the answer is not lost: it lands in the caller's task when the run ends, as a tell's would
@@ -313,6 +326,7 @@ export class Bridge {
       return { taskId, status: t.status, model: t.model, verdict: verdictOf(target.systemPrompt, text), result: c.text, resultId: c.resultId, truncated: c.resultId ? true : undefined, ...(t.costUsd !== undefined ? { costUsd: t.costUsd } : {}) };
     } finally {
       if (timer) clearTimeout(timer);
+      if (onAbort) opts.signal?.removeEventListener('abort', onAbort);
       const left = (this.waiting.get(callerTaskId) ?? 1) - 1;
       if (left <= 0) this.waiting.delete(callerTaskId); else this.waiting.set(callerTaskId, left);
       set.delete(taskId);

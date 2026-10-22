@@ -43,6 +43,8 @@ interface RunFixture {
   bridgeCalls: string[];
   /** The timeoutSeconds each `ask` reached the tool with. */
   askTimeouts: unknown[];
+  /** The signal each `ask` reached the bridge with. */
+  askSignals: Array<AbortSignal | undefined>;
   /** The signal tool (room_read, with `signalTool`): calls started, and calls that saw their signal abort. */
   sigStarted: number; sigAborted: number;
   hold?: { wait: Promise<void>; release: () => void };
@@ -51,17 +53,17 @@ interface RunFixture {
 
 /** A run with the real `legion` tool server (vm tools on), a fake rooms server and two servers that must never be reachable. */
 function makeRun(task: string, agent: string, o: { deny?: (name: string) => string | undefined; throws?: boolean; hold?: boolean; signalTool?: boolean; listText?: string; redact?: (text: string) => string } = {}): RunFixture {
-  const fx = { task, agent, noted: [], authorized: [], rows: [], bridgeCalls: [], askTimeouts: [], sigStarted: 0, sigAborted: 0 } as unknown as RunFixture;
+  const fx = { task, agent, noted: [], authorized: [], rows: [], bridgeCalls: [], askTimeouts: [], askSignals: [], sigStarted: 0, sigAborted: 0 } as unknown as RunFixture;
   if (o.hold) fx.hold = gateOf();
   const bridge = {
     list: () => [{ id: 'scout' }],
-    ask: async (t: string, to: string, m: string, opts?: { timeoutSeconds?: number }) => { fx.bridgeCalls.push(`ask:${t}:${to}:${m}`); fx.askTimeouts.push(opts?.timeoutSeconds); if (fx.hold) await fx.hold.wait; return `answer from ${to}`; },
+    ask: async (t: string, to: string, m: string, opts?: { timeoutSeconds?: number; signal?: AbortSignal }) => { fx.bridgeCalls.push(`ask:${t}:${to}:${m}`); fx.askTimeouts.push(opts?.timeoutSeconds); fx.askSignals.push(opts?.signal); if (fx.hold) await fx.hold.wait; return `answer from ${to}`; },
     tell: async (t: string, to: string, m: string) => { fx.bridgeCalls.push(`tell:${t}:${to}:${m}`); return `told ${to}`; },
     taskResult: async () => 'full text',
     resolveModel: async () => undefined,
   };
   const vms = { touch: () => undefined, ensureRunning: async () => { fx.bridgeCalls.push('vm_start'); return { state: 'running' }; }, usage: () => ({}), claudeAvailable: () => true, exec: async () => ({ exitCode: 0, stdout: 'ran', stderr: '' }) };
-  const legion = buildAgentToolsServer({ agentId: agent, taskId: task, vms: vms as never, bridge: bridge as never, vmEnabled: true, claudeAvailable: true });
+  const legion = buildAgentToolsServer({ agentId: agent, taskId: task, vms: vms as never, bridge: bridge as never, vmEnabled: true, claudeAvailable: true, honourAbort: true });
   const roomTools = ['bot_list', 'bot_send', 'room_post', 'room_read', 'room_list', 'handoff', 'room_create', 'room_add_member', 'room_remove_member', 'room_export'];
   const legionComms = createSdkMcpServer({ name: 'legion_comms', version: '1', tools: roomTools.map((n) => tool(n, `rooms: ${n}`, { x: z.string().optional() }, async (a, extra) => {
     fx.bridgeCalls.push(`${n}:${a.x ?? ''}`);
@@ -451,11 +453,13 @@ describe('acp tools route', () => {
       assert.match(ask.description ?? '', /for long work use tell, then task_result/i);
     });
 
-    it('the tools that wait for a person say the agent host cuts the wait after about 5 minutes', async () => {
+    it('the tools that wait for a person give the same 270 s limit as ask, not a looser round figure', async () => {
       const c = await connect(run('t-w2', 'zealot').run.token);
       const tools = (await c.listTools()).tools;
       for (const n of ['ask_user_question', 'room_create', 'room_add_member', 'room_remove_member']) {
-        assert.match(tools.find((t) => t.name === n)!.description ?? '', /about 5 minutes/, n);
+        const d = tools.find((t) => t.name === n)!.description ?? '';
+        assert.match(d, new RegExp(`within ${RUN_TOOL_WAIT_MAX_S} seconds`), n);
+        assert.doesNotMatch(d, /about 5 minutes/, n);
       }
       assert.doesNotMatch(tools.map((t) => t.description ?? '').join('\n'), /tool_timeout/);
     });
@@ -503,6 +507,81 @@ describe('acp tools route', () => {
       gone.abort();
       for (let i = 0; i < 150 && a.sigAborted === 0; i++) await sleep(20);
       assert.equal(a.sigAborted, 1, 'the tool saw its signal abort');
+    });
+
+    /** A server on an in-memory pair, as one shim connection (`conn`) of the run; raw JSON-RPC goes in and comes out. */
+    async function rawConnection(grant: NonNullable<ReturnType<typeof findRunGrant>>, conn: string) {
+      const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+      const [ct, st] = InMemoryTransport.createLinkedPair();
+      const srv = serverForRun(grant, new AbortController().signal, conn);
+      await srv.connect(st);
+      const got: Array<{ id?: number | string; result?: unknown }> = [];
+      ct.onmessage = (m) => { got.push(m as never); };
+      await ct.start();
+      const callRoomRead = (id: number) => ct.send({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'room_read', arguments: {} } });
+      const cancel = (id: number) => ct.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } });
+      const answered = (id: number) => got.some((m) => m.id === id);
+      return { callRoomRead, cancel, answered, close: async () => { await ct.close(); await srv.close(); } };
+    }
+
+    it('two shim connections on one key: a cancel from one cannot cut a call of the other, even with the same request id', async () => {
+      const a = run('t-two-shims', 'zealot', { signalTool: true });
+      const grant = findRunGrant(a.run.token)!;
+      const one = await rawConnection(grant, 'shim-one');
+      const two = await rawConnection(grant, 'shim-two');
+      await one.callRoomRead(3);
+      await two.callRoomRead(3);
+      for (let i = 0; i < 150 && a.sigStarted < 2; i++) await sleep(20);
+      assert.equal(a.sigStarted, 2, 'both calls are in the tool');
+      await two.cancel(3);
+      for (let i = 0; i < 150 && a.sigAborted < 1; i++) await sleep(20);
+      await sleep(150);
+      assert.equal(a.sigAborted, 1, 'only the connection that cancelled lost its call');
+      assert.equal(two.answered(3), true);
+      assert.equal(one.answered(3), false, 'the call of the other connection with the same id is still running');
+      a.run.revoke();
+      await one.close(); await two.close();
+    });
+
+    it('a cancel for run B cannot cut a call of run A, even with the same request id', async () => {
+      const a = run('t-key-a', 'zealot', { signalTool: true });
+      const b = run('t-key-b', 'scout', { signalTool: true });
+      const ca = await rawConnection(findRunGrant(a.run.token)!, 'same');
+      const cb = await rawConnection(findRunGrant(b.run.token)!, 'same');
+      await ca.callRoomRead(5);
+      for (let i = 0; i < 150 && a.sigStarted < 1; i++) await sleep(20);
+      await cb.cancel(5);
+      await sleep(200);
+      assert.equal(a.sigAborted, 0, 'the call of run A is untouched');
+      a.run.revoke(); b.run.revoke();
+      await ca.close(); await cb.close();
+    });
+
+    it('a cancel that arrives before its call is registered is held briefly and then applies', async () => {
+      const a = run('t-early-cancel', 'zealot', { signalTool: true });
+      const c = await rawConnection(findRunGrant(a.run.token)!, 'early');
+      await c.cancel(9);
+      await sleep(50);
+      await c.callRoomRead(9);
+      for (let i = 0; i < 150 && !c.answered(9); i++) await sleep(20);
+      assert.equal(c.answered(9), true, 'the call was cut at once, not left waiting');
+      a.run.revoke();
+      await c.close();
+    });
+
+    it('an ask the agent host cancels reaches the bridge with a signal that aborts, so the asked agent can be stopped', async () => {
+      const a = run('t-ask-abort', 'zealot', { hold: true });
+      const c = await connect(a.run.token);
+      const ctl = new AbortController();
+      const pending = c.callTool({ name: 'ask', arguments: { agent: 'scout', message: 'slow' } }, undefined, { signal: ctl.signal }).catch(() => undefined);
+      for (let i = 0; i < 150 && a.askSignals.length === 0; i++) await sleep(20);
+      assert.ok(a.askSignals[0] instanceof AbortSignal, 'the bridge is given the call signal');
+      assert.equal(a.askSignals[0]!.aborted, false);
+      ctl.abort();
+      for (let i = 0; i < 150 && !a.askSignals[0]!.aborted; i++) await sleep(20);
+      assert.equal(a.askSignals[0]!.aborted, true);
+      a.hold!.release();
+      await pending;
     });
 
     it('sixteen calls at once is the limit; the seventeenth is told so and nothing runs', async () => {

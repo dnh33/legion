@@ -7,6 +7,7 @@
  * 127.0.0.1 on the run route: any other address in the environment is refused before the key is used. It never writes the key
  * anywhere (stdout is the protocol channel, stderr gets short plain notes).
  */
+import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -30,7 +31,7 @@ async function main(): Promise<void> {
   }
   const client = new Client({ name: 'legion-acp-tools-stdio', version: '1' });
   try {
-    await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${key}` } } }));
+    await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${key}`, 'X-Legion-Shim': randomUUID() } } }));
   } catch {
     log('Legion did not accept this run. The run may have ended.');
     process.exit(1);

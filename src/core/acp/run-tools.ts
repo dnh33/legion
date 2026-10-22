@@ -39,7 +39,7 @@ const MAX_IN_FLIGHT = 16;
 
 /** Tools that wait for the owner's answer and have no wait setting to clamp: the served description says the host cuts the wait. */
 const WAITS_FOR_A_PERSON: ReadonlySet<string> = new Set(['ask_user_question', 'room_create', 'room_add_member', 'room_remove_member']);
-const HOST_CUTS_NOTE = ' Your agent host cuts any tool call after about 5 minutes, so the answer has to come within that time.';
+const HOST_CUTS_NOTE = ` Your agent host cuts any tool call after 5 minutes, so the owner has to answer within ${RUN_TOOL_WAIT_MAX_S} seconds, the same limit \`ask\` has.`;
 const ASK_LONG_WORK_NOTE = ' For long work use tell, then task_result.';
 
 /** The wait an `ask` may have: the given number of seconds up to the ceiling, and the ceiling when none (or a bad value) is given. */
@@ -55,8 +55,17 @@ function shownTool(remote: string, description: string, schema: Tool['inputSchem
   return { description: WAITS_FOR_A_PERSON.has(remote) ? description + HOST_CUTS_NOTE : description, inputSchema: schema };
 }
 
-/** Calls waiting on one key, by the request id the shim used, so a cancel from the host can reach the one it names. */
-const waiting = new WeakMap<RunGrant, Map<string, Set<AbortController>>>();
+/**
+ * Calls waiting on one key, by shim connection and then by the request id that shim used, so a cancel from the host can reach the one
+ * it names. Request ids count up from the start in every shim, so two shims on one key use the same ids: the connection is part of
+ * the key (it is whatever the route knows about the caller, "" when it knows nothing).
+ */
+const waiting = new WeakMap<RunGrant, Map<string, Map<string, Set<AbortController>>>>();
+/** A cancel that arrived before its call was registered (the shim sends it on a request of its own): held for a short while, not dropped. */
+const EARLY_CANCEL_HOLD_MS = 5000;
+const MAX_EARLY_CANCELS = 64;
+const earlyCancels = new WeakMap<RunGrant, Map<string, number>>();
+const cancelKey = (connection: string, rid: string) => `${connection}|${rid}`;
 
 interface Served { list: Tool[]; byName: Map<string, { full: string; entry: Offered }>; set: ToolSet }
 const served = new WeakMap<RunGrant, Promise<Served>>();
@@ -97,7 +106,7 @@ async function servedFor(grant: RunGrant, host: RunToolsHost): Promise<Served> {
  * The MCP server for one request. `requestGone` aborts when the shim's connection closes; the run's own end arrives through the grant.
  * With no run attached the server lists nothing and refuses every call (the route has already turned such a key away).
  */
-export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server {
+export function serverForRun(grant: RunGrant, requestGone: AbortSignal, connection = ''): Server {
   const server = new Server({ name: 'legion', version: '1' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const host = grant.host();
@@ -107,7 +116,14 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
   // The shim sends one request per call and closes none of them when the host cancels; the cancel arrives as a notification on
   // its own request, to a server that has never seen the call. So it is matched on the key's table, not on this server.
   server.setNotificationHandler(CancelledNotificationSchema, (n) => {
-    for (const ac of waiting.get(grant)?.get(String(n.params.requestId)) ?? []) ac.abort();
+    const rid = String(n.params.requestId);
+    const running = waiting.get(grant)?.get(connection)?.get(rid);
+    if (running?.size) { for (const ac of running) ac.abort(); return; }
+    const early = earlyCancels.get(grant) ?? new Map<string, number>();
+    earlyCancels.set(grant, early);
+    const now = Date.now();
+    for (const [k, until] of early) if (until <= now) early.delete(k);
+    if (early.size < MAX_EARLY_CANCELS) early.set(cancelKey(connection, rid), now + EARLY_CANCEL_HOLD_MS);
   });
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const host = grant.host();
@@ -131,10 +147,15 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
     if (busy >= MAX_IN_FLIGHT) return finish({ text: `Error: too many tool calls at once (limit ${MAX_IN_FLIGHT}); this one was not run.`, isError: true });
     inFlight.set(grant, busy + 1);
     const cancelled = new AbortController();
-    const table = waiting.get(grant) ?? new Map<string, Set<AbortController>>();
-    waiting.set(grant, table);
+    const byConnection = waiting.get(grant) ?? new Map<string, Map<string, Set<AbortController>>>();
+    waiting.set(grant, byConnection);
+    const table = byConnection.get(connection) ?? new Map<string, Set<AbortController>>();
+    byConnection.set(connection, table);
     const rid = String(extra.requestId);
     table.set(rid, (table.get(rid) ?? new Set()).add(cancelled));
+    const early = earlyCancels.get(grant);
+    const heldUntil = early?.get(cancelKey(connection, rid));
+    if (early && heldUntil !== undefined) { early.delete(cancelKey(connection, rid)); if (heldUntil > Date.now()) cancelled.abort(); }
     try {
       const signal = AbortSignal.any([host.signal, grant.signal, requestGone, extra.signal, cancelled.signal]);
       const call = {
@@ -149,6 +170,7 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
     } finally {
       table.get(rid)?.delete(cancelled);
       if (table.get(rid)?.size === 0) table.delete(rid);
+      if (table.size === 0) byConnection.delete(connection);
       inFlight.set(grant, (inFlight.get(grant) ?? 1) - 1);
     }
   });
