@@ -1077,3 +1077,43 @@ test('R70: Continue after a core restart maps session_busy and unknown_execution
     assert.ok(!/[\u2013\u2014]/.test(end.error ?? ''));
   }
 });
+
+test('R71: the owner\'s Block rules decide a Hermes request in every mode: the reject option, no card, one thread line; other requests still card', async () => {
+  const rules = { rules: [
+    { id: 'gr_c1', enabled: true, then: 'deny', label: 'no push', source: 'user', when: { commands: ['git push*'] } },
+    { id: 'gr_p1', enabled: true, then: 'deny', label: 'no secrets', source: 'user', when: { paths: ['**/secrets/**'] } },
+    { id: 'gr_off', enabled: false, then: 'deny', label: 'off rule', source: 'user', when: { commands: ['ls*'] } },
+    { id: 'gr_ask', enabled: true, then: 'ask', label: 'ask rule', source: 'user', when: { commands: ['echo*'] } },
+  ], presetsVersion: 0 };
+  const variants: Array<[string, Partial<RigOpts>]> = [
+    ['pass-through, Ask', { approval: 'ask' }],
+    ['all four switches on, Full with the tool cards off (Bypass)', { approval: 'full', gates: BYPASS, switches: { modeMap: true, disasterStop: true, answerOnce: true, stripSkipFlags: true } }],
+  ];
+  for (const [name, o] of variants) {
+    const r = rig({ ...o, steps: [] });
+    r.config.gates = rules as never;
+    const secret = join(r.work, 'secrets', 'k.txt');
+    r.setScript([CMD('perm-check-1', 'git push origin main'), EDIT('edit-approval-2', secret), CMD('perm-check-3', 'echo hi'), END()]);
+    const t = await r.run();
+    if (o.gates) { // Bypass: the harmless request is allowed without a card, the blocked ones are refused
+      await r.done(t);
+      assert.deepEqual(outcomeOf(r.answersTo(9102)[0]!), { outcome: 'selected', optionId: 'allow_once' }, `${name}: the harmless one`);
+    } else {
+      const c = await r.nextCard();
+      assert.match(c.summary, /echo hi/, `${name}: only the harmless request reached a card (an ask rule does not apply to Hermes)`);
+      r.broker.resolve(c.id, true);
+      await r.done(t);
+    }
+    assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'deny' }, `${name}: command`);
+    assert.deepEqual(outcomeOf(r.answersTo(9101)[0]!), { outcome: 'selected', optionId: 'deny' }, `${name}: path`);
+    const lines = r.rows(t.id).filter((m) => m.role === 'system' && /Block rule/.test(m.text));
+    assert.equal(lines.length, 2, `${name}: one thread line per refused request`);
+    assert.ok(lines.every((m) => !/[\u2013\u2014]/.test(m.text)));
+  }
+  const none = rig({ steps: [CMD('perm-check-1', 'git push origin main'), END()] });
+  const t = await none.run();
+  const c = await none.nextCard();
+  assert.match(c.summary, /git push/, 'with no rules the request is a card (pass-through)');
+  none.broker.resolve(c.id, false);
+  await none.done(t);
+});

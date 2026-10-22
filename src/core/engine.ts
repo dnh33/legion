@@ -85,7 +85,7 @@ import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
 import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, toolWaitOf } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
-import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
+import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, blockedNote, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
 import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
@@ -3033,6 +3033,19 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /**
+   * Does the request match one of the owner's Block rules (Settings, Gates)? The request is read as the Claude-style call it maps to, and every file an edit
+   * names (a multi-file patch holds several) is read as a call of its own. Only a Block rule applies: Ask and Allow rules never answer for Hermes.
+   */
+  private acpBlocked(job: Job, agent: AgentProfile, folder: string, r: MappedPermission): boolean {
+    const rules = gatesFor(this.config).rules;
+    if (!rules.some((x) => x.enabled && x.then === 'deny')) return false;
+    const base = { toolName: r.toolName, agentId: agent.id, cwd: folder, tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } };
+    const calls: Array<Record<string, unknown>> = [r.input];
+    if (r.toolName !== 'Bash') for (const p of requestPaths(r).paths) calls.push({ ...r.input, file_path: p });
+    try { return calls.some((input) => decideGate({ ...base, input }, rules, 'full', false).verdict === 'deny'); } catch { return true; } // a rule check that cannot run refuses, it never allows
+  }
+
+  /**
    * One Hermes permission request. Gating happens here and only here (tool_call updates are display and taint only). Order: the disaster stop
    * (no card, in every mode), Bypass (allow once, no card, unless the request touches Legion's settings or Legion cannot judge it), then one card
    * with the agent's own options. A no sends the agent's own reject option; `cancelled` is for Legion's own cancel and for a card that closed with no answer.
@@ -3041,6 +3054,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const sw = this.config.acp?.switches;
     const reject = r.options.find((o) => o.kind === 'reject_once');
     const no = (): { optionId: string } | { cancelled: true } => (reject ? { optionId: reject.optionId } : { cancelled: true });
+    // The owner's Block rules come first, in every mode and whatever the switches say: they are the owner's own explicit deny list (R71)
+    if (this.acpBlocked(job, agent, folder, r)) { this.addMessage(job.taskId, 'system', named(blockedNote(), entry.label)); return no(); }
     const why = sw?.disasterStop ? this.acpDisaster(folder, entry, r) : undefined;
     if (why) { this.addMessage(job.taskId, 'system', named(disasterNote(why), entry.label)); return no(); }
     const { settings, unreadable } = this.acpTouches(folder, entry, r);

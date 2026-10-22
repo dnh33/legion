@@ -52,5 +52,8 @@ export const HERMES_UNTESTED_TEXT = 'Hermes is not tested with Legion yet, so it
 /** These texts name Hermes. An entry that is another agent host has its own label, and the texts use that one. */
 export const named = (text: string, label: string): string => (label === 'Hermes' ? text : text.split('Hermes').join(label));
 
+/** The thread line for a request that matches one of the owner's Block rules (Settings, Gates). */
+export const blockedNote = (): string => "Legion refused a request Hermes made. It matches a Block rule you set in Settings, Gates.";
+
 /** The thread line for a command Legion refused on its own (the disaster stop). */
 export const disasterNote = (why: string): string => `Legion refused a command Hermes asked to run. ${why}`;
