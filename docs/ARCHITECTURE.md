@@ -2,7 +2,7 @@
 
 This document describes how Legion is put together and the contracts between its parts. Read it before changing the core, the HTTP API or the MCP tools. For setup and workflow, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Legion is a local, personal, Claude-only multi-agent bot. It runs on one machine for one user. It targets Windows first and also runs on macOS and Linux.
+Legion is a local, personal, Claude-first multi-agent bot. Other models run through providers, and Hermes runs as an agent host (see Agent hosts). It runs on one machine for one user. It targets Windows first and also runs on macOS and Linux.
 
 ## Design principles
 
@@ -47,6 +47,7 @@ Cowork / Desktop --stdio--> legion-mcp-stdio --->  Router      auto Sonnet/Opus 
 | `.adopted.json`, `.house-switches.json` | The owner's approvals and on/off switches for the house layer. They sit in the data directory, one level above `context/`, and are changed only by admin routes. |
 | `core.log` | The raw stdout and stderr stream of the core (redacted by the stream wrappers). The structured logs are in `logs/`. |
 | `logs/` | `legion.log`, `errors.log`, `agents.log`, `app.log` (5 MB each, 3 old copies kept). See Logging below. |
+| `acp-pids.json` | The Hermes processes Legion started. The next core start ends an orphaned one (see Agent hosts). Treated as a list of candidates, never trusted on its own. |
 
 Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KEY`, and `ANTHROPIC_API_KEY` (used only when `claude.auth` is `api-key`).
 
@@ -186,6 +187,25 @@ The preamble tells the agent it is running inside Legion, that VM tools cost mon
 
 `canUseTool` returns `{behavior:'allow', updatedInput}` or `{behavior:'deny', message:'The user denied this action.'}`. The card summary is the command for `Bash`, the path for `Write` and `Edit`, and otherwise compact JSON of at most 400 characters.
 
+## Agent hosts
+
+Hermes runs as an agent host: a program Legion starts for a run and talks to over the Agent Client Protocol (ACP) on stdin and stdout. A model value that starts with `acp:` (`acp:hermes`) selects it; `runOnce` decides that before it asks the providers or Claude, and a Hermes run never falls back to either. The full note is [design/agent-host.md](design/agent-host.md).
+
+| File | Owns |
+|---|---|
+| `src/shared/acp-view.ts`, `src/shared/config.ts` | The `acp` block of `config.json`: entries, the four switches, the watchdog minutes, the optional limits and prices; the view the window reads. |
+| `src/core/acp/process.ts` | Finding `hermes` on PATH, starting it, the cleaned environment, stopping one PID (never the tree), `acp-pids.json` and the orphan sweep. The only file here that starts a program. |
+| `src/core/acp/rpc.ts`, `session.ts`, `map.ts` | The message layer, one session (prompt, cancel, the watchdog, token counts) and the reading of Hermes's requests and tool calls. |
+| `src/core/acp/detect.ts`, `doctor-rows.ts`, `contained.ts` | Is Hermes there, which version, what its settings say; the Doctor rows; the Contained profile. |
+| `src/core/acp/run-tokens.ts`, `run-tools.ts`, `src/bin/legion-acp-tools-stdio.ts` | The per-run key and Legion's own tools for Hermes (route `/mcp/run/legion`, a short allow list). |
+| `src/core/engine.ts` (`runAcp` and the `acp*` methods) | The run: folder rule, cards, the switches, limits and usage. |
+
+- **Cards.** Hermes's permission requests become cards with Hermes's own options (`ApprovalBroker.requestAcp`). The card closes when Hermes stops waiting, and a late answer is not sent. By default Legion forwards the options unchanged and changes nothing in Hermes. The four switches (`disasterStop`, `modeMap`, `stripSkipFlags`, `answerOnce`) are all off by default, and a change that lets Hermes ask less goes through the app's native confirmation, like a gate change.
+- **What always applies.** A Hermes run is tainted from its start. A run a Hermes agent starts through `ask` or `tell` is held at `ask`. A capped or tainted caller gets a card before Hermes starts. The agent's folder may not be inside or above the data folder or inside Hermes's own home. The turn watchdog is on (default 10 minutes).
+- **Limits of the design.** Legion advertises no file or terminal access to Hermes, so Hermes uses its own tools. Legion sees the requests Hermes sends and the tool calls it reports. It cannot stop a read, a web fetch or a command Hermes does not ask about.
+- **Hermes's background service** is not started or stopped by Legion. Stopping a run closes stdin and kills the one `hermes acp` process.
+- **Detection.** The catalog only looks for `hermes` on PATH. The full check (`hermes acp --check`, a few `config get` reads and one `initialize` handshake) runs when the Doctor is opened or re-run, when Settings, Agent hosts opens, and at a Hermes run. `--version` is never used, because Hermes checks for updates on it.
+
 ## Catalog
 
 `src/core/catalog.ts`, `getCatalog(deps, {force?})`. Probes Claude Code the same way the Doctor's sign-in check does: it starts an idle streaming-input query, calls `supportedCommands()` and `supportedModels()` with a 20 second timeout, then closes it. No model call is made. Results are cached for 10 minutes and concurrent calls share one probe. On failure it returns `{commands: [], models: [], error}` and never throws.
@@ -220,6 +240,7 @@ A prompt starting with `/<name>` where `<name>` is not a Legion command goes to 
 - Claude sign-in: an idle query plus `accountInfo()` with a 20 second timeout. It reports the account email and subscription type, and makes no model call. The fix text is "Run `claude` in a terminal and sign in with /login".
 - boat.dev: if a key is set, `BoatClient.me()`, then (first time) the key probe: the check fails with the refused action names and a fix when the key lacks a permission. A separate informational `boat-claude` check appears only while Claude is known not to be set up on boat.dev.
 - The workspace directory is writable.
+- Hermes rows (`src/core/acp/doctor-rows.ts`): found, starts, version against the oldest and the tested version, Hermes's approvals mode, whether it may borrow the Claude Code login, the Contained profile and, after a failed sign-in, a sign-in row. They are read from a fresh check only when the Doctor is opened or re-run; at other times they say "not checked yet". Hermes not installed is a neutral row.
 
 ## Electron shell
 
@@ -249,6 +270,7 @@ The mascot is "The Relic", animated by a layered SVG engine in `ui/src/mascot/`.
 - CORS is limited to local origins. The Electron renderer uses `file://`.
 - The renderer is sandboxed with context isolation; its only bridge is the `window.legion` object (base URL, token, admin key, platform, openExternal, `bsvPolicy(action)` and `onBsvChanged(cb)`; the window never holds the native secret).
 - Legion does not read Claude credentials. The child environment starts from `process.env`, drops variables that belong to a host Claude session (so a Core launched from Claude Code does not attach to it), and removes API-key variables in `claude-login` mode.
+- A Hermes agent acts through Hermes's own tools. Legion's run key for it (random per run, bound to one task and agent, valid only for `/mcp/run/legion` on `127.0.0.1`) serves a short allow list of Legion tools and ends with the run. Hermes's environment is cleaned like a Claude agent's. See Agent hosts and SECURITY.md.
 - Approval modes are the main guard on what agents may do locally. `full` is opt-in per agent.
 - boat.dev API keys live in `config.json` or the environment; the API redacts them. VM desktop URLs are secrets and are handed to the user, never logged or forwarded.
 - `/api/config` returns redacted config only.

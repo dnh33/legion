@@ -33,6 +33,12 @@ These claims are about Legion's own code.
 - **Installers.** The one-line Windows installer downloads the release zip from GitHub over HTTPS. It checks the SHA-256 before it unpacks anything. On macOS and Linux the installer builds from source.
 - **MCP isolation.** By default, MCP servers and connectors from your own Claude Code setup are not loaded into agents (`claude.inheritMcp` is off). This is a request Legion's own code makes of Claude Code. It is not a sandbox.
 - **Provider agents.** An agent on an OpenAI-compatible provider has no Claude Code tools. It gets only Legion's own tools, and approvals still apply. Provider keys are stored apart from `config.json`.
+- **Hermes agents (optional).** Hermes runs its own tools on your computer, so this list is short and the limits below are long.
+  - Legion finds `hermes` on your PATH only, never in a project folder. It cleans Hermes's environment the way it cleans a Claude agent's: names and values that look like keys, tokens or passwords are held back, and so are Legion's own secrets. Names on your keep list pass.
+  - A Hermes agent does not work in or above Legion's data folder, or inside Hermes's own folder.
+  - Legion's own tools reach Hermes through a run key. It is random, made for one run, bound to one task and agent, and good only for one route on `127.0.0.1`. It serves a short list of Legion tools (agents, ask, tell, task results, questions to you and the room tools) and not a shell, files or the web. It ends when the run ends.
+  - A Hermes run is marked tainted from its start. A run that a Hermes agent starts through ask or tell is held at the `ask` level. When a capped or tainted caller asks a Hermes agent to work, a card asks you first, in every mode.
+  - By default Legion passes Hermes's own questions to you as cards, with Hermes's own buttons, and changes nothing in Hermes. Four switches (stop disaster commands, match Legion's mode, ignore Hermes's skip-approval settings, answer each request once) are off by default. A change that lets Hermes ask less needs the app's confirmation dialog.
 - **Window.** The Electron window is sandboxed, with context isolation and no Node integration.
 
 ## BSV mode (testing preview)
@@ -64,6 +70,14 @@ Details: [BSV mode](docs/BSV-MODE.md) and [wallet design](docs/BSV-WALLET-DESIGN
 - **Folders you trust.** Trusting a folder lets its Claude Code hooks, settings and skills run commands with your rights. Legion holds the folder back again when those commands change, but it does not follow a CLAUDE.md import of a file inside the folder, and it does not see a hard link that points outside the folder.
 - **Smart and Bypass.** Smart judges each command by what it can read of it. The tests and builds an agent runs, and the code they load, can reach the web and read your files without a card, and a little data can leave in the address of a site Smart allows. Bypass asks only for protected files. Use Ask for work with web pages or repositories you do not trust.
 - **Providers.** An agent on a provider sends its prompts to the server you chose.
+- **Hermes agents.** A Hermes agent reads files, fetches web pages and runs commands with its own tools and your rights.
+  - Legion sees the questions Hermes asks you and the tool calls it reports. It cannot stop a read, a web fetch or a command that Hermes does not ask about.
+  - Hermes's own approvals setting decides what it asks. Hermes ships with `smart`, where Hermes lets its own AI approve some commands before you see them; with `off` it asks about nothing. The Doctor shows the setting and how to change it.
+  - With "Match Legion's mode" on and an agent in Bypass, Legion allows Hermes requests without a card. A request that names Legion's protected files or Hermes's own folder, or whose files Legion cannot read, still gets a card. A command Legion cannot judge gets one only while "Stop disaster commands" is on.
+  - By default Hermes may borrow your Claude Code login, and the two programs can then log each other out. The Hermes setting `auth.adopt_external_logins` set to `false` stops that. The Doctor shows the command. Legion never changes your own Hermes settings.
+  - Contained (a Hermes profile named `legion`) is not a sandbox. Legion's Set up and Check read back three of its settings: that it asks before it runs a command, that its tool list for Legion runs is the file tools, and that it does not borrow the Claude Code login or one other coding tool's login. It may still use your main Hermes sign-in, and other sign-ins can still be picked up. Tools you add to that profile yourself are not checked. If your own Hermes model settings hold an API key written into the config file, creating the profile can copy it.
+  - Hermes's own background service keeps running after a run. Legion stops only its own `hermes acp` process.
+  - Hermes does not report cost. Legion's spend record counts a Hermes task only when you enter its prices.
 
 ## Read more
 

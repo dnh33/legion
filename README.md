@@ -26,6 +26,7 @@ Legion is in beta: expect rough edges and the odd bug.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux (experimental):** the one-line installer sets Legion up, and since 0.3.5 that install updates itself. Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. The maintainer uses Windows, so feedback and bug reports from Mac and Linux are very welcome: [report a bug](https://github.com/dnh33/legion/issues/new?template=bug_report.yml).
+- **Hermes (optional):** you can run Hermes as an agent. The automated tests use a stand-in for Hermes, and it has not yet been tried against a real one. Windows first; macOS and Linux are experimental.
 - **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, DeepSeek, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
 
 <details><summary>Details</summary>
@@ -74,12 +75,14 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 - **The Marshal leads the Order.** It splits a request into tasks, hands each to the best agent and runs independent ones at once.
 - **Agents talk to each other.** One can `ask` another and wait, or `tell` it and get the reply later.
 - **Rooms**: group chats of agents and you ([Rooms](#rooms)).
+- **Hermes as an agent (optional).** Pick Hermes as an agent's model when it is installed on your computer. Claude works without it.
 - **A VM per agent, on demand**, with a live screen preview ([boat.dev VMs](#boatdev-vms)).
 
 <details><summary>Details</summary>
 
 - Your own agents get a name, system prompt, model, approval mode and VM settings. Your edits to the Marshal's prompt are kept; the lead role applies on top. In a project, the Marshal works through the board's leader.
 - Pair threads between two agents resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
+- Hermes keeps its own tools, model and sign-in and works on your computer with them. By default Legion shows the questions Hermes asks you as cards with Hermes's own buttons and passes your answer back unchanged. Legion cannot stop a Hermes read, web fetch or command that Hermes does not ask about; Hermes's own approvals setting decides what it asks, and the Doctor shows it. Legion starts Hermes only when an agent uses it or you open the Doctor or Settings, Agent hosts. A Hermes agent needs a folder outside Legion's data folder, and Hermes 0.22.3 or newer. Settings, Agent hosts has four switches (all off), a Contained profile and a watchdog (10 minutes by default). Hermes does not report cost, so Legion shows tokens. Details: [docs/design/agent-host.md](docs/design/agent-host.md).
 - Rooms have guards against runaway loops. Agents can propose creating a room or changing its members; each change waits for an Allow card that only you can answer in the app.
 - Agents start, use and stop their own boat.dev VM. You get an "Open desktop" link. Idle VMs stop on their own, so billing pauses. Legion shows how long a VM has run today, and an optional cost estimate from the hourly price you enter ([docs/VM-NOTES.md](docs/VM-NOTES.md)).
 
@@ -141,7 +144,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 - Commands an agent runs do not get environment variables that look like keys, tokens or passwords.
 - Provider keys are kept in an encrypted file, locked with your system key store.
 - Settings covers Claude sign-in or API key, providers, web search, your boat.dev key (with a Test button), MCP servers and connection snippets.
-- Doctor checks Node, config, Claude sign-in, boat.dev and the workspace.
+- Doctor checks Node, config, Claude sign-in, boat.dev and the workspace, and Hermes when you open the Doctor.
 - Legion has no sandbox for commands: a command you allow runs with your own rights. See [SECURITY.md](SECURITY.md) and the known limits in the [changelog](CHANGELOG.md).
 
 </details>
@@ -513,6 +516,7 @@ Type `/` in the composer to open the menu. Commands Legion does not handle go to
 | `boat.apiKey`, `boat.baseUrl` | boat.dev access. `BOAT_API_KEY` also works. |
 | `features.projectBoard` | The project board. Default on; only the literal `false` turns it off. |
 | `mcpServers` | Extra MCP servers, in the same shape as Claude Code's `.mcp.json`. |
+| `acp` | Hermes as an agent: the four switches, the watchdog minutes, and on the `hermes` entry optional `maxSteps`, `maxTokensPerTask` and `prices`. Most of it is in Settings, Agent hosts; the limits and prices are only here. Restart Legion after editing. See [docs/design/agent-host.md](docs/design/agent-host.md). |
 
 Environment variables: `LEGION_HOME` (data directory), `LEGION_PORT`, `LEGION_NODE` (Node binary for the app to use), `BOAT_API_KEY`.
 
