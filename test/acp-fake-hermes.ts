@@ -14,6 +14,8 @@
  *                                             0.22.3; empty: no version) and leaves when stdin closes. `--check` also works after `-p <name>`.
  *   config get <key> --json                   without -p: the owner's own home, kept as the folder `__home__`; a missing folder is an empty config
  *   --version (anywhere)                      exit 9: Legion must never send it (it checks for updates); the argument list is logged first
+ * `-p <name> acp --check` exits 1 "Profile '<name>' does not exist." when the profile folder is missing, as Hermes does.
+ * FAKE_HERMES_HANDSHAKE=hang (with FAKE_HERMES_PIDFILE): `acp` writes its PID to that file, never answers `initialize` and leaves when its input is closed.
  * FAKE_HERMES_SEEN (a file) receives the HERMES_HOME the command saw, one line per call. FAKE_HERMES_GARBAGE replaces the value `config get` prints.
  * Switches for the failure tests: FAKE_HERMES_SHOW_ERROR (`profile show` fails the way a stale saved profile does), FAKE_HERMES_NOISE (a
  * notice line before the JSON of `config get`), FAKE_HERMES_LEAK (`config set` fails with a key-shaped value in its message).
@@ -38,8 +40,16 @@ const die = (code: number, text: string): never => { process.stderr.write(`${tex
 if (argv.includes('--version')) {
   die(9, 'fake hermes: --version must never be sent');
 } else if (a[0] === 'acp' && a.includes('--check')) {
+  // real Hermes resolves -p before it runs any command: a profile that is not there ends in exit 1 (hermes_cli/main.py:630-653)
+  if (profile && !existsSync(dir(profile))) die(1, `Profile '${profile}' does not exist.`);
   if (process.env.FAKE_HERMES_CHECK_FAIL) die(1, process.env.FAKE_HERMES_CHECK_FAIL);
   process.stdout.write('Hermes ACP check OK\n');
+} else if (a[0] === 'acp' && !profile && process.env.FAKE_HERMES_HANDSHAKE === 'hang' && process.env.FAKE_HERMES_PIDFILE) {
+  // a program that never answers `initialize` (its PID goes to the file) and leaves only when its input is closed
+  writeFileSync(process.env.FAKE_HERMES_PIDFILE, String(process.pid));
+  setInterval(() => undefined, 1000);
+  process.stdin.on('data', () => undefined);
+  process.stdin.on('end', () => process.exit(0));
 } else if (a[0] === 'acp' && !profile && process.env.FAKE_HERMES_HANDSHAKE) {
   const version = process.env.FAKE_HERMES_VERSION ?? '0.22.3';
   let buf = '';

@@ -516,6 +516,16 @@ test('R38: the tool wait is read when a run starts, from a function, so the sett
   await r.done(t);
 });
 
+test('R58: a Hermes run start tells the core (so it can warm the detection in the background); a throwing hook does not stop the run', async () => {
+  const started: string[] = [];
+  const r = rig({ agentHost: { onRunStart: (e: { id: string }) => { started.push(e.id); throw new Error('hook failed'); } }, steps: [END()] });
+  const t = await r.run();
+  const end = await r.done(t);
+  assert.deepEqual(started, ['hermes']);
+  assert.notEqual(end.status, 'error');
+});
+
+// A tripwire on the wiring text (the behaviour is covered by the seam tests above and by acp-doctor.test.ts): it fails if the wiring is deleted, not if it is wrong.
 test('R38: the core feeds both waits from the detection cache (wired in legion-core, Doctor and catalog get the agent host)', () => {
   const src = readFileSync(fileURLToPath(new URL('../../src/bin/legion-core.ts', import.meta.url)), 'utf8');
   assert.match(src, /hostWaitSeams\(/);
@@ -523,6 +533,8 @@ test('R38: the core feeds both waits from the detection cache (wired in legion-c
   assert.match(src, /toolWaitMs:\s*seams\.toolWaitMs/);
   assert.match(src, /runDoctor\(\{[^}]*agentHost/);
   assert.match(src, /getCatalog\(\{[^}]*hosts:/);
+  assert.match(src, /onRunStart:\s*warmHermes/);
+  assert.match(src, /e\.enabled && config\.acp\.firstUseSeen\) void detectAgent/, 'the background check is behind the first-use guard and the on switch');
 });
 
 test('R37 and R34: a card raised inside a Hermes tool call counts against the 270 s budget, shows its deadline and closes itself with "The agent stopped waiting"', async () => {

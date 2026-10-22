@@ -285,11 +285,11 @@ test('the probes see the same Hermes home as a run: the entry env reaches the ch
   assert.ok(homes().every((h) => h === 'owner-home'), JSON.stringify(homes()));
 });
 
-test('a contained entry is checked and read through its profile: -p legion in front of every command that reads settings', async () => {
+test('a contained entry is checked (the program) and read through its profile: -p legion in front of every command that reads settings', async () => {
   profileConfig({ 'approvals.mode': 'manual', 'approvals.timeout': 90 });
   const d = await detectAgent({ ...BUILTIN_HERMES, contained: true }, deps());
   assert.equal(d.approvalsMode, 'manual');
-  assert.deepEqual(calls()[0], ['-p', 'legion', 'acp', '--check']);
+  assert.deepEqual(calls()[0], ['acp', '--check'], 'the start check is about the program: it needs no profile');
   const gets = calls().filter((c) => c.includes('config'));
   assert.ok(gets.length >= 2);
   assert.ok(gets.every((c) => c[0] === '-p' && c[1] === 'legion'), JSON.stringify(gets));
@@ -317,6 +317,13 @@ test('R38: approvals.timeout and the MCP tool-call timeout are read and cached; 
   const e = await detectAgent(BUILTIN_HERMES, deps());
   assert.equal(e.permissionWaitMs, 300_000);
   assert.equal(e.toolWaitMs, 270_000);
+});
+
+test('R38: Hermes reads a quoted number as a number, so Legion does too', async () => {
+  ownConfig({ 'approvals.timeout': '600', 'timeouts.mcp.tool_call': '100.5' });
+  const d = await detectAgent(BUILTIN_HERMES, deps());
+  assert.equal(d.permissionWaitMs, 600_000);
+  assert.equal(d.toolWaitMs, 70_500);
 });
 
 test('R38: a value that is not a positive number is ignored', async () => {
@@ -437,6 +444,89 @@ test('no row text has an em dash or an en dash, or says "this computer"', async 
   noteAuthFailure('hermes');
   const all = [...await rowsOf([BUILTIN_HERMES, { ...BUILTIN_HERMES, id: 'c', contained: true }]), ...(await (async () => { setEnv('PATH', emptyDir); forgetDetections(); return rowsOf(); })())];
   for (const r of all) assert.doesNotMatch(`${r.label} ${r.detail} ${r.fix ?? ''}`, new RegExp('['+String.fromCharCode(0x2013, 0x2014)+']|this computer', 'i'));
+});
+
+// ------------------------------------------------------------------ fix round 1
+
+test('Contained entry with no `legion` profile yet: the row says "not set up" and the start row is not red', async () => {
+  const entry = { ...BUILTIN_HERMES, contained: true };
+  const all = await rowsOf([entry]);
+  const starts = all.find((r) => r.id === 'acp-hermes-starts')!;
+  assert.equal(starts.ok, true, `the program starts; ${starts.detail}`);
+  assert.equal(starts.fix, undefined);
+  const c = all.find((r) => r.id === 'acp-hermes-contained')!;
+  assert.equal(c.label, 'Contained profile: not set up');
+  assert.equal(c.ok, false);
+  assert.ok(c.detail.length > 0, 'the set-up hint');
+  assert.deepEqual(all.filter((r) => !r.ok).map((r) => r.id), ['acp-hermes-contained'], 'the one red row is the profile');
+  assert.ok(calls().every((x) => !(x[0] === '-p' && x.includes('--check'))), 'no start check goes through a profile that may not exist');
+  assert.ok(!all.some((r) => r.id === 'acp-hermes-approvals'), 'there is no profile to read approvals from yet');
+});
+
+test('the fake behaves like Hermes: -p with a missing profile fails `acp --check` (so the test above cannot pass by accident)', async () => {
+  const d = await detectAgent({ ...BUILTIN_HERMES, args: ['-p', 'legion', 'acp'] }, deps());
+  assert.equal(d.checkOk, false);
+  assert.match(d.detail, /does not exist/);
+});
+
+test('catalog: Legion starts no Hermes to build the model list (found by PATH only), also when forced', async () => {
+  const c = await catalogOf([BUILTIN_HERMES]);
+  assert.deepEqual(c.hosts, [{ value: 'acp:hermes', label: 'Hermes', entryId: 'hermes' }]);
+  await getCatalog({ config: doctorConfig(), queryFn: fakeQueryWithLists(), hosts: hosts([BUILTIN_HERMES, custom()]) }, { force: true });
+  assert.deepEqual(calls(), [], 'zero Hermes invocations during catalog load');
+});
+
+test('catalog: a cached check that failed hides the row; a cached pass keeps it; the catalog still starts nothing', async () => {
+  setEnv('FAKE_HERMES_CHECK_FAIL', 'broken');
+  await detectAgent(BUILTIN_HERMES, deps()); // a Doctor pass or a run did this
+  const n = calls().length;
+  let c = await catalogOf([BUILTIN_HERMES]);
+  assert.deepEqual(c.hosts ?? [], [], 'known not to start: not offered');
+  forgetDetections();
+  setEnv('FAKE_HERMES_CHECK_FAIL', undefined);
+  await detectAgent(BUILTIN_HERMES, deps());
+  const m = calls().length;
+  c = await catalogOf([BUILTIN_HERMES]);
+  assert.equal(c.hosts?.length, 1);
+  assert.ok(n > 0 && calls().length === m, 'the catalog added no invocation');
+});
+
+test('Hermes-only commands go to the built-in entry only: a custom entry gets one initialize handshake and nothing else', async () => {
+  const all = await rowsOf([custom()]);
+  assert.ok(calls().length >= 1);
+  assert.ok(calls().every((c) => c.length === 1 && c[0] === 'acp'), JSON.stringify(calls()));
+  const ids = all.map((r) => r.id);
+  assert.ok(ids.includes('acp-other-starts') && ids.includes('acp-other-version'));
+  assert.equal(all.find((r) => r.id === 'acp-other-starts')!.ok, true);
+  const ap = all.find((r) => r.id === 'acp-other-approvals')!;
+  assert.match(ap.detail, /not checked/i);
+  assert.equal(ap.ok, true);
+  assert.equal(ap.level, 'neutral');
+  assert.ok(!ids.includes('acp-other-logins'));
+});
+
+test('a custom entry that does not answer initialize is red on "starts" and is not asked anything else', async () => {
+  setEnv('FAKE_HERMES_HANDSHAKE', undefined); // the fake then exits at once with "unknown command"
+  const all = await rowsOf([custom()]);
+  const s = all.find((r) => r.id === 'acp-other-starts')!;
+  assert.equal(s.ok, false);
+  assert.ok(calls().every((c) => c.length === 1 && c[0] === 'acp'), JSON.stringify(calls()));
+});
+
+test('a handshake that never gets an answer ends at the limit: the program is stopped and no process is left behind', async () => {
+  const pidFile = join(state, 'hang.pid');
+  setEnv('FAKE_HERMES_HANDSHAKE', 'hang');
+  setEnv('FAKE_HERMES_PIDFILE', pidFile);
+  const d = await detectAgent(custom(), { ...deps(), handshakeTimeoutMs: 600 });
+  assert.equal(d.checkOk, false);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.ok(pid > 0);
+  let alive = true;
+  for (let i = 0; i < 40 && alive; i++) {
+    try { process.kill(pid, 0); await new Promise((r) => setTimeout(r, 100)); } catch { alive = false; }
+  }
+  if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  assert.equal(alive, false, 'the hanging program was ended');
 });
 
 // ------------------------------------------------------------------ Doctor and catalog wiring

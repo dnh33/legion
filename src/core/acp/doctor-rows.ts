@@ -8,7 +8,7 @@
  * R34: the in-process Hermes path (a shared bare server name) is not supported, so no row here says anything about it working.
  */
 import type { DoctorCheck } from '../../shared/types.js';
-import { BUILTIN_HERMES, containedArgs, type AcpEntry } from '../../shared/acp-view.js';
+import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
 import { ENV_KEEP_LABEL } from '../../shared/gates-registry.js';
 import { containedStatus } from './contained.js';
 import { TESTED_HERMES, authFailureNoted, compareVersions, detectAgent, type AgentDetection, type AgentHostDeps } from './detect.js';
@@ -35,26 +35,26 @@ function versionRow(entry: AcpEntry, base: string, d: AgentDetection): DoctorChe
   return { id, label, ok: true, detail: `Legion was tested with Hermes ${TESTED_HERMES.testedWith}.` };
 }
 
-function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection): DoctorCheck | undefined {
+function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection): DoctorCheck {
+  // Legion reads Hermes's settings only from Hermes: another agent host is never sent Hermes's commands
+  if (entry.id !== BUILTIN_HERMES.id) return { id: `${base}-approvals`, label: `${entry.label} approvals`, ok: true, level: 'neutral', detail: 'Not checked. Legion does not read this setting from other agent hosts.' };
   const mode = d.approvalsMode ?? 'unknown';
   const id = `${base}-approvals`;
   const label = `${entry.label} approvals: ${mode}`;
-  if (mode === 'unknown') {
-    // another agent host may have no such setting at all: say nothing then
-    return entry.id === BUILTIN_HERMES.id ? { id, label, ok: true, detail: 'Legion could not read this setting from Hermes.' } : undefined;
-  }
+  if (mode === 'unknown') return { id, label, ok: true, detail: 'Legion could not read this setting from Hermes.' };
   if (mode === 'off') return { id, label, ok: false, detail: named(APPROVALS_OFF, entry.label), fix: `${quoted(entry.command)} config set approvals.mode manual` };
   if (mode === 'smart') return { id, label, ok: true, level: 'warn', detail: named(APPROVALS_SMART, entry.label) };
   return { id, label, ok: true, detail: named('Hermes asks you before it runs a command.', entry.label) };
 }
 
-async function containedRow(entry: AcpEntry, base: string, deps: AgentHostDeps): Promise<DoctorCheck> {
+async function containedRow(entry: AcpEntry, base: string, deps: AgentHostDeps): Promise<{ row: DoctorCheck; exists: boolean }> {
   const s = await containedStatus(entry, deps.run ? { run: deps.run } : undefined);
   const id = `${base}-contained`;
-  if (!s.exists) return { id, label: 'Contained profile: not set up', ok: false, detail: s.detail };
-  if (!s.policyOk) return { id, label: 'Contained profile: settings differ', ok: false, detail: s.detail };
-  if (!s.signedIn) return { id, label: 'Contained profile: not signed in', ok: true, level: 'warn', detail: s.detail };
-  return { id, label: 'Contained profile: ready', ok: true, detail: s.detail };
+  const row = (r: Omit<DoctorCheck, 'id'>): { row: DoctorCheck; exists: boolean } => ({ row: { id, ...r }, exists: s.exists });
+  if (!s.exists) return row({ label: 'Contained profile: not set up', ok: false, detail: s.detail });
+  if (!s.policyOk) return row({ label: 'Contained profile: settings differ', ok: false, detail: s.detail });
+  if (!s.signedIn) return row({ label: 'Contained profile: not signed in', ok: true, level: 'warn', detail: s.detail });
+  return row({ label: 'Contained profile: ready', ok: true, detail: s.detail });
 }
 
 /** The rows for one entry. */
@@ -66,13 +66,14 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps): Promise<DoctorChec
   if (!d.found) return [{ id: base, label: entry.label, ok: builtin, ...(builtin ? { level: 'neutral' as const } : {}), detail: d.detail }];
   const rows: DoctorCheck[] = [{ id: base, label: `${entry.label}: found`, ok: true, detail: d.path ?? entry.command }];
   if (!d.checkOk) {
-    rows.push({ id: `${base}-starts`, label: `${entry.label} starts`, ok: false, detail: d.detail, fix: `${quoted(entry.command)} ${[...containedArgs(entry), '--check'].join(' ')}` });
+    rows.push({ id: `${base}-starts`, label: `${entry.label} starts`, ok: false, detail: d.detail, ...(builtin ? { fix: `${quoted(entry.command)} ${[...entry.args, '--check'].join(' ')}` } : {}) });
     return rows;
   }
   rows.push({ id: `${base}-starts`, label: `${entry.label} starts`, ok: true, detail: 'Its start check passed.' });
   rows.push(versionRow(entry, base, d));
-  const approvals = approvalsRow(entry, base, d);
-  if (approvals) rows.push(approvals);
+  // a Contained entry: the profile is looked at first. Before it is set up there is nothing to read approvals from, and the profile row says so.
+  const contained = entry.contained ? await containedRow(entry, base, deps) : undefined;
+  if (!contained || contained.exists) rows.push(approvalsRow(entry, base, d));
   // R50: only the owner's own Hermes. The Contained profile turns the borrowing off and its row checks that.
   if (builtin && !entry.contained && d.adoptExternalLogins === true) {
     rows.push({
@@ -83,7 +84,7 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps): Promise<DoctorChec
   }
   // R27: a run that Hermes refused for a missing sign-in, while Hermes itself starts, usually means a key that lives in a variable Legion keeps back
   if (authFailureNoted(entry.id)) rows.push({ id: `${base}-signin`, label: `${entry.label} sign-in under Legion`, ok: false, detail: named(SIGNIN_TEXT, entry.label) });
-  if (entry.contained) rows.push(await containedRow(entry, base, deps));
+  if (contained) rows.push(contained.row);
   return rows;
 }
 

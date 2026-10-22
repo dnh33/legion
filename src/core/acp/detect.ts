@@ -8,9 +8,12 @@
  *    `--version` is never sent: Hermes checks for updates on it, and Legion never updates Hermes.
  *  - The version is `agentInfo.version` of the `initialize` answer (acp_adapter/gateway_server.py:138-143). That answer needs no model
  *    and no background service: the service is only reached when a session opens (gateway_server.py:161).
- *  - `hermes acp` serves through the gateway agent from commit f974134f36 (2026-10-16, acp_adapter/server.py:245-248). It is in no tag
- *    before v0.22.3 (published 2026-10-21; `git tag --contains` lists only canary builds after v0.22.2, and the GitHub compare of
- *    f974134f36 with v0.22.3 says "ahead", behind_by 0). So v0.22.3 is the oldest version this runtime is built for.
+ *  - `hermes acp` serves through the gateway agent (GatewayACPAgent, acp_adapter/server.py:245-248, gateway_server.py). Checked 2026-10-22 in the
+ *    local clone: v0.22.1 has it (`git show v0.22.1:acp_adapter/server.py`, lines 254-257), v0.22.2 does not (no gateway_server.py), so the
+ *    version line is NOT monotone, and the clone's history starts at f974134f36, so it cannot date the change by commit. The clone has no
+ *    v0.22.3 tag. v0.22.3 contains it according to one GitHub compare call (f974134f36...v0.22.3, "ahead", behind_by 0) that was NOT
+ *    re-checked locally. 0.22.3 is therefore a safe floor (0.22.2 is known to lack the server), not a proven first release.
+ *    Task 12 confirms it against a real Hermes.
  *  - `config get <key> --json` reads the merged config, so a default shows as its value (hermes_cli/config.py:3543-3590). A key that has no
  *    default and was never set exits 1 with "Config key not set".
  *  - approvals.mode is manual, smart or off; a bare `off` is read as the boolean false by YAML and Hermes maps false to off, true to manual and
@@ -22,7 +25,7 @@
  *  - auth.adopt_external_logins defaults to true (config_defaults.py:1775): Hermes borrows the Claude Code login.
  */
 import { tmpdir } from 'node:os';
-import { BUILTIN_HERMES, containedArgs, type AcpEntry } from '../../shared/acp-view.js';
+import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
 import { VERSION } from '../../shared/config.js';
 import { redact } from '../log/redact.js';
 import { asJson, CONTAINED_PROFILE, why, type Out } from './contained.js';
@@ -31,7 +34,7 @@ import { RpcPeer } from './rpc.js';
 import { PROTOCOL_VERSION } from './session.js';
 
 /**
- * `min`: the oldest Hermes with the gateway ACP server this runtime talks to (see above). `testedWith`: the version the runtime was built and
+ * `min`: a safe floor for the Hermes with the gateway ACP server this runtime talks to (see above; unconfirmed until the live walk). `testedWith`: the version the runtime was built and
  * checked against. It is the release that holds the source that was studied; update it after the live walk.
  */
 export const TESTED_HERMES = { min: '0.22.3', testedWith: '0.22.3' } as const;
@@ -42,7 +45,9 @@ export const DETECT_TTL_MS = 10 * 60 * 1000;
 /** `acp --check` imports Python packages: a cold disk on Windows can take a while. */
 export const CHECK_TIMEOUT_MS = 30_000;
 const GET_TIMEOUT_MS = 20_000;
+/** Hermes starts Python, so its handshake gets longer than another agent host's. */
 const HANDSHAKE_TIMEOUT_MS = 15_000;
+const OTHER_HANDSHAKE_TIMEOUT_MS = 8_000;
 /** What Hermes does when nothing is configured, in seconds. */
 const HERMES_DEFAULT_WAIT_S = 300;
 /** A tool call is given up this much before Hermes cuts it (270 s of its 300 s), but never less than half of its time. */
@@ -56,7 +61,7 @@ export interface AgentDetection {
   path?: string;
   /** False: nothing was run (a custom entry the owner has not switched on). */
   checked: boolean;
-  /** `acp --check` passed. */
+  /** Hermes: `acp --check` passed. Another agent host: it answered the `initialize` handshake. */
   checkOk: boolean;
   /** `x.y.z`, from the `initialize` answer (or the last run). Undefined when it could not be read or is Hermes's "no stamp" placeholder. */
   version?: string;
@@ -79,6 +84,8 @@ export interface AgentHostDeps {
   /** Test hooks. */
   now?: () => number;
   run?: typeof runAgentCli;
+  /** Test hook: how long the `initialize` handshake may take (ms). */
+  handshakeTimeoutMs?: number;
 }
 
 export interface DetectOptions { force?: boolean }
@@ -138,8 +145,22 @@ export function hostWaitSeams(entry: () => AcpEntry | undefined): { permissionWa
 
 // ---------------------------------------------------------------- detection
 
+/** The built-in entry is the only Hermes: normalizeAcp never lets a custom entry take its id. Hermes's own subcommands go to it alone. */
+export const isHermes = (e: AcpEntry): boolean => e.id === BUILTIN_HERMES.id;
+
 /** Probed: the built-in entry, and a custom entry only once the owner switched it on (a custom command is an arbitrary program). */
-export const isProbed = (e: AcpEntry): boolean => e.id === BUILTIN_HERMES.id || e.enabled;
+export const isProbed = (e: AcpEntry): boolean => isHermes(e) || e.enabled;
+
+/**
+ * What the catalog (the model list) may know without starting anything: the program is on PATH (a file lookup, no process), and the last full
+ * detection if there is one, however old. A cached check that failed means "known not to start". Never awaits, never starts a program.
+ */
+export function peekAgent(entry: AcpEntry): { found: boolean; startsOk?: boolean } {
+  if (!isProbed(entry)) return { found: false };
+  const known = cache.get(keyOf(entry))?.value;
+  try { resolveCommand(entry.command, { ...process.env, ...(entry.env ?? {}) }); } catch { return { found: false }; }
+  return { found: true, ...(known ? { startsOk: known.checkOk } : {}) };
+}
 
 export function detectAgent(entry: AcpEntry, deps: Partial<AgentHostDeps> & DetectOptions = {}): Promise<AgentDetection> {
   const now = deps.now ?? Date.now;
@@ -166,7 +187,11 @@ function modeOf(v: unknown): ApprovalsMode {
   const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
   return s === 'manual' || s === 'smart' || s === 'off' ? s : 'unknown';
 }
-const secondsOf = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : HERMES_DEFAULT_WAIT_S);
+/** A number, or a quoted number (Hermes reads both with int() or float()); anything else is "not set". */
+const secondsOf = (v: unknown): number => {
+  const n = typeof v === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(v) ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : HERMES_DEFAULT_WAIT_S;
+};
 
 async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<AgentDetection> {
   const label = entry.label;
@@ -181,11 +206,20 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
       : redact(e instanceof Error ? e.message : String(e)).slice(0, 300);
     return { found: false, checked: true, checkOk: false, detail };
   }
+  // Another agent host is only asked to start and answer `initialize`: the check and the settings reads are Hermes's own subcommands
+  if (!builtin) {
+    const hello = await handshake(entry, deps, deps.handshakeTimeoutMs ?? OTHER_HANDSHAKE_TIMEOUT_MS);
+    if (!hello.ok) return { found: true, path, checked: true, checkOk: false, detail: `${label} did not answer when Legion started it.` };
+    const seen = hello.version ?? notes.get(entry.id)?.version;
+    return { found: true, path, checked: true, checkOk: true, ...(seen ? { version: seen } : {}), detail: `${label} starts.` };
+  }
   const run = deps.run ?? runAgentCli;
   const envKeep = deps.envKeep?.() ?? [];
   const go = (args: string[], timeoutMs: number) => run(entry.command, args, { timeoutMs, cwd: tmpdir(), envKeep, ...(entry.env ? { entryEnv: entry.env } : {}) });
 
-  const check = await go([...containedArgs(entry), '--check'], CHECK_TIMEOUT_MS);
+  // The check is about the program, so it goes without the Contained profile: `hermes -p <name> ...` ends in an error when the profile is not
+  // there yet (hermes_cli/main.py:630-653, read 2026-10-22), and that is the Contained row's story, not "Hermes does not start".
+  const check = await go([...entry.args, '--check'], CHECK_TIMEOUT_MS);
   if (check.code !== 0 || check.timedOut) {
     return { found: true, path, checked: true, checkOk: false, detail: `${label} did not start: ${why(check)}`.slice(0, 400) };
   }
@@ -198,7 +232,7 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
   };
   const [mode, adopt, perm, tool, version] = await Promise.all([
     get('approvals.mode'), get('auth.adopt_external_logins'), get('approvals.timeout'), get('timeouts.mcp.tool_call'),
-    askVersion(entry, deps),
+    handshake(entry, deps, deps.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS),
   ]);
 
   const approvalsMode = mode.value === undefined ? 'unknown' : modeOf(mode.value);
@@ -207,7 +241,7 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
   const toolSeconds = secondsOf(tool.value);
   const toolWaitMs = Math.max(Math.floor(toolSeconds * 500), toolSeconds * 1000 - TOOL_MARGIN_MS);
   lastWaits.set(entry.id, { permissionWaitMs, toolWaitMs });
-  const seenVersion = version ?? notes.get(entry.id)?.version;
+  const seenVersion = version.version ?? notes.get(entry.id)?.version;
   return {
     found: true, path, checked: true, checkOk: true, ...(seenVersion ? { version: seenVersion } : {}), approvalsMode,
     ...(adoptExternalLogins !== undefined ? { adoptExternalLogins } : {}), permissionWaitMs, toolWaitMs, detail: `${label} starts.`,
@@ -215,23 +249,24 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
 }
 
 /**
- * `initialize` only: no session, no model call, no background service. The agent is stopped at once. Best effort: any failure means "version not read".
+ * `initialize` only: no session, no model call, no background service. The agent is stopped at once. Best effort: any failure means "not answered".
  * A contained entry is started without its profile here: the program is the same, and the profile may not exist yet.
  */
-async function askVersion(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<string | undefined> {
-  if (!deps.dataDir) return undefined;
+async function handshake(entry: AcpEntry, deps: Partial<AgentHostDeps>, timeoutMs: number): Promise<{ ok: boolean; version?: string }> {
+  if (!deps.dataDir) return { ok: false };
   let proc: ReturnType<typeof startAgentProcess> | undefined;
   let peer: RpcPeer | undefined;
   try {
     proc = startAgentProcess({ ...entry, contained: false }, { cwd: tmpdir(), stripSkipFlags: false, dataDir: deps.dataDir, envKeep: deps.envKeep?.() ?? [] });
-    peer = new RpcPeer(proc.io, { requestTimeoutMs: HANDSHAKE_TIMEOUT_MS });
-    const hello = await peer.request<unknown>('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: 'legion', title: 'Legion', version: VERSION } }, HANDSHAKE_TIMEOUT_MS);
+    peer = new RpcPeer(proc.io, { requestTimeoutMs: timeoutMs });
+    const hello = await peer.request<unknown>('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: 'legion', title: 'Legion', version: VERSION } }, timeoutMs);
     const info = (hello as { agentInfo?: { version?: unknown } } | null)?.agentInfo;
-    return typeof info?.version === 'string' ? parseVersion(info.version) : undefined;
+    const version = typeof info?.version === 'string' ? parseVersion(info.version) : undefined;
+    return { ok: hello !== undefined && hello !== null, ...(version ? { version } : {}) };
   } catch {
-    return undefined;
+    return { ok: false };
   } finally {
     try { peer?.close('done'); } catch { /* already closed */ }
-    await proc?.stop(1500).catch(() => undefined);
+    await proc?.stop().catch(() => undefined);
   }
 }

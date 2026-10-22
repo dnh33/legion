@@ -17,8 +17,8 @@ import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '.
 import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
 import { killAllAgentsSync, registerLegionSecrets, sweepStaleAgents } from '../core/acp/process.js';
 import { revokeAllRunTokens } from '../core/acp/run-tokens.js';
-import { detectAgent, hostWaitSeams, type AgentHostDeps } from '../core/acp/detect.js';
-import { BUILTIN_HERMES } from '../shared/acp-view.js';
+import { detectAgent, hostWaitSeams, isHermes, type AgentHostDeps } from '../core/acp/detect.js';
+import { BUILTIN_HERMES, type AcpEntry } from '../shared/acp-view.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -137,7 +137,12 @@ async function main() {
   // Hermes detection: the Doctor and the model list read it, and the two waits below come from what it read in Hermes's own settings (cached, so a card never waits on a probe)
   const agentHost: AgentHostDeps = { dataDir: dataDir(), entries: () => config.acp.entries, envKeep: () => gatesCore.envKeep() };
   const seams = hostWaitSeams(() => config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id));
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, agentHost: { dataDir: dataDir(), port: config.port, permissionWaitMs: seams.permissionWaitMs, toolWaitMs: seams.toolWaitMs }, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  // The full Hermes check (start check, settings, version) is never run for the model list. It runs here in the background when the core starts and when a Hermes run starts,
+  // both only for an owner who has met the Hermes card (firstUseSeen) and has not switched Hermes off, and in the Doctor. Nobody who uses only Claude pays for it.
+  const warmHermes = (e: AcpEntry | undefined): void => {
+    if (e && isHermes(e) && e.enabled && config.acp.firstUseSeen) void detectAgent(e, agentHost).catch((err) => log('hermes detection failed', err));
+  };
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, agentHost: { dataDir: dataDir(), port: config.port, permissionWaitMs: seams.permissionWaitMs, toolWaitMs: seams.toolWaitMs, onRunStart: warmHermes }, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() });
   let stopReaper: () => void = () => {};
@@ -209,8 +214,7 @@ async function main() {
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
     // an owner who has met the Hermes card gets its own waits read now, in the background, so the first card already closes when Hermes denies it
-    const hermes = config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id);
-    if (hermes && config.acp.firstUseSeen) void detectAgent(hermes, agentHost).catch((e) => log('hermes detection failed', e));
+    warmHermes(config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id));
   }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
 
   const shutdown = async (sig: string) => {

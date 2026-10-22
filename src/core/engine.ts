@@ -169,6 +169,8 @@ export interface EngineDeps {
     /** How long a card raised inside an agent's tool call may stay open (ms), counted from the call, or a function that gives it, read at each run. Default 270 s. The agent's own tool-call timeout is read by the agent host detection and fed in here. */
     toolWaitMs?: number | (() => number | undefined);
     cancelGraceMs?: number;
+    /** Told when a run on an agent host starts, so the core can read the agent's own settings in the background. Never awaited; a throw is ignored. */
+    onRunStart?: (entry: AcpEntry) => void;
     issueRunToken?: (taskId: string, agentId: string) => RunToken;
   };
 }
@@ -2864,6 +2866,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     this.emitProgress(taskId, act);
     let token: RunToken | undefined;
     let proc = undefined as AgentProcess | undefined;
+    try { host.onRunStart?.(entry); } catch { /* a warm-up must never stop a run */ }
     try {
       const folder = this.acpFolder(job, agent);
       const off = this.acpOffLimits(entry);

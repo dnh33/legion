@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Catalog, CatalogCommand, CatalogHost, CatalogModel, LegionConfig } from '../shared/types.js';
-import { BUILTIN_HERMES, type AcpConfig } from '../shared/acp-view.js';
-import { detectAgent, type AgentHostDeps } from './acp/detect.js';
+import { BUILTIN_HERMES, type AcpEntry } from '../shared/acp-view.js';
+import { peekAgent, type AgentHostDeps } from './acp/detect.js';
 import { buildChildEnv, connectorSettings } from './engine.js';
 import { assessRun } from './folder-trust.js';
 import type { TrustedFolderRecord } from '../shared/gates-registry.js';
@@ -16,9 +16,9 @@ const PROBE_TIMEOUT_MS = 20_000;
 export interface CatalogDeps {
   config: LegionConfig;
   queryFn?: QueryFn;
-  /** The folders the owner trusted: a listing follows the same rule as a run (folder trust), so a repository's settings are not read for it unless trusted. */
-  /** Given by the core: the agent hosts (Hermes) that are on this computer and switched on are listed apart from the Claude models. Without it nothing is run. */
+  /** Given by the core: the agent hosts (Hermes) that are on the computer and switched on are listed apart from the Claude models. Never starts one: a PATH lookup and any earlier detection only. */
   hosts?: AgentHostDeps;
+  /** The folders the owner trusted: a listing follows the same rule as a run (folder trust), so a repository's settings are not read for it unless trusted. */
   trustedFolders?: () => TrustedFolderRecord[];
   /** The folder the probe starts in. Default: the OS temp folder. */
   cwd?: string;
@@ -31,21 +31,24 @@ interface State { cache?: { at: number; value: Catalog }; inflight?: Promise<Cat
 const states = new WeakMap<object, State>();
 
 export async function getCatalog(deps: CatalogDeps, opts?: { force?: boolean }): Promise<Catalog> {
-  if (!deps.hosts) return claudeCatalog(deps, opts);
-  // Claude's lists and the agent hosts are asked together, and neither can fail the other
-  const [claude, hosts] = await Promise.all([claudeCatalog(deps, opts), agentHostRows(deps.hosts, deps.config, opts?.force === true)]);
-  return { ...claude, hosts };
+  const claude = await claudeCatalog(deps, opts);
+  return deps.hosts ? { ...claude, hosts: agentHostRows(deps.hosts, deps.config) } : claude;
 }
 
-/** Hermes (and any custom agent host the owner switched on) that is on this computer, as picker rows. A failure to look means no row. */
-async function agentHostRows(host: AgentHostDeps, config: LegionConfig, force: boolean): Promise<CatalogHost[]> {
-  let entries;
-  try { entries = host.entries ? host.entries() : ((config as { acp?: AcpConfig }).acp?.entries ?? [BUILTIN_HERMES]); } catch { return []; }
+/**
+ * Hermes (and any custom agent host the owner switched on) that is on the computer, as picker rows. The model list never starts Hermes, not even
+ * on a forced refresh (an agent can ask for one): the full check runs when the Doctor is opened or refreshed, when a Hermes run starts and when
+ * the core starts for someone who has met Hermes. Here: the program is on PATH, and an earlier check that failed hides the row. A failure to look means no row.
+ */
+function agentHostRows(host: AgentHostDeps, config: LegionConfig): CatalogHost[] {
+  let entries: AcpEntry[];
+  try { entries = host.entries ? host.entries() : (config.acp?.entries ?? [BUILTIN_HERMES]); } catch { return []; }
   const rows: CatalogHost[] = [];
   for (const e of entries) {
     if (!e.enabled) continue;
     try {
-      if ((await detectAgent(e, { ...host, force })).found) rows.push({ value: `acp:${e.id}`, label: e.label, entryId: e.id });
+      const seen = peekAgent(e);
+      if (seen.found && seen.startsOk !== false) rows.push({ value: `acp:${e.id}`, label: e.label, entryId: e.id });
     } catch { /* not listed */ }
   }
   return rows;
