@@ -103,10 +103,11 @@ function setEnv(out: Record<string, string>, name: string, value: string, platfo
  * provider keys and values holding a Legion secret, also for a kept name (inherited variables only) -> entry env -> extra env (owner-set,
  * applied after the filter, not scrubbed) -> (switch on) drop the skip flags.
  */
-export function buildAgentEnv(o: { entryEnv?: Record<string, string> | undefined; extraEnv?: Record<string, string> | undefined; stripSkipFlags: boolean; envKeep?: readonly string[] | undefined; base?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): Record<string, string> {
+export function buildAgentEnv(o: { entryEnv?: Record<string, string> | undefined; extraEnv?: Record<string, string> | undefined; stripSkipFlags: boolean; envKeep?: readonly string[] | undefined; /** false: the owner switched the key-scrub gate off for this run, so key-like variable names pass. LEGION_*, Legion's own keys and values holding a Legion secret are still dropped. */ scrub?: boolean; base?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): Record<string, string> {
   const platform = o.platform ?? process.platform;
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(scrubSecretEnv(scrubHostSessionEnv({ ...(o.base ?? process.env) }), { keep: o.envKeep ?? [] }))) {
+  const host = scrubHostSessionEnv({ ...(o.base ?? process.env) });
+  for (const [k, v] of Object.entries(o.scrub === false ? host : scrubSecretEnv(host, { keep: o.envKeep ?? [] }))) {
     if (v === undefined || /^LEGION_/i.test(k) || NEVER_PASSED.has(k.toUpperCase())) continue;
     const lower = v.toLowerCase();
     if (legionSecrets.some((s) => lower.includes(s))) continue;
@@ -425,11 +426,11 @@ type SpawnFn = (file: string, args: readonly string[], options: SpawnOptions) =>
 
 export function startAgentProcess(
   entry: AcpEntry,
-  opts: { cwd: string; extraEnv?: Record<string, string>; stripSkipFlags: boolean; dataDir: string; /** The owner's signed keep list (`envKeep`, as the Claude child gets it). The caller reads it; this file reads no config. */ envKeep?: readonly string[] },
+  opts: { cwd: string; extraEnv?: Record<string, string>; stripSkipFlags: boolean; dataDir: string; /** The owner's signed keep list (`envKeep`, as the Claude child gets it). The caller reads it; this file reads no config. */ envKeep?: readonly string[]; /** false: the env-scrub gate is off for this run (the caller reads the gate). */ scrub?: boolean },
   deps: { spawn?: SpawnFn } = {},
 ): AgentProcess {
   requireSecrets();
-  const env = buildAgentEnv({ entryEnv: entry.env, extraEnv: opts.extraEnv, stripSkipFlags: opts.stripSkipFlags, envKeep: opts.envKeep });
+  const env = buildAgentEnv({ entryEnv: entry.env, extraEnv: opts.extraEnv, stripSkipFlags: opts.stripSkipFlags, envKeep: opts.envKeep, ...(opts.scrub === false ? { scrub: false } : {}) });
   const spec = launchSpec(entry.command, containedArgs(entry), env);
   let child: ChildProcess;
   try {
