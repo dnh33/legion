@@ -593,6 +593,7 @@ export interface DoctorCheck {
   ok: boolean;
   detail: string;
   fix?: string;
+  level?: 'warn' | 'neutral';
 }
 
 /** A slash command Claude Code supports in this setup (built-ins, user/project commands, skills, plugins). */
@@ -613,7 +614,10 @@ export interface CatalogModel {
 }
 
 /** GET /api/catalog: what Claude Code offers on this machine. Probed without a model call, cached. */
+export interface CatalogHost { value: string; label: string; entryId: string }
+
 export interface Catalog {
+  hosts?: CatalogHost[];
   commands: CatalogCommand[];
   models: CatalogModel[];
   fetchedAt: string;     // ISO

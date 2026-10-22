@@ -52,13 +52,13 @@ const POLICY_HOLDS = 'Hermes reports that the Legion profile asks before it runs
 type Run = typeof runAgentCli;
 export interface ContainedDeps { run?: Run }
 
-interface Out { code: number | null; stdout: string; stderr: string; timedOut: boolean; /** the limit this command ran with, set by `runner` */ limitMs?: number }
+export interface Out { code: number | null; stdout: string; stderr: string; timedOut: boolean; /** the limit this command ran with, set by `runner` */ limitMs?: number }
 
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 const clean = (s: string) => s.replace(ANSI, '');
 const timedOutText = (r: Out) => `Hermes did not answer within ${Math.round((r.limitMs ?? CONTAINED_TIMEOUT_MS) / 1000)} seconds`;
 /** The one line that says what went wrong, from Hermes's own words, redacted and short. */
-function why(r: Out): string {
+export function why(r: Out): string {
   if (r.timedOut) return timedOutText(r);
   const lines = clean(`${r.stderr}\n${r.stdout}`).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const line = lines.find((l) => /error|✗|not set|does not exist|refus|cannot|could not|no such/i.test(l)) ?? lines[lines.length - 1] ?? `Hermes stopped with code ${r.code ?? 'unknown'}`;
@@ -83,7 +83,7 @@ function runner(deps: ContainedDeps | undefined) {
 }
 
 /** `--json` prints the value on the last line; a notice Hermes prints before it is skipped. */
-const asJson = (out: string): { ok: true; value: unknown } | { ok: false } => {
+export const asJson = (out: string): { ok: true; value: unknown } | { ok: false } => {
   const lines = clean(out).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const last = lines[lines.length - 1];
   if (last === undefined) return { ok: false };

@@ -501,6 +501,30 @@ test('R34: the core revokes every run key at shutdown (wired in legion-core)', (
   assert.match(src, /agentHost:\s*\{/);
 });
 
+test('R38: the tool wait is read when a run starts, from a function, so the setting Hermes holds reaches it', async () => {
+  let ms = 900;
+  const r = rig({ agentHost: { toolWaitMs: () => ms }, steps: [{ op: 'wait', ms: 4000 }, END()] });
+  ms = 400;
+  const t = await r.run();
+  await until(() => r.tokens.length === 1 && findRunGrant(r.tokens[0]!.token)?.host() !== undefined);
+  const host = findRunGrant(r.tokens[0]!.token)!.host()!;
+  const decision = host.authorize('mcp__zzz__thing', { a: 1 });
+  const c = await r.nextCard();
+  const left = Date.parse(c.expiresAt ?? '') - Date.now();
+  assert.ok(left > 0 && left <= 400, `deadline from the function (${left} ms)`);
+  await decision;
+  await r.done(t);
+});
+
+test('R38: the core feeds both waits from the detection cache (wired in legion-core, Doctor and catalog get the agent host)', () => {
+  const src = readFileSync(fileURLToPath(new URL('../../src/bin/legion-core.ts', import.meta.url)), 'utf8');
+  assert.match(src, /hostWaitSeams\(/);
+  assert.match(src, /permissionWaitMs:\s*seams\.permissionWaitMs/);
+  assert.match(src, /toolWaitMs:\s*seams\.toolWaitMs/);
+  assert.match(src, /runDoctor\(\{[^}]*agentHost/);
+  assert.match(src, /getCatalog\(\{[^}]*hosts:/);
+});
+
 test('R37 and R34: a card raised inside a Hermes tool call counts against the 270 s budget, shows its deadline and closes itself with "The agent stopped waiting"', async () => {
   const r = rig({ agentHost: { toolWaitMs: 400 }, steps: [{ op: 'wait', ms: 4000 }, END()] });
   const t = await r.run();

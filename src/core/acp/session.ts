@@ -81,7 +81,7 @@ const WAIT_SESSION_MS = 120_000;
 const WAIT_SET_MODEL_MS = 60_000; // Hermes does network I/O when it switches a model (server.py set_session_model)
 const WAIT_SET_MODE_MS = 30_000;
 const WAIT_CLOSE_MS = 5_000; // best effort, after a failure
-const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 1;
 
 type Rec = Record<string, unknown>;
 const rec = (x: unknown): Rec | undefined => (x !== null && typeof x === 'object' && !Array.isArray(x) ? (x as Rec) : undefined);

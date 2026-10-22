@@ -527,14 +527,14 @@ export function startAgentProcess(
 export async function runAgentCli(
   command: string,
   args: string[],
-  opts: { timeoutMs: number; env?: NodeJS.ProcessEnv; cwd?: string; /** The owner's signed keep list, as for `startAgentProcess`. */ envKeep?: readonly string[] },
+  opts: { timeoutMs: number; env?: NodeJS.ProcessEnv; cwd?: string; /** The owner's signed keep list, as for `startAgentProcess`. */ envKeep?: readonly string[]; /** The entry's own `env`, applied after the filter as `startAgentProcess` applies it, so a check sees the same home as a run. */ entryEnv?: Record<string, string> },
 ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   const failed = (message: string) => ({ code: null, stdout: '', stderr: redact(message), timedOut: false });
   let env: Record<string, string>;
   let spec: LaunchSpec;
   try {
     requireSecrets();
-    env = buildAgentEnv({ base: opts.env ?? process.env, stripSkipFlags: false, envKeep: opts.envKeep }); // a caller's env passes the same filter as an agent's
+    env = buildAgentEnv({ base: opts.env ?? process.env, stripSkipFlags: false, envKeep: opts.envKeep, entryEnv: opts.entryEnv }); // a caller's env passes the same filter as an agent's
     spec = launchSpec(command, args, env);
   } catch (e) { return failed(e instanceof Error ? e.message : String(e)); }
   return await new Promise((resolve) => {

@@ -12,6 +12,9 @@ import { buildChildEnv, connectorSettings, isPlanOnly, planOnlySettings } from '
 import type { QueryFn } from './engine.js';
 import { claudeHomeDir } from './armory/discover.js';
 import { keyStoreDoctor, type KeyStoreStatus } from './providers/secrets.js';
+import { BUILTIN_HERMES, type AcpConfig } from '../shared/acp-view.js';
+import type { AgentHostDeps } from './acp/detect.js';
+import { agentDoctorRows } from './acp/doctor-rows.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
 
@@ -104,7 +107,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   }
 }
 
-export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number; keys?: { status(): KeyStoreStatus } }): Promise<DoctorCheck[]> {
+export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number; keys?: { status(): KeyStoreStatus }; /** Given by the core: the Hermes rows only appear (and Hermes is only run) when it is. */ agentHost?: AgentHostDeps }): Promise<DoctorCheck[]> {
   const { config } = deps;
   const queryFn = deps.queryFn ?? realQuery;
   const checks: DoctorCheck[] = [];
@@ -141,6 +144,17 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
     if (set.length) {
       const names = set.join(' and ');
       checks.push({ id: 'claude-env', label: 'Claude environment keys', ok: true, detail: `Your environment sets ${names}. Legion does not use ${set.length > 1 ? 'them' : 'it'}, so your runs use your Claude plan. To bill ${set.length > 1 ? 'those keys' : 'that key'}, turn on Allow API credit billing in Settings, Claude.` });
+    }
+  }
+
+  // The agent hosts (Hermes). Only when the core says so: a bare call never starts a program. A failure is a row, never an exception.
+  if (deps.agentHost) {
+    const host = deps.agentHost;
+    try {
+      const entries = host.entries ? host.entries() : ((config as { acp?: AcpConfig }).acp?.entries ?? [BUILTIN_HERMES]);
+      checks.push(...await agentDoctorRows(entries, host));
+    } catch (e) {
+      checks.push({ id: `acp-${BUILTIN_HERMES.id}`, label: BUILTIN_HERMES.label, ok: false, detail: e instanceof Error ? e.message : String(e) });
     }
   }
 

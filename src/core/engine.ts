@@ -72,6 +72,7 @@ import { parseAcpModel, runtimeOf } from '../shared/runtime.js';
 import { acpCostOf, acpEntry, entryLimits } from '../shared/acp-view.js';
 import type { AcpEntry } from '../shared/acp-view.js';
 import { AcpRefusal, AcpSession } from './acp/session.js';
+import { noteAgentVersion, noteAuthFailure } from './acp/detect.js';
 import type { AcpCallbacks, AcpStdioServer, AcpTurnEnd } from './acp/session.js';
 import { AgentLaunchError, startAgentProcess } from './acp/process.js';
 import type { AgentProcess } from './acp/process.js';
@@ -80,7 +81,7 @@ import type { RunToken, RunToolsHost } from './acp/run-tokens.js';
 import { RUN_TOOL_WAIT_MAX_S } from './acp/run-tools.js';
 import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
-import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths } from './acp/run-helpers.js';
+import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, toolWaitOf } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
 import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, disasterNote, named, refusalText, toolPolicyText } from './acp/texts.js';
 import type { ProviderRuntime } from './providers/runtime.js';
@@ -164,9 +165,9 @@ export interface EngineDeps {
      * How long a card for an agent request stays open (ms), or a function that gives it, read at each request. Default 300 s: the agent denies
      * the request itself then. The agent's own setting for that wait (its approvals timeout) is read by the agent host detection and fed in here.
      */
-    permissionWaitMs?: number | (() => number);
-    /** How long a card raised inside an agent's tool call may stay open (ms), counted from the call. Default 270 s. */
-    toolWaitMs?: number;
+    permissionWaitMs?: number | (() => number | undefined);
+    /** How long a card raised inside an agent's tool call may stay open (ms), counted from the call, or a function that gives it, read at each run. Default 270 s. The agent's own tool-call timeout is read by the agent host detection and fed in here. */
+    toolWaitMs?: number | (() => number | undefined);
     cancelGraceMs?: number;
     issueRunToken?: (taskId: string, agentId: string) => RunToken;
   };
@@ -2799,7 +2800,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const servers: RunToolsHost['servers'] = {};
     for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act, 'acp'))) if (cfg.type === 'sdk') servers[name] = cfg;
     const decide = this.toolDecider(job, agent);
-    const waitMs = this.agentHost?.toolWaitMs ?? RUN_TOOL_WAIT_MAX_S * 1000;
+    const waitMs = toolWaitOf(this.agentHost?.toolWaitMs);
     return {
       servers, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the deadline is this call's own; a card it raises closes at the deadline, or at once when the agent host cancels this one call
@@ -2897,6 +2898,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           cwd: folder, mcpServers, watchdogMs, ...(host.cancelGraceMs !== undefined ? { cancelGraceMs: host.cancelGraceMs } : {}),
           ...(resumeId !== undefined ? { resumeId, ...(stored?.cumulative ? { usageBaseline: stored.cumulative } : {}) } : {}),
           ...(modelId ? { modelId } : {}), ...(sw?.modeMap ? { mode: agentModeFor(this.acpModeNow(job, agent, entry)) } : {}),
+        }).catch((err: unknown) => {
+          // the Doctor says what to do about a missing sign-in when it has seen one
+          if (err instanceof AcpRefusal && err.reason === 'auth') noteAuthFailure(entry.id);
+          throw err;
         });
       };
       const resumeId = stored && stored.entryId === entry.id ? stored.sessionId : undefined;
@@ -2917,6 +2922,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       act.acp = { session, proc: proc! };
       act.reached = true;
+      noteAgentVersion(entry.id, session.agentVersion); // the Doctor shows the version of the Hermes that ran, and a session means it signed in
       const sameSession = fresh ? undefined : stored;
       this.patchTask(taskId, { acp: { entryId: entry.id, sessionId: session.sessionId, ...(sameSession?.cumulative ? { cumulative: sameSession.cumulative } : {}) } });
       if (act.cancelled) return { subtype: 'cancelled', isError: false };
