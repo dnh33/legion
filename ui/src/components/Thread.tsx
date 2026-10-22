@@ -13,7 +13,7 @@ import type { WelcomeItem } from './welcomeLogic';
 import { PresetGate } from '../welcome/PresetChoice';
 import { RunChipsLive } from '../gates/RunChips';
 import { HermesBadge, HermesUsage } from '../acp/HermesBadge';
-import { HERMES_MODE_CHIP, hermesModeLine, threadOnHermes } from '../../../src/shared/acp-copy';
+import { hermesModeLine, hostModeChip, hostNameOf, threadOnHost } from '../../../src/shared/acp-copy';
 import { legacyModeChip } from '../gates/agentFollowLogic';
 import { dropErrorEcho } from '../chat/errorEcho';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
@@ -89,6 +89,8 @@ export function Thread() {
   const loaded = useStore((s) => s.loaded);
   const agent = agents.find((a) => a.id === agentId);
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
+  // the words about the host name it: the run's own label, else the entry the model points at (another agent host never reads as Hermes)
+  const hostName = task?.runtime ?? hostNameOf(task?.model ?? agent?.model, (id) => settings?.acp?.entries?.find((e) => e.id === id)?.label);
   const projects = useStore((s) => s.projects);
   const hasProjects = projects.length > 0;
   const running = task?.status === 'running' || task?.status === 'queued';
@@ -267,12 +269,12 @@ export function Thread() {
             <span>{agent?.description || 'General-purpose agent'}</span>
           </div>
         </div>
-        <div className={`th-right${threadOnHermes(task, agent) ? ' is-hermes' : ''}`}>
+        <div className={`th-right${threadOnHost(task, agent) ? ' is-hermes' : ''}`}>
           {agent && <ThreadRuns agentId={agent.id} />}
           {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
           <HermesBadge task={task} />
           {/* a Hermes agent shows no Legion mode chip while Match Legion's mode is off (Legion did not set how Hermes asks), with a task open or not: the fixed line stands in */}
-          {threadOnHermes(task, agent) && modeMap === undefined ? null : threadOnHermes(task, agent) && modeMap !== true ? <span className="chip-pill" title={hermesModeLine({ modeMap: false, ...(hermesApprovals ? { hermesMode: hermesApprovals } : {}) })}>{HERMES_MODE_CHIP}</span> : task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
+          {threadOnHost(task, agent) && modeMap === undefined ? null : threadOnHost(task, agent) && modeMap !== true ? <span className="chip-pill" title={hermesModeLine({ modeMap: false, name: hostName, ...(hermesApprovals ? { hermesMode: hermesApprovals } : {}) })}>{hostModeChip(hostName)}</span> : task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
           {task?.provider && !task.runtime && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
           {/* the usage line and the icons are one piece: for a Hermes thread they wrap together and the usage line is the one thing that is cut */}
           <span className="th-tail">

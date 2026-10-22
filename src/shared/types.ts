@@ -470,6 +470,8 @@ export interface ApprovalRequest {
   acpOptions?: Array<{ optionId: string; name: string; kind: string }>;
   /** An agent host card: the agent's own title for the request. */
   acpTitle?: string;
+  /** An agent host card: the name of the host that asked (its entry's label), so a host added in the config file never reads as Hermes. Absent: Hermes. */
+  acpLabel?: string;
   /** ISO time at which the card closes itself because the agent stops waiting (an agent host card, or a card raised inside one of its tool calls). Absent: the normal wait. */
   expiresAt?: string;
 }

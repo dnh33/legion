@@ -3,7 +3,7 @@ import { api, openExternal } from './api';
 import { resolveModel, modelLabel } from './models';
 import { openGithub } from './github/githubStore';
 import { compactNow, errText, getState, loadSettings, newTask, openDoctor, selectAgent, setModelChoice, toast, vmAction } from './store';
-import { isAgentHostModel, slashModelStep } from '../../src/shared/acp-copy';
+import { hostNameOf, isAgentHostModel, isHermesModel, slashModelStep } from '../../src/shared/acp-copy';
 
 export interface LegionCommand { name: string; description: string; argumentHint: string; /** true when it needs an argument before it can run */ needsArg: boolean; /** hidden from the empty-query list to keep it short; still found by typing */ rare?: boolean }
 
@@ -59,7 +59,7 @@ export async function runLegionCommand(text: string): Promise<'handled' | 'send'
       if (!value) { toast(`Unknown model “${first}”`, 'error'); return 'handled'; }
       // R75: Hermes is off until "Offer Hermes" is on (and found): a typed name is not a way around the model list
       if (isAgentHostModel(value) && s.catalog && !(s.catalog.hosts ?? []).some((h) => h.value === value.split('/')[0])) {
-        toast('Hermes is not offered. Turn on "Offer Hermes" in Settings, Agent hosts, and check that Hermes is installed.', 'error'); return 'handled';
+        toast(isHermesModel(value) ? 'Hermes is not offered. Turn on "Offer Hermes" in Settings, Agent hosts, and check that Hermes is installed.' : `${hostNameOf(value)} is not offered. Check that it is turned on in the config file and installed.`, 'error'); return 'handled';
       }
       // a Hermes name the owner has not met yet shows the first-use card, as a pick in the picker does (Not now leaves the agent as it was)
       if (isAgentHostModel(value) && !getState().settings) await loadSettings();

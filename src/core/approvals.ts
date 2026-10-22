@@ -402,13 +402,13 @@ export class ApprovalBroker {
    */
   requestAcp(
     taskId: string, agentId: string,
-    o: { toolName: string; title: string; summary: string; input: Record<string, unknown>; options: Array<{ optionId: string; name: string; kind: string }>; waitMs: number; origin?: ApprovalRequest['origin']; projectId?: string; consequence?: Consequence },
+    o: { toolName: string; title: string; summary: string; input: Record<string, unknown>; options: Array<{ optionId: string; name: string; kind: string }>; label?: string; waitMs: number; origin?: ApprovalRequest['origin']; projectId?: string; consequence?: Consequence },
   ): Promise<AcpAnswer> {
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName: o.toolName, summary: o.summary, input: o.input, at: nowIso(),
       ...(o.origin ? { origin: o.origin } : {}), noRemember: true, ...(o.projectId ? { projectId: o.projectId } : {}),
       consequence: o.consequence ?? classifySafe({ kind: 'approval', toolName: o.toolName, input: o.input }),
-      acpOptions: o.options.map((x) => ({ ...x })), acpTitle: o.title, expiresAt: new Date((this.now ?? Date.now)() + o.waitMs).toISOString(),
+      acpOptions: o.options.map((x) => ({ ...x })), acpTitle: o.title, ...(o.label ? { acpLabel: o.label } : {}), expiresAt: new Date((this.now ?? Date.now)() + o.waitMs).toISOString(),
     };
     return new Promise<AcpAnswer>((resolve) => {
       const timer = setTimeout(() => this.settleAcp(req.id, { kind: 'closed', note: ACP_CLOSED_NOTE, stays: true }), o.waitMs);

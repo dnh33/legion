@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApprovalRequest } from '../../../src/shared/types';
-import { HERMES_ASKS, cardCountdown, clampOptionName, titleAddsInfo } from '../../../src/shared/acp-copy';
+import { cardCountdown, clampOptionName, hostAsks, titleAddsInfo } from '../../../src/shared/acp-copy';
 import { decideOption, dismissClosed, type ClosedCard } from '../store';
 import { useCardArm, useArmUi } from '../a11y/keyClock';
 import { liveReady } from '../a11y/keyClockCore';
@@ -27,6 +27,7 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
   const tick = useNow(!!a.expiresAt && now === undefined);
   const left = cardCountdown(a.expiresAt, now ?? tick);
   const ended = left?.ended === true;
+  const asks = hostAsks(a.acpLabel);
   const arm = useCardArm(`approval:${a.id}`);
   const { armed, refresh } = useArmUi(arm);
   const box = useRef<HTMLDivElement>(null);
@@ -48,11 +49,11 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
     void decideOption(a.id, kind.startsWith('allow'), optionId);
   };
   return (
-    <div ref={box} className="approval acp-card" tabIndex={0} data-approval-id={a.id} data-armed={armed ? 'true' : 'false'} role="group" aria-label={HERMES_ASKS}
+    <div ref={box} className="approval acp-card" tabIndex={0} data-approval-id={a.id} data-armed={armed ? 'true' : 'false'} role="group" aria-label={asks}
       onFocus={(e) => { arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); refresh(); }}>
       <div className="approval-head">
         <Icon name="shield" size={14} />
-        <span>{HERMES_ASKS}</span>
+        <span>{asks}</span>
         {titleAddsInfo(a.acpTitle, a.summary) && <b className="approval-tool">{a.acpTitle}</b>}
       </div>
       <pre className="approval-sum">{a.summary}</pre>
@@ -78,11 +79,12 @@ export function ClosedAcpCard({ c }: { c: ClosedCard }) {
   const dismiss = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (c.focus) dismiss.current?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const hermes = !!a.acpOptions?.length;
+  const asks = hostAsks(a.acpLabel);
   return (
-    <div className="approval acp-card is-closed" data-approval-id={a.id} role="group" aria-label={`${hermes ? HERMES_ASKS : 'Asked for your OK'}, closed`}>
+    <div className="approval acp-card is-closed" data-approval-id={a.id} role="group" aria-label={`${hermes ? asks : 'Asked for your OK'}, closed`}>
       <div className="approval-head">
         <Icon name="shield" size={14} />
-        <span>{hermes ? HERMES_ASKS : 'Asked for your OK'}</span>
+        <span>{hermes ? asks : 'Asked for your OK'}</span>
         {hermes ? (titleAddsInfo(a.acpTitle, a.summary) && <b className="approval-tool">{a.acpTitle}</b>) : <b className="approval-tool">{shortTool(a.toolName)}</b>}
       </div>
       <pre className="approval-sum">{a.summary}</pre>

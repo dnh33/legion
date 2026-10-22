@@ -3093,7 +3093,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const projectId = this.projectOf(job.taskId, agent.id)?.id;
     const lead = [...(settings ? [`This touches ${settings}`] : []), ...(bypass && unreadable ? [`Legion cannot tell which files this touches: ${unreadable}. So it asks you, even in Bypass.`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : []), ...(hidden > 0 ? ['This is too long to show in full, so you can only say no.'] : [])];
     const answer = await this.approvals.requestAcp(job.taskId, agent.id, {
-      toolName: r.toolName, title: r.title, summary: cardSummary(r, lead), input: r.input, options: shown,
+      toolName: r.toolName, title: r.title, summary: cardSummary(r, lead), input: r.input, options: shown, label: entry.label,
       waitMs: permissionWaitOf(this.agentHost?.permissionWaitMs, entry),
       ...(o ? { origin: { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } } : {}), ...(projectId ? { projectId } : {}),
     });

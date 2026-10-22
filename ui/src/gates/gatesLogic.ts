@@ -157,10 +157,12 @@ export function hermesGateResult(rules: readonly GateRule[], call: GateTestCall)
   return { verdict: 'deny', matched: d.ruleIds.map((id) => rules.find((r) => r.id === id)).filter((r): r is GateRule => !!r && r.then === 'deny') };
 }
 
-export const HERMES_VERDICT_TEXT = {
+/** What the tester says for an agent on an agent host; `name` is the host's own name, so another host is never called Hermes. */
+export const hostVerdictText = (name: string = 'Hermes') => ({
   deny: 'BLOCKED (the request is refused, no card)',
-  baseline: 'NOT BLOCKED (no Block rule matched; Hermes decides what to ask you)',
-} as const;
+  baseline: `NOT BLOCKED (no Block rule matched; ${name} decides what to ask you)`,
+}) as const;
+export const HERMES_VERDICT_TEXT = hostVerdictText();
 
 /** The verdict line the tester prints (exit-code style, consistent with allow / ask-approval / deny). */
 export const VERDICT_TEXT: Record<GateTestResult['verdict'], string> = {

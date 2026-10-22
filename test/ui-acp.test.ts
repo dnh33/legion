@@ -15,7 +15,8 @@ import { buildPickerLayout, type PickerInput } from '../src/shared/model-picker-
 import {
   ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, HERMES_OWN_TOOLS, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
   acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, slashModelStep, titleAddsInfo,
-  CONTAINED_NEEDS_HERMES, HERMES_MODE_CHIP, HERMES_PROMPT_PLACEHOLDER, threadOnHermes,
+  CONTAINED_NEEDS_HERMES, HERMES_MODE_CHIP, HERMES_PROMPT_PLACEHOLDER, threadOnHost,
+  agentHostNote, agentHostOwnTools, hostBadge, hostNoCost, hostAsks, hostModeChip, notAppliedTo, hostPromptPlaceholder, hostItemNote, hostNameOf, isHermesModel,
 } from '../src/shared/acp-copy.js';
 import { toAcpDetection } from '../src/core/acp/detect.js';
 import { limitWords } from '../ui/src/gates/agentFollowLogic.js';
@@ -554,15 +555,15 @@ test('R60 behaviour: focus that was inside the card when it closed is handed to 
 // ---------------------------------------------------------------- fix round 1
 
 test('I2: a Hermes agent shows no Legion mode chip with a task open or not, while Match Legion\'s mode is off; an old Claude task keeps its own', () => {
-  assert.equal(threadOnHermes(undefined, { model: 'acp:hermes' }), true, 'no task yet: the agent decides');
-  assert.equal(threadOnHermes(undefined, { model: 'sonnet' }), false);
-  assert.equal(threadOnHermes(undefined, undefined), false);
-  assert.equal(threadOnHermes({ model: 'sonnet' }, { model: 'acp:hermes' }), false, 'a task that ran on Claude, from before the agent moved to Hermes');
-  assert.equal(threadOnHermes({ runtime: 'Hermes', model: 'x' }, { model: 'sonnet' }), true);
-  assert.equal(threadOnHermes({ model: 'acp:hermes/m' }, undefined), true);
-  assert.equal(threadOnHermes({ requestedModel: 'acp:hermes' }, { model: 'acp:hermes' }), true, 'queued, not run yet');
+  assert.equal(threadOnHost(undefined, { model: 'acp:hermes' }), true, 'no task yet: the agent decides');
+  assert.equal(threadOnHost(undefined, { model: 'sonnet' }), false);
+  assert.equal(threadOnHost(undefined, undefined), false);
+  assert.equal(threadOnHost({ model: 'sonnet' }, { model: 'acp:hermes' }), false, 'a task that ran on Claude, from before the agent moved to Hermes');
+  assert.equal(threadOnHost({ runtime: 'Hermes', model: 'x' }, { model: 'sonnet' }), true);
+  assert.equal(threadOnHost({ model: 'acp:hermes/m' }, undefined), true);
+  assert.equal(threadOnHost({ requestedModel: 'acp:hermes' }, { model: 'acp:hermes' }), true, 'queued, not run yet');
   const th = src('ui/src/components/Thread.tsx');
-  assert.match(th, /threadOnHermes\(task, agent\) && modeMap === undefined \? null : threadOnHermes\(task, agent\) && modeMap !== true \? <span className="chip-pill"[^>]*>\{HERMES_MODE_CHIP\}<\/span> : task\?\.runsAs/, 'the fixed line stands where the Legion chip was, and nothing shows until the settings are read');
+  assert.match(th, /threadOnHost\(task, agent\) && modeMap === undefined \? null : threadOnHost\(task, agent\) && modeMap !== true \? <span className="chip-pill"[^>]*>\{hostModeChip\(hostName\)\}<\/span> : task\?\.runsAs/, 'the fixed line stands where the Legion chip was, and nothing shows until the settings are read');
 });
 
 test('I3: the project Overview shows no Legion mode and no raw id for a Hermes agent while the switch is off', () => {
@@ -582,7 +583,7 @@ test('I3: the project Overview shows no Legion mode and no raw id for a Hermes a
   const gt = src('ui/src/gates/GatesSection.tsx');
   assert.match(gt, /const onHermes = isAgentHostModel\(agent\?\.model\);/);
   assert.match(gt, /onHermes \? hermesGateResult\(rules, call\) : gateTestResult\(rules, call\)/, 'the Try it tester dry-runs only the Block rules for a Hermes agent');
-  assert.match(gt, /Only Block rules reach a Hermes agent/);
+  assert.match(gt, /Only Block rules reach a \{hostName\} agent/);
 });
 
 test('I5, item 10: a Hermes agent in the editor has no Claude wording, and the Match Legion\'s mode link asks before it throws away edits', async () => {
@@ -672,8 +673,8 @@ test('I7: the card sends the option Hermes named, verbatim; the first-use flows 
   assert.match(src('ui/src/settings/AgentHostsSection.tsx'), /await runDoctor\(true\); await loadSettings\(\)/);
   assert.doesNotMatch(src('ui/src/components/ModelPicker.tsx') + src('ui/src/components/AgentEditor.tsx'), /runDoctor\(true\)|api\.doctor/);
   // R39: the folder travels in the save body for a Hermes agent
-  assert.match(ed, /\.\.\.\(onHermes && \(cwd\.trim\(\) \|\| existing\?\.cwd\) \? \{ cwd: cwd\.trim\(\) \} : \{\}\)/);
-  assert.match(ed, /const needFolder = onHermes && !cwd\.trim\(\) && !inProject;/);
+  assert.match(ed, /\.\.\.\(onHost && \(cwd\.trim\(\) \|\| existing\?\.cwd\) \? \{ cwd: cwd\.trim\(\) \} : \{\}\)/);
+  assert.match(ed, /const needFolder = onHost && !cwd\.trim\(\) && !inProject;/);
 });
 
 // ---------------------------------------------------------------- wiring pins and copy rules
@@ -696,7 +697,7 @@ test('wiring: the thread, the card, the Doctor and Settings use the new parts', 
   assert.match(src('ui/src/components/ModelPicker.tsx'), /hosts/);
   assert.match(src('ui/src/store.ts'), /keepProbedAgentRows/);
   assert.match(src('ui/src/api.ts'), /optionId/);
-  assert.match(th, /threadOnHermes\(task, agent\)/, 'the run header does not claim a Legion mode for Hermes');
+  assert.match(th, /threadOnHost\(task, agent\)/, 'the run header does not claim a Legion mode for Hermes');
 });
 
 test('copy: no dash, no "this computer", only Hermes and Claude named, in every new string', () => {
@@ -924,4 +925,52 @@ test('W4 M4: the Contained profile has one name in user text and docs; `legion` 
   assert.ok(CONTAINED_SWITCH_HINT.includes('the Contained profile, a Hermes profile named legion'));
   assert.ok(CONTAINED_OFF_HINT.includes('the Contained profile, a Hermes profile named legion'));
   assert.ok(!CONTAINED_CHECKS.includes('named legion'), 'the name is stated once, in the switch hint');
+});
+
+// ---------------------------------------------------------------- W4 M8: a custom agent host is never Hermes
+
+const AIDER_HOSTS = [{ value: 'acp:aider', label: 'Aider', entryId: 'aider' }];
+const stAider = (agents: unknown[]) => ({ ...st(agents, acp({ id: 'aider', label: 'Aider', command: 'aider-acp', args: [] })), catalog: { hosts: AIDER_HOSTS, models: [], commands: [], fetchedAt: '' } });
+
+test('W4 M8: the words that name Hermes take the host\'s own name, and Hermes keeps its exact text', () => {
+  assert.equal(agentHostNote('Hermes'), HERMES_NOTE);
+  assert.equal(agentHostOwnTools('Hermes'), HERMES_OWN_TOOLS);
+  assert.equal(hostBadge('Hermes'), HERMES_BADGE);
+  assert.equal(hostNoCost('Hermes'), HERMES_NO_COST);
+  assert.equal(hostAsks('Hermes'), HERMES_ASKS);
+  assert.equal(hostModeChip('Hermes'), HERMES_MODE_CHIP);
+  assert.equal(notAppliedTo('Hermes'), NOT_APPLIED_TO_HERMES);
+  assert.equal(hostPromptPlaceholder('Hermes'), HERMES_PROMPT_PLACEHOLDER);
+  const words = [agentHostNote('Aider'), agentHostOwnTools('Aider'), hostBadge('Aider'), hostNoCost('Aider'), hostAsks('Aider'), hostModeChip('Aider'), notAppliedTo('Aider'), hostPromptPlaceholder('Aider'), hostItemNote('Aider'),
+    hermesModeLine({ modeMap: false, name: 'Aider' }), hermesModeLine({ modeMap: true, name: 'Aider' }), hermesUsageLine({ status: 'done', name: 'Aider' })];
+  for (const w of words) { assert.ok(w.includes('Aider'), w); assert.doesNotMatch(w, /Hermes/, w); assert.doesNotMatch(w, NO_DASH); }
+  assert.equal(hostNameOf('acp:aider/x', (id) => (id === 'aider' ? 'Aider' : undefined)), 'Aider');
+  assert.equal(hostNameOf('acp:hermes'), 'Hermes');
+  assert.equal(isHermesModel('acp:hermes/m'), true);
+  assert.equal(isHermesModel('acp:aider'), false);
+  assert.equal(isHermesModel('sonnet'), false);
+  assert.equal(needsFirstUse('acp:aider', false), false, 'the first-use card is about Hermes only');
+  assert.equal(needsFirstUse('acp:hermes', false), true);
+});
+
+test('W4 M8: a custom agent host reads as itself in the card, the badge, the usage line, the picker and the editor, never as Hermes', async () => {
+  const lay = buildPickerLayout(baseInput({ hosts: AIDER_HOSTS }));
+  assert.ok(!JSON.stringify(lay.rows).includes('Hermes'), 'no Hermes word in the picker group of another host');
+  const { r, cleanup } = await loadUi(stAider([AGENT('x', { model: 'acp:aider' })]));
+  try {
+    const a = { id: 'apr_c', taskId: 't', agentId: 'x', toolName: 'acp_execute', summary: 'ls', input: {}, at: '', noRemember: true, acpTitle: 'Run', acpLabel: 'Aider',
+      acpOptions: [{ optionId: 'o1', name: 'Allow once', kind: 'allow_once' }, { optionId: 'o3', name: 'Deny', kind: 'reject_once' }] };
+    const card = unesc(r.card(a, 1_000_000));
+    assert.ok(card.includes('Aider asks') && !card.includes('Hermes'), 'the card names its host');
+    const closed = unesc(r.closedCard({ card: a, note: ACP_CLOSED_NOTE }));
+    assert.ok(closed.includes('Aider asks') && !closed.includes('Hermes'));
+    const b = unesc(r.badge({ runtime: 'Aider', model: 'acp:aider' }));
+    assert.ok(b.includes('Aider \u00b7 acts on your computer') && !b.includes('Hermes'));
+    const u = unesc(r.usage({ runtime: 'Aider', model: 'acp:aider', tokenUsage: { inputTokens: 5, outputTokens: 2 } }));
+    assert.ok(u.includes('Aider does not report cost.') && !u.includes('Hermes'));
+    const e = unesc(r.editor('x'));
+    assert.ok(e.includes('Aider uses its own tools on your computer'), 'the host note');
+    assert.ok(e.includes('<optgroup label="Aider">'), 'its own group in the select');
+    assert.doesNotMatch(e, /Hermes/, 'nothing in the editor names Hermes');
+  } finally { cleanup(); }
 });

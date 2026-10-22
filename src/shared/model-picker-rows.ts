@@ -7,7 +7,7 @@
  * its open state; a head toggles the same way with or without a query. No section label repeats a head's name.
  */
 
-import { HERMES_GROUP, HERMES_ITEM_NOTE, HERMES_NOTE } from './acp-copy.js';
+import { HERMES_GROUP, agentHostNote, hostItemNote } from './acp-copy.js';
 
 export interface PickerModel { value: string; displayName: string; description?: string; /** The model id the alias resolves to (claude-opus-5-5); a query matches it too. */ resolvedModel?: string }
 export interface PickerGroup { id: string; label: string; providerId: string; models: string[] }
@@ -70,8 +70,8 @@ export function buildPickerLayout(input: PickerInput): PickerLayout {
   // Hermes: its own group with the honest note. Built only from what the catalog lists as found and on; the model list of Hermes is never used.
   for (const h of input.hosts ?? []) {
     if (!hit(h.label, h.value, HERMES_GROUP)) continue;
-    rows.push({ kind: 'label', text: h.label }, { kind: 'note', text: HERMES_NOTE });
-    rows.push({ kind: 'item', id: h.value, value: h.value, displayName: h.label, description: HERMES_ITEM_NOTE });
+    rows.push({ kind: 'label', text: h.label }, { kind: 'note', text: agentHostNote(h.label) });
+    rows.push({ kind: 'item', id: h.value, value: h.value, displayName: h.label, description: hostItemNote(h.label) });
   }
 
   let older: PickerLayout['older'];

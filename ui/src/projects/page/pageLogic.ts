@@ -10,7 +10,7 @@ import type { Ask } from '../../../../src/shared/attention.js';
 import { BUDGET_LIMIT_PREFIX, isBudgetPause, isLimitPause, isParkPause } from '../../../../src/shared/continue.js';
 import type { Project } from '../../../../src/shared/projects.js';
 import { CHOICE_HELP } from '../../gates/agentFollowLogic.js';
-import { HERMES_MODE_CHIP, acpModelLabel, isAgentHostModel } from '../../../../src/shared/acp-copy.js';
+import { acpModelLabel, hostModeChip, hostNameOf, isAgentHostModel } from '../../../../src/shared/acp-copy.js';
 import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from '../../gates/presetsLogic.js';
 import type { AgentProfile, ApprovalRequest, PendingQuestion, QueueSnapshot, Task, TaskProgress } from '../../../../src/shared/types.js';
 
@@ -283,7 +283,7 @@ export function unitModel(f: PageFacts, o: { weekByAgent?: Readonly<Record<strin
     const firstAway = away[0];
     const rank = mine.length ? 0 : PRI[runs[0]?.st ?? 'review'] ?? 6;
     units.push({
-      agentId: id, name, role: agent?.description ?? '', mode: agent ? (isAgentHostModel(agent.model) && o.modeMap !== true ? HERMES_MODE_CHIP : modeText(agent)) : '', cloud: !!agent?.vm?.enabled, model: acpModelLabel(agent?.model) ?? String(agent?.model ?? ''),
+      agentId: id, name, role: agent?.description ?? '', mode: agent ? (isAgentHostModel(agent.model) && o.modeMap !== true ? hostModeChip(hostNameOf(agent.model)) : modeText(agent)) : '', cloud: !!agent?.vm?.enabled, model: acpModelLabel(agent?.model) ?? String(agent?.model ?? ''),
       lead: lines[0]!, rest: lines.slice(1),
       ...(firstAway ? { also: `Also working in ${shortProjectName(f.projects.find((p) => p.id === firstAway.projectId)?.name ?? 'another project')}: ${firstAway.title}${away.length > 1 ? ` (+${away.length - 1})` : ''}` } : {}),
       tail, runs: liveRuns(id, f.tasks), weekUsd, rank, at: lastWork,

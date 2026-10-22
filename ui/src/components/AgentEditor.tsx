@@ -17,7 +17,7 @@ import { GithubAccess } from '../github/GithubAccess';
 import { APPROVAL_CHOICES, CHOICE_HELP, SEED_TAG, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, seedWords, type ApprovalChoice } from '../gates/agentFollowLogic';
 import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
 import { runtimeOf } from '../../../src/shared/runtime';
-import { HERMES_NOTE, HERMES_OWN_TOOLS, HERMES_PROMPT_PLACEHOLDER, MATCH_MODE_LINK, agentModeControl, firstUseOutcome, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
+import { MATCH_MODE_LINK, agentHostNote, agentHostOwnTools, agentModeControl, firstUseOutcome, hostNameOf, hostPromptPlaceholder, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
 import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
@@ -85,15 +85,17 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const provView = useProviders((x) => x.view);
   const provGroups = providerModelGroups(provView);
   const onProvider = runtimeOf(model) === 'provider';
-  const onHermes = isAgentHostModel(model);
+  const onHost = isAgentHostModel(model);
   const hosts = catalog?.hosts ?? [];
   const hermesEntry = settings?.acp.entries.find((e) => e.id === 'hermes');
-  const modeCtl = agentModeControl({ model, modeMap: settings?.acp.switches.modeMap === true, ...(hermesEntry?.detection.approvalsMode ? { hermesMode: hermesEntry.detection.approvalsMode } : {}) });
+  // the words name the host the model points at (an agent host added in the config file is never called Hermes)
+  const hostName = hostNameOf(model, (eid) => settings?.acp.entries.find((e) => e.id === eid)?.label ?? hosts.find((h) => h.entryId === eid)?.label);
+  const modeCtl = agentModeControl({ model, modeMap: settings?.acp.switches.modeMap === true, name: hostName, ...(hermesEntry?.detection.approvalsMode ? { hermesMode: hermesEntry.detection.approvalsMode } : {}) });
   const inProject = id !== null && projects.some((p) => p.status !== 'archived' && p.members.includes(id));
-  const needFolder = onHermes && !cwd.trim() && !inProject;
+  const needFolder = onHost && !cwd.trim() && !inProject;
   const folderField = (
-    <label>Folder<input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="The folder Hermes works in" spellCheck={false} aria-describedby="hm-folder-note" />
-      <span className="field-note" id="hm-folder-note">{inProject ? 'This agent is in a project, so Hermes works in the project folder. This folder is used outside it.' : 'Hermes works in this folder. Choose one outside Legion\'s data folder.'}</span></label>
+    <label>Folder<input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder={`The folder ${hostName} works in`} spellCheck={false} aria-describedby="hm-folder-note" />
+      <span className="field-note" id="hm-folder-note">{inProject ? 'This agent is in a project, so ' + hostName + ' works in the project folder. This folder is used outside it.' : hostName + ' works in this folder. Choose one outside Legion\'s data folder.'}</span></label>
   );
   const { models, fallback } = modelList(catalog);
   const grouped = groupModels(catalog);
@@ -118,7 +120,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
     const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, ...(onHermes && (cwd.trim() || existing?.cwd) ? { cwd: cwd.trim() } : {}), ...approvalPatch(existing, choice), ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, ...(onHost && (cwd.trim() || existing?.cwd) ? { cwd: cwd.trim() } : {}), ...approvalPatch(existing, choice), ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
@@ -149,19 +151,19 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <label className="grow">Name<input data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Researcher" /></label>
         </div>
         <label>Description<input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One line: what this agent is for" /></label>
-        <label>System prompt<textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder={onHermes ? HERMES_PROMPT_PLACEHOLDER : 'Appended to Claude Code’s system prompt.'} /></label>
+        <label>System prompt<textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder={onHost ? hostPromptPlaceholder(hostName) : 'Appended to Claude Code’s system prompt.'} /></label>
         <div className="row">
           <label className="grow">Model
             <select value={model} onChange={(e) => { const v = e.target.value; if (needsFirstUse(v, firstUse.seen)) setPendingHost(v); else setModel(v as ModelChoice); }}>
               <option value="auto">Auto {'\u00b7'} Sonnet or Opus per task</option>
-              {!known && <option value={model}>{onHermes ? modelLabel(catalog, model) : model}</option>}
+              {!known && <option value={model}>{onHost ? modelLabel(catalog, model) : model}</option>}
               <optgroup label={grouped.older.length ? 'Current models' : 'Models'}>{grouped.current.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>
               {grouped.older.length > 0 && <optgroup label="Older models">{grouped.older.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>}
-              {hosts.length > 0 && <optgroup label="Hermes">{hosts.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}</optgroup>}
+              {hosts.map((h) => <optgroup key={h.value} label={h.label}><option value={h.value}>{h.label}</option></optgroup>)}
               {provGroups.map((g) => <optgroup key={g.id} label={`${g.label} (not Claude)`}>{g.models.map((m) => <option key={`${g.id}:${m}`} value={`${g.id}:${m}`}>{m}</option>)}</optgroup>)}
             </select>
             {onProvider && <span className="field-note">Runs outside Claude, on {provView?.providers.find((x) => model.startsWith(x.id + ':'))?.label ?? 'a provider'}: Legion's tools and your MCP servers only, no built-in file, shell or web tools. See Settings, Providers.</span>}
-            {onHermes && <span className="field-note">{HERMES_NOTE}</span>}
+            {onHost && <span className="field-note">{agentHostNote(hostName)}</span>}
             {pendingHost && (
               <AcpFirstUseView
                 onUse={() => { const o = firstUseOutcome('use', model, pendingHost); setModel(o.model as ModelChoice); setPendingHost(null); void firstUse.markSeen(); }}
@@ -180,7 +182,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
               <select value={choice} onChange={(e) => setChoice(e.target.value as ApprovalChoice)}>
                 {APPROVAL_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
-              {!onHermes && <span className="field-note">{CHOICE_HELP[choice]}</span>}
+              {!onHost && <span className="field-note">{CHOICE_HELP[choice]}</span>}
               {modeCtl.line && <span className="field-note">{modeCtl.line}</span>}
               {followLines && <span className="field-note" role="status">{followLines}</span>}
               {choice === choiceOf(existing) && seedWords(existing) && <span className="field-note seed-note" data-testid="seed-note"><span className="chip-pill">{SEED_TAG}</span> {seedWords(existing).slice(SEED_TAG.length + 2)}</span>}
@@ -188,8 +190,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </label>
           )}
         </div>
-        {onHermes && !needFolder && folderField}
-        {onHermes ? <p className="field-note" data-testid="hermes-own-tools">{HERMES_OWN_TOOLS}</p> : <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
+        {onHost && !needFolder && folderField}
+        {onHost ? <p className="field-note" data-testid="hermes-own-tools">{agentHostOwnTools(hostName)}</p> : <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
           onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />}
         {leaving ? (
           <div className="arm-discard" role="alertdialog" aria-label="Unsaved changes">
@@ -198,17 +200,17 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
           </div>
         ) : null}
-        {!onHermes && <fieldset>
+        {!onHost && <fieldset>
           <legend>Connectors</legend>
           <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} onRetry={retryArea} />
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
         </fieldset>}
-        {!onHermes && <fieldset>
+        {!onHost && <fieldset>
           <legend>Task list</legend>
           <label className="check-row"><input type="checkbox" checked={taskList} onChange={(e) => setTaskList(e.target.checked)} /> Keep a task list on Claude (Claude Code's own task tools)</label>
           <span className="field-note">On by default for the lead. Newer Claude models plan without a written list; turn this on for agents that run long, multi-step work. Runs on other providers always have a task list.</span>
         </fieldset>}
-        {!onHermes && <fieldset>
+        {!onHost && <fieldset>
           <legend>Shell (your computer)</legend>
           <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on your computer</label>
           <span className="field-note">Off by default. When on, the agent gets its own shell inside the scope root below. Its approval mode still decides whether each call asks you, and Gates (Settings, Gates) refine when it asks. This switch decides whether the agent gets the tools at all.</span>
@@ -225,7 +227,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <span className="field-note">Masked hides every value from all of this agent's tool output. .env.example and other templates are ordinary files.</span>
           </label>
         </fieldset>}
-        {!onHermes && <fieldset>
+        {!onHost && <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>
           <div className="row" style={{ opacity: vmOn ? 1 : 0.5 }}>
