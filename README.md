@@ -122,11 +122,11 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 ### You stay in control
 
-- **Choose how much your agents ask.** Settings, Gates has four presets:
+- **Choose how much your agents ask.** Settings, Gates has four presets. Claude agents follow Claude's own permission checks in every preset (a switch in Gates turns that off); agents on other providers use Legion's own checks:
   - **Ask:** every action asks. Read-only commands, and commands your own Claude Code allow rules allow, run without a card.
-  - **Accept edits:** file edits run, everything else asks.
-  - **Smart:** Legion asks before an action that reaches the web, deletes, cannot be undone, or that it cannot classify. Tests and builds run without asking.
-  - **Bypass:** no permission cards, except for changes to protected files. Your deny rules and Legion's safety rails still apply, and everything is logged.
+  - **Accept edits:** file edits run, everything else asks. For Claude agents this is Claude's accept-edits mode: file commands in your project, including rm, mv and cp, run too.
+  - **Smart:** for Claude agents, Claude's own checker decides and sends you what it is unsure about. For other providers, Legion asks before an action that reaches the web, deletes, cannot be undone, or that it cannot classify; tests and builds run without asking.
+  - **Bypass:** no permission cards, except for changes to protected files. For Claude agents it follows Claude's bypass mode: it still asks before deleting your project folder or one above it, and Legion's own files stay protected. Your deny rules and Legion's stop for disastrous commands still apply, and everything is logged.
 - **Per agent and per project.** An agent keeps its own setting or follows its project, and a project can limit its agents to its preset. Fine tuning lists the checks behind the presets, and each one can be set on its own. Anything that makes agents ask less asks you to confirm in a separate window first.
 - **Folders you trust.** Commands in a project folder's Claude Code settings, hooks or skills run only after you trust that folder.
 - **Approval cards** in the thread. Press `A` or `D` (a Blender script card needs a click to allow).

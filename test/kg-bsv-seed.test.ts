@@ -15,7 +15,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 10);
+  assert.equal(seed.version, 11);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
@@ -225,7 +225,7 @@ test('status node: says what BSV mode is today, is reachable from the index, eve
   assert.ok(s, 'bsv-status-today exists');
   assert.equal(s!.type, 'lesson');
   assert.equal(s!.props?.built, undefined, 'the status node is the truth, not a design');
-  for (const phrase of [/testnet knowledge mode/i, /read-only knowledge pack/i, /bsv_status/, /read-only check/, /bsv_spend_request/, /mainnet switched off by default/, /Legion's own code does no key handling, no signing and no broadcasting/, /not against a real wallet or with real funds/, /ordinary tools \(a shell, a web fetch\) are outside that statement/, /presses Connect in the app, and until then Legion contacts nothing/, /native confirmation dialog/, /shell commands and file edits wait for your approval/, /Bots cannot edit this pack's notes or links/]) assert.match(s!.body, phrase);
+  for (const phrase of [/testnet knowledge mode/i, /read-only knowledge pack/i, /bsv_status/, /read-only check/, /bsv_spend_request/, /mainnet switched off by default/, /Legion's own code does no key handling, no signing and no broadcasting/, /not against a real wallet or with real funds/, /ordinary tools \(a shell, a web fetch\) are outside that statement/, /presses Connect in the app, and until then Legion contacts nothing/, /only after you confirm in Legion's card/, /shell commands and file edits wait for your approval/, /Bots cannot edit this pack's notes or links/]) assert.match(s!.body, phrase);
   const rel = (from: string, to: string, rels = ['relates', 'part_of', 'depends_on']) => seed.edges.some((e) => e.from === from && e.to === to && rels.includes(e.rel));
   assert.ok(rel('bsv-curriculum-index', 'bsv-status-today'), 'index links to it');
   for (const hub of ['safety', 'foundations', 'wallets', 'network', 'ordinals', 'identity', 'sdks', 'extras']) assert.ok(rel(`bsv-mod-${hub}`, 'bsv-status-today'), `hub ${hub} links to it`);
@@ -301,10 +301,10 @@ test('pack v8: the spend flow note names the real refusal reasons it mentions (g
   assert.ok((SPEND_REASON_CODES as readonly string[]).includes('extra-input'), 'a network field is refused with extra-input');
   assert.match(b, /at most three per task/);
   assert.match(b, /never wallet text/);
-  // the owner's dialogs are the per-spend gate; whether and when the wallet asks depends on the wallet (wallet-toolbox: once, at createAction, before Legion's card)
-  assert.match(b, /These dialogs are the per-spend gate/);
+  // the owner's confirm card is the per-spend gate; whether and when the wallet asks depends on the wallet (wallet-toolbox: once, at createAction, before Legion's card)
+  assert.match(b, /This card is the per-spend gate/);
   assert.match(b, /Whether and when the wallet also asks depends on the wallet/);
-  assert.match(b, /checks at the unsigned build, before Legion's dialogs, asks once for a spending grant/);
+  assert.match(b, /checks at the unsigned build, before Legion's card, asks once for a spending grant/);
   assert.match(b, /not observed on a real wallet/);
   assert.match(b, /keep it one-time; otherwise keep any standing limit at or below Legion's caps/);
   assert.doesNotMatch(b, /last gate|the wallet shows its own prompt/);
@@ -321,7 +321,7 @@ test('pack v9: no note states the wallet\'s own prompt as a fact or as the last 
   }
   assert.deepEqual(hits, []);
   for (const n of seed.nodes) assert.doesNotMatch(n.body, /the wallet shows its own prompt|its own prompt is the last gate|wallet'?s (own )?prompt (are|is|stays?) the (last|real)/i, n.id);
-  // Legion's own dialogs are named as the per-spend gate where the flow is described
+  // Legion's own confirm card is named as the per-spend gate where the flow is described
   for (const id of ['bsv-safety-overview', 'bsv-safety-spend-flow', 'bsv-safety-spend-dialogs', 'bsv-status-today', 'bsv-wallet-choice', 'bsv-safety-mainnet-armed-native']) assert.match(byIdMap.get(id)!.body, /per-spend gate/, id);
 });
 

@@ -244,12 +244,12 @@ test('a human note written to scope bsv first no longer blocks seeding', async (
   assert.equal((await s.call('GET', '/api/kg/stats')).body.byScope.bsv, 5);
 });
 
-test('the bundled pack carries a seedHash on every node and seedVersion 10 on the index', () => {
+test('the bundled pack carries a seedHash on every node and seedVersion 11 on the index', () => {
   const { g } = bundledGraph();
   const pack = loadBsvSeed(BSV_SEED_PATH);
-  assert.equal(pack.version, 10);
+  assert.equal(pack.version, 11);
   for (const n of pack.nodes) assert.match(String(g.getNode(HUMAN, n.id)!.props?.seedHash), /^[0-9a-f]{16}$/, n.id);
-  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 10);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 11);
   assert.equal(applySeedPack(g, pack).status, 'already-loaded');
 });
 
@@ -268,7 +268,7 @@ test('an install from before hashes: untouched nodes (even ones a system re-seed
 
   const r = applySeedPack(g, loadBsvSeed(BSV_SEED_PATH));
   assert.equal(r.status, 'upgraded');
-  assert.deepEqual([r.from, r.to], [1, 10]);
+  assert.deepEqual([r.from, r.to], [1, 11]);
   assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-caps-approval']);
   assert.match(g.getNode(HUMAN, tn.id)!.body, /Association's own release page confirms/, 'the rev-2 node was never edited, so it took the folded text');
   assert.doesNotMatch(g.getNode(HUMAN, tn.id)!.body, /Update \(/);
@@ -282,6 +282,7 @@ test('an install from before hashes: untouched nodes (even ones a system re-seed
 const V7_PATH = fileURLToPath(new URL('../../test/fixtures/bsv-pack-v7.json', import.meta.url));
 const V8_PATH = fileURLToPath(new URL('../../test/fixtures/bsv-pack-v8.json', import.meta.url));
 const V9_PATH = fileURLToPath(new URL('../../test/fixtures/bsv-pack-v9.json', import.meta.url));
+const V10_PATH = fileURLToPath(new URL('../../test/fixtures/bsv-pack-v10.json', import.meta.url));
 
 test('v8 upgrade: from the shipped v7 pack, edited notes stay, untouched notes take the new text, six new notes arrive, no id is lost, the count is exactly the bundled count plus the owner\'s own', () => {
   const v7 = loadBsvSeed(V7_PATH);
@@ -391,7 +392,7 @@ const V10_NEW = ['bsv-brc100-createaction-errors', 'bsv-brc100-originator-permis
 
 test('v10 upgrade: from the shipped v9 pack, edited notes stay, untouched notes take the new text, four new notes arrive, no id or link is lost', () => {
   const v9 = loadBsvSeed(V9_PATH);
-  const v10 = loadBsvSeed(BSV_SEED_PATH);
+  const v10 = loadBsvSeed(V10_PATH);
   assert.equal(v9.version, 9);
   assert.equal(v9.nodes.length, 163, 'the fixture is the pack that shipped at version 9');
   assert.equal(v9.edges.length, 727);
@@ -424,4 +425,55 @@ test('v10 upgrade: from the shipped v9 pack, edited notes stay, untouched notes 
   assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 10);
   assert.equal(applySeedPack(g, v10).status, 'already-loaded');
   assert.equal(g.getNode(HUMAN, 'bsv-safety-spend-flow')!.body, 'my own spend notes');
+});
+
+// ---------------------------------------------------------------- 10. pack v11: upgrade from a real v10 install (the owner's confirmations are Legion's confirm card, not native dialogs)
+
+const V11_CHANGED = ['bsv-antipattern-trust-chain-text', 'bsv-assayer-playbook', 'bsv-community-bsv-mcp', 'bsv-mod-safety', 'bsv-safety-audit-freeze', 'bsv-safety-mainnet-armed-native', 'bsv-safety-overview', 'bsv-safety-owner-checks', 'bsv-safety-spend-caps-approval', 'bsv-safety-spend-dialogs', 'bsv-safety-spend-flow', 'bsv-safety-spend-network-caps', 'bsv-safety-testnet-default', 'bsv-safety-unknown-outcome', 'bsv-safety-untrusted-chain-data', 'bsv-sound-events', 'bsv-src-legion-kit', 'bsv-status-today'];
+
+test('v11 upgrade: from the shipped v10 pack, edited notes stay, untouched notes take the confirm-card text, nothing is added or lost', () => {
+  const v10 = loadBsvSeed(V10_PATH);
+  const v11 = loadBsvSeed(BSV_SEED_PATH);
+  assert.equal(v10.version, 10);
+  assert.equal(v10.nodes.length, 167, 'the fixture is the pack that shipped at version 10');
+  assert.equal(v11.version, 11);
+  assert.deepEqual(v11.nodes.map((n) => n.id).sort(), v10.nodes.map((n) => n.id).sort(), 'v11 rewrites text only: same notes');
+  assert.equal(v11.edges.length, v10.edges.length);
+  for (const e of v10.edges) assert.ok(v11.edges.some((x) => x.from === e.from && x.rel === e.rel && x.to === e.to), `v11 dropped a link ${e.from} ${e.rel} ${e.to}`);
+  const changed = (a: { title?: string; body?: string }, b: { title?: string; body?: string }) => a.body !== b.body || a.title !== b.title;
+  assert.deepEqual(v11.nodes.filter((n) => changed(n, v10.nodes.find((o) => o.id === n.id)!)).map((n) => n.id).sort(), V11_CHANGED);
+  assert.match(v10.nodes.find((n) => n.id === 'bsv-safety-spend-dialogs')!.body!, /native dialogs?|closing the box/i, 'the fixture carries the old wording: the upgrade check exercises something');
+
+  const { g, bsv } = mkGraph();
+  bsv.on = true;
+  assert.equal(applySeedPack(g, v10).status, 'loaded');
+  g.upsertNode(HUMAN, { id: 'bsv-safety-spend-flow', body: 'my own spend notes' });
+  const r = applySeedPack(g, v11);
+  assert.equal(r.status, 'upgraded');
+  assert.deepEqual([r.from, r.to], [10, 11]);
+  assert.equal(r.created, 0);
+  assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-flow']);
+  assert.equal(g.getNode(HUMAN, 'bsv-safety-spend-flow')!.body, 'my own spend notes');
+  const cards = g.getNode(HUMAN, 'bsv-safety-spend-dialogs')!;
+  assert.match(cards.body, /Legion's confirm card/);
+  assert.match(cards.body, /Cancel or Escape denies/);
+  assert.doesNotMatch(cards.body, /native dialog|closing the box/i);
+  assert.equal(g.stats(HUMAN).byScope.bsv, 167);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 11);
+  assert.equal(applySeedPack(g, v11).status, 'already-loaded');
+  assert.equal(g.getNode(HUMAN, 'bsv-safety-spend-flow')!.body, 'my own spend notes');
+});
+
+test('pack v11: no note says the owner confirms in a native dialog or by closing a box; the confirm card is named, and the system dialog is its fallback', () => {
+  const v11 = loadBsvSeed(BSV_SEED_PATH);
+  for (const n of v11.nodes) {
+    // the id bsv-safety-mainnet-armed-native keeps its name (links point at it); the words are what the owner reads
+    assert.doesNotMatch(n.title ?? '', /native/i, n.id);
+    // bsv-src-legion-kit quotes the 2026-10-01 design document's own list of planned safeguards, which says "native confirmation"
+    if (n.id !== 'bsv-src-legion-kit') assert.doesNotMatch(n.body ?? '', /\bnative (confirm|warning|dialog)|closing the box/i, n.id);
+  }
+  const body = (id: string) => v11.nodes.find((n) => n.id === id)!.body!;
+  for (const id of ['bsv-mod-safety', 'bsv-safety-overview', 'bsv-safety-spend-flow', 'bsv-safety-spend-dialogs', 'bsv-safety-mainnet-armed-native', 'bsv-status-today', 'bsv-safety-unknown-outcome']) assert.match(body(id), /confirm card/, id);
+  assert.match(body('bsv-safety-spend-dialogs'), /system dialog if the card cannot open/);
+  assert.match(body('bsv-safety-spend-dialogs'), /inside the Legion window/);
 });
