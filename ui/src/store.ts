@@ -10,6 +10,7 @@ import { keepTasks } from './history/historyLogic';
 import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type ThreadMeta } from './chat/threadWindow';
 import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
+import { ACP_CLOSED_NOTE } from '../../src/shared/acp-copy';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { projectToShow } from './chat/taskTabs';
 import { noteNavigation, noteTaskSelected, noteViewSet, withoutNavigation } from './projects/railRoute';
@@ -37,6 +38,8 @@ export interface AppState {
   tasks: Task[];
   vms: Record<string, VmRecord>;
   approvals: ApprovalRequest[];
+  /** Cards of an agent host that closed with no answer (it stopped waiting, or cancelled the call). They stay in the thread, closed, until dismissed or the task ends (R60). They never count as waiting for the owner. */
+  closedCards: ClosedCard[];
   /** Structured questions waiting for the owner's answer (the question card). Admin only; empty in a window without the admin key. */
   questions: PendingQuestion[];
   /** Who waits in the queue and why (the core's snapshot, kept current by `queue.updated`). Null in a core that does not send it. */
@@ -99,9 +102,18 @@ const initialTheme = ((): 'dark' | 'light' => {
   return 'dark';
 })();
 
+/** A card that closed with no answer: what it asked, why it closed, and (an answer sent in the same instant) the late note. */
+export interface ClosedCard { card: ApprovalRequest; note: string; late?: string; /** Keyboard focus was on the card when it closed: the closed card takes it, so focus never drops to the page. */ focus?: boolean }
+
+const isEnded = (st: string): boolean => st === 'done' || st === 'error' || st === 'cancelled';
+/** Is keyboard focus on the card (or a button of it) right now? Read before the card leaves the page. */
+function focusInCard(id: string): boolean {
+  try { return typeof document !== 'undefined' && !!document.activeElement?.closest?.(`[data-approval-id="${id}"]`); } catch { return false; }
+}
+
 let state: AppState = {
   loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
-  agents: [], tasks: [], vms: {}, approvals: [], questions: [], queue: null, parked: [], caps: {}, denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
+  agents: [], tasks: [], vms: {}, approvals: [], closedCards: [], questions: [], queue: null, parked: [], caps: {}, denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
   opsOpen: ls('legion.ops') !== '0', theme: initialTheme,
@@ -221,7 +233,11 @@ export function handleEvent(e: LegionEvent) {
         // a stopped run has no progress; a stale "turn 37" next to a finished task would be wrong
         let progress = s.progress;
         if (terminal && progress[e.task.id]) { const { [e.task.id]: _p, ...rest } = progress; progress = rest; }
-        return { tasks: upsertTask(s.tasks, e.task), streaming, progress };
+        // the task ended (stopped by the owner), or a new turn began after a finished one: its closed cards are old news
+        const before = s.tasks.find((t) => t.id === e.task.id);
+        const drop = e.task.status === 'cancelled' || (!!before && isEnded(before.status) && !isEnded(e.task.status));
+        const closedCards = drop && s.closedCards.some((c) => c.card.taskId === e.task.id) ? s.closedCards.filter((c) => c.card.taskId !== e.task.id) : s.closedCards;
+        return { tasks: upsertTask(s.tasks, e.task), streaming, progress, ...(closedCards !== s.closedCards ? { closedCards } : {}) };
       });
       if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) withoutNavigation(() => leaveTask(e.task.id)); // a server event, not a move by the owner
       break;
@@ -231,7 +247,7 @@ export function handleEvent(e: LegionEvent) {
       delete pendingDelta[id];
       const wasSel = getState().selectedTaskId === id;
       if (wasSel) withoutNavigation(() => leaveTask(id));
-      setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _t, ...threadMeta } = s.threadMeta; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, threadMeta, progress }; });
+      setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _t, ...threadMeta } = s.threadMeta; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, threadMeta, progress, closedCards: s.closedCards.filter((c) => c.card.taskId !== id) }; });
       break;
     }
     case 'settings.updated':
@@ -291,14 +307,20 @@ export function handleEvent(e: LegionEvent) {
     case 'approval.requested':
       setState((s) => (s.approvals.some((a) => a.id === e.approval.id) ? {} : { approvals: [...s.approvals, e.approval] }));
       break;
-    case 'approval.resolved':
-      // an agent host card that closed with no answer (the agent stopped waiting): say so, in the card's own words
-      if (e.note) toast(e.note, 'info');
+    case 'approval.resolved': {
+      const card = getState().approvals.find((a) => a.id === e.approvalId);
+      // an agent host card that ran out of time or whose call was cancelled stays in the thread, closed, in the card's own words (R60);
+      // one that closed because the task ended only says so
+      const stays = !!(e.note && e.stays && card);
+      if (e.note && !e.stays) toast(e.note, 'info');
+      const focus = stays && focusInCard(e.approvalId);
       setState((s) => ({
         approvals: s.approvals.filter((a) => a.id !== e.approvalId),
         denials: noteDenial(s.denials, s.approvals.find((a) => a.id === e.approvalId), e.allowed),
+        ...(stays && !s.closedCards.some((c) => c.card.id === e.approvalId) ? { closedCards: [...s.closedCards, { card: card!, note: e.note!, ...(focus ? { focus: true } : {}) }] } : {}),
       }));
       break;
+    }
     case 'queue.updated':
       setState({ queue: e.queue });
       break;
@@ -576,9 +598,30 @@ export function settleApproval(id: string, allow: boolean, announce = true) {
   });
 }
 
+/**
+ * An answer that was sent after the card had closed (the core refused it and says why): the card goes back into the thread, closed, with the late
+ * note, so the owner sees that nothing was run. When the card already closed in the window, it only gains the note.
+ */
+function closeLate(card: ApprovalRequest | undefined, note: string): void {
+  if (!card) { toast(note, 'info'); return; }
+  setState((s) => ({
+    closedCards: s.closedCards.some((c) => c.card.id === card.id)
+      ? s.closedCards.map((c) => (c.card.id === card.id ? { ...c, late: note } : c))
+      : [...s.closedCards, { card, note: ACP_CLOSED_NOTE, late: note }],
+  }));
+}
+
+/** The owner dismisses a closed card. Focus goes to the composer on purpose, so it never falls to the page. */
+export function dismissClosed(id: string): void {
+  const had = focusInCard(id);
+  setState((s) => ({ closedCards: s.closedCards.filter((c) => c.card.id !== id) }));
+  if (had) { try { document.querySelector<HTMLElement>('[data-composer]')?.focus(); } catch { /* no composer on this page */ } }
+}
+
 export async function decide(id: string, allow: boolean, site?: 'always' | 'goal' | 'once') {
+  const card = getState().approvals.find((a) => a.id === id);
   settleApproval(id, allow, false); // optimistic; the sound waits for the send
-  try { const r = await api.decide(id, allow, site); if (r.ok === false && r.note) toast(r.note, 'info'); else tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  try { const r = await api.decide(id, allow, site); if (r.ok === false && r.note) closeLate(card, r.note); else tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**
@@ -586,8 +629,9 @@ export async function decide(id: string, allow: boolean, site?: 'always' | 'goal
  * sends the option the owner chose. An answer after the agent stopped waiting is not sent: the core says why and the window shows it.
  */
 export async function decideOption(id: string, allow: boolean, optionId: string) {
+  const card = getState().approvals.find((a) => a.id === id);
   settleApproval(id, allow, false);
-  try { const r = await api.decideOption(id, allow, optionId); if (r.ok === false && r.note) toast(r.note, 'info'); else tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  try { const r = await api.decideOption(id, allow, optionId); if (r.ok === false && r.note) closeLate(card, r.note); else tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**

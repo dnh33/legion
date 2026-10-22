@@ -17,6 +17,7 @@ import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowA
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
+import { ClosedAcpCard } from './AcpCard';
 import { QuestionCard } from './QuestionCard';
 import { Icon } from './icons';
 import { ThreadRuns } from '../projects/page/ThreadRuns';
@@ -75,6 +76,7 @@ export function Thread() {
   const messages = useStore((s) => (taskId ? s.messages[taskId] ?? EMPTY : EMPTY));
   const stream = useStore((s) => (taskId ? s.streaming[taskId] ?? '' : ''));
   const approvals = useStore((s) => s.approvals);
+  const closedCards = useStore((s) => s.closedCards);
   const questions = useStore((s) => s.questions);
   const conn = useStore((s) => s.conn);
   const settings = useStore((s) => s.settings);
@@ -151,6 +153,7 @@ export function Thread() {
   }, []);
   // follow content while stuck to bottom
   const taskApprovals = approvals.filter((a) => a.taskId === taskId);
+  const taskClosed = closedCards.filter((c) => c.card.taskId === taskId);
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
   const taskQuestions = questions.filter((q) => q.taskId === taskId);
   const otherQuestions = questions.filter((q) => q.agentId === agentId && q.taskId !== taskId);
@@ -170,7 +173,7 @@ export function Thread() {
     }
     clearAskRequest();
   });
-  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskQuestions.length, running, toBottom, tick, meta]);
+  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskClosed.length, taskQuestions.length, running, toBottom, tick, meta]);
 
   // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card, and
   // never a question card: a keypress inside one of those is skipped by the closest() guard below).
@@ -311,6 +314,7 @@ export function Thread() {
               {running && task && task.status !== 'queued' && <TodoList taskId={task.id} />}
               {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0 || taskQuestions.length > 0} />}
               {taskApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
+              {taskClosed.map((c) => <ClosedAcpCard key={c.card.id} c={c} />)}
               {taskQuestions.map((q) => <QuestionCard key={q.id} q={q} />)}
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">

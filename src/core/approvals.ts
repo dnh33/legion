@@ -212,7 +212,7 @@ interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; tim
 export { ACP_CLOSED_NOTE, ACP_LATE_NOTE } from '../shared/acp-copy.js';
 
 /** How an agent host card ended: an option of the card, a plain no, or closed with no answer (deadline, cancel, the turn ended). */
-export type AcpAnswer = { kind: 'option'; optionId: string } | { kind: 'denied' } | { kind: 'closed'; note: string };
+export type AcpAnswer = { kind: 'option'; optionId: string } | { kind: 'denied' } | { kind: 'closed'; note: string; /** The card ran out of time or the host cancelled the call: the window keeps it in the thread (R60). Not set when the task ended. */ stays?: boolean };
 interface AcpPending { req: ApprovalRequest; shown: ReadonlySet<string>; resolve: (a: AcpAnswer) => void; timer: ReturnType<typeof setTimeout> }
 const CLOSED_KEPT = 200;
 /** Only an allow option allows. A reject option, or a kind this code does not know, never does. */
@@ -383,7 +383,7 @@ export class ApprovalBroker {
       acpOptions: o.options.map((x) => ({ ...x })), acpTitle: o.title, expiresAt: new Date((this.now ?? Date.now)() + o.waitMs).toISOString(),
     };
     return new Promise<AcpAnswer>((resolve) => {
-      const timer = setTimeout(() => this.settleAcp(req.id, { kind: 'closed', note: ACP_CLOSED_NOTE }), o.waitMs);
+      const timer = setTimeout(() => this.settleAcp(req.id, { kind: 'closed', note: ACP_CLOSED_NOTE, stays: true }), o.waitMs);
       timer.unref?.();
       this.acp.set(req.id, { req, shown: new Set(o.options.map((x) => x.optionId)), resolve, timer });
       this.bus.emit({ type: 'approval.requested', approval: req });
@@ -396,7 +396,7 @@ export class ApprovalBroker {
     this.acp.delete(id);
     clearTimeout(a.timer);
     if (answer.kind === 'closed') this.keepClosed(id);
-    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: answer.kind === 'option' && allows(a.req.acpOptions?.find((o) => o.optionId === answer.optionId)?.kind), ...(answer.kind === 'closed' ? { note: answer.note } : {}) });
+    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: answer.kind === 'option' && allows(a.req.acpOptions?.find((o) => o.optionId === answer.optionId)?.kind), ...(answer.kind === 'closed' ? { note: answer.note, ...(answer.stays ? { stays: true as const } : {}) } : {}) });
     a.resolve(answer);
     return true;
   }
@@ -414,7 +414,7 @@ export class ApprovalBroker {
     if (p.deadline) clearTimeout(p.deadline);
     p.detach?.();
     if (note) this.keepClosed(id);
-    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: allow, ...(note ? { note } : {}) });
+    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: allow, ...(note ? { note, stays: true as const } : {}) });
     p.resolve(allow);
     return true;
   }

@@ -234,6 +234,7 @@ test('R36 and Review Focus 3: the card shows when it closes, closes itself when 
   const closed = r.events.find((e) => e.type === 'approval.resolved' && e.approvalId === c.id);
   assert.equal(closed.allowed, false);
   assert.equal(closed.note, ACP_CLOSED_NOTE);
+  assert.equal(closed.stays, true, 'R60: the window keeps the closed card in the thread');
   assert.equal(ACP_CLOSED_NOTE, 'The agent stopped waiting');
   await until(() => r.answersTo(9100).length === 1, 5000); // the closing reply (cancelled) is the only one
   const before = r.msgs().filter((m) => m.id === 9100).length;
@@ -253,6 +254,8 @@ test('a card answered after the turn ended or the task was cancelled reads as la
   r.engine.cancel(t.id);
   await r.done(t);
   await until(() => r.answersTo(9100).length === 1, 5000); // the cancel marks the task at once; the wire follows
+  const ended = r.events.find((e) => e.type === 'approval.resolved' && e.approvalId === c.id);
+  assert.equal(ended.stays, undefined, 'R60: a card closed because the task ended does not stay');
   assert.equal(r.broker.resolve(c.id, true, undefined, 'allow_once'), false);
   assert.equal(r.broker.lateNote(c.id), ACP_LATE_NOTE);
   assert.equal(r.answersTo(9100).filter((m) => outcomeOf(m).outcome === 'selected').length, 0);
@@ -754,6 +757,7 @@ test('F5: a call the host cancels closes its own card at once, and nothing reads
   assert.equal(r.broker.pending().length, 0, 'the card is gone');
   const closed = r.events.find((e) => e.type === 'approval.resolved' && e.approvalId === c.id);
   assert.equal(closed.note, ACP_CLOSED_NOTE);
+  assert.equal(closed.stays, true, 'R60: a call Hermes cancelled leaves its closed card in the thread');
   assert.equal(r.broker.resolve(c.id, true), false);
   assert.equal(r.broker.lateNote(c.id), ACP_LATE_NOTE);
   r.engine.cancel(t.id);

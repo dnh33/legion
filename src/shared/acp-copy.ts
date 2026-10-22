@@ -30,6 +30,24 @@ export const SWITCH_COPY: Record<keyof AcpSwitches, { label: string; hint: strin
 };
 export const SWITCH_ORDER: ReadonlyArray<keyof AcpSwitches> = ['disasterStop', 'modeMap', 'stripSkipFlags', 'answerOnce'];
 
+/** What the Contained read-back checks, said once: the core's check result and the Settings switch both use these words. */
+export const CONTAINED_CHECKS = 'that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow the Claude Code or Codex logins';
+/** The Contained switch text in Settings. It says what is checked and that the main Hermes sign-in may be used (R53); it claims nothing more. */
+export const CONTAINED_SWITCH_HINT = `Runs Hermes in its own profile named legion. Set up and Check read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
+
+/**
+ * Hermes's short title for a request next to the words the card already shows. The title is only worth a second line when it says something the
+ * body does not: a title that is the command, or the command and its description joined, only repeats the body.
+ */
+export function titleAddsInfo(title: string | undefined, summary: string): boolean {
+  const norm = (x: string): string => x.toLowerCase().replace(/\s+/g, ' ').trim();
+  const t = norm(title ?? '');
+  if (!t) return false;
+  const body = norm(summary);
+  if (body.includes(t)) return false;
+  return t.split(/\s*:\s+/).map((p) => p.trim()).filter(Boolean).some((part) => !body.includes(part));
+}
+
 export const CUSTOM_ENTRIES_NOTE = 'Other agent hosts are added in the config file, not here.';
 
 /** A Hermes agent: its model value starts with `acp:`. */

@@ -31,6 +31,7 @@
  */
 import { homedir, tmpdir } from 'node:os';
 import type { AcpContainedSetup, AcpContainedStatus, AcpEntry } from '../../shared/acp-view.js';
+import { CONTAINED_CHECKS } from '../../shared/acp-copy.js';
 import { redact } from '../log/redact.js';
 import { runAgentCli } from './process.js';
 
@@ -47,7 +48,7 @@ const POLICY = [
   { key: 'auth.adopt_external_logins', set: 'false', want: false },
 ] as const;
 /** What the read-back proves, said once. Nothing is claimed about tools, servers or plugins the owner adds to the profile. */
-const POLICY_HOLDS = 'Hermes reports that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow the Claude Code or Codex logins. Tools you add to that profile yourself are not checked.';
+const POLICY_HOLDS = `Hermes reports ${CONTAINED_CHECKS}. Tools you add to that profile yourself are not checked.`;
 
 type Run = typeof runAgentCli;
 export interface ContainedDeps { run?: Run }

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApprovalRequest } from '../../../src/shared/types';
-import { HERMES_ASKS, cardCountdown } from '../../../src/shared/acp-copy';
-import { decideOption } from '../store';
+import { HERMES_ASKS, cardCountdown, titleAddsInfo } from '../../../src/shared/acp-copy';
+import { decideOption, dismissClosed, type ClosedCard } from '../store';
 import { useCardArm, useArmUi } from '../a11y/keyClock';
 import { Icon } from './icons';
+import { shortTool } from '../util';
 
 /** Every second while a card has a deadline. The count itself is not announced to a screen reader: only the end is. */
 function useNow(active: boolean): number {
@@ -42,7 +43,7 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
       <div className="approval-head">
         <Icon name="shield" size={14} />
         <span>{HERMES_ASKS}</span>
-        {a.acpTitle && <b className="approval-tool">{a.acpTitle}</b>}
+        {titleAddsInfo(a.acpTitle, a.summary) && <b className="approval-tool">{a.acpTitle}</b>}
       </div>
       <pre className="approval-sum">{a.summary}</pre>
       <div className="approval-actions">
@@ -50,6 +51,31 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
           <button key={o.optionId} type="button" className={o.kind === 'allow_once' ? 'btn primary' : 'btn'} onClick={answer(o.optionId, o.kind)}>{o.name}</button>
         ))}
         {left && <span className={`approval-note acp-left${ended ? ' is-ended' : ''}`} role={ended ? 'status' : undefined}>{left.text}</span>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A card that closed with no answer (R60): it stays in the thread so the owner can read what was asked and that nothing was run. It has no answer
+ * buttons, only Dismiss. When focus was on the card as it closed, focus moves to Dismiss (never to the page); Dismiss then hands it to the composer.
+ */
+export function ClosedAcpCard({ c }: { c: ClosedCard }) {
+  const a = c.card;
+  const dismiss = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (c.focus) dismiss.current?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const hermes = !!a.acpOptions?.length;
+  return (
+    <div className="approval acp-card is-closed" data-approval-id={a.id} role="group" aria-label={`${hermes ? HERMES_ASKS : 'Asked for your OK'}, closed`}>
+      <div className="approval-head">
+        <Icon name="shield" size={14} />
+        <span>{hermes ? HERMES_ASKS : 'Asked for your OK'}</span>
+        {hermes ? (titleAddsInfo(a.acpTitle, a.summary) && <b className="approval-tool">{a.acpTitle}</b>) : <b className="approval-tool">{shortTool(a.toolName)}</b>}
+      </div>
+      <pre className="approval-sum">{a.summary}</pre>
+      <div className="approval-actions">
+        <span className="approval-note acp-left is-ended" role="status">{c.late ? `${c.note}. ${c.late}` : c.note}</span>
+        <button ref={dismiss} type="button" className="btn sm" onClick={() => dismissClosed(a.id)}>Dismiss</button>
       </div>
     </div>
   );

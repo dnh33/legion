@@ -850,6 +850,10 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .form .acp-first { margin: 6px 0 0; }
 .acp-card .approval-sum { max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .acp-left { margin-left: auto; font-variant-numeric: tabular-nums; }
+.approval.is-closed { border-color: var(--line-strong); background: var(--surface); }
+.approval.is-closed .approval-head { color: var(--text-2); }
+.approval.is-closed .acp-left { margin-left: 0; }
+.approval.is-closed .approval-actions .btn { margin-left: auto; }
 .acp-left.is-ended { color: var(--warn); }
 .hermes-mode { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
 .hermes-mode .link-btn { align-self: flex-start; font-size: 12px; color: var(--text-2); }
@@ -858,6 +862,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .host-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .host-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
 .host-main .set-hint { overflow-wrap: anywhere; }
+.host-head { display: flex; flex-direction: column; gap: 4px; }
 .host-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: transparent; border: 1px solid var(--line-strong); }
 .host-dot.ok { background: var(--accent-text); border-color: var(--accent-text); }
 .host-dot.bad { background: var(--danger); border-color: var(--danger); }

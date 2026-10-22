@@ -13,8 +13,8 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { buildPickerLayout, type PickerInput } from '../src/shared/model-picker-rows.js';
 import {
-  ACP_CLOSED_NOTE, ACP_LATE_NOTE, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
-  acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse,
+  ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
+  acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, titleAddsInfo,
 } from '../src/shared/acp-copy.js';
 import { toAcpDetection } from '../src/core/acp/detect.js';
 import { limitWords } from '../ui/src/gates/agentFollowLogic.js';
@@ -179,7 +179,7 @@ async function loadUi(state: Record<string, unknown>, extra: Record<string, unkn
       resolveDir: REPO, sourcefile: 'entry.ts', loader: 'ts',
       contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
         import { AgentEditor } from ${ui('ui/src/components/AgentEditor.tsx')};
-        import { AcpCard } from ${ui('ui/src/components/AcpCard.tsx')};
+        import { AcpCard, ClosedAcpCard } from ${ui('ui/src/components/AcpCard.tsx')};
         import { AcpFirstUseView } from ${ui('ui/src/components/AcpFirstUse.tsx')};
         import { HermesBadge, HermesUsage } from ${ui('ui/src/acp/HermesBadge.tsx')};
         import { AgentHostsView } from ${ui('ui/src/settings/AgentHostsSection.tsx')};
@@ -188,6 +188,7 @@ async function loadUi(state: Record<string, unknown>, extra: Record<string, unkn
         const render = (el) => renderToStaticMarkup(el);
         export const editor = (id) => render(createElement(AgentEditor, { id }));
         export const card = (a, now) => render(createElement(AcpCard, { a, now }));
+        export const closedCard = (c) => render(createElement(ClosedAcpCard, { c }));
         export const firstUse = () => render(createElement(AcpFirstUseView, { onUse() {}, onNotNow() {} }));
         export const badge = (task) => render(createElement(HermesBadge, { task }));
         export const usage = (task) => render(createElement(HermesUsage, { task }));
@@ -213,7 +214,7 @@ async function loadUi(state: Record<string, unknown>, extra: Record<string, unkn
           export const saveSettings = async () => {}; export const errText = (e) => (e && e.message) ? e.message : String(e);
           export const saveAgent = async () => {}; export const removeAgent = async () => {};
           export const closeOverlays = () => {}; export const openSettings = () => {}; export const loadCatalog = async () => {};
-          export const decideOption = async () => {}; export const decide = async () => {}; export const toast = () => {}; export const loadSettings = async () => {}; export const runDoctor = async () => {};`);
+          export const dismissClosed = () => {}; export const decideOption = async () => {}; export const decide = async () => {}; export const toast = () => {}; export const loadSettings = async () => {}; export const runDoctor = async () => {};`);
         stub(/\.\.\/api$/, 'api', `export const api = { acpContained: async () => ({}) }; export const request = async () => ({});`);
       },
     }],
@@ -308,6 +309,19 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     const allOn = unesc(r.hosts({ ...base, acp: acp({}, { disasterStop: true, modeMap: true, stripSkipFlags: true, answerOnce: true }) }));
     assert.equal((allOn.match(/checked=""/g) ?? []).length, 5, 'each switch reads its own value');
     assert.match(h, /Contained/);
+    // R53 / live check 2026-10-22: the switch says what the read-back checks, and that the main Hermes sign-in may be used. It never over-claims.
+    assert.doesNotMatch(h, /none of your other Hermes settings|only file tools/);
+    assert.ok(h.includes(CONTAINED_SWITCH_HINT), 'the switch text is the shared wording');
+    assert.ok(CONTAINED_SWITCH_HINT.includes(CONTAINED_CHECKS), 'it reuses the core wording of what is checked');
+    assert.match(CONTAINED_SWITCH_HINT, /asks before it runs a command/);
+    assert.match(CONTAINED_SWITCH_HINT, /tool list for Legion runs is set to file tools/);
+    assert.match(CONTAINED_SWITCH_HINT, /does not borrow the Claude Code or Codex logins/);
+    assert.match(CONTAINED_SWITCH_HINT, /may use your main Hermes sign-in/);
+    assert.doesNotMatch(CONTAINED_SWITCH_HINT, NO_DASH);
+    assert.match(src('src/core/acp/contained.ts'), /CONTAINED_CHECKS/, 'the core builds its read-back sentence from the same words');
+    // the heading and its paragraph sit together, without the card gap between them
+    assert.match(h, /<div class="host-head"><h4>In between<\/h4><p/);
+    assert.match(src('ui/src/styles/app.css'), /\.host-head\s*\{[^}]*gap:\s*4px/);
     assert.match(h, /Watchdog/i);
     assert.ok(h.includes('config file'), 'custom entries are not edited here');
     const missing = unesc(r.hosts({ ...base, acp: acp({ detection: { state: 'missing', checked: true, detail: 'Hermes is not on your PATH.' } }) }));
@@ -331,7 +345,7 @@ async function loadStore(): Promise<{ s: Record<string, (...a: any[]) => any>; c
         b.onLoad({ filter: /^api$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export class ApiError extends Error {}
           export const request = async () => ({}); export const subscribe = () => () => {};
-          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; } };` }));
+          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; }, decideOption: async () => globalThis.__decideNext };` }));
       },
     }],
   });
@@ -379,6 +393,112 @@ test('card countdown: the text counts down each second and ends exactly at the d
   assert.equal(cardCountdown(undefined, 1), undefined, 'no deadline, no countdown');
 });
 
+// ---------------------------------------------------------------- R60: a closed card stays in the thread
+
+const HCARD = (id = 'apr_1', over: Record<string, unknown> = {}) => ({ id, taskId: 't1', agentId: 'h', toolName: 'acp_execute', summary: 'rm -rf build\ndelete the build folder', input: {}, at: '', noRemember: true, acpTitle: 'delete the build folder: rm -rf build',
+  acpOptions: [{ optionId: 'o1', name: 'Allow once', kind: 'allow_once' }, { optionId: 'o3', name: 'Deny', kind: 'reject_once' }], expiresAt: new Date(Date.now() + 60_000).toISOString(), ...over });
+
+test('R60 render: a closed card says the agent stopped waiting, offers no answer, and has a Dismiss control', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const html = unesc(r.closedCard({ card: HCARD(), note: ACP_CLOSED_NOTE }));
+    assert.ok(html.includes('Hermes asks'));
+    assert.ok(html.includes(ACP_CLOSED_NOTE), 'the R36 text');
+    assert.ok(html.includes('rm -rf build'), 'what was asked stays readable');
+    assert.equal((html.match(/<button/g) ?? []).length, 1, 'one button: Dismiss, no answer buttons');
+    assert.match(html, /<button[^>]*>Dismiss<\/button>/);
+    assert.doesNotMatch(html, /Allow once|Deny/);
+    const late = unesc(r.closedCard({ card: HCARD(), note: ACP_CLOSED_NOTE, late: ACP_LATE_NOTE }));
+    assert.ok(late.includes(ACP_LATE_NOTE), 'an answer pressed in the same instant shows the Task 6 late note');
+    assert.doesNotMatch(html + late, NO_DASH);
+  } finally { cleanup(); }
+});
+
+test('R60 render: the Hermes card shows the command once; the title chip only when it adds information', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const repeat = unesc(r.card(HCARD('apr_1'), Date.now()));
+    assert.equal((repeat.match(/rm -rf build/g) ?? []).length, 1, 'the command appears once (live check 2026-10-22: it was in the header and the body)');
+    assert.doesNotMatch(repeat, /class="approval-tool"/, 'a title that only repeats the body is not shown');
+    const adds = unesc(r.card(HCARD('apr_2', { acpTitle: 'Network access', summary: 'curl example.com' }), Date.now()));
+    assert.match(adds, /class="approval-tool"[^>]*>Network access</, 'a title with new information stays');
+  } finally { cleanup(); }
+  assert.equal(titleAddsInfo('delete the build folder: rm -rf build', 'rm -rf build\ndelete the build folder'), false);
+  assert.equal(titleAddsInfo('rm -rf build', 'rm -rf build'), false);
+  assert.equal(titleAddsInfo('Network access', 'curl example.com'), true);
+  assert.equal(titleAddsInfo('', 'x'), false);
+});
+
+test('R60 behaviour: the real store keeps a card that closed at the deadline, drops it on Dismiss, the task ending or a new turn', async () => {
+  const { s, cleanup } = await loadStore();
+  const g = globalThis as Record<string, unknown>;
+  const closedIds = (): string[] => (s.getState().closedCards as Array<{ card: { id: string } }>).map((c) => c.card.id);
+  const hadWindow = g.window; g.window = globalThis; // the toast for a card closed by the task ending sets a timer on window
+  const resolve = (id: string, over: Record<string, unknown> = {}) => s.handleEvent({ type: 'approval.resolved', approvalId: id, allowed: false, note: ACP_CLOSED_NOTE, stays: true, ...over });
+  try {
+    s.setState({ approvals: [], closedCards: [] });
+    s.handleEvent({ type: 'approval.requested', approval: HCARD('apr_1') });
+    resolve('apr_1');
+    assert.deepEqual(s.getState().approvals, [], 'it no longer counts as waiting for the owner');
+    assert.deepEqual(closedIds(), ['apr_1'], 'but it stays in the thread');
+    assert.equal(s.getState().closedCards[0].note, ACP_CLOSED_NOTE);
+    s.dismissClosed('apr_1');
+    assert.deepEqual(closedIds(), [], 'Dismiss removes it');
+
+    // a card closed because the task ended does not stay
+    s.handleEvent({ type: 'approval.requested', approval: HCARD('apr_2') });
+    resolve('apr_2', { stays: undefined });
+    assert.deepEqual(closedIds(), []);
+
+    // the task ends: cancelled or deleted
+    for (const end of [{ type: 'task.updated', task: { id: 't1', status: 'cancelled' } }, { type: 'task.deleted', taskId: 't1' }]) {
+      s.setState({ closedCards: [], tasks: [{ id: 't1', status: 'running' }] });
+      s.handleEvent({ type: 'approval.requested', approval: HCARD('apr_3') });
+      resolve('apr_3');
+      assert.deepEqual(closedIds(), ['apr_3']);
+      s.handleEvent({ type: 'task.updated', task: { id: 't1', status: 'running' } });
+      assert.deepEqual(closedIds(), ['apr_3'], 'the run going on does not drop it');
+      s.handleEvent(end);
+      assert.deepEqual(closedIds(), [], `${end.type} drops it`);
+    }
+    // a finished turn keeps the card the owner never saw; the next turn of the task drops it
+    s.setState({ closedCards: [], tasks: [{ id: 't1', status: 'running' }] });
+    s.handleEvent({ type: 'approval.requested', approval: HCARD('apr_4') });
+    resolve('apr_4');
+    s.handleEvent({ type: 'task.updated', task: { id: 't1', status: 'done' } });
+    assert.deepEqual(closedIds(), ['apr_4'], 'a normal finish keeps it until dismissed');
+    s.handleEvent({ type: 'task.updated', task: { id: 't1', status: 'running' } });
+    assert.deepEqual(closedIds(), [], 'a new turn drops it');
+
+    // an answer sent in the same instant: the core says it was late, and the card closes with that note
+    s.setState({ closedCards: [], approvals: [HCARD('apr_5')] });
+    g.__decideNext = { ok: false, note: ACP_LATE_NOTE };
+    await s.decideOption('apr_5', true, 'o1');
+    const late = s.getState().closedCards as Array<{ card: { id: string }; note: string; late?: string }>;
+    assert.deepEqual(late.map((c) => c.card.id), ['apr_5']);
+    assert.equal(late[0]!.note, ACP_CLOSED_NOTE);
+    assert.equal(late[0]!.late, ACP_LATE_NOTE);
+    // the deadline event for the same card arriving after the click adds no second card
+    resolve('apr_5');
+    assert.deepEqual(closedIds(), ['apr_5']);
+  } finally { delete g.__decideNext; if (hadWindow === undefined) delete g.window; else g.window = hadWindow; cleanup(); }
+});
+
+test('R60 behaviour: focus that was inside the card when it closed is handed to the closed card, not dropped to the page', async () => {
+  const { s, cleanup } = await loadStore();
+  const g = globalThis as Record<string, unknown>;
+  const had = g.document;
+  try {
+    for (const inside of [true, false]) {
+      g.document = { activeElement: { closest: (sel: string) => (inside && sel.includes('apr_f') ? {} : null) } };
+      s.setState({ approvals: [], closedCards: [] });
+      s.handleEvent({ type: 'approval.requested', approval: HCARD('apr_f') });
+      s.handleEvent({ type: 'approval.resolved', approvalId: 'apr_f', allowed: false, note: ACP_CLOSED_NOTE, stays: true });
+      assert.equal(s.getState().closedCards[0].focus, inside ? true : undefined, inside ? 'focus was on the card: the closed card takes it' : 'focus was elsewhere (the composer): it is left alone');
+    }
+  } finally { if (had === undefined) delete g.document; else g.document = had; cleanup(); }
+});
+
 // ---------------------------------------------------------------- wiring pins and copy rules
 
 test('the agent rail never shows a raw model id for an agent with no description', () => {
@@ -392,6 +512,7 @@ test('wiring: the thread, the card, the Doctor and Settings use the new parts', 
   assert.match(th, /<HermesUsage/);
   assert.match(th, /task\?\.provider && !task\.runtime/, 'the provider tooltip is not for Hermes tasks');
   assert.match(src('ui/src/components/ApprovalCard.tsx'), /a\.acpOptions\?\.length[\s\S]*<AcpCard/);
+  assert.match(th, /closedCards[\s\S]*<ClosedAcpCard/, 'R60: the thread renders the closed cards of its task');
   assert.match(src('ui/src/components/DoctorModal.tsx'), /checkKind/);
   assert.match(src('ui/src/components/Settings.tsx'), /section === 'hosts'/);
   assert.match(src('ui/src/components/ModelPicker.tsx'), /hosts/);

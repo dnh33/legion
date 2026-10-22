@@ -357,7 +357,7 @@ export type LegionEvent =
   | { type: 'task.deleted'; taskId: string }
   | { type: 'settings.updated'; settings: SettingsView }
   | { type: 'approval.requested'; approval: ApprovalRequest }
-  | { type: 'approval.resolved'; approvalId: string; allowed: boolean; /** Set when the card closed without an answer from the owner (an agent host stopped waiting): the words for the card. */ note?: string }
+  | { type: 'approval.resolved'; approvalId: string; allowed: boolean; /** Set when the card closed without an answer from the owner (an agent host stopped waiting): the words for the card. */ note?: string; /** With `note`: the card ran out of time or the host cancelled its call, and the window keeps it in the thread, closed, until the owner dismisses it. Not set when the card closed because the task ended. */ stays?: boolean }
   | { type: 'question.requested'; question: PendingQuestion }
   | { type: 'question.resolved'; questionId: string; answered: boolean }
   | { type: 'mascot'; mood: MascotMood; note?: string }

@@ -194,7 +194,7 @@ export function Composer() {
         {picker && <ModelPicker model={model} agentName={agentName} onClose={closePicker} />}
         {costAsk && <div className="cost-note" role="alert"><Icon name="shield" size={13} /> <b>/{costAsk}</b> can cost money. Press Enter again to run it, or keep typing to cancel.</div>}
         {argHint && <div className="arg-hint"><code>/{argHint.name}</code><span className="sm-hint">{argHint.hint}</span><span>{argHint.description}</span></div>}
-        <textarea ref={ta} rows={1} value={text} placeholder={placeholder}
+        <textarea ref={ta} data-composer rows={1} value={text} placeholder={placeholder}
           onChange={(e) => { setText(e.target.value); const n = Date.now(); if (n - lastTyping.current > 300) { lastTyping.current = n; window.dispatchEvent(new Event('legion:typing')); } }}
           onKeyDown={onKeyDown} aria-label="Message" aria-expanded={menuOpen} aria-haspopup="listbox" />
         <div className={`composer-bar${busy ? ' busy' : ''}${running && started > 0 ? ' has-team' : ''}`}>

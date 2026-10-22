@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AcpEntryView, AcpSwitches, AcpView } from '../../../src/shared/acp-view';
 import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES } from '../../../src/shared/acp-view';
-import { CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER } from '../../../src/shared/acp-copy';
+import { CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER } from '../../../src/shared/acp-copy';
 import { api } from '../api';
 import { errText, loadSettings, runDoctor, saveSettings, toast, useStore } from '../store';
 import { copyText } from '../util';
@@ -61,7 +61,7 @@ export function AgentHostsView(p: AgentHostsViewProps) {
           <label className="set-check"><input type="checkbox" checked={hermes.enabled} onChange={(e) => p.onToggle(hermes.id, e.target.checked)} />
             <span><b>Offer Hermes in the model list</b><em>When Hermes is found, you can pick it for an agent.</em></span></label>
           <label className="set-check"><input type="checkbox" checked={hermes.contained === true} onChange={(e) => p.onContainedSwitch?.(e.target.checked)} />
-            <span><b>Contained</b><em>Runs Hermes in its own Legion profile named legion: approvals set to manual, only file tools and Legion tools, and none of your other Hermes settings.</em></span></label>
+            <span><b>Contained</b><em>{CONTAINED_SWITCH_HINT}</em></span></label>
           {hermes.contained === true && (
             <div className="host-contained">
               <div className="host-actions">
@@ -78,8 +78,8 @@ export function AgentHostsView(p: AgentHostsViewProps) {
         </div>
       )}
       <div className="set-card">
-        <h4>In between</h4>
-        <p className="set-hint">Hermes asks you its own questions and Legion passes them on as Hermes wrote them. These four change that, and every one is off until you turn it on.</p>
+        <div className="host-head"><h4>In between</h4>
+          <p className="set-hint">Hermes asks you its own questions and Legion passes them on as Hermes wrote them. These four change that, and every one is off until you turn it on.</p></div>
         {SWITCH_ORDER.map((k) => (
           <label key={k} className="set-check"><input type="checkbox" checked={p.acp.switches[k]} onChange={(e) => p.onSwitch(k, e.target.checked)} />
             <span><b>{SWITCH_COPY[k].label}</b><em>{SWITCH_COPY[k].hint}</em></span></label>
@@ -92,7 +92,7 @@ export function AgentHostsView(p: AgentHostsViewProps) {
           <span className="set-hint">Legion stops a Hermes task that has been quiet this long. {ACP_WATCHDOG_MIN_MINUTES} to {ACP_WATCHDOG_MAX_MINUTES}.</span></div>
       </div>
       <div className="set-card">
-        <h4>Other agent hosts</h4>
+        <div className="host-head"><h4>Other agent hosts</h4></div>
         {others.length === 0 ? <p className="set-hint">None added.</p> : (
           <ul className="host-list">{others.map((e) => <li key={e.id}><b>{e.label}</b> <code>{[e.command, ...e.args].join(' ')}</code> <span className="chip-pill">{e.enabled ? 'On' : 'Off'}</span></li>)}</ul>
         )}
