@@ -250,6 +250,30 @@ test('buildAgentEnv: names match without regard to case on Windows', () => {
   assert.deepEqual(env, { PATH: 'q' });
 });
 
+test('buildAgentEnv: secret names in lower and mixed case are stripped', () => {
+  const base = { github_token: 'a', Github_Token: 'b', Openai_Api_Key: 'c', plain_var: 'x', PATH: 'p' } as NodeJS.ProcessEnv;
+  assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: false, platform: 'win32' }), { plain_var: 'x', PATH: 'p' });
+  assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: false, platform: 'linux' }), { plain_var: 'x', PATH: 'p' });
+});
+
+test('buildAgentEnv: on Windows Path and PATH are one variable, and the owner-set value wins', () => {
+  const env = buildAgentEnv({ base: { Path: 'inherited' }, entryEnv: { PATH: 'entry' }, stripSkipFlags: false, platform: 'win32' });
+  assert.deepEqual(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), ['PATH']);
+  assert.equal(env.PATH, 'entry');
+  assert.deepEqual(buildAgentEnv({ base: { Path: 'inherited' }, stripSkipFlags: false, platform: 'win32' }), { Path: 'inherited' });
+});
+
+test("buildAgentEnv: Legion's own keys never pass, also when a wildcard in the keep list reaches them", () => {
+  const base = { ANTHROPIC_API_KEY: 'sk-ant-user-1234', anthropic_auth_token: 'tok-user-1234', Boat_Api_Key: 'boat-user-1234', ANT_OTHER: 'other-1', BOAT_REGION: 'eu', PLAIN_VAR: 'plain' } as NodeJS.ProcessEnv;
+  for (const platform of ['win32', 'linux'] as const) {
+    const env = buildAgentEnv({ base, stripSkipFlags: false, envKeep: ['ANT*', 'BOAT*', 'ANTHROPIC_API_KEY', 'boat_api_key'], platform });
+    for (const k of ['ANTHROPIC_API_KEY', 'anthropic_auth_token', 'Boat_Api_Key']) assert.ok(!(k in env), `${k} is dropped (${platform})`);
+    assert.equal(env.ANT_OTHER, 'other-1', 'the wildcard still keeps its other matches');
+    assert.equal(env.BOAT_REGION, 'eu');
+    assert.equal(env.PLAIN_VAR, 'plain');
+  }
+});
+
 test('buildAgentEnv: HERMES_* skip flags follow stripSkipFlags, and the scrub leaves them alone', () => {
   const base = { HERMES_YOLO_MODE: '1', HERMES_IGNORE_RULES: '1', HERMES_HOME: 'h', GITHUB_TOKEN: 't', PATH: 'p' } as NodeJS.ProcessEnv;
   assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: false }), { HERMES_YOLO_MODE: '1', HERMES_IGNORE_RULES: '1', HERMES_HOME: 'h', PATH: 'p' });
