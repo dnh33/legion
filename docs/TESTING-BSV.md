@@ -39,7 +39,7 @@ Merged since this page was first written (its sections 8.1 to 8.3 below were wri
 | No wallet names, wallet port, `@bsv/*`, `fetch`, process spawning or wallet-shaped tool names outside the allowlist | static scan of `src/` and `ui/src` | `bsv-tripwire`, `bsv-review-tripwire` (planted cases), scanner `bsv-scan.ts` | none (static) |
 | No guarantee-style wording in the panel, dialogs, agent text and BSV docs | text scan | `bsv-hedge` | none (static) |
 | Pack content honesty (design lessons marked, no unhedged claims of controls that do not exist) | `kg/seeds/bsv.json` | `bsv-pack`, `bsv-review-pack`, `bsv-review-seed`, `kg-bsv-seed` | none |
-| Electron main parses and words the native dialogs, passes the native secret only after Confirm | `electron/main.ts`, `admin-logic.ts` | `bsv-electron-logic`, `bsv-electron-emu` (stubbed electron; POSIX) | emulated only by sending the native header (`--auth native`) |
+| Electron main parses and words the confirm-card questions, passes the native secret only after Confirm | `electron/main.ts`, `admin-logic.ts` | `bsv-electron-logic`, `bsv-electron-emu` (stubbed electron; POSIX) | emulated only by sending the native header (`--auth native`) |
 
 What the harness gives that the in-process tests do not: the same controls through a **separate core process that received both secrets over stdin**, with an HTTP client that cannot reach into memory.
 
@@ -94,7 +94,7 @@ Cheap additions with the current harness: `bsv-wallet-network-claims` (wallet cl
 
 ## 8. Extension points (written before the spend work merged)
 
-The spend tool T2, the native dialogs T3 and mainnet T5 are merged on `integration/v1`. The harness scenarios below may still be pending; do not describe a scenario as passing until it runs on the branch you test. The extension points are fixed here so the harness work and the product work meet.
+The spend tool T2, the confirm-card questions T3 and mainnet T5 are merged on `integration/v1`. The harness scenarios below may still be pending; do not describe a scenario as passing until it runs on the branch you test. The extension points are fixed here so the harness work and the product work meet.
 
 ### 8.1 PENDING: spend tool (T2), `bsv_spend_request`
 
@@ -121,11 +121,11 @@ Scenario names to add in `scenarios.mjs` (each with proves / doesNotProve, run a
 - `bsv-spend-idempotent`: the same `requestKey` twice makes exactly one `createAction` and one `signAction`.
 - `bsv-spend-wallet-text-isolation`: instruction text in every string field of the wallet's answers never reaches the tool result, card or audit.
 
-What these will NOT prove (write this into each scenario): the real wallet's prompt, the native dialog, real transaction encodings (U2/U7/U8), what the real wallet returns on Deny (U6). Those are V1-V12.
+What these will NOT prove (write this into each scenario): the real wallet's prompt, the confirm card, real transaction encodings (U2/U7/U8), what the real wallet returns on Deny (U6). Those are V1-V12.
 
 Also to update when T2 merges: the table in section 3 (add rows for each spend control C1-C24 with its test and mutant), the "spendTools" statement in section 2, and `docs/BSV-MODE.md`'s "What it does NOT do".
 
-### 8.2 PENDING: native dialogs (T3)
+### 8.2 PENDING: confirm-card questions (T3)
 
 Today: `test/electron-emu/` runs the compiled `main.js` with `electron` stubbed and records the options `dialog.showMessageBox` receives; scenarios `bsv` and `hygiene` exist in `test/electron-emu/run.mjs`. When T3 lands, add emu scenarios for the spend cards: Cancel default and Escape, dialog 1 then dialog 2 for untrusted content (separate button press), card read by main from the core (not from the window), full address shown, network word shown, the resolve dialog ("NOT sent" / "WAS sent" / Cancel), and main polling `GET /api/bsv/spend/pending`. In the harness, the only emulation is the header class `--auth native`; add nothing that pretends to be a dialog. The pure formatting lives in `src/electron/admin-logic.ts` (test: `bsv-electron-logic`). Human-only: how the dialogs look and read on a real desktop (plan V5, U10).
 

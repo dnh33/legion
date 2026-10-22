@@ -21,6 +21,7 @@ import { Thread } from './components/Thread';
 import { TitleBar } from './components/TitleBar';
 import { Takeover } from './mascot/Takeover';
 import { Toasts } from './components/Toasts';
+import { AskDialog } from './components/AskDialog';
 import { initLibrary } from './library/libraryStore';
 import { LibraryView } from './library/LibraryView';
 import { ProjectView } from './projects/ProjectView';
@@ -155,6 +156,7 @@ export function App() {
       <CiPanel />
       <GithubArea />
       <EnableBlenderDialog />
+      <AskDialog />
       <Takeover />
       <WhatsNew />
     </div>

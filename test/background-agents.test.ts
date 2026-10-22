@@ -237,8 +237,8 @@ test('the held phase has a wall-clock cap that heartbeats cannot extend: the age
 test('the working row names the time it stops waiting; stopping fails closed when the dialog cannot be shown', async () => {
   const { backgroundLabel, askToStop } = await import('../ui/src/chat/background.js');
   assert.match(backgroundLabel(2, new Date(2026, 9, 7, 14, 5).toISOString()), /^waiting on 2 background agents · stops at 14:05$/);
-  assert.equal(askToStop(2, () => { throw new Error('no dialog'); }), false);
-  assert.equal(askToStop(2, () => false), false);
-  assert.equal(askToStop(2, () => true), true);
-  assert.equal(askToStop(0, () => { throw new Error('unused'); }), true);
+  assert.equal(await askToStop(2, () => { throw new Error('no dialog'); }), false);
+  assert.equal(await askToStop(2, () => false), false);
+  assert.equal(await askToStop(2, () => true), true);
+  assert.equal(await askToStop(0, () => { throw new Error('unused'); }), true);
 });

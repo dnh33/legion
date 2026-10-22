@@ -11,6 +11,8 @@ import { ARM_CHOICES_MINUTES } from '../core/bsv/policy.js';
 import { addressNet } from '../core/bsv/networks.js';
 import { parseWalletUrl } from '../core/bsv/wallet-probe.js';
 import { timingSafeEqual } from 'node:crypto';
+import { ADDRESS_TAIL } from './confirm-window-logic.js';
+import type { ConfirmExtras } from './confirm-window-logic.js';
 
 export interface CoreHealth { ok?: boolean; version?: string; pid?: number; admin?: boolean; proof?: string }
 
@@ -212,7 +214,7 @@ export interface BsvPolicyFacts {
   spendTools?: boolean;
 }
 
-export interface BsvConfirm {
+export interface BsvConfirm extends ConfirmExtras {
   /** false = no dialog (the change only makes things safer: freeze, disarm). */
   needsDialog: boolean;
   method: 'POST';
@@ -239,6 +241,12 @@ export function satsText(sats: unknown): string {
   return `${bsv} BSV (${n.toLocaleString('en-US')} sat)`;
 }
 
+/** A sat figure for a row of the window: sat first, like the big amount, and the BSV in brackets. (The system dialog keeps `satsText`.) */
+const satFirst = (sats: unknown): string => {
+  const n = typeof sats === 'number' && Number.isSafeInteger(sats) && sats >= 0 ? sats : 0;
+  return `${n.toLocaleString('en-US')} sat (${Math.floor(n / 1e8)}.${String(n % 1e8).padStart(8, '0')}\u00a0BSV)`; // no break before BSV: a narrow row wraps the whole bracket, never an orphan "BSV)"
+};
+
 const CAP_LABEL: Record<CapKey, string> = { perTxSats: 'Per transaction', perSessionSats: 'Per session', per24hSats: 'Per rolling 24 hours', maxOutputs: 'Max outputs', maxFeeSats: 'Fee ceiling' };
 const capLine = (k: CapKey, v: unknown) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(typeof v === 'number' ? v : 0) : satsText(v)}`;
 const ORDINARY_TOOLS = 'An agent\'s ordinary tools (a shell, a web fetch) are not covered by any of this.';
@@ -255,54 +263,68 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
   switch (action.kind) {
     case 'arm': {
       const mc = netCaps(facts, 'main');
+      const capKeys: CapKey[] = ['perTxSats', 'perSessionSats', 'per24hSats', 'maxOutputs', 'maxFeeSats'];
+      const paras = [
+        `ONE mainnet spend request may be considered, then it disarms. It also ends when the ${action.minutes} minutes run out, when you press Freeze or Disarm, and when Legion restarts. A shorter time is better.`,
+        'Each request still needs your confirmation dialogs here, in the order they appear; treat the last one as the last check. Whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. Some wallets ask for a spending grant when they build a payment, before Legion\'s dialogs: choose one-time if offered, or a limit no higher than the mainnet limits below.',
+        'Arming does not move anything by itself. Testnet spends do not need Arm.',
+        noSpend(facts),
+      ];
+      const wallet = walletLine ? dialogText(walletLine, 200) : '';
       return {
         ...base, needsDialog: true, route: '/api/bsv/policy/arm', body: { minutes: action.minutes }, type: 'warning',
         title: 'Arm LIVE FUNDS mode?',
         message: `Arm LIVE FUNDS mode for ${action.minutes} minutes?`,
         detail: [
-          `ONE mainnet spend request may be considered, then it disarms. It also ends when the ${action.minutes} minutes run out, when you press Freeze or Disarm, and when Legion restarts. A shorter time is better.`,
-          'Each request still needs your confirmation dialogs here, in the order they appear; treat the last one as the last check. Whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. Some wallets ask for a spending grant when they build a payment, before Legion\'s dialogs: choose one-time if offered, or a limit no higher than the mainnet limits below.',
-          'Arming does not move anything by itself. Testnet spends do not need Arm.',
-          noSpend(facts),
+          ...paras,
           '',
           'Mainnet limits that apply:',
-          ...(['perTxSats', 'perSessionSats', 'per24hSats', 'maxOutputs', 'maxFeeSats'] as CapKey[]).map((k) => capLine(k, mc[k])),
-          ...(walletLine ? ['', dialogText(walletLine, 200)] : []),
+          ...capKeys.map((k) => capLine(k, mc[k])),
+          ...(wallet ? ['', wallet] : []),
         ].join('\n'),
         buttons: ['Cancel', `Arm for ${action.minutes} minutes`],
+        // the Legion window draws the limits as rows and the sentences as paragraphs; the text above stays whole for the system dialog
+        tone: 'money', toneTag: 'LIVE FUNDS', who: 'BSV › Arm',
+        facts: capKeys.map((k) => ({ label: `${CAP_LABEL[k]} (mainnet limit)`, value: k === 'maxOutputs' ? String(typeof mc[k] === 'number' ? mc[k] : 0) : satFirst(mc[k]) })),
+        windowDetail: [...paras.map((t) => t.replace('the mainnet limits below', 'the mainnet limits above')), ...(wallet ? [wallet] : [])].join('\n\n'), // the rows come first in the window
       };
     }
-    case 'mainnet-enable':
+    case 'mainnet-enable': {
+      const paras = [
+        'It is off by default. Turning it on does not spend anything and does not arm anything.',
+        'Each mainnet spend still needs Arm (one spend per Arm) and your confirmation dialogs here; whether the wallet asks too depends on the wallet.',
+        'A mainnet unknown outcome, a mismatch after signing, an audit failure or a changed policy file turns it off again by itself. You can turn it off at any time without a dialog.',
+        'Legion\'s own mainnet path has not been checked with real funds. Use tiny amounts and read every dialog and the wallet\'s prompt.',
+        noSpend(facts),
+      ];
       return {
         ...base, needsDialog: true, route: '/api/bsv/policy/mainnet', body: { enabled: true }, type: 'warning',
         title: 'LIVE FUNDS: allow mainnet?',
         message: 'Allow Legion to consider spending REAL BSV?',
-        detail: [
-          'It is off by default. Turning it on does not spend anything and does not arm anything.',
-          'Each mainnet spend still needs Arm (one spend per Arm) and your confirmation dialogs here; whether the wallet asks too depends on the wallet.',
-          'A mainnet unknown outcome, a mismatch after signing, an audit failure or a changed policy file turns it off again by itself. You can turn it off at any time without a dialog.',
-          'Legion\'s own mainnet path has not been checked with real funds. Use tiny amounts and read every dialog and the wallet\'s prompt.',
-          noSpend(facts),
-        ].join('\n'),
+        detail: paras.join('\n'),
         buttons: ['Cancel', 'Allow mainnet'],
+        tone: 'money', toneTag: 'LIVE FUNDS', who: 'BSV › Mainnet switch', windowDetail: paras.join('\n\n'),
       };
+    }
     case 'mainnet-disable':
       return { ...base, needsDialog: false, route: '/api/bsv/policy/mainnet', body: { enabled: false }, title: 'Switch mainnet off', message: 'Switch mainnet off', detail: '', buttons: ['Cancel', 'Switch off'] };
     case 'unfreeze': {
       const pend = Array.isArray(facts.pending) ? facts.pending.length : 0;
       const unk = Array.isArray(facts.unknown) ? facts.unknown.length : 0;
+      const paras = [
+        `It was frozen because: ${dialogText((facts.frozen as { reason?: unknown } | null | undefined)?.reason) || 'no reason recorded'}`,
+        unk > 0 ? `${unk} earlier request(s) have an unknown outcome and still block spending until you resolve them.` : '',
+        pend > 0 ? `${pend} request(s) are pending.` : '',
+        'Unfreezing does not arm mainnet and does not switch it on.',
+        noSpend(facts),
+      ].filter(Boolean);
       return {
         ...base, needsDialog: true, route: '/api/bsv/policy/unfreeze', body: {}, type: 'warning',
         title: 'Unfreeze the BSV chain?',
         message: 'Unfreeze the BSV chain?',
-        detail: [
-          `It was frozen because: ${dialogText((facts.frozen as { reason?: unknown } | null | undefined)?.reason) || 'no reason recorded'}`,
-          unk > 0 ? `${unk} earlier request(s) have an unknown outcome and still block spending until you resolve them.` : '',
-          pend > 0 ? `${pend} request(s) are pending.` : '',
-          'Unfreezing does not arm mainnet and does not switch it on.',
-          noSpend(facts),
-        ].filter(Boolean).join('\n'),
+        detail: paras.join('\n'),
         buttons: ['Cancel', 'Unfreeze'],
+        tone: 'money', toneTag: 'BSV', who: 'BSV › Unfreeze', windowDetail: paras.join('\n\n'),
       };
     }
     case 'caps': {
@@ -314,6 +336,9 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         title: `Change ${netName(net)} limits?`, message: `Change the ${netName(net)} spend limits?`,
         detail: [...lines, '', 'Legion refuses any value above its built-in hard ceilings for that network.', noSpend(facts)].join('\n'),
         buttons: ['Cancel', 'Change limits'],
+        tone: 'money', toneTag: net === 'main' ? 'LIVE FUNDS' : 'TESTNET', who: 'BSV › Spend limits',
+        facts: (Object.keys(action.caps) as CapKey[]).map((k) => ({ label: CAP_LABEL[k], value: `${k === 'maxOutputs' ? String(cur[k] ?? '?') : satFirst(cur[k])}  ->  ${k === 'maxOutputs' ? String(action.caps[k]) : satFirst(action.caps[k])}` })),
+        windowDetail: ['Legion refuses any value above its built-in hard ceilings for that network.', noSpend(facts)].join('\n\n'),
       };
     }
     case 'allowlist': {
@@ -325,23 +350,28 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         title: `Change the ${netName(net)} recipient list?`, message: `Replace the ${netName(net)} recipient allowlist (${before} now, ${action.list.length} after)?`,
         detail: [...action.list.slice(0, 12).map((r) => `  ${r}`), action.list.length > 12 ? `  ... and ${action.list.length - 12} more` : '', '', `Legion's spend tool refuses a recipient that is not on this network's list; an empty list refuses every recipient.`, noSpend(facts)].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n'),
         buttons: ['Cancel', 'Replace list'],
+        tone: 'money', toneTag: net === 'main' ? 'LIVE FUNDS' : 'TESTNET', who: 'BSV › Recipient list',
+        items: [...action.list.slice(0, 12), ...(action.list.length > 12 ? [`... and ${action.list.length - 12} more`] : [])],
+        windowDetail: [`Legion's spend tool refuses a recipient that is not on this network's list; an empty list refuses every recipient.`, noSpend(facts)].join('\n\n'),
       };
     }
     case 'connect': {
       const t = parseWalletUrl(action.url);
       const shown = t.ok ? t.display : 'an address that was refused';
+      const paras = [
+        `Connecting sends four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
+        'The connection itself does not ask for balances, outputs, addresses or keys.',
+        facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in Legion\'s confirm card (or the system dialog if it cannot open); whether the wallet asks too depends on the wallet.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
+        'Whatever answers at that address is unverified: any program on your computer can listen on a port.',
+        'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
+      ];
       return {
         ...base, needsDialog: true, route: '/api/bsv/wallet/connect', body: { url: action.url }, type: 'warning',
         title: 'Connect to a wallet?',
         message: `Connect to the program listening at ${shown} on your computer?`,
-        detail: [
-          `Connecting sends four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
-          'The connection itself does not ask for balances, outputs, addresses or keys.',
-          facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in native dialogs; whether the wallet asks too depends on the wallet.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
-          'Whatever answers at that address is unverified: any program on your computer can listen on a port.',
-          'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
-        ].join('\n'),
+        detail: paras.join('\n'),
         buttons: ['Cancel', 'Connect'],
+        tone: 'money', toneTag: 'BSV', who: 'BSV › Wallet', windowDetail: paras.join('\n\n'),
       };
     }
     case 'disconnect':
@@ -356,7 +386,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
 /** A reason to refuse before asking the person anything: no dialog for a change the core would refuse anyway. */
 export function bsvPreflight(action: BsvAction, facts: BsvPolicyFacts): string | undefined {
   if (action.kind === 'arm' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
-  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (a native confirmation); Arm only applies to mainnet.';
+  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (it asks in Legion\'s confirm card); Arm only applies to mainnet.';
   if (action.kind === 'mainnet-enable' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
   if (action.kind === 'mainnet-enable' && facts.mainnetEnabled === true) return 'Mainnet is already switched on.';
   if (action.kind === 'connect' && facts.frozen) return 'The chain is frozen. Unfreeze it first; Legion does not contact a wallet while frozen.';
@@ -472,11 +502,29 @@ export function netAllowed(net: SpendNet, facts: unknown): boolean {
 
 /** The dialog as Electron takes it (nothing here is passed to Electron except these fields). */
 export interface NativeDialogOptions { type: 'warning' | 'question'; title: string; message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number; noLink: true }
-/** `confirmAt` is the index of the button that means "yes"; Cancel is always the default and the Escape button, wherever it sits. */
-export interface SpendDialog extends NativeDialogOptions { confirmAt: number }
+/** The same dialog for the Legion confirm card: the extra fields are only for drawing it; the system dialog gets `NativeDialogOptions` (message and detail whole). */
+export type WindowDialogOptions = NativeDialogOptions & ConfirmExtras;
+/** `confirmAt` is the index of the button that means "yes" (-1: none of them, the Resolve dialog); Cancel is always the default and the Escape button, wherever it sits. */
+export type SpendDialog = WindowDialogOptions & { confirmAt: number };
 const spendDialog = (d: Omit<SpendDialog, 'defaultId' | 'cancelId' | 'noLink' | 'confirmAt'>, confirmAt = 1, cancelAt = 0): SpendDialog => ({ ...d, defaultId: cancelAt, cancelId: cancelAt, confirmAt, noLink: true });
 
-const lastChars = (a: string, n = 8) => a.slice(-n);
+/** The steps of one spend review: the card, then (main network) the last check, then (untrusted content) its own question. */
+const reviewSteps = (c: SpendCard): { total: number; of: (step: 'card' | 'live' | 'untrusted') => string } => {
+  const live = c.confirmations.includes('live-funds'); const untrusted = c.confirmations.includes('untrusted-content');
+  const total = 1 + (live ? 1 : 0) + (untrusted ? 1 : 0);
+  const at = { card: 1, live: 2, untrusted: live ? 3 : 2 };
+  return { total, of: (step) => (total > 1 ? `BSV › spend review ${at[step]} of ${total}` : 'BSV › spend review') };
+};
+const netTag = (c: SpendCard): 'LIVE FUNDS' | 'TESTNET' => (c.network === 'main' ? 'LIVE FUNDS' : 'TESTNET');
+const satText = (n: number): string => `${n.toLocaleString('en-US')} sat`;
+const bsvOf = (n: number): string => satsText(n).split(' (')[0]!;
+const amountNote = (c: SpendCard): string => (c.network === 'main' ? `${bsvOf(c.payment.sats)}. REAL funds on the main network.` : `${bsvOf(c.payment.sats)}. Test network.`);
+
+/** The word for each period of a limit, in the rows of the window. */
+type PeriodKey = 'perTxSats' | 'perSessionSats' | 'per24hSats';
+const PERIOD_KEYS: PeriodKey[] = ['perTxSats', 'perSessionSats', 'per24hSats'];
+const PERIOD: Record<PeriodKey, string> = { perTxSats: 'per transaction', perSessionSats: 'per session', per24hSats: 'per 24 hours' };
+const lastChars = (a: string, n = ADDRESS_TAIL) => a.slice(-n);
 const left = (ms: unknown) => { const t = typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.ceil(ms / 1000) : 0; return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 
 export interface ReviewContext { caps?: Partial<Record<CapKey, number>>; armRemainingMs?: number }
@@ -505,12 +553,36 @@ export function spendReviewDialog(c: SpendCard, ctx: ReviewContext | Partial<Rec
     `Left after this request: per transaction ${satsText(c.remaining.perTxSats)}; per session ${satsText(c.remaining.perSessionSats)}; per 24 hours ${satsText(c.remaining.per24hSats)}`,
     ...(main ? [`Armed for one spend; time left: ${left(x.armRemainingMs)}`] : []),
     '',
-    main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.',
+    main ? 'This is the first of at least two dialogs. Cancel or Escape denies the request.' : 'Cancel or Escape denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.',
     ORDINARY_TOOLS,
   ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
+  // For the Legion window the same facts are rows (the amount and the address are drawn large, above), the core's warnings are a list and the sentences are paragraphs.
+  const closing = main ? 'This is the first of at least two dialogs. Cancel or Escape denies the request.' : 'Cancel or Escape denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.';
+  const capRows = PERIOD_KEYS.map((k) => ({ label: `Limit ${PERIOD[k]}`, value: satFirst(caps?.[k]) }));
+  const rows = [
+    { label: 'Network', value: main ? 'MAINNET (LIVE FUNDS). This is the wallet\'s own claim; the address checks out for this network.' : c.networkLabel },
+    { label: 'On your allowlist', value: c.payment.allowlisted ? 'yes' : 'no' },
+    { label: 'Network fee', value: satFirst(c.feeSats) },
+    ...(c.change ? [{ label: 'Extra output', value: `${satFirst(c.change.sats)} to ${c.change.recipient}` }] : []),
+    { label: 'Total leaving the wallet', value: satFirst(c.totalSats) },
+    { label: 'Agent', value: c.agentId || 'unknown' },
+    { label: `Purpose (${SPEND_PURPOSE_NOTE})`, value: c.purpose ? `"${c.purpose}"` : '(none)' },
+    ...(caps ? capRows : []),
+    ...PERIOD_KEYS.map((k) => ({ label: `Left ${PERIOD[k]}`, value: satFirst(c.remaining[k]) })),
+    ...(main ? [{ label: 'Armed for one spend; time left', value: left(x.armRemainingMs) }] : []),
+  ];
+  const prose = [
+    ...(c.change ? [SPEND_CHANGE_NOTE] : []),
+    ...(c.confirmations.includes('untrusted-content') ? ['This run read content Legion does not trust. You will be asked once more about that.'] : []),
+    closing, ORDINARY_TOOLS,
+  ];
+  const view = {
+    tone: 'money' as const, toneTag: netTag(c), who: reviewSteps(c).of('card'), amount: satText(c.payment.sats), amountNote: amountNote(c), address: c.payment.recipient,
+    facts: rows, items: c.warnings, windowMessage: '', windowDetail: prose.join('\n\n'),
+  };
   return spendDialog(main
-    ? { type: 'warning', title: 'LIVE FUNDS: approve a MAINNET payment?', message: `Send ${satsText(c.payment.sats)} on MAINNET?`, detail: lines.join('\n'), buttons: ['Cancel', 'Continue to the last check'] }
-    : { type: 'warning', title: `Approve a ${c.networkLabel} payment?`, message: `An agent asks to pay ${satsText(c.payment.sats)} on ${c.networkLabel}.`, detail: lines.join('\n'), buttons: ['Cancel', 'Approve this payment'] });
+    ? { type: 'warning', title: 'LIVE FUNDS: approve a MAINNET payment?', message: `Send ${satsText(c.payment.sats)} on MAINNET?`, detail: lines.join('\n'), buttons: ['Cancel', 'Continue to the last check'], ...view }
+    : { type: 'warning', title: `Approve a ${c.networkLabel} payment?`, message: `An agent asks to pay ${satsText(c.payment.sats)} on ${c.networkLabel}.`, detail: lines.join('\n'), buttons: ['Cancel', 'Approve this payment'], ...view });
 }
 
 /**
@@ -526,9 +598,17 @@ export function spendLiveDialog(c: SpendCard): SpendDialog {
       '',
       `Network: MAINNET (LIVE FUNDS). Fee ${satsText(c.feeSats)}. Total leaving the wallet: ${satsText(c.totalSats)}.`,
       'This cannot be undone. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it.',
-      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel, Escape or closing this window denies the request.',
+      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel or Escape denies the request.',
     ].join('\n'),
     buttons: [`Send ${c.payment.sats.toLocaleString('en-US')} sat to ...${lastChars(c.payment.recipient)}`, 'Cancel'],
+    // the window: the amount and the address large, the numbers as rows, the sentences as paragraphs (the confirm button stays FIRST, Cancel the default)
+    tone: 'money', toneTag: 'LAST CHECK', who: reviewSteps(c).of('live'), amount: satText(c.payment.sats), amountNote: 'REAL BSV on MAINNET. Cannot be undone.', address: c.payment.recipient,
+    facts: [{ label: 'Network', value: 'MAINNET (LIVE FUNDS)' }, { label: 'Network fee', value: satFirst(c.feeSats) }, { label: 'Total leaving the wallet', value: satFirst(c.totalSats) }],
+    windowMessage: '',
+    windowDetail: [
+      'This cannot be undone. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it.',
+      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel or Escape denies the request.',
+    ].join('\n\n'),
   }, 0, 1);
 }
 
@@ -541,9 +621,15 @@ export function spendUntrustedDialog(c: SpendCard): SpendDialog {
       'The run behind this request read web pages, files, chain data or another program\'s output, so its text may have been steered.',
       `Check the recipient and the amount yourself: ${satsText(c.payment.sats)} to`,
       c.payment.recipient,
-      'Cancel, Escape or closing this window denies the request.',
+      'Cancel or Escape denies the request.',
     ].join('\n'),
     buttons: ['Cancel', 'I checked. Continue'],
+    tone: 'money', toneTag: netTag(c), who: reviewSteps(c).of('untrusted'), amount: satText(c.payment.sats), amountNote: amountNote(c), address: c.payment.recipient,
+    windowDetail: [
+      'The run behind this request read web pages, files, chain data or another program\'s output, so its text may have been steered.',
+      'Check the recipient and the amount yourself.',
+      'Cancel or Escape denies the request.',
+    ].join('\n\n'),
   });
 }
 
@@ -562,7 +648,16 @@ export function spendResolveDialog(u: SpendUnknown): SpendDialog {
       'Cancel keeps the request unknown and spends stay blocked.',
     ].join('\n'),
     buttons: ['Cancel', 'It was NOT sent', 'It WAS sent'],
-  });
+    // three answers and no "yes": none of them gets the colour
+    tone: 'money', toneTag: main ? 'LIVE FUNDS' : 'TESTNET', who: 'BSV › unknown outcome',
+    facts: [{ label: 'Agent', value: u.agentId || 'unknown' }, ...(u.txid ? [{ label: 'Transaction id the wallet reported (Legion has not checked it)', value: u.txid }] : [])],
+    windowDetail: [
+      ...(main ? ['LIVE FUNDS: this request was on the main network.'] : []),
+      'Legion could not learn what happened to this request, and every spend stays blocked until you say. Check your wallet\'s own history first.',
+      '"It was NOT sent" frees the reserved amount. "It WAS sent" keeps it counted against the limits.',
+      'Cancel keeps the request unknown and spends stay blocked.',
+    ].join('\n\n'),
+  }, -1);
 }
 
 export interface SpendResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
@@ -570,9 +665,9 @@ export interface SpendResult { ok: boolean; error?: string; cancelled?: boolean;
 export interface SpendDeps {
   /** A call to our own core (GET or POST; native = with the native secret). undefined = no proven core of our own. */
   core(method: 'GET' | 'POST', route: string, body?: unknown, native?: boolean): Promise<{ status: number; json: any } | undefined>;
-  /** Shows a native dialog and gives the index of the pressed button. Closing it or any failure must read as 0 (Cancel). */
-  dialog(o: NativeDialogOptions): Promise<number>;
-  /** The one native-dialog lock shared with every other confirmation: false = a dialog is open. */
+  /** Shows the question (the Legion confirm card) and gives the index of the pressed button. Closing it or any failure must read as Cancel. */
+  dialog(o: WindowDialogOptions & { confirmAt?: number }): Promise<number>;
+  /** The one confirmation lock shared with every other confirmation: false = a question is open. */
   acquire(): boolean;
   release(): void;
   /** Tells the window to re-read BSV state. */
@@ -605,8 +700,8 @@ export function createSpendNative(deps: SpendDeps) {
   /** true only when the button that means yes was pressed. Anything else (Cancel, Escape, the window closed, a failure) is no. */
   const confirmed = async (o: SpendDialog): Promise<boolean> => { const n = await press(o); return n === o.confirmAt; };
   const press = async (o: SpendDialog): Promise<number> => {
-    const { confirmAt: _c, ...native } = o; // Electron gets the display fields only
-    try { const n = await deps.dialog({ ...native, buttons: [...native.buttons] }); return typeof n === 'number' ? n : o.cancelId; } catch { return o.cancelId; }
+    // `dialog` is the Legion confirm card (it keeps the fields that draw the question; the system dialog it falls back to gets the plain ones)
+    try { const n = await deps.dialog({ ...o, buttons: [...o.buttons] }); return typeof n === 'number' ? n : o.cancelId; } catch { return o.cancelId; }
   };
 
   async function reviewInner(id: string): Promise<SpendResult> {

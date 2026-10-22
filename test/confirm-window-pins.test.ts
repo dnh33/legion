@@ -1,0 +1,329 @@
+/**
+ * Legion's confirm card, pinned: how its view is made, which questions go through it and which stay with the system, that the update set did
+ * not change (an older client rejects a package with a new top-level name), and the wording of every call site.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { CODE_SET, FULL_PACKAGE_SET } from '../src/core/updater/apply.js';
+import { agentModeBatch, agentModeChange, resetAgentModeCancelForTests } from '../src/electron/agent-mode-ipc.js';
+import { bsvConfirmation, parseSpendCard, spendLiveDialog, spendResolveDialog, spendReviewDialog, spendUntrustedDialog, type SpendCard } from '../src/electron/admin-logic.js';
+import { connectGithub } from '../src/electron/connector-ipc.js';
+import { ADDRESS_TAIL, buildModel, nativeOptions, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
+import { makeConfirm, providerChange } from '../src/electron/provider-ipc.js';
+import { projectChange } from '../src/electron/project-ipc.js';
+import { MAIN_A, TEST_A } from './bsv-net-helpers.js';
+
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const read = (f: string): string => readFileSync(`${ROOT}/${f}`, 'utf8');
+const win = read('src/electron/confirm-window.ts');
+const main = read('src/electron/main.ts');
+
+test('update set: CODE_SET and FULL_PACKAGE_SET are exactly what every installed client knows; the page lives inside assets', () => {
+  assert.deepEqual([...CODE_SET], ['dist', 'dist-ui', 'assets', 'scripts', 'licenses', 'package.json', 'package-lock.json', 'build-info.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'setup.cmd', 'setup-yes.cmd', 'start-legion.cmd']);
+  assert.deepEqual([...FULL_PACKAGE_SET], [...CODE_SET, 'node_modules', 'runtime']);
+  assert.ok(existsSync(`${ROOT}/assets/confirm-window.html`));
+  assert.ok(CODE_SET.includes('assets'));
+  assert.equal(readdirSync(ROOT).includes('confirm-window.html'), false);
+});
+
+test('the card is made like the splash and the update window: sandbox, context isolation, no node, no preload, no dev tools, its own session', () => {
+  const prefs = /webPreferences: \{([^}]*)\}/.exec(win)?.[1] ?? '';
+  for (const must of ['sandbox: true', 'contextIsolation: true', 'nodeIntegration: false', 'webviewTag: false', 'devTools: false', 'partition: CONFIRM_PARTITION']) assert.ok(prefs.includes(must), must);
+  assert.doesNotMatch(win, /preload\s*:/, 'no preload');
+  assert.doesNotMatch(prefs, /nodeIntegration: true|sandbox: false|contextIsolation: false/);
+  assert.match(win, /CONFIRM_PARTITION = 'legion-confirm'/, 'no persist: prefix: an in-memory session');
+});
+
+test('the card is an overlay inside the Legion window, never a window of its own: a view on top of the content, over the whole area, removed and closed on every ending', () => {
+  assert.doesNotMatch(win, /new BrowserWindow\(|\bmodal\b|alwaysOnTop|skipTaskbar|screen\.|placeInArea|getDisplay/, 'no window, no parent/modal path, no screen placement');
+  assert.equal((win.match(/new WebContentsView\(/g) ?? []).length, 1, 'a fresh view for every question');
+  assert.match(win, /view\.setBackgroundColor\('#00000000'\)/, 'transparent: the page draws the dim');
+  assert.match(win, /main\.contentView\.addChildView\(view\); \/\/ the last view added is the topmost/);
+  assert.match(win, /main\.contentView\.removeChildView\(view\)/);
+  assert.match(win, /wc\.close\(\{ waitForBeforeUnload: false \}\)/, 'a view\'s web contents are closed by hand');
+  // every ending goes through dispose: the answer, the cancel, the close, the quit, the crash and the fallback
+  assert.equal((win.match(/\bdispose\(\);/g) ?? []).length, 2, 'finish and the fallback path');
+  assert.match(win, /unguardMain\(\);[\s\S]{0,80}dispose\(\);/);
+});
+
+test('the app behind is blocked while the card is open: every key is dropped, the card takes focus back, the window closing or hiding is a cancel', () => {
+  assert.match(win, /mainWc\.on\('before-input-event', dropInput\)/);
+  assert.match(win, /const dropInput = \(e: Electron\.Event\): void => e\.preventDefault\(\);/, 'no key is let through, reload shortcuts included');
+  assert.match(win, /mainWc\.on\('before-mouse-event', dropInput\)/);
+  assert.match(win, /mainWc\.on\('focus', pageFocus\.onFocus\)/); assert.match(win, /main\.on\(ev as 'show', refresh\)/, 'the Legion window focus repaints and refocuses the card (FRONT_EVENTS)');
+  assert.match(win, /main\.once\('closed', onMainClosed\)/); assert.match(win, /main\.on\('hide', onMainHidden\)/);
+  for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) assert.ok(win.includes(`'${ev}'`), `follows ${ev}`);
+  assert.match(win, /main\.contentView\.on\('bounds-changed', sync\)/);
+  for (const ev of ['before-input-event', 'before-mouse-event', 'focus', 'zoom-changed', 'bounds-changed', 'closed', 'hide']) assert.ok(win.includes(`removeListener('${ev}'`), `${ev} is unhooked at the end`);
+});
+
+test('a hidden or minimized Legion window is brought forward before the card, and with no window the system dialog asks (never a window of its own)', () => {
+  assert.match(win, /if \(!main\) return native\(undefined, opts, 'there is no Legion window to show the question in'\);\s*\n\s*if \(!bringForward\(main\)\) return native\(undefined, opts, 'the Legion window could not be shown'\);/);
+  assert.match(main, /await confirmWindow\.showHeldMessageBox\(shown\)/, 'the review asks through the own entry of the holder, with no window argument');
+  assert.match(main, /await confirmWindow\.showMessageBox\(opts\)/);
+  assert.doesNotMatch(main, /win\.isVisible\(\) \? await confirmWindow/, 'main no longer decides between a parented and a free window');
+});
+
+test('the page ships: release packaging copies assets whole (it skips only dist/test and node_modules), so no per-file list can leave the page out', () => {
+  const pack = read('scripts/release-package.mjs');
+  assert.match(pack, /const skip = \(rel\) => rel === 'dist\/test' \|\| rel\.startsWith\('dist\/test\/'\) \|\| rel\.split\('\/'\)\.includes\('node_modules'\);/);
+  assert.doesNotMatch(pack, /update-window\.html|splash\.html|confirm-window/, 'no per-file asset list in the packer');
+});
+
+test('the card locks itself down: no new windows, no navigation, no redirects, no webviews, every permission refused, no reload', () => {
+  for (const must of ['setWindowOpenHandler(() => ({ action: \'deny\' }))', "'will-navigate'", "'will-redirect'", "'will-attach-webview'", 'setPermissionRequestHandler((_wc, _permission, callback) => callback(false))', 'setPermissionCheckHandler(() => false)', 'setDevicePermissionHandler(() => false)', "'before-input-event'"]) assert.ok(win.includes(must), must);
+  assert.match(win, /loadFile\(CONFIRM_PAGE\)/, 'a local file, never a URL');
+  assert.doesNotMatch(win, /loadURL|session\.defaultSession|fromPartition\((?!CONFIRM_PARTITION)/);
+});
+
+test('answers are read from this view\'s own web contents only, through the one-time id gate', () => {
+  assert.equal((win.match(/page-title-updated/g) ?? []).length, 1);
+  assert.match(win, /wc\.on\('page-title-updated'/);
+  assert.match(win, /createAnswerGate\(nonce, model\.buttons\.length\)/);
+  assert.match(win, /randomBytes\(16\)\.toString\('hex'\)/, '128 bits');
+  assert.doesNotMatch(main, /legion-confirm/, 'main.ts never reads a confirm answer itself');
+  assert.doesNotMatch(read('src/electron/preload.cjs'), /confirm-window|confirmWindow|legion-confirm/, 'the Legion page gets no way to ask or answer');
+});
+
+test('failure falls back to the system dialog with the same question, and nothing ever answers yes by itself', () => {
+  assert.match(win, /return native\(nativeParent\(main\), opts, `the question was not accepted/);
+  assert.match(win, /return native\(nativeParent\(main\), opts, 'the page file is missing'\)/);
+  assert.match(win, /the card could not be made/);
+  assert.match(win, /the card failed/);
+  // the only places that resolve with a number: an answer from the page, or the cancel index
+  const resolves = [...win.matchAll(/(?:finish|resolveAnswer)\(([^,)]*)/g)].map((m) => m[1]!.trim());
+  for (const r of resolves) assert.ok(/^(read\.index|n|cancel|await native\()/.test(r), `unexpected answer source: ${r}`);
+  assert.doesNotMatch(win, /confirmAt|defaultIndex|response: 1\b/, 'nothing picks the confirm button');
+});
+
+test('one question at a time: a second is refused as busy (never answered Cancel), and a spend review waits instead', () => {
+  assert.match(main, /acquire: \(\) => \{ if \(bsvDialogOpen \|\| !holdConfirmWindow\(\)\) return false;/);
+  assert.match(main, /release: \(\) => \{ bsvDialogOpen = false; releaseConfirmWindow\(\); \}/);
+  assert.match(win, /if \(busy \|\| \(held && !holder\)\) \{/, 'a held lock refuses everyone but the holder');
+  assert.match(win, /export function holdConfirmWindow\(\): boolean \{ if \(busy \|\| held\) return false; held = true; return true; \}/);
+  assert.match(win, /log\('a question is already open: this one was not asked'\);\s*throw new ConfirmBusyError\(\);/);
+  assert.doesNotMatch(win, /resolveIds/, 'a busy window never makes up a cancel');
+  assert.match(main, /if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return \{ ok: false, error: 'A confirmation is already open/);
+});
+
+test('which questions moved: the 8 settings handlers and the BSV paths use the window; the restart and update questions stay with the system', () => {
+  assert.equal((main.match(/makeConfirm\(confirmWindow, \(\) => win\)/g) ?? []).length, 8);
+  assert.doesNotMatch(main, /makeConfirm\(dialog/);
+  const sys = [...main.matchAll(/dialog\.(showMessageBox|showErrorBox|showOpenDialog)\(/g)].map((m) => m[1]);
+  assert.deepEqual(sys, ['showMessageBox', 'showMessageBox', 'showErrorBox'], 'foreign-core question, started-outside notice, restart failure box; the folder picker lives in project-ipc, behind the busy check');
+  assert.match(main, /async function askRestartForeignCore[\s\S]*?dialog\.showMessageBox/);
+  assert.equal((main.match(/confirmWindow\.showMessageBox\(/g) ?? []).length, 1, 'BSV policy (one call, no window argument)');
+  assert.equal((main.match(/confirmWindow\.showHeldMessageBox\(/g) ?? []).length, 1, 'spend review (one call, no window argument)');
+  assert.doesNotMatch(read('src/electron/updater-main.ts'), /confirm-window|confirmWindow/, 'the updater keeps its own dialogs: they can run while dist and assets are swapped');
+  assert.doesNotMatch(read('src/electron/update-window-main.ts'), /confirm-window|confirmWindow/);
+});
+
+// ---- the call sites ----
+
+const card = (over: Partial<Record<string, unknown>> = {}): SpendCard => {
+  const r = parseSpendCard({
+    requestId: 'a'.repeat(40), network: 'test', networkLabel: 'TESTNET', hash: 'a'.repeat(64), agentId: 'scout', purpose: 'pay the API invoice #4471',
+    outputs: [{ kind: 'payment', recipient: TEST_A, sats: 25000, allowlisted: true }], fee: { sats: 12 }, totalSpendSats: 25012,
+    remaining: { perTxSats: 25000, perSessionSats: 75000, per24hSats: 175000 }, warnings: [], requiredConfirmations: ['approve'], ...over,
+  });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return (r as { card: SpendCard }).card;
+};
+const fits = (o: ConfirmOptions): void => { const r = buildModel(o, { nonce: 'a'.repeat(32), theme: 'dark' }); assert.equal(r.ok, true, JSON.stringify(r)); };
+
+test('makeConfirm hands every field through: Cancel first and default, the confirm label second', async () => {
+  let seen: unknown[] = [];
+  const confirm = makeConfirm({ showMessageBox: async (...a: unknown[]) => { seen = a; return { response: 1 }; } }, () => null);
+  assert.equal(await confirm({ title: 'T', message: 'M', detail: 'D', confirmLabel: 'Go', who: 'Settings \u203a Gates', tone: 'danger', toneTag: 'RESTARTS CORE', items: ['a'] }), true);
+  assert.deepEqual(seen, [{ title: 'T', message: 'M', detail: 'D', who: 'Settings \u203a Gates', tone: 'danger', toneTag: 'RESTARTS CORE', items: ['a'], type: 'question', buttons: ['Cancel', 'Go'], defaultId: 0, cancelId: 0, noLink: true }]);
+});
+
+test('start over is danger with the RESTARTS CORE tag; a plain key save is the default tone', async () => {
+  const shown: unknown[] = [];
+  const calls: string[] = [];
+  const deps = {
+    async call(method: string, route: string) {
+      calls.push(`${method} ${route}`);
+      if (route === '/api/providers') return { status: 200, json: { keyStoreState: 'blocked', providers: [] } };
+      return { status: 200, json: { keyStoreState: 'encrypted' } };
+    },
+    async confirm(o: unknown) { shown.push(o); return false; },
+    startOver: { storeReady: async () => true, setAsideKey: async () => undefined, restartCore: async () => null },
+  };
+  await providerChange({ kind: 'start-over' }, deps as never);
+  const o = shown[0] as ConfirmOptions & { title: string; confirmLabel: string };
+  assert.deepEqual([o.title, o.tone, o.toneTag, o.who], ['Start over with new keys?', 'danger', 'RESTARTS CORE', 'Settings \u203a Providers']);
+  assert.equal(o.confirmLabel, 'Start over');
+  assert.ok(TONE_TAGS.danger.includes(o.toneTag!));
+});
+
+test('connecting GitHub for the first time asks to restart the core: danger; "sign in each launch" is the default tone', async () => {
+  const shown: Array<Record<string, unknown>> = [];
+  const deps = {
+    async call(_m: string, route: string) { return route === '/api/state' ? { status: 200, json: { tasks: [] } } : { status: 200, json: { available: true, key: 'missing' } }; },
+    async confirm(o: Record<string, unknown>) { shown.push(o); return true; },
+    async ensureKey() { return undefined; }, async restartCore() { return null; }, openExternal() { /* none */ },
+  };
+  await connectGithub(deps as never);
+  assert.deepEqual(shown.map((o) => [o.title, o.tone, o.toneTag, o.who]), [
+    ['Restart Legion Core to connect GitHub?', 'danger', 'RESTARTS CORE', 'Settings \u203a Connectors'],
+    ['Sign in without remembering?', undefined, undefined, 'Settings \u203a Connectors'],
+  ]);
+});
+
+test('project folder: the folders are rows, the words are one paragraph, and the system dialog gets the same text as before', async () => {
+  const shown: Array<Record<string, any>> = [];
+  const deps = {
+    async call(method: string, route: string) { return method === 'GET' ? { status: 200, json: route === '/api/agents' ? [] : { name: 'Shop', folder: 'C:\\work\\shop', members: [] } } : { status: 200, json: {} }; },
+    async confirm(o: Record<string, any>) { shown.push(o); return false; },
+    async pickFolder() { return 'D:\\projects\\shop-2'; },
+  };
+  await projectChange({ kind: 'folder', id: 'proj_0123456789ab', mode: 'pick' }, deps as never);
+  const o = shown[0]!;
+  assert.equal(o.who, 'Projects \u203a Shop');
+  assert.deepEqual(o.facts, [{ label: 'New folder', value: 'D:\\projects\\shop-2' }, { label: 'Now', value: 'C:\\work\\shop' }]);
+  assert.equal(o.detail, 'New folder: D:\\projects\\shop-2\nNow: C:\\work\\shop\n\n' + o.windowDetail, 'detail is the old text, whole');
+  assert.doesNotMatch(o.windowDetail, /New folder|Now:/);
+});
+
+test('agent mode: the lines of the core are the items; the system dialog still gets them as paragraphs', async () => {
+  resetAgentModeCancelForTests();
+  const shown: Array<Record<string, any>> = [];
+  const lines = ['Worker will run file edits inside its project without asking.', 'Shell commands still ask.'];
+  const deps = {
+    async call(_m: string, route: string) { return route === '/api/agents/mode-preview' ? { status: 200, json: { raises: true, digest: 'f'.repeat(64), loosening: lines, agentName: 'Worker' } } : { status: 200, json: {} }; },
+    async confirm(o: Record<string, any>) { shown.push(o); return false; },
+  };
+  await agentModeChange({ agentId: 'worker', approval: 'auto-edits' }, deps as never);
+  assert.deepEqual([shown[0]!.who, shown[0]!.items, shown[0]!.windowDetail, shown[0]!.detail], ['Agents \u203a Worker', lines, '', lines.join('\n\n')]);
+  resetAgentModeCancelForTests();
+  await agentModeBatch({ changes: [{ agentId: 'worker', approval: 'auto-edits' }] }, deps as never);
+  assert.equal(shown[1]!.who, 'Agents');
+  assert.ok(Array.isArray(shown[1]!.items) && shown[1]!.items.length > 0);
+  resetAgentModeCancelForTests();
+});
+
+test('BSV spend review on the test network: money, TESTNET, the amount and the full address large, the numbers as rows', () => {
+  const c = card();
+  const d = spendReviewDialog(c, { caps: { perTxSats: 50000, perSessionSats: 100000, per24hSats: 200000 } });
+  assert.deepEqual([d.tone, d.toneTag, d.who, d.amount, d.address, d.confirmAt, d.defaultId, d.cancelId, d.windowMessage], ['money', 'TESTNET', 'BSV \u203a spend review', '25,000 sat', c.payment.recipient, 1, 0, 0, '']);
+  assert.deepEqual(d.buttons, ['Cancel', 'Approve this payment']);
+  assert.ok(d.facts!.some((f) => f.label === 'Network fee' && /12 sat/.test(f.value)) && d.facts!.some((f) => f.label === 'Agent' && f.value === 'scout'));
+  assert.ok(d.facts!.some((f) => f.label.startsWith('Purpose') && f.value === '"pay the API invoice #4471"'));
+  assert.match(d.detail, /Recipient \(full address, check every character\):\n[mn]/, 'the system dialog text is unchanged');
+  fits(d);
+});
+
+test('BSV on the main network: LIVE FUNDS, step counts from the card, the last check keeps the confirm button FIRST and Cancel the default', () => {
+  const main = card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] });
+  const d1 = spendReviewDialog(main, { armRemainingMs: 250_000 });
+  const d2 = spendLiveDialog(main);
+  assert.deepEqual([d1.toneTag, d1.who, d1.title], ['LIVE FUNDS', 'BSV \u203a spend review 1 of 2', 'LIVE FUNDS: approve a MAINNET payment?']);
+  assert.deepEqual([d2.toneTag, d2.who, d2.confirmAt, d2.defaultId, d2.cancelId], ['LAST CHECK', 'BSV \u203a spend review 2 of 2', 0, 1, 1]);
+  assert.deepEqual(d2.buttons, [`Send 25,000 sat to ...${main.payment.recipient.slice(-ADDRESS_TAIL)}`, 'Cancel']);
+  assert.equal(d2.address, main.payment.recipient);
+  assert.ok(d1.facts!.some((f) => f.label === 'Armed for one spend; time left' && f.value === '4:10'));
+  fits(d1); fits(d2);
+  const tainted = card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds', 'untrusted-content'] });
+  assert.deepEqual([spendReviewDialog(tainted).who, spendLiveDialog(tainted).who, spendUntrustedDialog(tainted).who], ['BSV \u203a spend review 1 of 3', 'BSV \u203a spend review 2 of 3', 'BSV \u203a spend review 3 of 3']);
+  const t2 = card({ requiredConfirmations: ['approve', 'untrusted-content'] });
+  assert.deepEqual([spendReviewDialog(t2).who, spendUntrustedDialog(t2).who, spendUntrustedDialog(t2).toneTag], ['BSV \u203a spend review 1 of 2', 'BSV \u203a spend review 2 of 2', 'TESTNET']);
+});
+
+test('BSV resolve: three answers and no yes, so no button is coloured', () => {
+  const d = spendResolveDialog({ requestId: 'a'.repeat(40), totalSats: 25012, agentId: 'scout', txid: 'b'.repeat(64), net: 'test' });
+  assert.deepEqual([d.confirmAt, d.buttons.length, d.toneTag], [-1, 3, 'TESTNET']);
+  assert.ok(d.facts!.some((f) => f.value === 'b'.repeat(64)));
+  fits(d);
+});
+
+test('BSV policy dialogs: money tone with a tag that matches the network, and each one fits the window', () => {
+  const facts = { caps: { perTxSats: 1000 }, nets: { main: { caps: { perTxSats: 100, perSessionSats: 200, per24hSats: 300, maxOutputs: 2, maxFeeSats: 50 }, allowlist: [] }, test: { caps: { perTxSats: 1000 }, allowlist: [] } }, spendTools: true };
+  const a = MAIN_A;
+  const cases = [
+    bsvConfirmation({ kind: 'arm', minutes: 10 } as never, facts as never, 'Wallet check: ok'),
+    bsvConfirmation({ kind: 'mainnet-enable' } as never, facts as never),
+    bsvConfirmation({ kind: 'unfreeze' } as never, facts as never),
+    bsvConfirmation({ kind: 'caps', net: 'test', caps: { perTxSats: 2000 } } as never, facts as never),
+    bsvConfirmation({ kind: 'caps', net: 'main', caps: { perTxSats: 50 } } as never, facts as never),
+    bsvConfirmation({ kind: 'allowlist', net: 'main', list: [a, a] } as never, facts as never),
+    bsvConfirmation({ kind: 'connect', url: 'http://127.0.0.1:43210' } as never, facts as never), // any loopback address: the real wallet port stays out of tests (bsv-port-guard)
+  ];
+  assert.deepEqual(cases.map((c) => [c.tone, c.toneTag]), [['money', 'LIVE FUNDS'], ['money', 'LIVE FUNDS'], ['money', 'BSV'], ['money', 'TESTNET'], ['money', 'LIVE FUNDS'], ['money', 'LIVE FUNDS'], ['money', 'BSV']]);
+  for (const c of cases) { assert.ok(c.who?.startsWith('BSV \u203a ')); assert.equal(c.buttons.length, 2); fits({ title: c.title, message: c.message, detail: c.detail, buttons: [...c.buttons], defaultId: 0, cancelId: 0, tone: c.tone, toneTag: c.toneTag, who: c.who, facts: c.facts, items: c.items, windowDetail: c.windowDetail }); }
+  assert.ok(cases[0]!.facts!.length === 5 && cases[0]!.facts![0]!.label === 'Per transaction (mainnet limit)');
+  assert.match(cases[0]!.windowDetail!, /mainnet limits above/);
+  assert.match(cases[0]!.detail, /mainnet limits below/, 'the system dialog keeps its own order and words');
+});
+
+test('a page that dies while it is being drawn goes to the fallback; every step is timed, so the lock is never held for ever', () => {
+  assert.match(win, /else if \(phase === 'loading'\) pageDied\(/);
+  assert.match(win, /await prepareConfirm\(\{[\s\S]*died, stepMs: LOAD_MS, totalMs: 2 \* LOAD_MS/);
+  assert.match(win, /load: \(\) => wc\.loadFile\(CONFIRM_PAGE\),\s*\n\s*render: \(\) =>/, 'loading and drawing are the timed steps');
+  assert.doesNotMatch(win, /await wc\.executeJavaScript|await wc\.loadFile|await settle/, 'no untimed wait on the page');
+});
+
+test('BSV money rows: one row per limit, and every sat figure leads with sat like the amount, BSV in brackets', () => {
+  const d = spendReviewDialog(card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] }),
+    { caps: { perTxSats: 50000, perSessionSats: 100000, per24hSats: 200000 }, armRemainingMs: 250_000 });
+  const rows = d.facts!;
+  const nb = '\u00a0';
+  assert.deepEqual(rows.filter((f) => /^Limit /.test(f.label)).map((f) => [f.label, f.value]), [
+    ['Limit per transaction', `50,000 sat (0.00050000${nb}BSV)`],
+    ['Limit per session', `100,000 sat (0.00100000${nb}BSV)`],
+    ['Limit per 24 hours', `200,000 sat (0.00200000${nb}BSV)`],
+  ]);
+  assert.deepEqual(rows.filter((f) => /^Left /.test(f.label)).map((f) => f.label), ['Left per transaction', 'Left per session', 'Left per 24 hours']);
+  for (const f of rows.filter((r) => /^(Limit|Left) /.test(r.label))) assert.doesNotMatch(f.value, /;/, `no row crams several values together: ${f.label}`);
+  for (const f of [...rows, ...spendLiveDialog(card({ network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ kind: 'payment', recipient: MAIN_A, sats: 25000, allowlisted: true }], requiredConfirmations: ['approve', 'live-funds'] })).facts!]) {
+    assert.doesNotMatch(f.value, /BSV \(\d[\d,]* sat\)/, `BSV never leads: ${f.label}: ${f.value}`);
+  }
+  assert.ok(rows.find((f) => f.label === 'Network fee')!.value.startsWith('12 sat ('));
+});
+
+test('BSV address: the "check every character" cue is the label above the address, not a line in the scrolling text', () => {
+  const c = card();
+  for (const d of [spendReviewDialog(c), spendLiveDialog(c), spendUntrustedDialog(c)]) assert.doesNotMatch(d.windowDetail ?? '', /Check every character of the full address above/);
+  assert.match(spendReviewDialog(c).detail, /Recipient \(full address, check every character\):/, 'the system dialog keeps its own label');
+});
+
+test('wording: what the README, SECURITY.md, the BSV doc and the BSV panel tell you says Legion\'s confirm card, not "native dialogs"', () => {
+  const files = ['README.md', 'SECURITY.md', 'docs/BSV-MODE.md', 'ui/src/bsv/BsvPanel.tsx', 'ui/src/bsv/ChainOverlay.tsx', 'src/shared/bsv-view.ts'];
+  for (const f of files) assert.doesNotMatch(read(f), /native (dialogs?|confirmations?)/i, f);
+  assert.match(read('SECURITY.md'), /Each spend needs your confirmation in Legion's confirm card \(or the system dialog if it cannot open\)/);
+  assert.match(read('SECURITY.md'), /\*\*Confirm card\.\*\*/);
+  // one name everywhere: nothing the person reads calls it a window of its own
+  for (const f of files) assert.doesNotMatch(read(f).replace(/\bmain's confirm window\b/g, ''), /confirm window|Legion's confirm windows?/i, f);
+  assert.match(read('CHANGELOG.md'), /asked in Legion's confirm card, shown inside Legion/);
+  assert.doesNotMatch(read('src/electron/admin-logic.ts').replace(/^\s*(\/\/|\*|\/\*\*).*$/gm, ''), /confirm it in native dialogs/);
+});
+
+// ---- page dialogs and the card behind other windows (review notes M1 and L4)
+
+/** Source with comments removed, so a word in a comment never counts as code. */
+const code = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+const uiFiles = (dir: string): string[] => readdirSync(`${ROOT}/${dir}`, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? uiFiles(`${dir}/${d.name}`) : /\.(ts|tsx)$/.test(d.name) ? [`${dir}/${d.name}`] : []));
+
+test('the Legion window never lets its page raise a box: dialogs are switched off in the web preferences', () => {
+  const prefs = /function createWindow[\s\S]*?webPreferences: \{([^}]*)\}/.exec(main)?.[1] ?? '';
+  assert.ok(prefs.includes('sandbox: true'), 'the right block was read');
+  assert.ok(prefs.includes('disableDialogs: true'), 'alert, confirm and prompt from the page are suppressed by Electron itself');
+});
+
+test('no page code calls alert, confirm or prompt: the questions the UI asks are in-app dialogs', () => {
+  const files = uiFiles('ui/src');
+  assert.ok(files.length > 100, 'the UI files were found');
+  const hits = files.filter((f) => /(?<![\w$.])(?:(?:window|globalThis|self)\.)?(?:alert|confirm|prompt)\s*\(/.test(code(read(f))));
+  assert.deepEqual(hits, []);
+});
+
+test('the card is drawn when Legion is uncovered or brought forward: repainted on show, restore and focus, with background throttling off', () => {
+  const prefs = /webPreferences: \{([^}]*)\}/.exec(win)?.[1] ?? '';
+  assert.ok(prefs.includes('backgroundThrottling: false'), 'the card page is not treated as a background page while Legion is covered');
+  assert.match(win, /const FRONT_EVENTS = \['show', 'restore', 'focus'\] as const;/);
+  assert.match(win, /const refresh = \(\): void => \{ sync\(\); if \(!wc\.isDestroyed\(\)\) repaintCard\(wc\); \};/);
+  assert.match(win, /for \(const ev of FRONT_EVENTS\) main\.on\(ev as 'show', refresh\);/);
+  assert.match(win, /for \(const ev of FRONT_EVENTS\) main\.removeListener\(ev as 'show', refresh\);/, 'taken off again when the question ends');
+});

@@ -159,7 +159,7 @@ test('main registers the batch channel with the same sender and frame checks as 
   const mine = block('legion:agent-mode-batch');
   const sibling = block('legion:agent-mode-change');
   assert.ok(mine && sibling);
-  for (const must of ['senderFrame', 'win.webContents', 'trustedSender(frameUrl, uiUrl)', 'ownCoreCall', 'makeConfirm(dialog']) assert.ok(mine.includes(must), `the batch handler has ${must}`);
+  for (const must of ['senderFrame', 'win.webContents', 'trustedSender(frameUrl, uiUrl)', 'ownCoreCall', 'makeConfirm(confirmWindow']) assert.ok(mine.includes(must), `the batch handler has ${must}`);
   assert.match(mine, /agentModeBatch\(raw,/);
   assert.match(mine, /Refused: not the Legion window/);
   const preload = readFileSync(join(REPO, 'src', 'electron', 'preload.cjs'), 'utf8');

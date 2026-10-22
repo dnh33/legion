@@ -11,8 +11,8 @@ export const backgroundLabel = (n: number, stopsAt?: string): string => {
 export const stopWarning = (n: number): string =>
   `${n} background agent${n === 1 ? ' is' : 's are'} still working in this run. Stopping the run ends ${n === 1 ? 'it' : 'them'} too, and any unfinished work is lost. Stop anyway?`;
 
-/** Whether the owner agrees to stop. Fails CLOSED: if the dialog cannot be shown (it throws), nothing is cancelled. */
-export function askToStop(n: number, confirm: (message: string) => boolean): boolean {
+/** Whether the owner agrees to stop. Fails CLOSED: if the question cannot be asked (it throws or rejects), nothing is cancelled. */
+export async function askToStop(n: number, ask: (message: string) => boolean | Promise<boolean>): Promise<boolean> {
   if (n <= 0) return true;
-  try { return confirm(stopWarning(n)) === true; } catch { return false; }
+  try { return (await ask(stopWarning(n))) === true; } catch { return false; }
 }

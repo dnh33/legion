@@ -35,7 +35,7 @@ function WalletSection() {
           : <button type="button" className="btn" disabled={!bridge || changing || !addr.trim()} onClick={() => void connectWallet(addr)}>Connect&hellip;</button>}
         <button type="button" className="btn-ghost" disabled={!connected} onClick={() => void checkWallet()}>Check now</button>
       </div>
-      <p className="bsv-fine">Legion does not guess an address and does not look for a wallet by itself. Connect opens a native confirmation that names the address, and only after you confirm does Legion ask four read-only questions: version, network, whether it is logged in, and block height. It does not ask for balances, outputs, keys or addresses. The connection lasts until you disconnect, freeze, turn BSV mode off or restart. The answer is the wallet&apos;s own claim; any program on your computer could give it.</p>
+      <p className="bsv-fine">Legion does not guess an address and does not look for a wallet by itself. Connect asks in the Legion confirm card, naming the address, and only after you confirm does Legion ask four read-only questions: version, network, whether it is logged in, and block height. It does not ask for balances, outputs, keys or addresses. The connection lasts until you disconnect, freeze, turn BSV mode off or restart. The answer is the wallet&apos;s own claim; any program on your computer could give it.</p>
     </section>
   );
 }
@@ -74,7 +74,7 @@ function ArmSection({ p }: { p: PolicyView }) {
           ? <button type="button" className="btn" disabled={!bridge || !p.nativeAvailable || changing} onClick={() => void changePolicy({ kind: 'unfreeze' })}>Unfreeze&hellip;</button>
           : <button type="button" className="btn-ghost bsv-freeze-btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'freeze' })}>Freeze chain</button>}
       </div>
-      <p className="bsv-fine">Allowing mainnet, arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Switching mainnet off, Disarm and Freeze act at once. Arming covers exactly one mainnet spend, and each spend still needs your dialogs; treat the last one as the last check. Whether your wallet asks too depends on the wallet. <b>Testnet spends do not need Arm.</b> Legion&apos;s mainnet path has not been checked with real funds.</p>
+      <p className="bsv-fine">Allowing mainnet, arming and unfreezing open a question in the Legion confirm card, which this page cannot answer for you. Switching mainnet off, Disarm and Freeze act at once. Arming covers exactly one mainnet spend, and each spend still needs your dialogs; treat the last one as the last check. Whether your wallet asks too depends on the wallet. <b>Testnet spends do not need Arm.</b> Legion&apos;s mainnet path has not been checked with real funds.</p>
     </section>
   );
 }
@@ -132,7 +132,7 @@ function SpendSection({ p }: { p: PolicyView }) {
           <button type="button" className="btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-resolve', requestId: r.requestId })}>Resolve&hellip;</button>
         </div>
       ))}
-      <p className="bsv-fine">The amount, the full recipient address, the network and the fee are shown only in a native dialog that the app words from what the core reports; this window cannot answer it for you. A request nobody answers expires by itself. An unknown outcome blocks every spend until you resolve it.</p>
+      <p className="bsv-fine">The amount, the full recipient address, the network and the fee are shown only in the Legion confirm card, which the app words from what the core reports; this page cannot answer it for you. A request nobody answers expires by itself. An unknown outcome blocks every spend until you resolve it.</p>
     </section>
   );
 }
@@ -180,7 +180,7 @@ function LimitsSection({ p }: { p: PolicyView }) {
       <h3 id="bsv-h-limits">Limits and recipients, per network</h3>
       {netRows(p).map((row) => <NetLimits key={row.net} row={row} p={p} />)}
       {!p.nets?.main && <p className="bsv-fine">This core reports no mainnet limits.</p>}
-      <p className="bsv-fine">Each network has its own limits, recipient list and usage: testnet use never counts against mainnet. Defaults are tiny and hard ceilings are written in code. A change opens a native confirmation that names the network; a recipient must be a valid address of that network. The numbers shown are what the core reports.</p>
+      <p className="bsv-fine">Each network has its own limits, recipient list and usage: testnet use never counts against mainnet. Defaults are tiny and hard ceilings are written in code. A change opens a question in the Legion confirm card that names the network; a recipient must be a valid address of that network. The numbers shown are what the core reports.</p>
     </section>
   );
 }
@@ -238,7 +238,7 @@ export function BsvPanel() {
     <Modal title="BSV mode" width={640} onClose={closeBsvPanel} footer={<><span style={{ flex: 1 }} /><button type="button" className="btn-ghost" data-autofocus onClick={closeBsvPanel}>Close</button></>}>
       <div className="bsv-panel">
         <p className="bsv-preview" role="note" data-preview-notice><b>{BSV_PREVIEW_TITLE}.</b> {BSV_PREVIEW_NOTICE} {BSV_PREVIEW_FEEDBACK}</p>
-        <p className="bsv-lead"><span className="bsv-badge" data-net={mn.enabled ? 'main' : 'test'}>{mn.enabled ? (mn.armed ? 'MAINNET ARMED' : 'MAINNET ON, not armed') : 'TESTNET'}</span> The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in native dialogs; whether your wallet asks too depends on the wallet. If it asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.'}</b> An agent&apos;s ordinary tools (a shell, web access) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
+        <p className="bsv-lead"><span className="bsv-badge" data-net={mn.enabled ? 'main' : 'test'}>{mn.enabled ? (mn.armed ? 'MAINNET ARMED' : 'MAINNET ON, not armed') : 'TESTNET'}</span> The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in the Legion confirm card (or the system dialog if it cannot open); whether your wallet asks too depends on the wallet. If it asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.'}</b> An agent&apos;s ordinary tools (a shell, web access) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
         <WalletSection />
         <KnowledgeSection />
         {p && <SpendSection p={p} />}
