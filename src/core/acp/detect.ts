@@ -13,7 +13,7 @@
  *    version line is NOT monotone, and the clone's history starts at f974134f36, so it cannot date the change by commit. The clone has no
  *    v0.22.3 tag. v0.22.3 contains it according to one GitHub compare call (f974134f36...v0.22.3, "ahead", behind_by 0) that was NOT
  *    re-checked locally. 0.22.3 is therefore a safe floor (0.22.2 is known to lack the server), not a proven first release.
- *    Task 12 confirms it against a real Hermes.
+ *    A run against a real Hermes confirms it.
  *  - `config get <key> --json` reads the merged config, so a default shows as its value (hermes_cli/config.py:3543-3590). A key that has no
  *    default and was never set exits 1 with "Config key not set".
  *  - approvals.mode is manual, smart or off; a bare `off` is read as the boolean false by YAML and Hermes maps false to off, true to manual and
@@ -160,7 +160,7 @@ export function hostWaitSeams(): { permissionWaitMs: (entry: AcpEntry) => number
 /** The built-in entry is the only Hermes: normalizeAcp never lets a custom entry take its id. Hermes's own subcommands go to it alone. */
 export const isHermes = (e: AcpEntry): boolean => e.id === BUILTIN_HERMES.id;
 
-/** Probed: an entry only once the owner switched it on (R75: Hermes is off until "Offer Hermes" is turned on; a custom command is an arbitrary program). */
+/** Probed: an entry only once the owner switched it on (Hermes is off until "Offer Hermes" is turned on; a custom command is an arbitrary program). */
 export const isProbed = (e: AcpEntry): boolean => e.enabled;
 
 /** The answer of the last check of this entry while it is fresh (10 minutes), else nothing. */
@@ -170,7 +170,7 @@ const freshHit = (entry: AcpEntry, now: () => number): AgentDetection | undefine
 };
 
 /**
- * What may be known without starting anything (R58): the program is on PATH (a file lookup, no process), and the last check of it while it is
+ * What may be known without starting anything: the program is on PATH (a file lookup, no process), and the last check of it while it is
  * fresh. With no fresh check and the program there, `pending` is set (found, not run). Never awaits, never starts a program: the model list,
  * the Doctor at app start and after a settings save use it.
  */
@@ -186,7 +186,7 @@ export function peekDetection(entry: AcpEntry, now: () => number = Date.now): Ag
 }
 
 /**
- * What Settings may show for an entry that is switched off (R75): is the program on PATH. A file lookup only, no process, and the answer is
+ * What Settings may show for an entry that is switched off: is the program on PATH. A file lookup only, no process, and the answer is
  * kept for as long as a detection lasts. Nothing else is known or asked.
  */
 export function lookupAgent(entry: AcpEntry, now: () => number = Date.now): AgentDetection {
@@ -360,7 +360,7 @@ export function readAgentWaits(entry: AcpEntry, deps: Partial<AgentHostDeps> = {
 }
 
 /**
- * Background warm-up of Hermes's own settings (R58, R62: a user who only uses Claude pays nothing, whatever they clicked on the first-use card). At core
+ * Background warm-up of Hermes's own settings (a user who only uses Claude pays nothing, whatever they clicked on the first-use card). At core
  * start only a roster with an agent that uses Hermes (`inUse`) gets the full check; at a Hermes run start everyone gets at least the two waits, and the full check when an agent uses it. Never a switched-off
  * Hermes, never another agent host.
  */

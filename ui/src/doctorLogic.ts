@@ -20,7 +20,7 @@ const isAgentRow = (c: Pick<DoctorCheck, 'id'>): boolean => c.id.startsWith('acp
  */
 export function keepProbedAgentRows(next: DoctorCheck[], prev: DoctorCheck[] | null): DoctorCheck[] {
   const keep = (prev ?? []).filter(isAgentRow);
-  // a fresh pass with no agent rows at all means Hermes was switched off (R75): the old rows go too
+  // a fresh pass with no agent rows at all means Hermes was switched off: the old rows go too
   if (keep.length === 0 || !next.some(isAgentRow)) return next;
   const out: DoctorCheck[] = [];
   let placed = false;

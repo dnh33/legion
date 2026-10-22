@@ -193,7 +193,7 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
   const [text, setText] = useState('');
   const [result, setResult] = useState<GateTestResult | null>(null);
   const agent = agents.find((a) => a.id === agentId);
-  // Legion's modes and its Ask and Allow rules do not decide what a Hermes agent asks, so a dry run of them would say something untrue. Block rules do reach Hermes, in every mode (R71): that is what the tester shows for it.
+  // Legion's modes and its Ask and Allow rules do not decide what a Hermes agent asks, so a dry run of them would say something untrue. Block rules do reach Hermes, in every mode: that is what the tester shows for it.
   const onHermes = isAgentHostModel(agent?.model);
   const hostName = hostNameOf(agent?.model);
   const mode: ApprovalMode = agent?.approval ?? 'ask';

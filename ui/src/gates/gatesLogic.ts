@@ -150,7 +150,7 @@ export function gateTestResult(rules: readonly GateRule[], call: GateTestCall, c
   return { verdict: d.verdict, matched: d.ruleIds.map((id) => rules.find((r) => r.id === id)).filter((r): r is GateRule => !!r) };
 }
 
-/** Hermes agents (R71): only the owner's Block rules reach them, and a blocked request is refused with no card, in every mode (Full does not lift it). */
+/** Hermes agents: only the owner's Block rules reach them, and a blocked request is refused with no card, in every mode (Full does not lift it). */
 export function hermesGateResult(rules: readonly GateRule[], call: GateTestCall): GateTestResult {
   const d = decideGate({ toolName: call.toolName, input: call.input, agentId: call.agentId }, rules, 'full', false);
   if (d.verdict !== 'deny') return { verdict: 'baseline', matched: [] };

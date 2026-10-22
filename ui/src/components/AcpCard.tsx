@@ -71,7 +71,7 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
 }
 
 /**
- * A card that closed with no answer (R60): it stays in the thread so the owner can read what was asked and that nothing was run. It has no answer
+ * A card that closed with no answer: it stays in the thread so the owner can read what was asked and that nothing was run. It has no answer
  * buttons, only Dismiss. When focus was on the card as it closed, focus moves to Dismiss (never to the page); Dismiss then hands it to the composer.
  */
 export function ClosedAcpCard({ c }: { c: ClosedCard }) {

@@ -212,7 +212,7 @@ interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; tim
 export { ACP_CLOSED_NOTE, ACP_LATE_NOTE } from '../shared/acp-copy.js';
 
 /** How an agent host card ended: an option of the card, a plain no, or closed with no answer (deadline, cancel, the turn ended). */
-export type AcpAnswer = { kind: 'option'; optionId: string } | { kind: 'denied' } | { kind: 'closed'; note: string; /** The card ran out of time or the host cancelled the call: the window keeps it in the thread (R60). Not set when the task ended. */ stays?: boolean };
+export type AcpAnswer = { kind: 'option'; optionId: string } | { kind: 'denied' } | { kind: 'closed'; note: string; /** The card ran out of time or the host cancelled the call: the window keeps it in the thread. Not set when the task ended. */ stays?: boolean };
 interface AcpPending { req: ApprovalRequest; shown: ReadonlySet<string>; resolve: (a: AcpAnswer) => void; timer: ReturnType<typeof setTimeout> }
 const CLOSED_KEPT = 200;
 /** Only an allow option allows. A reject option, or a kind this code does not know, never does. */
@@ -225,7 +225,7 @@ export class ApprovalBroker {
   /** Cards that closed with no answer from the owner, kept so a late answer can be told why nothing happened. */
   private readonly closed = new Map<string, string>();
   /**
-   * Cards that closed on their own and stay in the thread (R60), whole, so a window that was reloaded draws them again (R61). The window dismisses them
+   * Cards that closed on their own and stay in the thread, whole, so a window that was reloaded draws them again. The window dismisses them
    * (`dismissClosed`); a task that was stopped or deleted, or begins a new turn after a finished one, takes its cards with it, as the window does.
    */
   private readonly kept = new Map<string, { card: ApprovalRequest; note: string; late?: string }>();

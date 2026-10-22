@@ -24,7 +24,7 @@
  *    `auth.adopt_external_logins false` stops that for the Claude Code login and one other coding CLI's login only (agent/credential_sources.py:24-45).
  *    A GitHub token from `gh auth token` or the environment and another coding tool's login are still seeded (agent/credential_pool.py:2657-2725), and
  *    a named profile with no credential of its own for a provider falls back on the main Hermes sign-in (hermes_cli/auth.py:948-972), which
- *    the owner accepts (R53). So "signed in" means Hermes can use a credential for the profile, not that it is the profile's own.
+ *    the owner accepts. So "signed in" means Hermes can use a credential for the profile, not that it is the profile's own.
  *    The key is a boolean in the
  *    defaults (hermes_cli/config_defaults.py:1775), so `config set` turns the word `false` into a real false (hermes_cli/config.py:3198-3228)
  *    and `config get --json` prints `false`.
@@ -184,7 +184,7 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return { exists: true, signedIn: false, policyOk: false, detail: startFailure(policy.startFailed) };
   // Signed in = Hermes lists at least one credential it can use for the profile: its own sign-in, a key in its environment, or the main
-  // Hermes sign-in it falls back on (R53). With auth.adopt_external_logins false the Claude Code login and another coding CLI's login are not in the list.
+  // Hermes sign-in it falls back on. With auth.adopt_external_logins false the Claude Code login and another coding CLI's login are not in the list.
   // Legion never sees the key.
   const auth = await go(entry, ['-p', CONTAINED_PROFILE, 'auth', 'list']);
   const signedIn = auth.code === 0 && /\(\d+ credentials?\)/.test(clean(auth.stdout));

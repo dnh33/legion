@@ -52,7 +52,7 @@ export function withLinks(text: string): React.ReactNode[] {
 export function hostState(e: AcpEntryView, checking: boolean): { title: string; detail?: string } {
   const d = e.detection;
   const name = e.label;
-  // R75: while Hermes is off, only the PATH lookup is known: found or not found, nothing was started
+  // while Hermes is off, only the PATH lookup is known: found or not found, nothing was started
   if (!e.enabled) return { title: d.state === 'found' ? `${name} found on your computer` : d.state === 'missing' ? `${name} not found on your computer` : `${name} is off` };
   if (d.state === 'missing') return { title: `${name} is not installed`, ...(d.detail ? { detail: d.detail } : {}) };
   if (d.state === 'error') return { title: `${name} is installed but does not start`, ...(d.detail ? { detail: d.detail } : {}) };
@@ -146,11 +146,11 @@ export function AgentHostsSection() {
     try { await runDoctor(true); await loadSettings(); } finally { if (alive.current) setChecking(false); }
   };
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  // R75: the full check starts Hermes, so it runs only while "Offer Hermes" is on: when the page opens with it on, and when the owner turns it on
+  // the full check starts Hermes, so it runs only while "Offer Hermes" is on: when the page opens with it on, and when the owner turns it on
   useEffect(() => { if (hermesOn) void check(); else setChecking(false); }, [hermesOn]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!settings) return <div className="set-section"><p className="set-hint" role="status">Loading{'…'}</p></div>;
   const save = async (patch: Parameters<typeof saveSettings>[0]): Promise<void> => { try { await saveSettings(patch, true); } catch (e) { toast(errText(e), 'error'); } };
-  // R63: a switch that lets Hermes ask less goes through the app's native confirmation; one that keeps or tightens saves directly. Without the app (a plain browser) a loosening is refused here and by the core.
+  // a switch that lets Hermes ask less goes through the app's native confirmation; one that keeps or tightens saves directly. Without the app (a plain browser) a loosening is refused here and by the core.
   const saveSwitch = async (k: keyof AcpSwitches, on: boolean): Promise<void> => {
     const patch = { [k]: on } as Partial<AcpSwitches>;
     const bridge = window.legion?.acpSwitchChange;

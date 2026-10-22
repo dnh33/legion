@@ -80,7 +80,7 @@ export const ACP_PERMISSION_PAUSE_CAP_MS = 305_000;
 /** The most permission requests of one turn that may be open at once. Hermes asks one at a time; more than this is an agent gone wrong, and each open one holds a card for up to 300 s. */
 export const ACP_MAX_OPEN_PERMISSIONS = 8;
 
-// Per-method waits (Task 2 note: the peer's default is 30 s, too short for starting the agent's background service). A prompt has no limit; the watchdog guards it.
+// Per-method waits (the peer's default is 30 s, too short for starting the agent's background service). A prompt has no limit; the watchdog guards it.
 const WAIT_INITIALIZE_MS = 30_000;
 const WAIT_SESSION_MS = 120_000;
 const WAIT_SET_MODEL_MS = 60_000; // Hermes does network I/O when it switches a model (server.py set_session_model)

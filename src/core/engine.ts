@@ -3070,7 +3070,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const sw = this.config.acp?.switches;
     const reject = r.options.find((o) => o.kind === 'reject_once');
     const no = (): { optionId: string } | { cancelled: true } => (reject ? { optionId: reject.optionId } : { cancelled: true });
-    // The owner's Block rules come first, in every mode and whatever the switches say: they are the owner's own explicit deny list (R71)
+    // The owner's Block rules come first, in every mode and whatever the switches say: they are the owner's own explicit deny list
     if (this.acpBlocked(job, agent, folder, r)) { this.addMessage(job.taskId, 'system', named(blockedNote(), entry.label)); return no(); }
     const why = sw?.disasterStop ? this.acpDisaster(folder, entry, r) : undefined;
     if (why) { this.addMessage(job.taskId, 'system', named(disasterNote(why), entry.label)); return no(); }
@@ -3183,7 +3183,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const plain = process.platform === 'win32' ? plainWindowsPath(folder) : folder;
       if (plain === undefined || isAdminShare(plain) || off.some((t) => pathInside(t, plain) || pathInside(plain, t))) return fail(say(HERMES_CWD_TEXT));
       mkdirSync(folder, { recursive: true });
-      // R51: the Contained promise must hold when the run starts, not only when the owner set the profile up
+      // the Contained promise must hold when the run starts, not only when the owner set the profile up
       if (entry.contained) {
         const block = await (host.containedGate ?? containedRunBlock)(entry);
         if (act.cancelled) return { subtype: 'cancelled', isError: false };
@@ -3242,7 +3242,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       act.reached = true;
       noteAgentVersion(entry.id, session.agentVersion); // the Doctor shows the version of the Hermes that ran, and a session means it signed in
       const sameSession = fresh ? undefined : stored;
-      // R76: set as soon as the session is stored, like a Claude run: a pause at a limit, a stall or a crash after this point can be continued in the same Hermes conversation
+      // set as soon as the session is stored, like a Claude run: a pause at a limit, a stall or a crash after this point can be continued in the same Hermes conversation
       this.patchTask(taskId, { resumable: true, acp: { entryId: entry.id, sessionId: session.sessionId, ...(sameSession?.cumulative ? { cumulative: sameSession.cumulative } : {}) } });
       if (act.cancelled) return { subtype: 'cancelled', isError: false };
 

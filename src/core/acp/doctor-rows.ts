@@ -5,7 +5,7 @@
  * Colours: `ok: false` is red. `level: 'warn'` is amber and `level: 'neutral'` is "nothing to act on" (not installed, not checked, not readable);
  * a row with neither is plain. An amber row may carry a `fix`, which the window shows for it too.
  *
- * R34: the in-process Hermes path (a shared bare server name) is not supported, so no row here says anything about it working.
+ * the in-process Hermes path (a shared bare server name) is not supported, so no row here says anything about it working.
  */
 import type { DoctorCheck } from '../../shared/types.js';
 import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
@@ -53,7 +53,7 @@ function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection, deps: Ag
   if (entry.id !== BUILTIN_HERMES.id) return { id: `${base}-approvals`, label: `${entry.label} approvals`, ok: true, level: 'neutral', detail: 'Not checked. Legion does not read this setting from other agent hosts.' };
   const mode = d.approvalsMode ?? 'unknown';
   const id = `${base}-approvals`;
-  // R72: a skip flag in the environment Hermes gets is read by Hermes before any setting, so the setting below can say "manual" while nothing asks
+  // a skip flag in the environment Hermes gets is read by Hermes before any setting, so the setting below can say "manual" while nothing asks
   const flags = skipFlagsReaching(entry, deps);
   if (flags.includes('HERMES_YOLO_MODE')) {
     return { id, label: `${entry.label} approvals: off (HERMES_YOLO_MODE)`, ok: false, detail: named(`${APPROVALS_OFF} HERMES_YOLO_MODE is set in the environment Legion starts Hermes with, and it skips every approval whatever Hermes's own setting says.`, entry.label), fix: SKIP_FIX };
@@ -82,11 +82,11 @@ async function containedRow(entry: AcpEntry, base: string, deps: AgentHostDeps):
 const NOT_YET = 'Not checked yet. Open the Doctor and choose Re-run checks to check it.';
 
 /**
- * The rows for one entry. `probe`: look again now (starts the program). Otherwise nothing is started (R58): the rows come from a fresh earlier
+ * The rows for one entry. `probe`: look again now (starts the program). Otherwise nothing is started: the rows come from a fresh earlier
  * check, or say "not checked yet". The window asks for the first only when the Doctor is opened or re-run.
  */
 async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Promise<DoctorCheck[]> {
-  // R75: an entry that is switched off has no rows at all: nothing is looked up, nothing is started, nothing is said about it
+  // an entry that is switched off has no rows at all: nothing is looked up, nothing is started, nothing is said about it
   if (!entry.enabled) return [];
   const base = `acp-${entry.id}`;
   const builtin = entry.id === BUILTIN_HERMES.id;
@@ -107,7 +107,7 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Pr
   // a Contained entry: the profile is looked at first. Before it is set up there is nothing to read approvals from, and the profile row says so.
   const contained = entry.contained && probe ? await containedRow(entry, base, deps) : undefined;
   if (!contained || contained.exists) rows.push(approvalsRow(entry, base, d, deps));
-  // R50: only the owner's own Hermes. The Contained profile turns the borrowing off and its row checks that.
+  // only the owner's own Hermes. The Contained profile turns the borrowing off and its row checks that.
   if (builtin && !entry.contained && d.adoptExternalLogins === true) {
     rows.push({
       id: `${base}-logins`, label: 'Hermes shares your Claude Code login', ok: true, level: 'warn',
@@ -115,7 +115,7 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Pr
       fix: `${quoted(entry.command)} config set ${ADOPT_SETTING} false`,
     });
   }
-  // R27: a run that Hermes refused for a missing sign-in, while Hermes itself starts, usually means a key that lives in a variable Legion keeps back
+  // a run that Hermes refused for a missing sign-in, while Hermes itself starts, usually means a key that lives in a variable Legion keeps back
   if (authFailureNoted(entry.id)) rows.push({ id: `${base}-signin`, label: `${entry.label} sign-in under Legion`, ok: false, detail: named(SIGNIN_TEXT, entry.label) });
   if (contained) rows.push(contained.row);
   else if (entry.contained) rows.push({ id: `${base}-contained`, label: 'Contained profile: not checked yet', ok: true, level: 'neutral', detail: NOT_YET }); // reading the profile starts Hermes

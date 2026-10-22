@@ -990,3 +990,11 @@ test('W4 M11: the Folder field sits in one place under the model row, after the 
     assert.ok(b.includes('value="D:\work\site"'), 'the typed path stays in the field');
   } finally { empty.cleanup(); typed.cleanup(); }
 });
+
+test('W4 M13: code comments in the Hermes files carry no ledger numbers or task names (the public repo has no such ledger)', () => {
+  const files = ['src/bin/legion-core.ts', 'src/core/acp/contained.ts', 'src/core/acp/detect.ts', 'src/core/acp/doctor-rows.ts', 'src/core/acp/session.ts', 'src/core/acp/run-helpers.ts', 'src/core/acp/map.ts',
+    'src/core/approvals.ts', 'src/core/doctor.ts', 'src/core/server.ts', 'src/shared/acp-copy.ts', 'src/shared/types.ts', 'ui/src/commands.ts', 'ui/src/components/AcpCard.tsx', 'ui/src/doctorLogic.ts',
+    'ui/src/gates/GatesSection.tsx', 'ui/src/gates/gatesLogic.ts', 'ui/src/settings/AgentHostsSection.tsx', 'ui/src/store.ts', 'ui/src/acp/HermesBadge.tsx'];
+  for (const f of files) assert.doesNotMatch(src(f), /\bR[0-9]{2}\b|\(R[0-9]{1,2}\)|Task [0-9]+ note|Task 12 |live check 2026/, `${f} names a ledger entry`);
+  assert.doesNotMatch(src('src/core/acp/contained.ts'), /Qwen/, 'no product name but Hermes and Claude');
+});

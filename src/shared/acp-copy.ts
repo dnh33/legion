@@ -45,7 +45,7 @@ export const SWITCH_COPY: Record<keyof AcpSwitches, { label: string; hint: strin
 };
 export const SWITCH_ORDER: ReadonlyArray<keyof AcpSwitches> = ['disasterStop', 'modeMap', 'stripSkipFlags', 'answerOnce'];
 
-/** R63: the switches that make Hermes ask less when they change this way: the three safety switches turned off, and Match Legion's mode turned on. */
+/** the switches that make Hermes ask less when they change this way: the three safety switches turned off, and Match Legion's mode turned on. */
 const LOOSENS_WHEN: Record<keyof AcpSwitches, boolean> = { disasterStop: false, modeMap: true, stripSkipFlags: false, answerOnce: false };
 /** What each loosening allows, in one plain line. The native confirmation lists these and nothing else. */
 export const LOOSEN_LINES: Record<keyof AcpSwitches, string> = {
@@ -61,7 +61,7 @@ export function loosenedSwitches(current: AcpSwitches, patch: Partial<AcpSwitche
 
 /** What the Contained read-back checks, said once: the core's check result and the Settings switch both use these words. */
 export const CONTAINED_CHECKS = "that the Contained profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login";
-/** The Contained switch text in Settings. It says what is checked and that the main Hermes sign-in may be used (R53); it claims nothing more. */
+/** The Contained switch text in Settings. It says what is checked and that the main Hermes sign-in may be used; it claims nothing more. */
 export const CONTAINED_SWITCH_HINT = `Runs Hermes in the Contained profile, a Hermes profile named legion. Set up and Check read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
 /** The same text while Contained is off: Set up and Check are not on the page yet, so it does not name them. */
 export const CONTAINED_OFF_HINT = `Runs Hermes in the Contained profile, a Hermes profile named legion. Once it is on, Legion can read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;

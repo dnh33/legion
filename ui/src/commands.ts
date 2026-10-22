@@ -57,7 +57,7 @@ export async function runLegionCommand(text: string): Promise<'handled' | 'send'
       const [first, ...rest] = p.arg.split(/\s+/);
       const value = resolveModel(s.catalog, first);
       if (!value) { toast(`Unknown model “${first}”`, 'error'); return 'handled'; }
-      // R75: Hermes is off until "Offer Hermes" is on (and found): a typed name is not a way around the model list
+      // Hermes is off until "Offer Hermes" is on (and found): a typed name is not a way around the model list
       if (isAgentHostModel(value) && s.catalog && !(s.catalog.hosts ?? []).some((h) => h.value === value.split('/')[0])) {
         toast(isHermesModel(value) ? 'Hermes is not offered. Turn on "Offer Hermes" in Settings, Agent hosts, and check that Hermes is installed.' : `${hostNameOf(value)} is not offered. Check that it is turned on in the config file and installed.`, 'error'); return 'handled';
       }

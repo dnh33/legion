@@ -64,7 +64,7 @@ export interface CoreContext {
   board?: BoardStore;
   /** Checks a change of an agent's mode (the gates module makes it). Absent: only a change that keeps or tightens the mode is accepted. */
   agentMode?: AgentModeGuard;
-  /** The per-launch native secret (the app's main process only). Absent: a change that lets Hermes ask less is refused (R63). */
+  /** The per-launch native secret (the app's main process only). Absent: a change that lets Hermes ask less is refused. */
   nativeSecret?: string;
 }
 
@@ -336,7 +336,7 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- settings --------------------------------------------------------
   route('GET', '/api/settings', () => ctx.settings.view());
-  // R63: a Hermes switch change that lets Hermes ask less comes only from the app, after its native confirmation. A tightening or an unchanged value needs nothing.
+  // a Hermes switch change that lets Hermes ask less comes only from the app, after its native confirmation. A tightening or an unchanged value needs nothing.
   route('PATCH', '/api/settings', (c) => {
     const sw = isObj(c.body) && isObj(c.body.acp) && isObj(c.body.acp.switches) ? c.body.acp.switches : undefined;
     if (sw && loosenedSwitches(ctx.settings.view().acp.switches, sw as Partial<AcpSwitches>).length > 0) {
@@ -357,7 +357,7 @@ export function createServer(ctx: CoreContext): Server {
     if (action !== 'check' && action !== 'setup') throw new HttpError(400, 'action must be "check" or "setup"');
     const entry = acpEntry(ctx.config, 'hermes');
     if (!entry) throw new HttpError(404, 'The Hermes entry is not in the config');
-    // R75: Hermes is off until the owner turns it on; setting up or checking its profile starts Hermes
+    // Hermes is off until the owner turns it on; setting up or checking its profile starts Hermes
     if (!entry.enabled) throw new HttpError(409, 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts first.');
     return action === 'check' ? containedStatus(entry) : setUpContained(entry);
   });
