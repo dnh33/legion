@@ -82,7 +82,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 - Your own agents get a name, system prompt, model, approval mode and VM settings. Your edits to the Marshal's prompt are kept; the lead role applies on top. In a project, the Marshal works through the board's leader.
 - Pair threads between two agents resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
-- Hermes keeps its own tools, model and sign-in and works on your computer with them. By default Legion shows the questions Hermes asks you as cards with Hermes's own buttons and passes your answer back unchanged. Legion cannot stop a Hermes read, web fetch or command that Hermes does not ask about; Hermes's own approvals setting decides what it asks, and the Doctor shows it. Legion starts Hermes only when an agent uses it or you open the Doctor or Settings, Agent hosts. A Hermes agent needs a folder outside Legion's data folder, and Hermes 0.22.3 or newer. Settings, Agent hosts has four switches (all off), a Contained profile and a watchdog (10 minutes by default). Hermes does not report cost, so Legion shows tokens. Details: [docs/design/agent-host.md](docs/design/agent-host.md).
+- Hermes keeps its own tools, model and sign-in and works on your computer with them. By default Legion shows the questions Hermes asks you as cards with Hermes's own buttons and passes your answer back unchanged. Legion cannot stop a Hermes read, web fetch or command that Hermes does not ask about; Hermes's own approvals setting decides what it asks, and the Doctor shows it. Hermes is off until you turn on Offer Hermes in Settings, Agent hosts; until then Legion does not look for it or start it. Once it is on, Legion starts Hermes only when an agent uses it or you open the Doctor or Settings, Agent hosts. A Hermes agent needs a folder outside Legion's data folder, and Hermes 0.22.3 or newer. Settings, Agent hosts has four switches (all off), a Contained profile and a watchdog (10 minutes by default). Hermes does not report cost, so Legion shows tokens. Details: [docs/design/agent-host.md](docs/design/agent-host.md).
 - Rooms have guards against runaway loops. Agents can propose creating a room or changing its members; each change waits for an Allow card that only you can answer in the app.
 - Agents start, use and stop their own boat.dev VM. You get an "Open desktop" link. Idle VMs stop on their own, so billing pauses. Legion shows how long a VM has run today, and an optional cost estimate from the hourly price you enter ([docs/VM-NOTES.md](docs/VM-NOTES.md)).
 
@@ -144,7 +144,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 - Commands an agent runs do not get environment variables that look like keys, tokens or passwords.
 - Provider keys are kept in an encrypted file, locked with your system key store.
 - Settings covers Claude sign-in or API key, providers, web search, your boat.dev key (with a Test button), MCP servers and connection snippets.
-- Doctor checks Node, config, Claude sign-in, boat.dev and the workspace, and Hermes when you open the Doctor.
+- Doctor checks Node, config, Claude sign-in, boat.dev and the workspace, and, once Offer Hermes is on, Hermes when you open the Doctor.
 - Legion has no sandbox for commands: a command you allow runs with your own rights. See [SECURITY.md](SECURITY.md) and the known limits in the [changelog](CHANGELOG.md).
 
 </details>

@@ -26,7 +26,7 @@ This note says what runs where, what Legion can and cannot see, which settings c
 
 Legion does not start Hermes just because it is installed.
 
-- The model list only looks for `hermes` on your PATH. That is a file lookup, not a process.
+- Hermes is off until you turn on Offer Hermes. While it is off nothing looks for it or starts it. Once it is on, the model list only looks for `hermes` on your PATH. That is a file lookup, not a process.
 - At startup Legion checks Hermes only when one of your agents uses it.
 - A Hermes run starts Hermes. When an agent uses Hermes, the run start runs the full check (kept for 10 minutes); otherwise Legion reads only Hermes's two waiting settings alongside it.
 - Opening the Doctor, pressing Re-run checks in it, or opening Settings, Agent hosts, runs the full check (a few short Hermes commands and one handshake).
@@ -64,7 +64,7 @@ All four are in Settings, Agent hosts, under "In between". All are off until you
 
 | Switch | What it does when on |
 |---|---|
-| Stop disaster commands | Legion refuses a command that could wipe a drive or your home folder, or that works on Legion's own settings folder, before you are asked. It sends Hermes its own "reject" option and writes a line in the thread. It reads only commands Hermes asks about. |
+| Stop disaster commands | Legion refuses a command that could wipe a drive or your home folder, or that works on Legion's own settings folder, or that runs hidden (encoded) command text, before you are asked. It sends Hermes its own "reject" option and writes a line in the thread. It reads only commands Hermes asks about. |
 | Match Legion's mode | Legion sets Hermes's mode when it opens the session, from the mode of the Legion agent: Full and Bypass give `dont_ask`, Accept edits gives `accept_edits`, and Ask, Smart and the other modes give `default`. With the switch off, Hermes decides what to ask you and the Legion mode does not apply to a Hermes agent. The agent editor then shows a fixed line instead of a mode picker. |
 | Ignore Hermes's skip-approval settings | Legion starts Hermes without five environment variables that make it skip checks: `HERMES_YOLO_MODE`, `HERMES_IGNORE_RULES`, `HERMES_SAFE_MODE`, `HERMES_IGNORE_USER_CONFIG` and `HERMES_ACCEPT_HOOKS`. It does not change Hermes's own settings file. |
 | Answer each request once | Legion hides Hermes's "allow for the session" and "always" options, so every request needs its own answer. |
@@ -144,13 +144,13 @@ When Legion starts a Hermes run, it hands Hermes a small helper program (`src/bi
 
 ## Environment
 
-Legion cleans the environment it gives Hermes exactly as it does for a Claude agent. Variables with names or values that look like keys, tokens or passwords are held back, and so are variables that make a program load other code (such as `PYTHONPATH`). Legion's own settings and secrets are always held back, also when your keep list names them. Names on your keep list ("Variables commands may keep", in Settings, Gates, Fine tuning) pass through. A project that turns off "Keep keys and passwords out of commands" turns off the key and password cleaning for Hermes runs there too. Legion's own secrets are still held back.
+Legion cleans the environment it gives Hermes with the same rules as for a Claude agent (the cleaning covers Hermes's whole process; variables you set on the entry itself are applied after it and are not cleaned). Variables with names or values that look like keys, tokens or passwords are held back, and so are variables that make a program load other code (such as `PYTHONPATH`). Legion's own settings and secrets are always held back, also when your keep list names them. Names on your keep list ("Variables commands may keep", in Settings, Gates, Fine tuning) pass through. A project that turns off "Keep keys and passwords out of commands" turns off the key and password cleaning for Hermes runs there too. Legion's own secrets are still held back.
 
 Hermes reads its provider keys from its own home. If you keep the key only in an environment variable, add the variable's name to the keep list. When Hermes starts but cannot sign in under Legion, the Doctor says so.
 
 ## The folder
 
-A Hermes agent needs a folder of its own. It cannot work in or above Legion's data folder, or inside Hermes's own folder (its home). The default workspace sits inside the data folder, so a Hermes agent with no project and no folder of its own is refused with a plain message. In a project, the project's folder is used. The agent editor asks for a folder when you pick Hermes.
+A Hermes agent needs a folder of its own. It cannot work in or above Legion's data folder, in or above Hermes's own folder (its home), or in or above the folders Legion protects. The default workspace sits inside the data folder, so a Hermes agent with no project and no folder of its own is refused with a plain message. In a project, the project's folder is used. The agent editor asks for a folder when you pick Hermes.
 
 ## The watchdog
 
