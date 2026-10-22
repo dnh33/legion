@@ -1244,3 +1244,21 @@ test('R76: a Hermes run that never reached its session is not resumable (Retry s
   assert.equal(end.status, 'error');
   assert.notEqual(end.resumable, true);
 });
+
+test('M10: a long command is shown whole with every option; a command past the card limit offers only the no options and says what is cut', async () => {
+  const r = rig({ steps: [CMD('perm-check-1', `echo ${'b'.repeat(5000)} LONG-TAIL`), CMD('perm-check-2', `echo ${'c'.repeat(25_000)} CUT-TAIL`), END()] });
+  const t = await r.run();
+  const c1 = await r.nextCard();
+  assert.ok(c1.summary.includes('LONG-TAIL'), 'the tail of a 5000 character command is on the card');
+  assert.deepEqual(c1.acpOptions?.map((o) => o.name), ['Allow once', 'Allow for session', 'Allow always', 'Deny']);
+  r.broker.resolve(c1.id, false);
+  await until(() => r.broker.pending().length === 0);
+  const c2 = await r.nextCard();
+  assert.ok(!c2.summary.includes('CUT-TAIL'));
+  assert.match(c2.summary, /too long to show in full, so you can only say no/);
+  assert.match(c2.summary, /\(\d+ more characters not shown\)$/);
+  assert.deepEqual(c2.acpOptions?.map((o) => o.name), ['Deny'], 'nothing that allows is offered for text the owner cannot read');
+  r.broker.resolve(c2.id, false);
+  const end = await r.done(t);
+  assert.equal(end.status, 'done');
+});

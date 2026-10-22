@@ -83,7 +83,7 @@ import type { RunToken, RunToolsHost } from './acp/run-tokens.js';
 import { RUN_TOOL_WAIT_MAX_S } from './acp/run-tools.js';
 import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
-import { agentModeFor, cardSummary, commandNamesPath, expandRequestPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths, toolWaitOf } from './acp/run-helpers.js';
+import { agentModeFor, cardHidden, cardSummary, commandNamesPath, expandRequestPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths, toolWaitOf } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
 import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, blockedNote, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
 import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
@@ -3084,11 +3084,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const once = r.options.find((o) => o.kind === 'allow_once');
       if (once && !settings && !unreadable && !unjudged) return { optionId: once.optionId };
     }
-    const shown = sw?.answerOnce ? r.options.filter((o) => o.kind !== 'allow_always') : r.options;
+    let shown = sw?.answerOnce ? r.options.filter((o) => o.kind !== 'allow_always') : r.options;
+    // The owner is never asked to allow text the card cannot show: past the card's limit only the no options stay, and the card says so.
+    const hidden = cardHidden(r);
+    if (hidden > 0) shown = shown.filter((o) => o.kind !== 'allow_once' && o.kind !== 'allow_always');
     if (shown.length === 0) return no();
     const o = job.origin;
     const projectId = this.projectOf(job.taskId, agent.id)?.id;
-    const lead = [...(settings ? [`This touches ${settings}`] : []), ...(bypass && unreadable ? [`Legion cannot tell which files this touches: ${unreadable}. So it asks you, even in Bypass.`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : [])];
+    const lead = [...(settings ? [`This touches ${settings}`] : []), ...(bypass && unreadable ? [`Legion cannot tell which files this touches: ${unreadable}. So it asks you, even in Bypass.`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : []), ...(hidden > 0 ? ['This is too long to show in full, so you can only say no.'] : [])];
     const answer = await this.approvals.requestAcp(job.taskId, agent.id, {
       toolName: r.toolName, title: r.title, summary: cardSummary(r, lead), input: r.input, options: shown,
       waitMs: permissionWaitOf(this.agentHost?.permissionWaitMs, entry),

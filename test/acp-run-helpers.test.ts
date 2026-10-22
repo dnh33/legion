@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandRequestPath, HERMES_SELF_DENY_MS, expandHermesHome, hermesHomes, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
+import { CARD_TEXT_MAX, cardHidden, cardSummary, expandRequestPath, HERMES_SELF_DENY_MS, expandHermesHome, hermesHomes, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
 
 // Pure pieces of an agent host run. Hermes joins the paths of a multi-file patch with ", " (acp_adapter/edit_approval.py:106-126)
 // and reads the patch headers with the two regexes at edit_approval.py:49-50.
@@ -151,4 +151,19 @@ test('R74 hermesHomes: ~ and variables in HERMES_HOME are expanded the way Herme
   assert.deepEqual(hermesHomes(entry({ HERMES_HOME: `~other${BS}h` }), undefined, winEnv, 'win32', winHome), [`C:${BS}Users${BS}other${BS}h`], 'ntpath.expanduser swaps the last folder of the home for the named user');
   // the override (a profile folder Legion computed) is expanded the same way
   assert.deepEqual(hermesHomes(entry(), '~/p', posixEnv, 'linux', '/home/me').slice(0, 1), ['/home/me/p']);
+});
+
+test('cardSummary: a command and a diff are shown whole up to a large limit; past it the card says how much is hidden and cardHidden counts it', () => {
+  const mk = (over: Record<string, unknown>) => ({ toolName: 'Bash', title: 't', input: {}, options: [], ...over }) as unknown as Parameters<typeof cardSummary>[0];
+  const long = `echo ${'z'.repeat(4000)} END-OF-COMMAND`;
+  const whole = cardSummary(mk({ input: { command: long } }));
+  assert.ok(whole.includes('END-OF-COMMAND'), 'the tail of an ordinary long command is on the card');
+  assert.equal(cardHidden(mk({ input: { command: long } })), 0);
+  const diff = cardSummary(mk({ toolName: 'Write', input: {}, diff: { path: 'a.txt', newText: `${'y'.repeat(3000)} END-OF-FILE` } }));
+  assert.ok(diff.includes('END-OF-FILE'), 'the tail of a diff is on the card');
+  const huge = mk({ input: { command: `${'x'.repeat(CARD_TEXT_MAX)} TAIL-HIDDEN` } });
+  assert.equal(cardHidden(huge), ' TAIL-HIDDEN'.length);
+  const text = cardSummary(huge);
+  assert.ok(!text.includes('TAIL-HIDDEN'));
+  assert.match(text, /\n\(12 more characters not shown\)$/, 'the cut is stated on its own line');
 });

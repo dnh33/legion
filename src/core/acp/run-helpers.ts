@@ -31,23 +31,41 @@ export function stripPaths(text: string): string {
 /** A tool call on Legion's own route: Hermes names such a call `mcp__editor_legion_<tag>__<tool>`. The route already wrote its rows. */
 export const isRouteTool = (name: string): boolean => /^mcp__editor_legion_[0-9a-z]+__/.test(name);
 
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+/** The most characters of one command, path or change a card shows. The card scrolls, so ordinary text is always shown whole; only text past this is cut. */
+export const CARD_TEXT_MAX = 20_000;
 
-/** The text of a card for one request: the lead lines first (a settings line, why Legion asks), then the command or the file and its change. */
-export function cardSummary(r: MappedPermission, lead: readonly string[] = []): string {
-  const lines: string[] = [...lead];
+/** The pieces of text a card for one request shows, in order. */
+function cardParts(r: MappedPermission): string[] {
+  const parts: string[] = [];
   const command = typeof r.input.command === 'string' ? r.input.command : undefined;
   const description = typeof r.input.description === 'string' ? r.input.description : undefined;
-  if (command) lines.push(clip(command, 1000));
-  if (description && description !== command) lines.push(clip(description, 300));
-  if (r.diff) lines.push(clip(r.diff.path, 300), clip(r.diff.newText, 600));
+  if (command) parts.push(command);
+  if (description && description !== command) parts.push(description);
+  if (r.diff) parts.push(r.diff.path, r.diff.newText);
   else if (!command) {
     const path = typeof r.input.file_path === 'string' ? r.input.file_path : undefined;
-    if (path) lines.push(clip(path, 300));
-    if (r.text) lines.push(clip(r.text, 600));
+    if (path) parts.push(path);
+    if (r.text) parts.push(r.text);
   }
+  return parts;
+}
+
+/** How many characters of the request the card cannot show. When this is above 0 the owner cannot read all of what would be allowed. */
+export function cardHidden(r: MappedPermission): number {
+  return cardParts(r).reduce((n, p) => n + Math.max(0, p.length - CARD_TEXT_MAX), 0);
+}
+
+/**
+ * The text of a card for one request: the lead lines first (a settings line, why Legion asks), then the command or the file and its change, whole.
+ * Text past CARD_TEXT_MAX is cut and the card says how much, on its own last line.
+ */
+export function cardSummary(r: MappedPermission, lead: readonly string[] = []): string {
+  const lines: string[] = [...lead];
+  for (const p of cardParts(r)) lines.push(p.length > CARD_TEXT_MAX ? p.slice(0, CARD_TEXT_MAX) : p);
   if (lines.length === lead.length) lines.push(r.title);
-  return lines.join('\n').slice(0, 1500);
+  const hidden = cardHidden(r);
+  if (hidden > 0) lines.push(`(${hidden} more characters not shown)`);
+  return lines.join('\n');
 }
 
 /** True when the command text holds the whole path of `target` (either slash, any case). A word the path merely shares with the command is not enough. */
