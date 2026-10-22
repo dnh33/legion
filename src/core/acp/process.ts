@@ -35,6 +35,8 @@ export interface AgentProcess {
   pid: number;
   /** The last 8 KB of what the agent wrote to stderr (plus notes from this file), each line redacted. */
   stderrTail(): string;
+  /** Adds a line to that tail as a note (a banner or warning the agent wrote to stdout instead of a message). Redacted and capped like the rest. */
+  note?(line: string): void;
   /** Close stdin, wait `graceMs` (default 3000) for the agent to leave, then kill its PID (not its tree). */
   stop(graceMs?: number): Promise<void>;
   /** Kill the PID now. */
@@ -52,6 +54,7 @@ export class AgentLaunchError extends Error {
 }
 
 const RING_CHARS = 8 * 1024;
+const NOTE_MAX_CHARS = 1000;
 const LINE_DROPPED_NOTE = '[line over 16 MiB dropped]';
 const CLOSE_AFTER_EXIT_MS = 250; // a grandchild that inherited the pipes must not keep the RPC peer waiting
 const CLI_OUTPUT_CAP = 1024 * 1024;
@@ -517,6 +520,7 @@ export function startAgentProcess(
     io,
     pid,
     stderrTail: () => ring.tail(),
+    note: (line) => ring.line(line.slice(0, NOTE_MAX_CHARS)),
     async stop(graceMs = 3000) {
       if (done) return;
       try { stdin.end(); } catch { /* already closed */ }

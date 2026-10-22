@@ -191,7 +191,7 @@ export class AcpSession {
    * It never stops the process: the caller owns it and stops it after a failure.
    */
   static async open(p: AgentProcess, init: AcpOpenInit): Promise<AcpSession> {
-    const peer = new RpcPeer(p.io, { requestTimeoutMs: WAIT_INITIALIZE_MS });
+    const peer = new RpcPeer(p.io, { requestTimeoutMs: WAIT_INITIALIZE_MS, onNoise: (line) => p.note?.(line) });
     const s = new AcpSession(peer, () => p.stderrTail(), {
       watchdogMs: init.watchdogMs,
       graceMs: init.cancelGraceMs ?? ACP_CANCEL_GRACE_MS,

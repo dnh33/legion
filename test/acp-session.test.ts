@@ -496,3 +496,8 @@ test('a second permission request after the pause cap does not leave the turn wi
   assert.equal(end.stopReason, 'watchdog', `took ${Date.now() - t0} ms`);
   await a.p.stop();
 });
+
+test('F11: a line the agent writes to stdout that is not JSON (a banner, a warning) is kept in the stderr tail, redacted', async () => {
+  const h = await open('noise');
+  assert.match(h.p.stderrTail(), /Fake agent v0\.0\.0 starting \(this line is not JSON\)/);
+});
