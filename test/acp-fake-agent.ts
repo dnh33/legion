@@ -21,6 +21,8 @@
  *   overflow    a prompt first writes one 17 MiB line, then behaves like ok
  *   plan        like ok, with a plan update (two entries) before the first chunk
  *   foreign     like ok, with an update and a permission request for another session (sess_other) in the middle of the turn
+ *   script      a prompt plays the steps in the JSON file named by --script (text, thought, tool, toolUpdate, plan, permission, wait, waitCancel, end),
+ *               so a test can say exactly what the agent does in one turn. A permission step waits for the client's answer; the answer is in the --log.
  *   stream      a prompt streams --chunks chunks (default 15), one every --interval ms (default 100), to the session named by --to (default its own),
  *               then ends the turn; session/cancel stops the stream and ends the turn "cancelled"
  * Flags: --fail-new <message> [--fail-code n] [--fail-in-data]  makes session/new fail (the message goes in error.data.details, with the message "Internal error", when --fail-in-data is given:
@@ -34,7 +36,7 @@
  * --daemon starts a detached sleeper that must outlive this agent (the Hermes background service) and reports its PID as daemonPid.
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 
 const argv = process.argv.slice(2);
 const opt = (name: string): string | undefined => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -69,6 +71,8 @@ const text = (t: string) => ({ type: 'text', text: t });
 
 let turns = 0;
 let pendingPrompt: unknown; // the id of a prompt waiting for session/cancel
+let scriptCancelled = false; // session/cancel arrived while a `script` prompt was running
+let scriptCancelWaiter: (() => void) | undefined;
 let streamStopped = false; // session/cancel arrived while a `stream` prompt was running
 const answerCancelled = (id: unknown) => (argv.includes('--cancel-error') ? fail(id, -32603, 'Internal error', { details: 'admitted_turn_failed' }) : reply(id, { stopReason: 'cancelled' }));
 const waiting = new Map<unknown, (msg: Record<string, unknown>) => void>(); // requests we sent, waiting for the client's answer
@@ -95,6 +99,7 @@ async function prompt(id: unknown): Promise<void> {
     if (streamStopped) answerCancelled(id); else reply(id, { stopReason: 'end_turn' });
     return;
   }
+  if (mode === 'script') { await playScript(id); return; }
   if (mode === 'permission') {
     const answer = await new Promise<Record<string, unknown>>((resolve) => {
       waiting.set(9001, resolve);
@@ -137,6 +142,46 @@ async function prompt(id: unknown): Promise<void> {
   // Usage is cumulative over the session, as in the Hermes adapter (acp_adapter/server.py:995-1003); there is no cost.
   const usage = turns === 1 ? { inputTokens: 100, outputTokens: 20, totalTokens: 120 } : { inputTokens: 250, outputTokens: 60, totalTokens: 310 };
   reply(id, { stopReason: 'end_turn', usage });
+}
+
+/** The `script` mode: one JSON array of steps, played in order. Anything after a `waitCancel` that was cancelled is skipped. */
+async function playScript(id: unknown): Promise<void> {
+  const steps = JSON.parse(readFileSync(opt('--script')!, 'utf8')) as Array<Record<string, any>>;
+  let usage: Record<string, number> | undefined;
+  let stopReason = 'end_turn';
+  let permSeq = 9100;
+  for (const st of steps) {
+    if (scriptCancelled) break;
+    switch (st.op) {
+      case 'text': update({ sessionUpdate: 'agent_message_chunk', content: text(String(st.text)) }); break;
+      case 'thought': update({ sessionUpdate: 'agent_thought_chunk', content: text(String(st.text)) }); break;
+      case 'tool': update({ sessionUpdate: 'tool_call', toolCallId: st.id, title: st.title, kind: st.kind ?? 'other', status: 'pending', ...(st.rawInput ? { rawInput: st.rawInput } : {}), ...(st.content ? { content: [{ type: 'content', content: text(String(st.content)) }] } : {}) }); break;
+      case 'toolUpdate': update({ sessionUpdate: 'tool_call_update', toolCallId: st.id, status: st.status ?? 'completed', ...(st.content ? { content: [{ type: 'content', content: text(String(st.content)) }] } : {}) }); break;
+      case 'plan': update({ sessionUpdate: 'plan', entries: st.entries }); break;
+      case 'wait': await Promise.race([sleep(Number(st.ms)), new Promise<void>((resolve) => { scriptCancelWaiter = resolve; })]); break;
+      case 'permission': {
+        const rid = permSeq++;
+        const options = st.options ?? [
+          { optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'allow_session', name: 'Allow for session', kind: 'allow_always' },
+          { optionId: 'allow_always', name: 'Allow always', kind: 'allow_always' },
+          { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+        ];
+        await new Promise<Record<string, unknown>>((resolve) => {
+          waiting.set(rid, resolve);
+          out({ jsonrpc: '2.0', id: rid, method: 'session/request_permission', params: { sessionId: 'sess_fake_1', toolCall: { toolCallId: st.id, title: st.title, kind: st.kind ?? 'execute', status: 'pending', ...(st.rawInput ? { rawInput: st.rawInput } : {}) }, options } });
+        });
+        break;
+      }
+      case 'waitCancel': {
+        await new Promise<void>((resolve) => { scriptCancelWaiter = resolve; if (scriptCancelled) resolve(); });
+        break;
+      }
+      case 'end': stopReason = String(st.stopReason ?? 'end_turn'); if (st.usage) usage = st.usage; break;
+      default: break;
+    }
+  }
+  if (scriptCancelled) answerCancelled(id); else reply(id, { stopReason, ...(usage ? { usage } : {}) });
 }
 
 async function handle(msg: Record<string, unknown>): Promise<void> {
@@ -191,6 +236,7 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
     case 'session/cancel':
       if (mode === 'cancel' && pendingPrompt !== undefined) { answerCancelled(pendingPrompt); pendingPrompt = undefined; }
       if (mode === 'stream') streamStopped = true;
+      if (mode === 'script') { scriptCancelled = true; scriptCancelWaiter?.(); }
       return;
     default:
       if (id !== undefined && method !== undefined) fail(id, -32601, `Method not found: ${String(method)}`);

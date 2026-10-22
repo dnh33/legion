@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
 import { killAllAgentsSync, registerLegionSecrets, sweepStaleAgents } from '../core/acp/process.js';
+import { revokeAllRunTokens } from '../core/acp/run-tokens.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -131,7 +132,7 @@ async function main() {
   const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring, inheritMcp: () => config.claude.inheritMcp === true });
   // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
   const activity = createActivityLog({ dataDir: dataDir() });
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, agentHost: { dataDir: dataDir(), port: config.port }, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() });
   let stopReaper: () => void = () => {};
@@ -209,6 +210,7 @@ async function main() {
     stopReaper();
     for (const m of modules) { try { await m.dispose?.(); } catch { /* ignore */ } }
     for (const id of engine.running()) engine.cancel(id);
+    revokeAllRunTokens(); // no agent host run key outlives the core
     killAllAgentsSync();
     server.close();
     await store.flush();
