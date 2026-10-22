@@ -284,6 +284,7 @@ export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
  */
 export function GatesSection({ s }: { s: SettingsView }) {
   const agents = useStore((st) => st.agents);
+  const modeMap = useStore((st) => st.settings?.acp.switches.modeMap === true);
   const projects = useStore((st) => st.projects);
   const tasks = useStore((st) => st.tasks);
   const { view, loadError, reload, apply } = useGatesView();
@@ -358,7 +359,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       {view && (
         <>
           <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={reload} />
-          <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} />
+          <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} modeMap={modeMap} />
           <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
         </>
       )}

@@ -71,15 +71,17 @@ export function GatesBanner({ view, projects, busy, run, onReloaded }: {
 }
 
 /** Settings, Gates, "How agents ask": the scope switch and the four presets, with what each one means. */
-export function GatesPresets({ view, scope, setScope, projects, agents, busy, note, run }: {
+export function GatesPresets({ view, scope, setScope, projects, agents, busy, note, run, modeMap = false }: {
   view: GatesView; scope: string; setScope: (s: string) => void; projects: readonly Project[]; agents: readonly AgentProfile[];
   busy: boolean; note: Note | null; run: (c: GatesChangeRequest, done: string) => Promise<boolean>;
+  /** Settings, Agent hosts, "Match Legion's mode": off, a Hermes agent's row says the preset is not applied to it. */
+  modeMap?: boolean;
 }) {
   const isApp = scope === EVERYTHING;
   const project = isApp ? undefined : projects.find((p) => p.id === scope);
   const sum = scopeSummary(view, isApp ? undefined : scope);
   const choices = presetChoices();
-  const words = project ? limitWords(agents, project, view) : {};
+  const words = project ? limitWords(agents, project, view, { modeMap }) : {};
   const change = (patch: Record<string, unknown>, done: string) => run(isApp ? { kind: 'app', patch } : { kind: 'project', id: scope, patch }, done);
   const current: Preset | 'per-agent' = isApp ? (view.app.preset ?? 'ask') : sum.preset;
   const setPreset = (p: Preset | null) => void change({ preset: p }, p === null ? `Agents in ${project?.name ?? 'this project'} use their own settings again.` : `Preset set to ${choices.find((c) => c.id === p)?.label}.`);

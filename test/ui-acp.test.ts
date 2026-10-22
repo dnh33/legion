@@ -112,6 +112,27 @@ test('a project limit never claims to cover a Hermes agent while the switch is o
   assert.ok(!(on.on ?? '').includes(NOT_APPLIED_TO_HERMES));
 });
 
+test('render: the project cap row and the preset row say Not applied to Hermes agents while the switch is off, and the pages read the switch', async () => {
+  const agents = [AGENT('a', { name: 'Alpha', model: 'sonnet', approval: 'full' }), AGENT('h', { name: 'Hermes agent', model: 'acp:hermes', approval: 'full' })];
+  const project = { id: 'p1', name: 'Shop', members: ['a', 'h'] };
+  const view = { app: { version: 1 }, projects: { p1: { version: 1, preset: 'ask', limit: true } }, unreadable: [], changedOutside: [], canSign: true, keystore: { ok: true } };
+  const { r, cleanup } = await loadUi(st(agents));
+  try {
+    const off = unesc(r.ask({ project, agents, view, modeMap: false }));
+    assert.ok(off.includes(`Hermes agent: ${NOT_APPLIED_TO_HERMES}`), 'Settings, project page: the cap row says so');
+    assert.doesNotMatch(off, /Hermes agent \(Full\)/);
+    const on = unesc(r.ask({ project, agents, view, modeMap: true }));
+    assert.ok(!on.includes(NOT_APPLIED_TO_HERMES) && /Hermes agent \(Full\)/.test(on), 'with the switch on the limit holds Hermes');
+    assert.ok(unesc(r.ask({ project, agents, view })).includes(NOT_APPLIED_TO_HERMES), 'no value: the shipped default (off)');
+    const gOff = unesc(r.presets({ view, scope: 'p1', projects: [project], agents, modeMap: false }));
+    assert.ok(gOff.includes(`Hermes agent: ${NOT_APPLIED_TO_HERMES}`), 'Settings, Permission gates: the preset row says so');
+    const gOn = unesc(r.presets({ view, scope: 'p1', projects: [project], agents, modeMap: true }));
+    assert.ok(!gOn.includes(NOT_APPLIED_TO_HERMES));
+  } finally { cleanup(); }
+  assert.match(src('ui/src/projects/page/AskSection.tsx'), /switches\.modeMap/, 'the page reads the switch');
+  assert.match(src('ui/src/gates/GatesSection.tsx'), /switches\.modeMap/, 'the gates section reads the switch');
+});
+
 test('usage line: tokens and that Hermes does not report cost', () => {
   assert.equal(hermesUsageLine({ tokenUsage: { inputTokens: 1200, outputTokens: 80 } }), '1200 in / 80 out. Hermes does not report cost.');
   assert.equal(hermesUsageLine({}), 'tokens not reported. Hermes does not report cost.');
@@ -162,13 +183,17 @@ async function loadUi(state: Record<string, unknown>, extra: Record<string, unkn
         import { AcpFirstUseView } from ${ui('ui/src/components/AcpFirstUse.tsx')};
         import { HermesBadge, HermesUsage } from ${ui('ui/src/acp/HermesBadge.tsx')};
         import { AgentHostsView } from ${ui('ui/src/settings/AgentHostsSection.tsx')};
+        import { AskSectionView } from ${ui('ui/src/projects/page/AskSection.tsx')};
+        import { GatesPresets } from ${ui('ui/src/gates/GatesPresets.tsx')};
         const render = (el) => renderToStaticMarkup(el);
         export const editor = (id) => render(createElement(AgentEditor, { id }));
         export const card = (a, now) => render(createElement(AcpCard, { a, now }));
         export const firstUse = () => render(createElement(AcpFirstUseView, { onUse() {}, onNotNow() {} }));
         export const badge = (task) => render(createElement(HermesBadge, { task }));
         export const usage = (task) => render(createElement(HermesUsage, { task }));
-        export const hosts = (props) => render(createElement(AgentHostsView, props));`,
+        export const hosts = (props) => render(createElement(AgentHostsView, props));
+        export const ask = (props) => render(createElement(AskSectionView, { run: async () => true, busy: false, note: null, ...props }));
+        export const presets = (props) => render(createElement(GatesPresets, { setScope() {}, busy: false, note: null, run: async () => true, ...props }));`,
     },
     bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', logLevel: 'silent', loader: { '.css': 'empty' },
     plugins: [{
@@ -183,7 +208,7 @@ async function loadUi(state: Record<string, unknown>, extra: Record<string, unkn
         stub(/armory\/AgentSkills$/, 'agent-skills', `export const AgentSkills = () => null; export const settingOf = (v) => v ?? 'inherit'; export const valueOf = () => ({ mode: 'inherit' });`);
         stub(/armory\/armoryStore$/, 'armory-store', `export const revealSkill = () => {};`);
         stub(/useGatesView$/, 'use-gates-view', `export const useGatesView = () => ({ view: null, loadError: null, reload: async () => {}, apply: async () => ({ state: 'ok' }) });
-          export const useGatesAction = () => ({ pending: false, note: null, run: async () => true }); export const PENDING_TEXT = 'x';`);
+          export const useGatesAction = () => ({ pending: false, note: null, run: async () => true }); export const PENDING_TEXT = 'x'; export const reloadGatesFromDisk = async () => {};`);
         stub(/^(\.\.\/)*store$/, 'store', `export const useStore = (sel) => sel(globalThis.__st);
           export const saveSettings = async () => {}; export const errText = (e) => (e && e.message) ? e.message : String(e);
           export const saveAgent = async () => {}; export const removeAgent = async () => {};
@@ -290,6 +315,66 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     const withSignIn = unesc(r.hosts({ ...base, acp: acp({ contained: true }), contained: { kind: 'setup', ok: true, detail: 'The profile exists.', signInCommand: 'hermes -p legion setup model' } }));
     assert.ok(withSignIn.includes('hermes -p legion setup model') && withSignIn.includes('The profile exists.'), 'the core wording, as returned');
   } finally { cleanup(); }
+});
+
+/** The real store with only the network edge replaced: `api.doctor` answers what the test says, and records whether the call asked to probe. */
+async function loadStore(): Promise<{ s: Record<string, (...a: any[]) => any>; cleanup: () => void }> {
+  const out = await build({
+    entryPoints: [join(REPO, 'ui/src/store.ts')],
+    bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', logLevel: 'silent', loader: { '.css': 'empty' },
+    plugins: [{
+      name: 'api-stub',
+      setup(b) {
+        b.onResolve({ filter: /^\.\/api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+        b.onLoad({ filter: /^api$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
+          export class ApiError extends Error {}
+          export const request = async () => ({}); export const subscribe = () => () => {};
+          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; } };` }));
+      },
+    }],
+  });
+  const dir = cleanupTemp('ui-acp-store-');
+  const file = join(dir, 'store.cjs');
+  writeFileSync(file, out.outputFiles[0]!.text);
+  // the store reads window/matchMedia while it loads; the Node globals are borrowed for that and put back
+  const g = globalThis as Record<string, unknown>;
+  const had = ['window', 'location', 'matchMedia'].map((k) => [k, g[k]] as const);
+  g.window = globalThis; g.location = { search: '', hash: '', pathname: '/' }; g.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  let s: Record<string, (...a: any[]) => any>;
+  try { s = createRequire(file)(file) as Record<string, (...a: any[]) => any>; } finally { for (const [k, v] of had) { if (v === undefined) delete g[k]; else g[k] = v; } }
+  return { s, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('Doctor behaviour: a refresh that does not probe keeps the Hermes rows the window shows; opening or Re-run replaces them', async () => {
+  const { s, cleanup } = await loadStore();
+  const g = globalThis as Record<string, unknown>;
+  const probed = [{ id: 'claude', ok: true, label: 'Claude', detail: '' }, { id: 'acp-hermes-starts', ok: false, level: 'warn', label: 'Hermes starts', detail: 'It started, but sign-in is missing.', fix: 'Run hermes setup' }];
+  const unprobed = [{ id: 'claude', ok: true, label: 'Claude 2', detail: '' }, { id: 'acp-hermes-starts', ok: true, level: 'neutral', label: 'Hermes starts', detail: 'Not checked yet. Open the Doctor and choose Re-run checks to check it.' }];
+  try {
+    g.__doctorCalls = [];
+    s.setState({ doctor: null, doctorOpen: true });
+    g.__doctorNext = probed; await s.runDoctor(true);
+    assert.deepEqual(g.__doctorCalls, [true], 'Re-run asks the core to probe');
+    g.__doctorNext = unprobed; await s.runDoctor();
+    const rows = s.getState().doctor as Array<{ id: string; label: string; detail: string }>;
+    assert.equal(g.__doctorCalls.at(-1), false, 'a settings save refreshes without probing');
+    assert.equal(rows.find((c) => c.id === 'acp-hermes-starts')!.detail, 'It started, but sign-in is missing.', 'the probed Hermes row stays');
+    assert.equal(rows.find((c) => c.id === 'claude')!.label, 'Claude 2', 'every other row is fresh');
+    s.setState({ doctorOpen: false });
+    await s.runDoctor();
+    assert.match((s.getState().doctor as typeof rows).find((c) => c.id === 'acp-hermes-starts')!.detail, /^Not checked yet/, 'window closed: the fresh answer');
+    s.setState({ doctorOpen: true });
+    await s.runDoctor(true);
+    assert.match((s.getState().doctor as typeof rows).find((c) => c.id === 'acp-hermes-starts')!.detail, /^Not checked yet/, 'a probe always shows what the core said');
+  } finally { delete g.__doctorCalls; delete g.__doctorNext; cleanup(); }
+});
+
+test('card countdown: the text counts down each second and ends exactly at the deadline, with the late text', () => {
+  const at = new Date(10_000 + 3_000).toISOString();
+  const seq = [10_000, 11_000, 12_000, 12_999, 13_000, 14_000].map((now) => cardCountdown(at, now)!);
+  assert.deepEqual(seq.map((c) => c.text), ['Closes in 0:03', 'Closes in 0:02', 'Closes in 0:01', 'Closes in 0:01', ACP_CLOSED_NOTE, ACP_CLOSED_NOTE]);
+  assert.deepEqual(seq.map((c) => c.ended), [false, false, false, false, true, true]);
+  assert.equal(cardCountdown(undefined, 1), undefined, 'no deadline, no countdown');
 });
 
 // ---------------------------------------------------------------- wiring pins and copy rules
