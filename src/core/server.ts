@@ -44,7 +44,7 @@ export interface CoreContext {
   /** Structured questions (the question card). Absent: /api/questions answers empty and nothing can be answered. */
   questions?: QuestionBroker;
   boatConfigured: () => boolean;
-  doctor: () => Promise<DoctorCheck[]>;
+  doctor: (probeAgents?: boolean) => Promise<DoctorCheck[]>;
   /** Claude Code commands + models (cached; force = re-probe). */
   catalog: (force?: boolean) => Promise<Catalog>;
   settings: SettingsService;
@@ -320,7 +320,8 @@ export function createServer(ctx: CoreContext): Server {
     }
   });
   route('GET', '/api/config', () => redactConfig(ctx.config));
-  route('GET', '/api/doctor', () => ctx.doctor());
+  // ?probe=agents: the window opened the Doctor or pressed Re-run checks, so Hermes may be started. Boot, a settings save and Remember ask without it.
+  route('GET', '/api/doctor', ({ url }) => ctx.doctor(url.searchParams.get('probe') === 'agents'));
   // Claude usage for the title-bar panel: summed from stored tasks (archived included), only those the caller may see.
   route('GET', '/api/usage', () => summariseUsage(ctx.store.listTasks(100000, undefined, true).filter(taskShown), Date.now()));
   // Admin only by default-deny (not in the client route list): server names and error text are the owner's business.

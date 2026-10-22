@@ -11,7 +11,7 @@ import type { DoctorCheck } from '../../shared/types.js';
 import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
 import { ENV_KEEP_LABEL } from '../../shared/gates-registry.js';
 import { containedStatus } from './contained.js';
-import { TESTED_HERMES, authFailureNoted, compareVersions, detectAgent, type AgentDetection, type AgentHostDeps } from './detect.js';
+import { TESTED_HERMES, authFailureNoted, compareVersions, detectAgent, peekDetection, type AgentDetection, type AgentHostDeps } from './detect.js';
 import { named } from './texts.js';
 
 const APPROVALS_SMART = 'Hermes lets its own AI approve some commands before you see them.';
@@ -57,11 +57,21 @@ async function containedRow(entry: AcpEntry, base: string, deps: AgentHostDeps):
   return row({ label: 'Contained profile: ready', ok: true, detail: s.detail });
 }
 
-/** The rows for one entry. */
-async function rowsFor(entry: AcpEntry, deps: AgentHostDeps): Promise<DoctorCheck[]> {
+const NOT_YET = 'Not checked yet. Open the Doctor and choose Re-run checks to check it.';
+
+/**
+ * The rows for one entry. `probe`: look again now (starts the program). Otherwise nothing is started (R58): the rows come from a fresh earlier
+ * check, or say "not checked yet". The window asks for the first only when the Doctor is opened or re-run.
+ */
+async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Promise<DoctorCheck[]> {
   const base = `acp-${entry.id}`;
   const builtin = entry.id === BUILTIN_HERMES.id;
-  const d = await detectAgent(entry, { ...deps, force: true });
+  const d = probe ? await detectAgent(entry, { ...deps, force: true }) : peekDetection(entry, deps.now);
+  if (d.pending) {
+    const rows: DoctorCheck[] = [{ id: base, label: `${entry.label}: found`, ok: true, detail: d.path ?? entry.command }, { id: `${base}-starts`, label: `${entry.label} starts`, ok: true, level: 'neutral', detail: NOT_YET }];
+    if (entry.contained) rows.push({ id: `${base}-contained`, label: 'Contained profile: not checked yet', ok: true, level: 'neutral', detail: NOT_YET });
+    return rows;
+  }
   if (!d.checked) return [{ id: base, label: entry.label, ok: true, level: 'neutral', detail: `Not checked. ${entry.label} is switched off. Switch it on in Settings, Agent hosts, and Legion checks it.` }];
   if (!d.found) return [{ id: base, label: entry.label, ok: builtin, ...(builtin ? { level: 'neutral' as const } : {}), detail: d.detail }];
   const rows: DoctorCheck[] = [{ id: base, label: `${entry.label}: found`, ok: true, detail: d.path ?? entry.command }];
@@ -72,7 +82,7 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps): Promise<DoctorChec
   rows.push({ id: `${base}-starts`, label: `${entry.label} starts`, ok: true, detail: 'Its start check passed.' });
   rows.push(versionRow(entry, base, d));
   // a Contained entry: the profile is looked at first. Before it is set up there is nothing to read approvals from, and the profile row says so.
-  const contained = entry.contained ? await containedRow(entry, base, deps) : undefined;
+  const contained = entry.contained && probe ? await containedRow(entry, base, deps) : undefined;
   if (!contained || contained.exists) rows.push(approvalsRow(entry, base, d));
   // R50: only the owner's own Hermes. The Contained profile turns the borrowing off and its row checks that.
   if (builtin && !entry.contained && d.adoptExternalLogins === true) {
@@ -85,15 +95,16 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps): Promise<DoctorChec
   // R27: a run that Hermes refused for a missing sign-in, while Hermes itself starts, usually means a key that lives in a variable Legion keeps back
   if (authFailureNoted(entry.id)) rows.push({ id: `${base}-signin`, label: `${entry.label} sign-in under Legion`, ok: false, detail: named(SIGNIN_TEXT, entry.label) });
   if (contained) rows.push(contained.row);
+  else if (entry.contained) rows.push({ id: `${base}-contained`, label: 'Contained profile: not checked yet', ok: true, level: 'neutral', detail: NOT_YET }); // reading the profile starts Hermes
   return rows;
 }
 
-/** One entry's rows, or a failed row when looking at it threw. */
-export async function agentDoctorRows(entries: AcpEntry[], deps: AgentHostDeps): Promise<DoctorCheck[]> {
+/** One entry's rows, or a failed row when looking at it threw. Looks again by default; `probe: false` starts nothing. */
+export async function agentDoctorRows(entries: AcpEntry[], deps: AgentHostDeps, opts: { probe?: boolean } = {}): Promise<DoctorCheck[]> {
   const out: DoctorCheck[] = [];
   for (const entry of entries) {
     try {
-      out.push(...await rowsFor(entry, deps));
+      out.push(...await rowsFor(entry, deps, opts.probe !== false));
     } catch (e) {
       out.push({ id: `acp-${entry.id}`, label: entry.label, ok: false, detail: e instanceof Error ? e.message : String(e) });
     }

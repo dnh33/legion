@@ -107,7 +107,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   }
 }
 
-export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number; keys?: { status(): KeyStoreStatus }; /** Given by the core: the Hermes rows only appear (and Hermes is only run) when it is. */ agentHost?: AgentHostDeps }): Promise<DoctorCheck[]> {
+export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number; keys?: { status(): KeyStoreStatus }; /** Given by the core: the Hermes rows only appear (and Hermes is only run) when it is. */ agentHost?: AgentHostDeps; /** The window asked for the full agent host check (the Doctor opened or re-run). */ probeAgents?: boolean }): Promise<DoctorCheck[]> {
   const { config } = deps;
   const queryFn = deps.queryFn ?? realQuery;
   const checks: DoctorCheck[] = [];
@@ -147,12 +147,12 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
     }
   }
 
-  // The agent hosts (Hermes). Only when the core says so: a bare call never starts a program. A failure is a row, never an exception.
+  // The agent hosts (Hermes). Only when the core says so: a bare call never starts a program, and neither does a pass the window did not ask to probe (R58). A failure is a row, never an exception.
   if (deps.agentHost) {
     const host = deps.agentHost;
     try {
       const entries = host.entries ? host.entries() : (config.acp?.entries ?? [BUILTIN_HERMES]);
-      checks.push(...await agentDoctorRows(entries, host));
+      checks.push(...await agentDoctorRows(entries, host, { probe: deps.probeAgents === true }));
     } catch (e) {
       checks.push({ id: `acp-${BUILTIN_HERMES.id}`, label: BUILTIN_HERMES.label, ok: false, detail: e instanceof Error ? e.message : String(e) });
     }

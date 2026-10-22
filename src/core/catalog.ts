@@ -47,7 +47,7 @@ function agentHostRows(host: AgentHostDeps, config: LegionConfig): CatalogHost[]
   for (const e of entries) {
     if (!e.enabled) continue;
     try {
-      const seen = peekAgent(e);
+      const seen = peekAgent(e, host.now);
       if (seen.found && seen.startsOk !== false) rows.push({ value: `acp:${e.id}`, label: e.label, entryId: e.id });
     } catch { /* not listed */ }
   }

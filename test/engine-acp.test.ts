@@ -533,8 +533,9 @@ test('R38: the core feeds both waits from the detection cache (wired in legion-c
   assert.match(src, /toolWaitMs:\s*seams\.toolWaitMs/);
   assert.match(src, /runDoctor\(\{[^}]*agentHost/);
   assert.match(src, /getCatalog\(\{[^}]*hosts:/);
-  assert.match(src, /onRunStart:\s*warmHermes/);
-  assert.match(src, /e\.enabled && config\.acp\.firstUseSeen\) void detectAgent/, 'the background check is behind the first-use guard and the on switch');
+  assert.match(src, /onRunStart:\s*\(e\) => warmHermes\(e, true\)/);
+  assert.match(src, /warmHermes\(config\.acp\.entries\.find\([^\n]*\), false\)/, 'core start');
+  assert.match(src, /probeAgents:\s*probeAgents === true/, 'the Doctor probes only when asked');
 });
 
 test('R37 and R34: a card raised inside a Hermes tool call counts against the 270 s budget, shows its deadline and closes itself with "The agent stopped waiting"', async () => {

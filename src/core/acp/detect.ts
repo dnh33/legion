@@ -61,6 +61,8 @@ export interface AgentDetection {
   path?: string;
   /** False: nothing was run (a custom entry the owner has not switched on). */
   checked: boolean;
+  /** Set by `peekDetection`: the program is on PATH but nothing has been run for it (so `checked` is false). */
+  pending?: true;
   /** Hermes: `acp --check` passed. Another agent host: it answered the `initialize` handshake. */
   checkOk: boolean;
   /** `x.y.z`, from the `initialize` answer (or the last run). Undefined when it could not be read or is Hermes's "no stamp" placeholder. */
@@ -125,16 +127,17 @@ export const authFailureNoted = (entryId: string): boolean => notes.get(entryId)
 const cache = new Map<string, { at: number; value: AgentDetection }>();
 const inflight = new Map<string, Promise<AgentDetection>>();
 /** The last waits read for an entry. Kept after the answer expires: a stale value beats none. */
-const lastWaits = new Map<string, { permissionWaitMs: number; toolWaitMs: number }>();
+const lastWaits = new Map<string, { permissionWaitMs: number; toolWaitMs: number; at: number }>();
+const waitsInflight = new Map<string, Promise<void>>();
 
-export function forgetDetections(): void { cache.clear(); inflight.clear(); lastWaits.clear(); notes.clear(); }
+export function forgetDetections(): void { cache.clear(); inflight.clear(); lastWaits.clear(); waitsInflight.clear(); notes.clear(); }
 
 const keyOf = (e: AcpEntry): string => JSON.stringify([e.id, e.command, e.args, e.contained === true, Object.entries(e.env ?? {}).sort()]);
 
 /** The values the engine reads when it raises a card: undefined until the agent has been checked once. */
 export function agentWaits(entry: Pick<AcpEntry, 'id'>): { permissionWaitMs: number; toolWaitMs: number } | undefined {
   const w = lastWaits.get(entry.id);
-  return w ? { ...w } : undefined;
+  return w ? { permissionWaitMs: w.permissionWaitMs, toolWaitMs: w.toolWaitMs } : undefined;
 }
 
 /** Getters for the engine's two wait settings, read at each request or run. `undefined` means "the agent's default". */
@@ -151,15 +154,29 @@ export const isHermes = (e: AcpEntry): boolean => e.id === BUILTIN_HERMES.id;
 /** Probed: the built-in entry, and a custom entry only once the owner switched it on (a custom command is an arbitrary program). */
 export const isProbed = (e: AcpEntry): boolean => isHermes(e) || e.enabled;
 
+/** The answer of the last check of this entry while it is fresh (10 minutes), else nothing. */
+const freshHit = (entry: AcpEntry, now: () => number): AgentDetection | undefined => {
+  const hit = cache.get(keyOf(entry));
+  return hit && now() - hit.at < DETECT_TTL_MS ? hit.value : undefined;
+};
+
 /**
- * What the catalog (the model list) may know without starting anything: the program is on PATH (a file lookup, no process), and the last full
- * detection if there is one, however old. A cached check that failed means "known not to start". Never awaits, never starts a program.
+ * What may be known without starting anything (R58): the program is on PATH (a file lookup, no process), and the last check of it while it is
+ * fresh. With no fresh check and the program there, `pending` is set (found, not run). Never awaits, never starts a program: the model list,
+ * the Doctor at app start and after a settings save use it.
  */
-export function peekAgent(entry: AcpEntry): { found: boolean; startsOk?: boolean } {
-  if (!isProbed(entry)) return { found: false };
-  const known = cache.get(keyOf(entry))?.value;
-  try { resolveCommand(entry.command, { ...process.env, ...(entry.env ?? {}) }); } catch { return { found: false }; }
-  return { found: true, ...(known ? { startsOk: known.checkOk } : {}) };
+export function peekDetection(entry: AcpEntry, now: () => number = Date.now): AgentDetection {
+  if (!isProbed(entry)) return { found: false, checked: false, checkOk: false, detail: `${entry.label} is not checked: it is switched off.` };
+  const known = freshHit(entry, now);
+  if (known) return known;
+  const looked = resolveOrExplain(entry);
+  return 'path' in looked ? { found: true, path: looked.path, checked: false, checkOk: false, pending: true, detail: `${entry.label} has not been checked yet.` } : looked.detection;
+}
+
+/** The catalog's view of an entry: on PATH, and whether a fresh check said it does not start. */
+export function peekAgent(entry: AcpEntry, now: () => number = Date.now): { found: boolean; startsOk?: boolean } {
+  const d = peekDetection(entry, now);
+  return { found: d.found, ...(d.found && !d.pending ? { startsOk: d.checkOk } : {}) };
 }
 
 export function detectAgent(entry: AcpEntry, deps: Partial<AgentHostDeps> & DetectOptions = {}): Promise<AgentDetection> {
@@ -193,19 +210,45 @@ const secondsOf = (v: unknown): number => {
   return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : HERMES_DEFAULT_WAIT_S;
 };
 
-async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<AgentDetection> {
-  const label = entry.label;
-  const builtin = entry.id === BUILTIN_HERMES.id;
-  let path: string;
+/** The program's path, or the detection that says why there is none. A file lookup only. */
+function resolveOrExplain(entry: AcpEntry): { path: string } | { detection: AgentDetection } {
   try {
-    path = resolveCommand(entry.command, { ...process.env, ...(entry.env ?? {}) });
+    return { path: resolveCommand(entry.command, { ...process.env, ...(entry.env ?? {}) }) };
   } catch (e) {
     const notFound = e instanceof AgentLaunchError && e.code === 'not-found';
     const detail = notFound
-      ? (builtin ? `Hermes is not installed. Install it from ${HERMES_INSTALL_HOST}, then check again.` : `${label} was not found on your computer. Check its command in Settings, Agent hosts.`)
+      ? (isHermes(entry) ? `Hermes is not installed. Install it from ${HERMES_INSTALL_HOST}, then check again.` : `${entry.label} was not found on your computer. Check its command in Settings, Agent hosts.`)
       : redact(e instanceof Error ? e.message : String(e)).slice(0, 300);
-    return { found: false, checked: true, checkOk: false, detail };
+    return { detection: { found: false, checked: true, checkOk: false, detail } };
   }
+}
+
+/** How a Hermes command is run (same lookup and environment as a run) and how one setting is read, through the Contained profile when the entry is contained. */
+function hermesTools(entry: AcpEntry, deps: Partial<AgentHostDeps>) {
+  const run = deps.run ?? runAgentCli;
+  const envKeep = deps.envKeep?.() ?? [];
+  const go = (args: string[], timeoutMs: number) => run(entry.command, args, { timeoutMs, cwd: tmpdir(), envKeep, ...(entry.env ? { entryEnv: entry.env } : {}) });
+  const prefix = entry.contained ? ['-p', CONTAINED_PROFILE] : [];
+  const get = async (key: string): Promise<{ out: Out; value?: unknown }> => {
+    const out = await go([...prefix, 'config', 'get', key, '--json'], GET_TIMEOUT_MS);
+    const j = out.code === 0 ? asJson(out.stdout) : { ok: false as const };
+    return j.ok ? { out, value: j.value } : { out };
+  };
+  return { go, get };
+}
+
+/** Hermes's own waits from the two settings (seconds, default 300), as the two card waits in ms. */
+function waitsFrom(perm: unknown, tool: unknown): { permissionWaitMs: number; toolWaitMs: number } {
+  const toolSeconds = secondsOf(tool);
+  return { permissionWaitMs: secondsOf(perm) * 1000, toolWaitMs: Math.max(Math.floor(toolSeconds * 500), toolSeconds * 1000 - TOOL_MARGIN_MS) };
+}
+
+async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<AgentDetection> {
+  const label = entry.label;
+  const builtin = entry.id === BUILTIN_HERMES.id;
+  const looked = resolveOrExplain(entry);
+  if (!('path' in looked)) return looked.detection;
+  const path = looked.path;
   // Another agent host is only asked to start and answer `initialize`: the check and the settings reads are Hermes's own subcommands
   if (!builtin) {
     const hello = await handshake(entry, deps, deps.handshakeTimeoutMs ?? OTHER_HANDSHAKE_TIMEOUT_MS);
@@ -213,9 +256,7 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
     const seen = hello.version ?? notes.get(entry.id)?.version;
     return { found: true, path, checked: true, checkOk: true, ...(seen ? { version: seen } : {}), detail: `${label} starts.` };
   }
-  const run = deps.run ?? runAgentCli;
-  const envKeep = deps.envKeep?.() ?? [];
-  const go = (args: string[], timeoutMs: number) => run(entry.command, args, { timeoutMs, cwd: tmpdir(), envKeep, ...(entry.env ? { entryEnv: entry.env } : {}) });
+  const { go, get } = hermesTools(entry, deps);
 
   // The check is about the program, so it goes without the Contained profile: `hermes -p <name> ...` ends in an error when the profile is not
   // there yet (hermes_cli/main.py:630-653, read 2026-10-22), and that is the Contained row's story, not "Hermes does not start".
@@ -224,12 +265,6 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
     return { found: true, path, checked: true, checkOk: false, detail: `${label} did not start: ${why(check)}`.slice(0, 400) };
   }
 
-  const prefix = entry.contained ? ['-p', CONTAINED_PROFILE] : [];
-  const get = async (key: string): Promise<{ out: Out; value?: unknown }> => {
-    const out = await go([...prefix, 'config', 'get', key, '--json'], GET_TIMEOUT_MS);
-    const j = out.code === 0 ? asJson(out.stdout) : { ok: false as const };
-    return j.ok ? { out, value: j.value } : { out };
-  };
   const [mode, adopt, perm, tool, version] = await Promise.all([
     get('approvals.mode'), get('auth.adopt_external_logins'), get('approvals.timeout'), get('timeouts.mcp.tool_call'),
     handshake(entry, deps, deps.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS),
@@ -237,10 +272,8 @@ async function probe(entry: AcpEntry, deps: Partial<AgentHostDeps>): Promise<Age
 
   const approvalsMode = mode.value === undefined ? 'unknown' : modeOf(mode.value);
   const adoptExternalLogins = typeof adopt.value === 'boolean' ? adopt.value : isNotSet(adopt.out) ? true : undefined;
-  const permissionWaitMs = secondsOf(perm.value) * 1000;
-  const toolSeconds = secondsOf(tool.value);
-  const toolWaitMs = Math.max(Math.floor(toolSeconds * 500), toolSeconds * 1000 - TOOL_MARGIN_MS);
-  lastWaits.set(entry.id, { permissionWaitMs, toolWaitMs });
+  const { permissionWaitMs, toolWaitMs } = waitsFrom(perm.value, tool.value);
+  lastWaits.set(entry.id, { permissionWaitMs, toolWaitMs, at: (deps.now ?? Date.now)() });
   const seenVersion = version.version ?? notes.get(entry.id)?.version;
   return {
     found: true, path, checked: true, checkOk: true, ...(seenVersion ? { version: seenVersion } : {}), approvalsMode,
@@ -269,4 +302,36 @@ async function handshake(entry: AcpEntry, deps: Partial<AgentHostDeps>, timeoutM
     try { peer?.close('done'); } catch { /* already closed */ }
     await proc?.stop().catch(() => undefined);
   }
+}
+
+/**
+ * Only Hermes's own two waits (approvals.timeout and the tool-call timeout): two settings reads, no start check and no handshake. Kept 10 minutes.
+ * A Hermes run that starts is a good moment for it: the owner chose Hermes, and the first card should already close when Hermes denies it.
+ */
+export function readAgentWaits(entry: AcpEntry, deps: Partial<AgentHostDeps> = {}): Promise<void> {
+  if (!isHermes(entry) || !isProbed(entry)) return Promise.resolve();
+  const now = deps.now ?? Date.now;
+  const known = lastWaits.get(entry.id);
+  if (known && now() - known.at < DETECT_TTL_MS) return Promise.resolve();
+  const running = waitsInflight.get(entry.id);
+  if (running) return running;
+  const p = (async () => {
+    if (!('path' in resolveOrExplain(entry))) return; // not on PATH: nothing to ask
+    const { get } = hermesTools(entry, deps);
+    const [perm, tool] = await Promise.all([get('approvals.timeout'), get('timeouts.mcp.tool_call')]);
+    lastWaits.set(entry.id, { ...waitsFrom(perm.value, tool.value), at: now() });
+  })().catch(() => undefined).finally(() => { if (waitsInflight.get(entry.id) === p) waitsInflight.delete(entry.id); });
+  waitsInflight.set(entry.id, p);
+  return p;
+}
+
+/**
+ * Background warm-up of Hermes's own settings (R58: a user who only uses Claude pays nothing). At core start only an owner who has met the Hermes card
+ * gets the full check; at a Hermes run start everyone gets at least the two waits, and the full check when the card was met. Never a switched-off
+ * Hermes, never another agent host.
+ */
+export function warmHermes(entry: AcpEntry, deps: Partial<AgentHostDeps>, o: { firstUseSeen: boolean; runStart: boolean }): Promise<void> {
+  if (!isHermes(entry) || !entry.enabled) return Promise.resolve();
+  if (o.firstUseSeen) return detectAgent(entry, deps).then(() => undefined);
+  return o.runStart ? readAgentWaits(entry, deps) : Promise.resolve();
 }

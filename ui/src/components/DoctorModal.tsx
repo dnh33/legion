@@ -21,7 +21,7 @@ export function DoctorModal() {
   const optional = checks?.filter(isOptional).length ?? 0;
   return (
     <Modal title="Doctor" width={600}
-      footer={<><span className="muted-s">{loading ? 'Checking…' : checks ? (bad ? `${bad} ${bad === 1 ? 'needs' : 'need'} attention` : (optional ? 'All required checks passed' : 'All checks passed')) : ''}</span><span className="spacer" /><button className="btn-ghost" onClick={() => openSettings()}>Open Settings</button><button className="btn" onClick={() => void runDoctor()} disabled={loading}>Re-run checks</button></>}>
+      footer={<><span className="muted-s">{loading ? 'Checking…' : checks ? (bad ? `${bad} ${bad === 1 ? 'needs' : 'need'} attention` : (optional ? 'All required checks passed' : 'All checks passed')) : ''}</span><span className="spacer" /><button className="btn-ghost" onClick={() => openSettings()}>Open Settings</button><button className="btn" onClick={() => void runDoctor(true)} disabled={loading}>Re-run checks</button></>}>
       <ul className="checks">
         {!checks && <li className="check skeleton" />}
         {checks?.map((c) => (

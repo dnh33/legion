@@ -164,7 +164,8 @@ export const api = {
   deleteTask: (id: string) => request<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
   config: () => request<Partial<LegionConfig>>('GET', '/api/config'),
   catalog: (refresh = false) => request<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
-  doctor: () => request<DoctorCheck[]>('GET', '/api/doctor'),
+  /** probe: also run the agent hosts (Hermes). Only the Doctor modal asks for it; the quiet refreshes never do. */
+  doctor: (probe = false) => request<DoctorCheck[]>('GET', `/api/doctor${probe ? '?probe=agents' : ''}`),
   mcpStatus: () => request<McpStatusView>('GET', '/api/mcp/status'),
   /** POST /api/blender/config with just baseDir: the one folder Blender keeps its local scene files and copied-back exports under. Empty restores Legion's defaults. */
   setBlenderBaseDir: (baseDir: string) => request<BlenderStatusView>('POST', '/api/blender/config', { baseDir }),

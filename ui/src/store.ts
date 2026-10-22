@@ -372,10 +372,11 @@ export function init() {
   void loadProviders();
 }
 
-export async function runDoctor() {
+/** `probe`: the owner opened the Doctor or pressed Re-run checks, so Hermes may be started. Boot, a settings save and Remember call it without. */
+export async function runDoctor(probe = false) {
   setState({ doctorLoading: true });
   try {
-    const doctor = await api.doctor();
+    const doctor = await api.doctor(probe);
     setState({ doctor, doctorLoading: false });
   } catch (e) {
     setState({ doctorLoading: false });
@@ -614,7 +615,7 @@ export function toggleTheme() {
 export function dismissOnboarding() { lsSet('legion.onboarded', '1'); setState({ onboardingDismissed: true }); }
 export function closeOverlays() { setState({ palette: false, doctorOpen: false, editor: null }); }
 export const openPalette = () => setState({ palette: true, doctorOpen: false, editor: null });
-export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
+export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(true); };
 export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
 export async function saveAgent(id: string | null, a: AgentBody): Promise<boolean> {

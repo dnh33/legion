@@ -70,6 +70,18 @@ describe('HTTP server', () => {
     assert.equal((await fetch(base + '/api/events')).status, 401);
   });
 
+  it('/api/doctor starts no agent host unless the window asks (?probe=agents)', async () => {
+    const asked: Array<boolean | undefined> = [];
+    const keep = f.ctx.doctor;
+    f.ctx.doctor = async (probe?: boolean) => { asked.push(probe); return [{ id: 'node', label: 'Node', ok: true, detail: 'ok' }]; };
+    try {
+      await api('/api/doctor');
+      await api('/api/doctor?probe=agents');
+      await api('/api/doctor?probe=1');
+    } finally { f.ctx.doctor = keep; }
+    assert.deepEqual(asked.map(Boolean), [false, true, false], 'only probe=agents probes');
+  });
+
   it('/api/catalog (refresh flag) and model validation', async () => {
     assert.equal((await fetch(base + '/api/catalog')).status, 401);
     let c: any = await (await api('/api/catalog')).json();

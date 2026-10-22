@@ -13,7 +13,7 @@ import { forgetLegionSecrets, registerLegionSecrets } from '../src/core/acp/proc
 import { BUILTIN_HERMES, type AcpEntry } from '../src/shared/acp-view.js';
 import { ENV_KEEP_LABEL } from '../src/shared/gates-registry.js';
 import {
-  CHECK_TIMEOUT_MS, DETECT_TTL_MS, TESTED_HERMES, agentWaits, detectAgent, forgetDetections, hostWaitSeams, noteAgentVersion, noteAuthFailure,
+  CHECK_TIMEOUT_MS, DETECT_TTL_MS, TESTED_HERMES, agentWaits, detectAgent, forgetDetections, hostWaitSeams, noteAgentVersion, noteAuthFailure, warmHermes,
 } from '../src/core/acp/detect.js';
 import { agentDoctorRows } from '../src/core/acp/doctor-rows.js';
 import { permissionWaitOf, toolWaitOf } from '../src/core/acp/run-helpers.js';
@@ -542,7 +542,7 @@ test('the Doctor starts no Hermes unless the core gives it the agent host', asyn
 test('the Doctor adds the Hermes rows after the Claude ones when it has the agent host, and never fails on them', async () => {
   const config = doctorConfig();
   ownConfig({ 'approvals.mode': 'manual', 'auth.adopt_external_logins': false });
-  const checks = await runDoctor({ config, getBoat: () => null, queryFn: fakeQuery(), agentHost: { dataDir } });
+  const checks = await runDoctor({ config, getBoat: () => null, queryFn: fakeQuery(), agentHost: { dataDir }, probeAgents: true });
   const ids = checks.map((c) => c.id);
   assert.ok(ids.includes('acp-hermes') && ids.includes('acp-hermes-starts') && ids.includes('acp-hermes-version') && ids.includes('acp-hermes-approvals'), ids.join(','));
   assert.ok(ids.indexOf('claude') < ids.indexOf('acp-hermes'));
@@ -588,4 +588,88 @@ test('catalog: a Claude probe failure and Hermes do not hide each other', async 
 
 test('catalog: the check timeout is a limit, not a hang', () => {
   assert.ok(CHECK_TIMEOUT_MS >= 10_000 && CHECK_TIMEOUT_MS <= 60_000);
+});
+
+// ------------------------------------------------------------------ fix round 2: R58 through the Doctor, the cache expiry, the first run
+
+const doctorWith = (over: Record<string, unknown> = {}) => runDoctor({ config: doctorConfig(), getBoat: () => null, queryFn: fakeQuery(), agentHost: { dataDir, now }, ...over });
+
+test('R58: a Doctor pass without the probe flag starts no Hermes and says it is not checked yet', async () => {
+  ownConfig({ 'approvals.mode': 'manual' });
+  const checks = await doctorWith();
+  assert.deepEqual(calls(), [], 'zero Hermes invocations (boot, a settings save and Remember all take this path)');
+  assert.equal(checks.find((c) => c.id === 'acp-hermes')!.label, 'Hermes: found');
+  const starts = checks.find((c) => c.id === 'acp-hermes-starts')!;
+  assert.equal(starts.ok, true);
+  assert.equal(starts.level, 'neutral');
+  assert.match(starts.detail, /not checked yet/i);
+  assert.ok(checks.filter((c) => c.id.startsWith('acp-')).every((c) => c.ok), 'nothing red from a program Legion has not run');
+});
+
+test('R58: with the probe flag the Doctor does check Hermes', async () => {
+  ownConfig({ 'approvals.mode': 'manual' });
+  const checks = await doctorWith({ probeAgents: true });
+  assert.deepEqual(calls()[0], ['acp', '--check']);
+  assert.ok(calls().some((c) => c.length === 1 && c[0] === 'acp'), 'the handshake');
+  const starts = checks.find((c) => c.id === 'acp-hermes-starts')!;
+  assert.equal(starts.level, undefined);
+  assert.equal(starts.detail, 'Its start check passed.');
+});
+
+test('R58: after a probe, a pass without the flag shows what it found and starts nothing; an expired answer is "not checked yet" again', async () => {
+  ownConfig({ 'approvals.mode': 'smart' });
+  await doctorWith({ probeAgents: true });
+  const n = calls().length;
+  let checks = await doctorWith();
+  assert.equal(calls().length, n);
+  assert.ok(checks.some((c) => c.id === 'acp-hermes-version'));
+  assert.equal(checks.find((c) => c.id === 'acp-hermes-approvals')!.label, 'Hermes approvals: smart');
+  clock += DETECT_TTL_MS + 1;
+  checks = await doctorWith();
+  assert.equal(calls().length, n);
+  assert.match(checks.find((c) => c.id === 'acp-hermes-starts')!.detail, /not checked yet/i);
+});
+
+test('R58: without the flag a Hermes that is not installed still gets its install row, and a Contained entry its "not checked yet" row, with nothing started', async () => {
+  setEnv('PATH', emptyDir);
+  let checks = await doctorWith();
+  assert.equal(checks.find((c) => c.id === 'acp-hermes')!.detail, INSTALL);
+  setEnv('PATH', binDir);
+  checks = await doctorWith({ agentHost: { dataDir, now, entries: () => [{ ...BUILTIN_HERMES, contained: true }] } });
+  assert.match(checks.find((c) => c.id === 'acp-hermes-contained')!.label, /not checked yet/i);
+  assert.deepEqual(calls(), []);
+});
+
+test('catalog: a cached failed check hides the row for 10 minutes only, so a Hermes fixed outside Legion comes back', async () => {
+  setEnv('FAKE_HERMES_CHECK_FAIL', 'broken');
+  await detectAgent(BUILTIN_HERMES, deps());
+  assert.deepEqual((await catalogOf([BUILTIN_HERMES])).hosts ?? [], []);
+  clock += DETECT_TTL_MS - 1;
+  assert.deepEqual((await catalogOf([BUILTIN_HERMES])).hosts ?? [], [], 'still fresh');
+  clock += 2;
+  assert.equal((await catalogOf([BUILTIN_HERMES])).hosts?.length, 1, 'expired: listed again');
+});
+
+test('R58: a Hermes run start reads only Hermes\'s own waits when it has not been met yet: two settings reads, no start check, no handshake, kept 10 minutes', async () => {
+  ownConfig({ 'approvals.timeout': 45, 'timeouts.mcp.tool_call': 20 });
+  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: true });
+  const got = calls().map((c) => JSON.stringify(c)).sort();
+  assert.deepEqual(got, [JSON.stringify(GET('approvals.timeout')), JSON.stringify(GET('timeouts.mcp.tool_call'))].sort());
+  assert.deepEqual(agentWaits(BUILTIN_HERMES), { permissionWaitMs: 45_000, toolWaitMs: 10_000 });
+  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: true });
+  assert.equal(calls().length, 2, 'kept');
+  clock += DETECT_TTL_MS + 1;
+  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: true });
+  assert.equal(calls().length, 4, 'read again after 10 minutes');
+});
+
+test('R58: who warms Hermes: core start only after the first-use card, a run start always (waits at least), never a switched-off Hermes or another entry', async () => {
+  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: false });
+  assert.deepEqual(calls(), [], 'core start, Hermes not met yet');
+  await warmHermes({ ...BUILTIN_HERMES, enabled: false }, deps(), { firstUseSeen: true, runStart: true });
+  await warmHermes(custom(), deps(), { firstUseSeen: true, runStart: true });
+  assert.deepEqual(calls(), [], 'switched off, and not Hermes');
+  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: true, runStart: false });
+  assert.deepEqual(calls()[0], ['acp', '--check'], 'a met Hermes gets the full check');
+  assert.ok(agentWaits(BUILTIN_HERMES));
 });
