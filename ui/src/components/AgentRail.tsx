@@ -10,6 +10,7 @@ import { announce } from '../projects/page/announce';
 import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
+import { modelLabel } from '../models';
 import { useAllProposals, useProposalsSettled } from '../projects/useProposals';
 import { openRailRow } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
@@ -22,6 +23,7 @@ const WAIT_CAP = 3;
 
 export function AgentRail() {
   const agents = useStore((s) => s.agents);
+  const catalog = useStore((s) => s.catalog);
   const sel = useStore((s) => s.selectedAgentId);
   const vms = useStore((s) => s.vms);
   const approvals = useStore((s) => s.approvals);
@@ -86,7 +88,7 @@ export function AgentRail() {
         {shown.map((a, i) => {
           const vm = vms[a.id];
           const tone = vm ? vmTone(vm.state) : 'off';
-          const line = railLine(lineFacts, a.id, filter, a.description || a.model);
+          const line = railLine(lineFacts, a.id, filter, a.description || modelLabel(catalog, a.model));
           const running = tasks.some((t) => t.agentId === a.id && (t.status === 'running' || t.status === 'queued'));
           const queuedHeld = line.tone !== 'attn' ? (held.get(a.id) ?? 0) : 0;
           const subText = queuedHeld > 0 ? (held.get(a.id) === 1 ? 'Queued message paused' : `${held.get(a.id)} queues paused`) : line.text;

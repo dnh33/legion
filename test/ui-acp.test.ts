@@ -379,6 +379,11 @@ test('card countdown: the text counts down each second and ends exactly at the d
 
 // ---------------------------------------------------------------- wiring pins and copy rules
 
+test('the agent rail never shows a raw model id for an agent with no description', () => {
+  assert.doesNotMatch(src('ui/src/components/AgentRail.tsx'), /a\.description \|\| a\.model/, 'live check 2026-10-22: the rail showed "acp:hermes"');
+  assert.match(src('ui/src/components/AgentRail.tsx'), /a\.description \|\| modelLabel\(/);
+});
+
 test('wiring: the thread, the card, the Doctor and Settings use the new parts', () => {
   const th = src('ui/src/components/Thread.tsx');
   assert.match(th, /<HermesBadge/);
