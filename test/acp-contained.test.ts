@@ -4,7 +4,7 @@
  */
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -30,8 +30,11 @@ let log = '';
 
 before(() => {
   binDir = tempDir('acp-fake-hermes-bin-');
-  if (WIN) writeFileSync(join(binDir, 'hermes.cmd'), `@echo off\r\n"${process.execPath}" "${FAKE}" %*\r\n`);
-  else { writeFileSync(join(binDir, 'hermes'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`); chmodSync(join(binDir, 'hermes'), 0o755); }
+  // a private copy: a rebuild of dist/ while a batch runs must not change the program the tests start
+  const fake = join(binDir, 'acp-fake-hermes.mjs');
+  copyFileSync(FAKE, fake);
+  if (WIN) writeFileSync(join(binDir, 'hermes.cmd'), `@echo off\r\n"${process.execPath}" "${fake}" %*\r\n`);
+  else { writeFileSync(join(binDir, 'hermes'), `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`); chmodSync(join(binDir, 'hermes'), 0o755); }
   setEnv('PATH', `${binDir}${delimiter}${process.env.PATH ?? ''}`);
   registerLegionSecrets([LEGION_TOKEN]);
 });

@@ -5,7 +5,7 @@
  */
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -45,8 +45,11 @@ const now = () => clock;
 before(() => {
   binDir = tempDir('acp-doctor-bin-');
   emptyDir = tempDir('acp-doctor-empty-');
-  if (WIN) writeFileSync(join(binDir, 'hermes.cmd'), `@echo off\r\n"${process.execPath}" "${FAKE}" %*\r\n`);
-  else { writeFileSync(join(binDir, 'hermes'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`); chmodSync(join(binDir, 'hermes'), 0o755); }
+  // a private copy: a rebuild of dist/ while a batch runs must not change the program the tests start
+  const fake = join(binDir, 'acp-fake-hermes.mjs');
+  copyFileSync(FAKE, fake);
+  if (WIN) writeFileSync(join(binDir, 'hermes.cmd'), `@echo off\r\n"${process.execPath}" "${fake}" %*\r\n`);
+  else { writeFileSync(join(binDir, 'hermes'), `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`); chmodSync(join(binDir, 'hermes'), 0o755); }
   // the fake is the only program on PATH: the owner's own Hermes can never be found
   setEnv('PATH', binDir);
   registerLegionSecrets([LEGION_TOKEN]);
@@ -462,6 +465,12 @@ test('Contained entry with no `legion` profile yet: the row says "not set up" an
   assert.deepEqual(all.filter((r) => !r.ok).map((r) => r.id), ['acp-hermes-contained'], 'the one red row is the profile');
   assert.ok(calls().every((x) => !(x[0] === '-p' && x.includes('--check'))), 'no start check goes through a profile that may not exist');
   assert.ok(!all.some((r) => r.id === 'acp-hermes-approvals'), 'there is no profile to read approvals from yet');
+});
+
+test('the fake runs from a private copy, so a rebuild of dist/ while the batch runs cannot change what the tests start', () => {
+  const shim = readFileSync(join(binDir, WIN ? 'hermes.cmd' : 'hermes'), 'utf8');
+  assert.ok(!shim.includes(FAKE), 'the shim must not point into dist/test');
+  assert.ok(shim.includes(binDir), 'the shim runs the copy that sits beside it');
 });
 
 test('the fake behaves like Hermes: -p with a missing profile fails `acp --check` (so the test above cannot pass by accident)', async () => {
