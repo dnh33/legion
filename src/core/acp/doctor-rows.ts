@@ -10,7 +10,9 @@
 import type { DoctorCheck } from '../../shared/types.js';
 import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
 import { ENV_KEEP_LABEL } from '../../shared/gates-registry.js';
+import { SWITCH_COPY } from '../../shared/acp-copy.js';
 import { containedStatus } from './contained.js';
+import { SKIP_FLAGS, buildAgentEnv } from './process.js';
 import { TESTED_HERMES, authFailureNoted, compareVersions, detectAgent, peekDetection, type AgentDetection, type AgentHostDeps } from './detect.js';
 import { named } from './texts.js';
 
@@ -35,11 +37,31 @@ function versionRow(entry: AcpEntry, base: string, d: AgentDetection): DoctorChe
   return { id, label, ok: true, detail: `Legion was tested with Hermes ${TESTED_HERMES.testedWith}.` };
 }
 
-function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection): DoctorCheck {
+/** Hermes reads these as on for 1, true, yes and on (utils.py is_truthy_value). */
+const truthy = (v: string | undefined): boolean => ['1', 'true', 'yes', 'on'].includes((v ?? '').trim().toLowerCase());
+
+/** The skip flags that would reach Hermes: set in the environment Legion starts it from (the strip switch applied), or in the entry's own env. */
+function skipFlagsReaching(entry: AcpEntry, deps: AgentHostDeps): string[] {
+  const env = buildAgentEnv({ base: deps.env ?? process.env, entryEnv: entry.env, stripSkipFlags: deps.stripSkipFlags?.() === true, envKeep: deps.envKeep?.() });
+  return (SKIP_FLAGS as readonly string[]).filter((name) => Object.entries(env).some(([k, v]) => k.toUpperCase() === name && truthy(v)));
+}
+
+const SKIP_FIX = `Unset it in your environment, or turn on "${SWITCH_COPY.stripSkipFlags.label}" in Settings, Agent hosts.`;
+
+function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection, deps: AgentHostDeps): DoctorCheck {
   // Legion reads Hermes's settings only from Hermes: another agent host is never sent Hermes's commands
   if (entry.id !== BUILTIN_HERMES.id) return { id: `${base}-approvals`, label: `${entry.label} approvals`, ok: true, level: 'neutral', detail: 'Not checked. Legion does not read this setting from other agent hosts.' };
   const mode = d.approvalsMode ?? 'unknown';
   const id = `${base}-approvals`;
+  // R72: a skip flag in the environment Hermes gets is read by Hermes before any setting, so the setting below can say "manual" while nothing asks
+  const flags = skipFlagsReaching(entry, deps);
+  if (flags.includes('HERMES_YOLO_MODE')) {
+    return { id, label: `${entry.label} approvals: off (HERMES_YOLO_MODE)`, ok: false, detail: named(`${APPROVALS_OFF} HERMES_YOLO_MODE is set in the environment Legion starts Hermes with, and it skips every approval whatever Hermes's own setting says.`, entry.label), fix: SKIP_FIX };
+  }
+  const bypassing = flags.filter((f) => f === 'HERMES_SAFE_MODE' || f === 'HERMES_IGNORE_USER_CONFIG');
+  if (bypassing.length) {
+    return { id, label: `${entry.label} approvals: ${mode} (ignored)`, ok: true, level: 'warn', detail: named(`${bypassing.join(' and ')} ${bypassing.length > 1 ? 'are' : 'is'} set in the environment Legion starts Hermes with, so Hermes ignores your approval setting and your profile, including the Contained settings.`, entry.label), fix: SKIP_FIX };
+  }
   const label = `${entry.label} approvals: ${mode}`;
   if (mode === 'unknown') return { id, label, ok: true, detail: 'Legion could not read this setting from Hermes.' };
   if (mode === 'off') return { id, label, ok: false, detail: named(APPROVALS_OFF, entry.label), fix: `${quoted(entry.command)} config set approvals.mode manual` };
@@ -83,7 +105,7 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Pr
   rows.push(versionRow(entry, base, d));
   // a Contained entry: the profile is looked at first. Before it is set up there is nothing to read approvals from, and the profile row says so.
   const contained = entry.contained && probe ? await containedRow(entry, base, deps) : undefined;
-  if (!contained || contained.exists) rows.push(approvalsRow(entry, base, d));
+  if (!contained || contained.exists) rows.push(approvalsRow(entry, base, d, deps));
   // R50: only the owner's own Hermes. The Contained profile turns the borrowing off and its row checks that.
   if (builtin && !entry.contained && d.adoptExternalLogins === true) {
     rows.push({

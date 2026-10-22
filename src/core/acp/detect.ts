@@ -83,6 +83,10 @@ export interface AgentHostDeps {
   entries?: () => AcpEntry[];
   dataDir: string;
   envKeep?: () => readonly string[];
+  /** Is the "ignore Hermes's skip-approval settings" switch on? The Doctor reads the environment Hermes would get with it. Default: off. */
+  stripSkipFlags?: () => boolean;
+  /** The environment Legion starts Hermes from. Default: its own. */
+  env?: NodeJS.ProcessEnv;
   /** Test hooks. */
   now?: () => number;
   run?: typeof runAgentCli;

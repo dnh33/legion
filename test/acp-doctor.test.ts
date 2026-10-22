@@ -691,3 +691,36 @@ test('R62: an agent uses Hermes only when its model is that entry; a Claude-only
   assert.equal(usesAgentHost([{ model: 'acp:other' }], 'hermes'), false, 'another agent host is not Hermes');
   assert.equal(usesAgentHost([], 'hermes'), false);
 });
+
+// ------------------------------------------------------------------ R72: skip flags in the environment Legion would pass
+
+test('R72: an approval-skip flag in the environment Hermes would get turns the approvals row red, even when the config says manual', async () => {
+  ownConfig({ 'approvals.mode': 'manual' });
+  const withEnv = async (env: NodeJS.ProcessEnv, extra: Record<string, unknown> = {}, entry: AcpEntry = BUILTIN_HERMES) => {
+    forgetDetections();
+    return (await agentDoctorRows([entry], { dataDir, now, env, ...extra })).find((r) => r.id === 'acp-hermes-approvals')!;
+  };
+  const calm = await withEnv({});
+  assert.equal(calm.ok, true);
+  assert.match(calm.detail, /asks you before it runs a command/);
+  for (const v of ['1', 'true', 'YES', ' on ']) {
+    const r = await withEnv({ HERMES_YOLO_MODE: v });
+    assert.equal(r.ok, false, v);
+    assert.match(r.label, /HERMES_YOLO_MODE/);
+    assert.match(r.detail, /^Hermes runs everything without asking you/);
+    assert.match(r.detail, /HERMES_YOLO_MODE is set/);
+    assert.match(r.fix ?? '', /Ignore Hermes's skip-approval settings/);
+    assert.ok(!/[\u2013\u2014]/.test(`${r.label} ${r.detail} ${r.fix}`));
+  }
+  for (const v of ['0', 'false', 'no', '', 'maybe']) assert.equal((await withEnv({ HERMES_YOLO_MODE: v })).ok, true, `falsy: ${v}`);
+  const own = await withEnv({}, {}, { ...BUILTIN_HERMES, env: { HERMES_YOLO_MODE: '1' } });
+  assert.equal(own.ok, false, 'a flag the entry itself sets counts');
+  const stripped = await withEnv({ HERMES_YOLO_MODE: '1' }, { stripSkipFlags: () => true });
+  assert.equal(stripped.ok, true, 'the switch that strips the flags is on: Hermes never gets it');
+  assert.match(stripped.detail, /asks you before it runs a command/);
+  const safe = await withEnv({ HERMES_SAFE_MODE: '1', HERMES_IGNORE_USER_CONFIG: 'true' });
+  assert.equal(safe.level, 'warn');
+  assert.match(safe.detail, /HERMES_SAFE_MODE/);
+  assert.match(safe.detail, /HERMES_IGNORE_USER_CONFIG/);
+  assert.match(safe.detail, /ignores/);
+});

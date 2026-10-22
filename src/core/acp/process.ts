@@ -57,7 +57,7 @@ const CLOSE_AFTER_EXIT_MS = 250; // a grandchild that inherited the pipes must n
 const CLI_OUTPUT_CAP = 1024 * 1024;
 const PID_FILE = 'acp-pids.json';
 /** The flags that make the agent skip its own safety rules. Removed from its environment when the switch is on. */
-const SKIP_FLAGS = ['HERMES_YOLO_MODE', 'HERMES_IGNORE_RULES', 'HERMES_SAFE_MODE', 'HERMES_IGNORE_USER_CONFIG', 'HERMES_ACCEPT_HOOKS'] as const;
+export const SKIP_FLAGS = ['HERMES_YOLO_MODE', 'HERMES_IGNORE_RULES', 'HERMES_SAFE_MODE', 'HERMES_IGNORE_USER_CONFIG', 'HERMES_ACCEPT_HOOKS'] as const;
 
 // ---------------------------------------------------------------- environment
 

@@ -149,7 +149,7 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
 
   // The agent hosts (Hermes). Only when the core says so: a bare call never starts a program, and neither does a pass the window did not ask to probe (R58). A failure is a row, never an exception.
   if (deps.agentHost) {
-    const host = deps.agentHost;
+    const host = { ...deps.agentHost, stripSkipFlags: deps.agentHost.stripSkipFlags ?? (() => config.acp?.switches?.stripSkipFlags === true) };
     try {
       const entries = host.entries ? host.entries() : (config.acp?.entries ?? [BUILTIN_HERMES]);
       checks.push(...await agentDoctorRows(entries, host, { probe: deps.probeAgents === true }));
