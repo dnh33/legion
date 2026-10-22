@@ -2557,7 +2557,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           + '\n\n' + renderTeamwork(servers)
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
           + (() => { const t = this.heldBackNote(job, agent, act, { child: true, host: agent.host?.enabled === true }); return t ? '\n\n' + t : ''; })()
-          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent) })
+          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled, runMode: this.modeNow(job, agent), claudeOwnChecks: this.claudeOwnChecks() })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
           // the folder's own instructions, read as text, when its settings were held back (folder trust)

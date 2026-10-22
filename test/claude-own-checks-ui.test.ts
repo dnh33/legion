@@ -138,7 +138,7 @@ test('the words: every line is plain, with no em dash and no "this computer"', (
   assert.equal(CLAUDE_CHECKS_LABEL, "Claude agents follow Claude's own permission checks");
   assert.equal(OTHER_PROVIDERS_LINE, "Other providers (OpenRouter, DeepSeek, custom) use Legion's own checks.");
   assert.deepEqual(Object.keys(CLAUDE_PRESET_LINES).sort(), [...PRESETS].sort(), 'a line for every preset');
-  assert.equal(CLAUDE_PRESET_LINES.smart, "Claude's own checker decides. Anything it is unsure about comes to you.");
+  assert.equal(CLAUDE_PRESET_LINES.smart, "Claude's own checker decides. It runs what it judges safe, blocks what it judges risky by itself (the block shows in the task), and asks you when it is unsure.");
   assert.match(LEARN_MORE_GROUPS.flatMap((g) => g.lines).join(' '), /not a security boundary/);
 });
 

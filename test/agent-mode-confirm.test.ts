@@ -159,10 +159,10 @@ test('core: creating an agent at Ask or following a strict preset needs nothing;
 test('core: the preview names the agent, says what it will run as and carries the no-sandbox line for a raise', withBoot([], async (r) => {
   const pv = await r.preview({ agentId: 'worker', approval: 'full' });
   assert.equal(pv.agentName, 'Worker');
-  assert.ok(pv.loosening[0]!.startsWith('Worker will never ask'), pv.loosening[0]);
+  assert.ok(pv.loosening[0]!.startsWith("Worker will use Claude's own checks. Claude runs everything without asking"), pv.loosening[0]);
   assert.ok(pv.loosening.includes(NO_SANDBOX_LINE));
   const ae = await r.preview({ agentId: 'worker', approval: 'auto-edits' });
-  assert.match(ae.loosening[0]!, /Worker will change files without asking/);
+  assert.match(ae.loosening[0]!, /Worker will use Claude's own checks\. File edits and file commands in your project run without asking/);
   const tight = await r.preview({ agentId: 'worker', approval: 'ask' });
   assert.deepEqual([tight.raises, tight.loosening], [false, []]);
   assert.equal((await r.http('POST', '/api/agents/mode-preview', { agentId: 'nobody', approval: 'full' })).status, 404);
@@ -195,7 +195,7 @@ test('ipc: Full shows one dialog that names the agent and the mode, then saves w
   assert.equal(r.dialogs.length, 1);
   const d = r.dialogs[0]!;
   assert.match(d.message, /Worker/);
-  assert.match(d.detail, /Worker will never ask before it runs commands or changes files/);
+  assert.match(d.detail, /Worker will use Claude's own checks\. Claude runs everything without asking/);
   assert.ok(d.detail.includes(NO_SANDBOX_LINE));
   assert.equal(d.confirmLabel, 'Confirm change');
   assert.doesNotMatch(JSON.stringify(d), /—/, 'no em dash');

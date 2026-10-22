@@ -36,7 +36,7 @@ export const ALLOW_RULES_LINE = "Legion's Allow rules do not answer Claude's own
 export const CLAUDE_PRESET_LINES: Record<Preset, string> = {
   ask: 'Claude asks before it edits files or runs commands. Reading files and simple listing commands run without asking.',
   'accept-edits': 'File edits and file commands in your project run without asking, including deleting and moving files (rm, mv, cp). Commands like git push still ask.',
-  smart: "Claude's own checker decides. Anything it is unsure about comes to you.",
+  smart: "Claude's own checker decides. It runs what it judges safe, blocks what it judges risky by itself (the block shows in the task), and asks you when it is unsure.",
   bypass: "Claude runs everything without asking, except deleting your project folder or a folder above it, which still asks. Your Block rules and Legion's stop on disastrous commands always apply.",
 };
 

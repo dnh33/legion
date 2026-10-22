@@ -25,6 +25,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { BYPASS_KEYS_LINE, DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_RE, ENV_NEVER_PASSED, ENV_NEVER_PASSED_PREFIX, GATES, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESET_LINES, PROTECTED_FILES_TEXT, TRUSTED_FOLDERS_MAX, TRUSTED_FOLDER_PATH_MAX, gateValue, isPreset } from '../../shared/gates-registry.js';
 import type { GateSettings, GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-registry.js';
+import { CLAUDE_PRESET_LINES } from '../../shared/claude-checks-copy.js';
 import { plain, realFolder, sameFolder, scanFolder } from '../folder-trust.js';
 import type { FolderScan } from '../folder-trust.js';
 import { PROJECT_ID_RE } from '../../shared/projects.js';
@@ -171,8 +172,13 @@ export interface ChangeLines { loosen: string[]; tighten: string[]; /** True whe
 function describeChange(before: GateSettings, next: GateSettings, isApp: boolean, appCtx: GateSettings, scanner?: (folder: string) => FolderScan): ChangeLines {
   const out: ChangeLines = { loosen: [], tighten: [], sandbox: false };
   let presetLoosened = false;
+  const claudeOn = (isApp ? next : appCtx).claudeOwnChecks !== false;
   if (rank(next.preset) > rank(before.preset) || unordered(before.preset, next.preset)) {
-    out.loosen.push(PRESET_LOOSEN[next.preset as Exclude<Preset, 'ask'>] ?? DENY_LINE); presetLoosened = true; out.sandbox = true;
+    const legion = PRESET_LOOSEN[next.preset as Exclude<Preset, 'ask'>];
+    // With Claude's own checks on (the app setting, which a project is judged under too), Claude agents do not follow Legion's rules: the card says both, as the Gates page does
+    if (legion && claudeOn) out.loosen.push(`Other providers: ${legion}`, `Claude agents: ${CLAUDE_PRESET_LINES[next.preset as Preset]}`);
+    else out.loosen.push(legion ?? DENY_LINE);
+    presetLoosened = true; out.sandbox = true;
   } else if (rank(next.preset) < rank(before.preset)) out.tighten.push(`The preset is now ${next.preset ? PRESET_NAME[next.preset] : 'Per agent'}.`);
   if (next.limit === false && before.limit !== false) { out.loosen.push(LIMIT_OFF_LINE); out.sandbox = true; }
   else if (before.limit === false && next.limit !== false) out.tighten.push("Agents are limited to this project's setting again.");
