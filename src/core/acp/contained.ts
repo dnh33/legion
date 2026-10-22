@@ -1,9 +1,11 @@
 /**
  * The "Contained" Hermes setup: a Hermes profile named `legion` that Legion creates and checks, so Hermes runs with its own approval
- * mode and only file tools, apart from the owner's own Hermes home. It is an option; the default stays the owner's own Hermes.
+ * mode, a tool list set to file tools and no borrowed logins, apart from the owner's own Hermes home. It is an option; the default stays
+ * the owner's own Hermes. The read-back proves the three settings and nothing more: tools, servers or plugins the owner adds to that
+ * profile later are not checked.
  *
  * Every command runs through `runAgentCli` (src/core/acp/process.ts): same launch path as the agent itself (PATH only, shell false, the
- * agent environment filter, a 60 s limit). This file starts nothing itself. No command line ever carries a value: the keys and values
+ * agent environment filter, a 60 s limit, 180 s for `profile create`). This file starts nothing itself. No command line ever carries a value: the keys and values
  * below are constants, so a provider key or a Legion token cannot reach a command line. Signing in is the owner's step: Legion shows
  * the command and never handles a provider key.
  *
@@ -12,10 +14,16 @@
  *    starts with `[` is read as a YAML list, so `[file]` is stored as the list `["file"]`. Neither command reaches the network or checks
  *    for an update (the update check lives in `update`, `--version` and the chat banner).
  *  - `profile create <name>` makes a fresh profile (a copy only with --clone). `--no-alias` skips the wrapper script it would write on
- *    the owner's PATH. A new profile gets a copy of the model name and provider of the active profile, never a key.
+ *    the owner's PATH. A new profile gets a copy of the active profile's model block and the selected provider entry as written, but never
+ *    its `.env` (hermes_cli/profile_model_seed.py, profiles.py). `create` also seeds the bundled skills, which Hermes itself allows 60 s.
  *  - The ACP session reads `platform_toolsets.acp` (acp_adapter/session.py), so `[file]` leaves the file tools plus the MCP servers
  *    of the session, which is where Legion's own tools arrive.
- *  - `auth add` needs a provider name, so the command shown to the owner is `setup`, which asks for the provider, the key and the model.
+ *  - `auth add` needs a provider name, and a bare `setup` is the whole wizard (terminal, messaging, tools). The command shown to the owner
+ *    is `setup model`, the single provider-and-model section (hermes_cli/subcommands/setup.py:11-17).
+ *  - By default Hermes borrows the Claude Code login (agent/credential_sources.py:32-45), and the two then share one rotating token family.
+ *    `auth.adopt_external_logins false` stops that, so `auth list` shows only the profile's own sign-ins. The key is a boolean in the
+ *    defaults (hermes_cli/config_defaults.py:1775), so `config set` turns the word `false` into a real false (hermes_cli/config.py:3198-3228)
+ *    and `config get --json` prints `false`.
  */
 import { homedir, tmpdir } from 'node:os';
 import type { AcpContainedSetup, AcpContainedStatus, AcpEntry } from '../../shared/acp-view.js';
@@ -23,14 +31,19 @@ import { redact } from '../log/redact.js';
 import { runAgentCli } from './process.js';
 
 export const CONTAINED_PROFILE = 'legion';
-/** Every Hermes command of this file ends in 60 s. */
+/** Every Hermes command of this file ends in 60 s, except `profile create`. */
 export const CONTAINED_TIMEOUT_MS = 60_000;
+/** `profile create` seeds the bundled skills inside it (Hermes allows that 60 s on its own), so it gets more room on a slow disk. */
+export const CONTAINED_CREATE_TIMEOUT_MS = 180_000;
 
-/** The two settings that make the profile Contained, with the exact `config set` value and what `config get --json` must read back. */
+/** The three settings that make the profile Contained, with the exact `config set` value and what `config get --json` must read back. */
 const POLICY = [
   { key: 'approvals.mode', set: 'manual', want: 'manual' },
   { key: 'platform_toolsets.acp', set: '[file]', want: ['file'] },
+  { key: 'auth.adopt_external_logins', set: 'false', want: false },
 ] as const;
+/** What the read-back proves, said once. Nothing is claimed about tools, servers or plugins the owner adds to the profile. */
+const POLICY_HOLDS = 'Hermes reports that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow logins from other programs. Tools you add to that profile yourself are not checked.';
 
 type Run = typeof runAgentCli;
 export interface ContainedDeps { run?: Run }
@@ -55,22 +68,26 @@ const startFailure = (r: Out) => r.timedOut
 /** The command the owner runs once to sign the profile in. */
 export function signInCommand(entry: Pick<AcpEntry, 'command'>): string {
   const program = /\s/.test(entry.command) ? `"${entry.command}"` : entry.command;
-  return `${program} -p ${CONTAINED_PROFILE} setup`;
+  return `${program} -p ${CONTAINED_PROFILE} setup model`;
 }
 
 function runner(deps: ContainedDeps | undefined) {
   const run = deps?.run ?? runAgentCli;
   // a neutral working folder: nothing of the owner's project or of Legion's own folder
-  return (entry: AcpEntry, args: string[]) => run(entry.command, args, { timeoutMs: CONTAINED_TIMEOUT_MS, cwd: tmpdir() || homedir() });
+  return (entry: AcpEntry, args: string[], timeoutMs = CONTAINED_TIMEOUT_MS) => run(entry.command, args, { timeoutMs, cwd: tmpdir() || homedir() });
 }
 
+/** `--json` prints the value on the last line; a notice Hermes prints before it is skipped. */
 const asJson = (out: string): { ok: true; value: unknown } | { ok: false } => {
-  const first = clean(out).split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-  if (first === undefined) return { ok: false };
-  try { return { ok: true, value: JSON.parse(first) as unknown }; } catch { return { ok: false }; }
+  const lines = clean(out).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const last = lines[lines.length - 1];
+  if (last === undefined) return { ok: false };
+  try { return { ok: true, value: JSON.parse(last) as unknown }; } catch { return { ok: false }; }
 };
+/** A value Hermes reported, as it is shown: short. */
+const shown = (v: unknown) => { const t = JSON.stringify(v) ?? 'nothing'; return t.length > 60 ? `${t.slice(0, 57)}...` : t; };
 
-/** Reads both settings back. Returns the plain sentences for every one that is missing or different (empty when the policy holds). */
+/** Reads every setting back. Returns the plain sentences for every one that is missing or different (empty when the policy holds). */
 async function policyProblems(go: ReturnType<typeof runner>, entry: AcpEntry): Promise<{ problems: string[]; startFailed?: Out }> {
   const problems: string[] = [];
   for (const p of POLICY) {
@@ -78,47 +95,67 @@ async function policyProblems(go: ReturnType<typeof runner>, entry: AcpEntry): P
     if (notStarted(r)) return { problems, startFailed: r };
     const j = r.code === 0 ? asJson(r.stdout) : { ok: false as const };
     if (!j.ok) { problems.push(`Hermes did not report ${p.key} for the Legion profile (${why(r)}).`); continue; }
-    if (JSON.stringify(j.value) !== JSON.stringify(p.want)) problems.push(`${p.key} is ${JSON.stringify(j.value)}, not ${JSON.stringify(p.want)}.`);
+    if (JSON.stringify(j.value) !== JSON.stringify(p.want)) problems.push(`${p.key} is ${shown(j.value)}, not ${shown(p.want)}.`);
   }
   return { problems };
 }
 
-/** Does the profile exist? `profile show` answers by exit code and changes nothing. */
-async function profileExists(go: ReturnType<typeof runner>, entry: AcpEntry): Promise<{ exists: boolean; startFailed?: Out }> {
+/**
+ * Does the profile exist? `profile show` answers by exit code and changes nothing. A failure means "missing" only when Hermes says the
+ * profile does not exist; any other failure (a crash, a saved profile that is gone) is Hermes failing, and is reported as that.
+ */
+async function profileExists(go: ReturnType<typeof runner>, entry: AcpEntry): Promise<{ exists: boolean; startFailed?: Out; failed?: Out }> {
   const r = await go(entry, ['profile', 'show', CONTAINED_PROFILE]);
   if (notStarted(r)) return { exists: false, startFailed: r };
-  return { exists: r.code === 0 };
+  if (r.code === 0) return { exists: true };
+  if (/does not exist/i.test(clean(`${r.stderr}\n${r.stdout}`))) return { exists: false };
+  return { exists: false, failed: r };
 }
+const readFailure = (r: Out) => `Hermes could not read the Legion profile: ${why(r)}.`;
 
 /** Read only: does the profile exist, is it signed in, and does it keep the Contained settings. */
-export async function containedStatus(entry: AcpEntry, deps?: ContainedDeps): Promise<AcpContainedStatus> {
+export function containedStatus(entry: AcpEntry, deps?: ContainedDeps): Promise<AcpContainedStatus> {
+  if (inflightCheck) return inflightCheck;
+  const p = (async () => {
+    // a check that starts while a set up runs waits for it, so it never reads half-written settings
+    if (inflightSetUp) await inflightSetUp.catch(() => undefined);
+    return doCheck(entry, deps);
+  })().finally(() => { if (inflightCheck === p) inflightCheck = undefined; });
+  inflightCheck = p;
+  return p;
+}
+
+let inflightCheck: Promise<AcpContainedStatus> | undefined;
+let inflightSetUp: Promise<AcpContainedSetup> | undefined;
+
+async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promise<AcpContainedStatus> {
   const go = runner(deps);
   const found = await profileExists(go, entry);
   if (found.startFailed) return { exists: false, signedIn: false, policyOk: false, detail: startFailure(found.startFailed) };
+  if (found.failed) return { exists: false, signedIn: false, policyOk: false, detail: readFailure(found.failed) };
   if (!found.exists) return { exists: false, signedIn: false, policyOk: false, detail: 'The Legion profile has not been set up yet.' };
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return { exists: true, signedIn: false, policyOk: false, detail: startFailure(policy.startFailed) };
-  // Signed in = Hermes lists at least one credential for the profile (its own sign-in or a key in its environment). Legion never sees the key.
+  // Signed in = Hermes lists at least one credential for the profile (its own sign-in or a key in its environment). With
+  // auth.adopt_external_logins false the list no longer holds a login borrowed from another program. Legion never sees the key.
   const auth = await go(entry, ['-p', CONTAINED_PROFILE, 'auth', 'list']);
   const signedIn = auth.code === 0 && /\(\d+ credentials?\)/.test(clean(auth.stdout));
   const policyOk = policy.problems.length === 0;
   const parts = [
-    policyOk ? 'The Legion profile asks before it runs a command and has only file tools.' : policy.problems.join(' '),
-    signedIn ? 'It is signed in.' : `It is not signed in yet. Run ${signInCommand(entry)} in a terminal.`,
+    policyOk ? POLICY_HOLDS : policy.problems.join(' '),
+    signedIn ? 'Hermes lists a credential for it.' : `Hermes lists no credential for it yet. Run ${signInCommand(entry)} in a terminal to sign in.`,
   ];
   return { exists: true, signedIn, policyOk, detail: parts.join(' ') };
 }
 
-let inflight: Promise<AcpContainedSetup> | undefined;
-
 /**
- * Creates the profile when it is missing (never a copy of the owner's own), sets the two Contained settings and reads them back.
+ * Creates the profile when it is missing (never a copy of the owner's own), sets the three Contained settings and reads them back.
  * A profile that already exists is kept and only gets the settings. A second call while one runs shares its answer.
  */
 export function setUpContained(entry: AcpEntry, deps?: ContainedDeps): Promise<AcpContainedSetup> {
-  if (inflight) return inflight;
-  const p = doSetUp(entry, deps).finally(() => { if (inflight === p) inflight = undefined; });
-  inflight = p;
+  if (inflightSetUp) return inflightSetUp;
+  const p = doSetUp(entry, deps).finally(() => { if (inflightSetUp === p) inflightSetUp = undefined; });
+  inflightSetUp = p;
   return p;
 }
 
@@ -128,8 +165,9 @@ async function doSetUp(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   const fail = (detail: string): AcpContainedSetup => ({ ok: false, detail, signInCommand: signIn });
   const found = await profileExists(go, entry);
   if (found.startFailed) return fail(startFailure(found.startFailed));
+  if (found.failed) return fail(readFailure(found.failed));
   if (!found.exists) {
-    const made = await go(entry, ['profile', 'create', CONTAINED_PROFILE, '--no-alias']);
+    const made = await go(entry, ['profile', 'create', CONTAINED_PROFILE, '--no-alias'], CONTAINED_CREATE_TIMEOUT_MS);
     if (made.code !== 0) return fail(notStarted(made) ? startFailure(made) : `Hermes could not create the Legion profile: ${why(made)}.`);
   }
   for (const p of POLICY) {
@@ -139,6 +177,6 @@ async function doSetUp(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return fail(startFailure(policy.startFailed));
   if (policy.problems.length) return fail(`The Legion profile is not safe to use yet. ${policy.problems.join(' ')}`);
-  const kept = found.exists ? 'The Legion profile already existed, so Legion kept it and set its approval mode and tools. ' : 'The Legion profile is ready. ';
-  return { ok: true, detail: `${kept}It asks before it runs a command and has only file tools. Sign in once: run ${signIn} in a terminal.`, signInCommand: signIn };
+  const kept = found.exists ? 'The Legion profile already existed, so Legion kept it and set its approval mode, tool list and login setting. ' : 'The Legion profile is ready. ';
+  return { ok: true, detail: `${kept}${POLICY_HOLDS} Sign in once: run ${signIn} in a terminal.`, signInCommand: signIn };
 }

@@ -6,8 +6,11 @@
  *   profile create <name> [--no-alias]        makes the folder; exit 1 when it exists; exit 2 for any --clone* flag (the test must never send one)
  *   -p <name> config set <key> <value>        a value starting with [ is read as a list; FAKE_HERMES_BREAK="key=value" makes that key keep the value
  *   -p <name> config get <key> --json         the value as JSON, or exit 1 "Config key not set"
- *   -p <name> auth list                       prints a credentials line when the profile folder holds a file named `signed-in`
+ *   -p <name> auth list                       prints a credentials line when the profile folder holds a file named `signed-in`, or one named
+ *                                             `borrowed` while auth.adopt_external_logins is not false (a login borrowed from another program)
  *   -p <name> acp                             logs and exits 0
+ * Switches for the failure tests: FAKE_HERMES_SHOW_ERROR (`profile show` fails the way a stale saved profile does), FAKE_HERMES_NOISE (a
+ * notice line before the JSON of `config get`), FAKE_HERMES_LEAK (`config set` fails with a key-shaped value in its message).
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,6 +29,7 @@ const die = (code: number, text: string): never => { process.stderr.write(`${tex
 
 if (a[0] === 'profile' && a[1] === 'show') {
   const name = a[2] ?? '';
+  if (process.env.FAKE_HERMES_SHOW_ERROR) die(1, `Error: Saved profile '${name}' no longer exists. Switch back with: hermes profile use default`);
   if (!existsSync(dir(name))) die(1, `Error: Profile '${name}' does not exist.`);
   process.stdout.write(`\nProfile: ${name}\nPath:    ${dir(name)}\n\n`);
 } else if (a[0] === 'profile' && a[1] === 'create') {
@@ -38,9 +42,10 @@ if (a[0] === 'profile' && a[1] === 'show') {
 } else if (a[0] === 'config' && a[1] === 'set' && profile) {
   if (!existsSync(dir(profile))) die(1, `Error: Profile '${profile}' does not exist.`);
   const [key, raw] = [a[2] ?? '', a[3] ?? ''];
+  if (process.env.FAKE_HERMES_LEAK) die(1, `Error: PROVIDER_ONE_API_KEY=${process.env.FAKE_HERMES_LEAK} could not be written for ${key}`);
   const cfg = JSON.parse(readFileSync(cfgFile(profile), 'utf8')) as Record<string, unknown>;
   const list = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1).split(',').map((s) => s.trim()).filter(Boolean) : undefined;
-  cfg[key] = list ?? raw;
+  cfg[key] = list ?? (raw === 'true' ? true : raw === 'false' ? false : raw);
   const brk = (process.env.FAKE_HERMES_BREAK ?? '').split('=');
   if (brk[0] === key) cfg[key] = brk.slice(1).join('=');
   writeFileSync(cfgFile(profile), JSON.stringify(cfg));
@@ -50,9 +55,12 @@ if (a[0] === 'profile' && a[1] === 'show') {
   const key = a[2] ?? '';
   const cfg = JSON.parse(readFileSync(cfgFile(profile), 'utf8')) as Record<string, unknown>;
   if (!(key in cfg)) die(1, `Config key not set: ${key}`);
+  if (process.env.FAKE_HERMES_NOISE) process.stdout.write('Note: a newer Hermes is available.\n');
   process.stdout.write(`${JSON.stringify(cfg[key])}\n`);
 } else if (a[0] === 'auth' && a[1] === 'list' && profile) {
-  if (existsSync(join(dir(profile), 'signed-in'))) process.stdout.write('anthropic (1 credentials):\n  #1  default  api_key  id=abc priority=0 env:KEY ←\n\n');
+  const cfg = JSON.parse(readFileSync(cfgFile(profile), 'utf8')) as Record<string, unknown>;
+  const borrows = existsSync(join(dir(profile), 'borrowed')) && cfg['auth.adopt_external_logins'] !== false;
+  if (existsSync(join(dir(profile), 'signed-in')) || borrows) process.stdout.write('provider-one (1 credentials):\n  #1  default  api_key  id=abc priority=0 env:KEY ←\n\n');
 } else if (a[0] === 'acp' && profile) {
   // the agent itself: nothing to say here
 } else {
