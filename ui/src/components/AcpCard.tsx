@@ -3,6 +3,7 @@ import type { ApprovalRequest } from '../../../src/shared/types';
 import { HERMES_ASKS, cardCountdown, titleAddsInfo } from '../../../src/shared/acp-copy';
 import { decideOption, dismissClosed, type ClosedCard } from '../store';
 import { useCardArm, useArmUi } from '../a11y/keyClock';
+import { liveReady } from '../a11y/keyClockCore';
 import { Icon } from './icons';
 import { shortTool } from '../util';
 
@@ -37,8 +38,13 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
   useEffect(() => {
     if (ended && hadFocus.current && document.activeElement !== box.current) box.current?.focus();
   }, [ended]);
+  // a click before the card is armed does nothing, so it says so: the note while not armed, and the same words once for a screen reader
+  const [ignored, setIgnored] = useState(false);
+  const [blocks, setBlocks] = useState(0);
+  useEffect(() => { if (armed) setIgnored(false); }, [armed]);
+  const notReady = (): void => { setIgnored(true); setBlocks((n) => n + 1); refresh(); };
   const answer = (optionId: string, kind: string) => (e: React.MouseEvent) => {
-    if (!arm.click(e.detail, performance.now())) { refresh(); return; }
+    if (!arm.click(e.detail, performance.now())) { notReady(); return; }
     void decideOption(a.id, kind.startsWith('allow'), optionId);
   };
   return (
@@ -54,7 +60,10 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
         {!ended && (a.acpOptions ?? []).map((o) => (
           <button key={o.optionId} type="button" className={o.kind === 'allow_once' ? 'btn primary' : 'btn'} onClick={answer(o.optionId, o.kind)}>{o.name}</button>
         ))}
-        {left && <span className={`approval-note acp-left${ended ? ' is-ended' : ''}`} role={ended ? 'status' : undefined}>{left.text}</span>}
+        {ignored && !armed && !ended && <span className="approval-note">Ready in a moment</span>}
+        {!ended && <span className="sr-only" role="status" aria-live="polite">{liveReady(blocks)}</span>}
+        {/* the end is announced once, by the closed card that takes this one's place */}
+        {left && <span className={`approval-note acp-left${ended ? ' is-ended' : ''}`}>{left.text}</span>}
       </div>
     </div>
   );

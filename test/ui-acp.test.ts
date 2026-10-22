@@ -417,6 +417,24 @@ test('R60 render: a closed card says the agent stopped waiting, offers no answer
   } finally { cleanup(); }
 });
 
+test('M5: a live region announces once: the open card has the quiet one for a refused click, the card at its end has none, the closed card holds the end text', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const open = unesc(r.card(HCARD('apr_m5a', { expiresAt: new Date(Date.now() + 60_000).toISOString() }), Date.now()));
+    assert.equal((open.match(/role="status"/g) ?? []).length, 1, 'open: one live region, the empty one a refused click fills');
+    assert.match(open, /class="sr-only" role="status" aria-live="polite"><\/span>/);
+    const ended = unesc(r.card(HCARD('apr_m5b', { expiresAt: new Date(Date.now() - 1000).toISOString() }), Date.now()));
+    assert.ok(ended.includes('The agent stopped waiting'));
+    assert.equal((ended.match(/role="status"/g) ?? []).length, 0, 'the end is announced by the closed card that replaces this one, not twice');
+    const closed = unesc(r.closedCard({ card: HCARD(), note: ACP_CLOSED_NOTE }));
+    assert.equal((closed.match(/role="status"/g) ?? []).length, 1);
+  } finally { cleanup(); }
+  const card = src('ui/src/components/AcpCard.tsx');
+  assert.match(card, /if \(!arm\.click\(e\.detail, performance\.now\(\)\)\) \{ notReady\(\); return; \}/, 'a click inside the arm window says so (it was silent)');
+  assert.match(card, /ignored && !armed && !ended && <span className="approval-note">Ready in a moment<\/span>/);
+  assert.match(card, /liveReady\(blocks\)/);
+});
+
 test('R60 render: the Hermes card shows the command once; the title chip only when it adds information', async () => {
   const { r, cleanup } = await loadUi(st([]));
   try {
