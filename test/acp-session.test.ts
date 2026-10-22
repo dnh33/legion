@@ -1,13 +1,13 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import type { AcpEntry } from '../src/shared/acp-view.js';
 import { registerLegionSecrets, startAgentProcess, type AgentProcess } from '../src/core/acp/process.js';
 import { RpcClosed, RpcError } from '../src/core/acp/rpc.js';
-import { ACP_CANCEL_GRACE_MS, ACP_PERMISSION_PAUSE_CAP_MS, AcpRefusal, AcpSession, type AcpCallbacks, type AcpStdioServer } from '../src/core/acp/session.js';
+import { ACP_CANCEL_GRACE_MS, ACP_PERMISSION_PAUSE_CAP_MS, ACP_MAX_OPEN_PERMISSIONS, AcpRefusal, AcpSession, type AcpCallbacks, type AcpStdioServer } from '../src/core/acp/session.js';
 import type { MappedPermission, MappedTool } from '../src/core/acp/map.js';
 
 // The session driver against the fake agent. Wire shapes: https://agentclientprotocol.com (initialization, session-setup, prompt-turn,
@@ -462,4 +462,37 @@ test('open: a failed session/set_model without session/close in the agent\'s cap
   await assert.rejects(AcpSession.open(g.p, initOf({ modelId: 'x', resumeId: 'sess_fake_1' })), /model blew up/);
   assert.ok(!g.methods().includes('session/close'), 'the session existed before this call: it is not ours to close');
   await g.p.stop();
+});
+
+// ---------------------------------------------------------------- final wave: open requests are capped, a second request re-arms the watchdog
+
+const scriptOf = (steps: unknown[]): string[] => { const f = join(tempDir('acp-script-'), 'script.json'); writeFileSync(f, JSON.stringify(steps)); return ['--script', f]; };
+const ASK = (id: string) => ({ op: 'permission', id, title: `run ${id}`, kind: 'execute', rawInput: { command: 'ls' }, async: true });
+
+test('F10: more than eight open permission requests at once: the extra ones get the agent\'s reject option at once, with one note per turn', async () => {
+  assert.equal(ACP_MAX_OPEN_PERMISSIONS, 8);
+  const steps = [...Array.from({ length: 12 }, (_, i) => ASK(`c${i}`)), { op: 'wait', ms: 700 }, { op: 'end', stopReason: 'end_turn' }];
+  const a = await open('script', {}, scriptOf(steps));
+  const notes: string[] = [];
+  const { r, cb } = recorder({ onPermission: (q) => { r.perms.push(q); return new Promise(() => undefined); }, onNote: (t) => notes.push(t) });
+  const end = await a.session.prompt('hi', cb);
+  assert.equal(end.stopReason, 'end_turn');
+  assert.equal(r.perms.length, 8, 'only eight reached the caller');
+  const answers = a.msgs().filter((m) => m.result !== undefined && m.id >= 9100 && m.id < 9112);
+  const rejected = answers.filter((m) => m.result.outcome.outcome === 'selected' && m.result.outcome.optionId === 'deny');
+  assert.equal(rejected.length, 4, 'the other four were answered with Hermes\'s own reject option');
+  assert.equal(notes.length, 1, 'one note, not one per request');
+  assert.ok(!/[\u2013\u2014]/.test(notes[0]!));
+  await a.p.stop();
+});
+
+test('a second permission request after the pause cap does not leave the turn without a watchdog', async () => {
+  // request 1 at 0 ms pauses the watchdog until the cap (300 ms), the watchdog would fire at 500 ms; request 2 at 400 ms must re-arm it, so the turn still ends 'watchdog'
+  const steps = [ASK('c1'), { op: 'wait', ms: 400 }, ASK('c2'), { op: 'waitCancel' }, { op: 'end', stopReason: 'cancelled' }];
+  const a = await open('script', { watchdogMs: 200, permissionPauseCapMs: 300, cancelGraceMs: 400 }, scriptOf(steps));
+  const { cb } = recorder({ onPermission: () => new Promise(() => undefined) });
+  const t0 = Date.now();
+  const end = await Promise.race([a.session.prompt('hi', cb), sleep(6000).then(() => ({ stopReason: 'never' as const }))]);
+  assert.equal(end.stopReason, 'watchdog', `took ${Date.now() - t0} ms`);
+  await a.p.stop();
 });

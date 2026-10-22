@@ -14,7 +14,7 @@ import { BUILTIN_HERMES, type AcpEntry } from '../src/shared/acp-view.js';
 import { usesAgentHost } from '../src/shared/runtime.js';
 import { ENV_KEEP_LABEL } from '../src/shared/gates-registry.js';
 import {
-  CHECK_TIMEOUT_MS, DETECT_TTL_MS, TESTED_HERMES, agentWaits, detectAgent, forgetDetections, hostWaitSeams, noteAgentVersion, noteAuthFailure, warmHermes,
+  CHECK_TIMEOUT_MS, DETECT_TTL_MS, TESTED_HERMES, agentWaits, detectAgent, forgetDetections, hostWaitSeams, noteAgentVersion, noteAuthFailure, peekDetection, warmHermes,
 } from '../src/core/acp/detect.js';
 import { agentDoctorRows } from '../src/core/acp/doctor-rows.js';
 import { permissionWaitOf, toolWaitOf } from '../src/core/acp/run-helpers.js';
@@ -723,4 +723,19 @@ test('R72: an approval-skip flag in the environment Hermes would get turns the a
   assert.match(safe.detail, /HERMES_SAFE_MODE/);
   assert.match(safe.detail, /HERMES_IGNORE_USER_CONFIG/);
   assert.match(safe.detail, /ignores/);
+});
+
+// ------------------------------------------------------------------ F7: the PATH lookup is remembered for as long as a detection lasts
+
+test('F7: peekDetection walks PATH once per detection lifetime, found or not; a check, or the end of the lifetime, looks again', async () => {
+  setEnv('PATH', emptyDir);
+  assert.equal(peekDetection(BUILTIN_HERMES, now).found, false);
+  setEnv('PATH', binDir); // Hermes appears on PATH
+  assert.equal(peekDetection(BUILTIN_HERMES, now).found, false, 'inside the lifetime the earlier lookup stands: no new walk');
+  clock += DETECT_TTL_MS + 1;
+  assert.equal(peekDetection(BUILTIN_HERMES, now).found, true, 'after the lifetime it looks again');
+  setEnv('PATH', emptyDir);
+  assert.equal(peekDetection(BUILTIN_HERMES, now).found, true, 'and remembers that');
+  await detectAgent(BUILTIN_HERMES, { ...deps(), force: true }); // a Doctor check looks for itself
+  assert.equal(peekDetection(BUILTIN_HERMES, now).found, false);
 });

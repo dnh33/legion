@@ -3253,6 +3253,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         onPlan: (items) => { if (act.progress) { act.progress.todos = items; this.emitProgress(taskId, act); } },
         onPermission: (r) => this.acpPermission(job, agent, entry, folder, r),
         onUsage: () => undefined, // the turn's end carries the same figure
+        onNote: (text) => { this.addMessage(taskId, 'system', say(text)); },
       };
       const text = fresh && agent.systemPrompt.trim() ? `${agent.systemPrompt.trim()}\n\n${prompt}` : prompt;
       let turn: AcpTurnEnd;

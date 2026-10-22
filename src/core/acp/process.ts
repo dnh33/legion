@@ -369,14 +369,20 @@ export function sweepStaleAgents(dataDir: string, opts: { budgetMs?: number } = 
       killed.push(rec.pid);
     } else dropped.push(rec.pid);
   }
-  writePids(dataDir, keep);
+  // only a list that changed is written: a user who never runs an agent host never gets the file
+  if (killed.length || dropped.length) writePids(dataDir, keep);
   return { killed, dropped };
 }
 
 // ---------------------------------------------------------------- registry
 
 const live = new Map<ChildProcess, string>();
+/** One-shot commands (`profile create`, `--check`, `config get`) that are running: ended with the core, so a stop in the middle of one leaves nothing behind. */
+const oneShots = new Set<ChildProcess>();
 let hooked = false;
+function hookExit(): void {
+  if (!hooked) { hooked = true; process.on('exit', () => killAllAgentsSync()); } // not the bare function: Node passes the exit code, which would become the budget
+}
 
 /**
  * Kill every agent this core started, now (about `budgetMs` in all, 5 s by default; an agent left after that is ended without a helper
@@ -385,6 +391,7 @@ let hooked = false;
 export function killAllAgentsSync(budgetMs = 5000, deps: { rename?: (from: string, to: string) => void } = {}): void {
   const deadline = Date.now() + budgetMs;
   const ended = new Map<string, Set<number>>();
+  for (const child of [...oneShots]) { killPidSync(child, Math.max(0, deadline - Date.now())); oneShots.delete(child); }
   for (const [child, dataDir] of [...live]) {
     killPidSync(child, Math.max(0, deadline - Date.now()));
     live.delete(child);
@@ -454,7 +461,7 @@ export function startAgentProcess(
   let stdoutHooked = false;
 
   live.set(child, opts.dataDir);
-  if (!hooked) { hooked = true; process.on('exit', () => killAllAgentsSync()); } // not the bare function: Node passes the exit code, which would become the budget
+  hookExit();
   writePids(opts.dataDir, [...readPids(opts.dataDir).filter((r) => r.pid !== pid), { pid, startedAt: Date.now(), image: imageOf(spec.file), command: spec.target }]);
 
   const fireClose = () => {
@@ -543,6 +550,8 @@ export async function runAgentCli(
       resolve(failed(`${command}: the system refused to start it (${(e as NodeJS.ErrnoException).code ?? 'error'})`));
       return;
     }
+    oneShots.add(child);
+    hookExit();
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -551,6 +560,7 @@ export async function runAgentCli(
     const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
+      oneShots.delete(child);
       for (const t of timers) clearTimeout(t);
       child.stdout?.destroy();
       child.stderr?.destroy();

@@ -40,6 +40,9 @@ export function sessionStateText(raw: string): string | undefined {
   return undefined;
 }
 
+/** More requests were open at once than Legion allows, so the extra ones were refused. */
+export const HERMES_TOO_MANY_ASKS_TEXT = 'Hermes asked for more than 8 approvals at once. Legion refused the extra ones.';
+
 export const HERMES_NOT_ALLOWED_TEXT = 'You did not allow this, so Hermes was not started.';
 export const HERMES_MAX_TOKENS_TEXT = 'Hermes ran out of room to answer. Ask again, or split the task into smaller steps.';
 export const HERMES_REFUSED_TEXT = 'Hermes declined to continue this task.';

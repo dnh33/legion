@@ -134,7 +134,10 @@ const inflight = new Map<string, Promise<AgentDetection>>();
 const lastWaits = new Map<string, { permissionWaitMs: number; toolWaitMs: number; at: number }>();
 const waitsInflight = new Map<string, Promise<void>>();
 
-export function forgetDetections(): void { cache.clear(); inflight.clear(); lastWaits.clear(); waitsInflight.clear(); notes.clear(); }
+/** The PATH lookup of an entry, found or not, for as long as a detection lasts: the model list and the settings view ask on every call and must not walk PATH each time. */
+const lookups = new Map<string, { at: number; value: { path: string } | { detection: AgentDetection } }>();
+
+export function forgetDetections(): void { lookups.clear(); cache.clear(); inflight.clear(); lastWaits.clear(); waitsInflight.clear(); notes.clear(); }
 
 const keyOf = (e: AcpEntry): string => JSON.stringify([e.id, e.command, e.args, e.contained === true, Object.entries(e.env ?? {}).sort()]);
 
@@ -173,7 +176,10 @@ export function peekDetection(entry: AcpEntry, now: () => number = Date.now): Ag
   if (!isProbed(entry)) return { found: false, checked: false, checkOk: false, detail: `${entry.label} is not checked: it is switched off.` };
   const known = freshHit(entry, now);
   if (known) return known;
-  const looked = resolveOrExplain(entry);
+  const key = keyOf(entry);
+  let hit = lookups.get(key);
+  if (!hit || now() - hit.at >= DETECT_TTL_MS) { hit = { at: now(), value: resolveOrExplain(entry) }; lookups.set(key, hit); }
+  const looked = hit.value;
   return 'path' in looked ? { found: true, path: looked.path, checked: false, checkOk: false, pending: true, detail: `${entry.label} has not been checked yet.` } : looked.detection;
 }
 
@@ -196,6 +202,7 @@ export function detectAgent(entry: AcpEntry, deps: Partial<AgentHostDeps> & Dete
   const now = deps.now ?? Date.now;
   if (!isProbed(entry)) return Promise.resolve({ found: false, checked: false, checkOk: false, detail: `${entry.label} is not checked: it is switched off.` });
   const key = keyOf(entry);
+  lookups.delete(key); // a check looks at PATH itself: what it finds replaces what the quick view remembered
   const hit = cache.get(key);
   if (!deps.force && hit && now() - hit.at < DETECT_TTL_MS) return Promise.resolve(hit.value);
   const running = inflight.get(key);

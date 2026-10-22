@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -462,7 +462,7 @@ test('sweep: a temp file left by a crash in the middle of a write is removed; on
   mkdirSync(join(dataDir, 'acp-pids.json.777.tmp')); // a folder with our pattern is not ours to remove
   sweepStaleAgents(dataDir);
   const left = readdirSync(dataDir).sort();
-  assert.deepEqual(left, [...keep, 'acp-pids.json.777.tmp', 'acp-pids.json'].sort());
+  assert.deepEqual(left, [...keep, 'acp-pids.json.777.tmp'].sort(), 'and no pid file is made for a folder that never ran an agent');
 });
 
 test('sweep: malformed records are ignored and at most 32 records are looked at', () => {
@@ -486,6 +486,16 @@ test('sweep: a time budget that is used up leaves the rest alone (dropped, not k
   assert.deepEqual(res.dropped, [ours.pid]);
   assert.ok(alive(ours.pid!));
   ours.kill();
+});
+
+test('sweep: a data folder that never ran an agent gets no pid file, and an unchanged list is not rewritten', () => {
+  const dataDir = tempDir('acp-data-');
+  sweepStaleAgents(dataDir);
+  assert.equal(existsSync(pidFile(dataDir)), false, 'a Claude-only user never gets the file');
+  writeFileSync(pidFile(dataDir), JSON.stringify({ version: 1, agents: [] }));
+  const before = statSync(pidFile(dataDir)).mtimeMs;
+  sweepStaleAgents(dataDir);
+  assert.equal(statSync(pidFile(dataDir)).mtimeMs, before, 'nothing changed, nothing written');
 });
 
 test('sweep: a missing or broken pid file is fine', () => {
@@ -719,4 +729,18 @@ test('killPidSync: when the helper is cut short by the time limit the process is
   const gone = new Promise<void>((r) => victim.once('exit', () => r()));
   killPidSync(victim, 1); // taskkill cannot finish in 1 ms on Windows; elsewhere the signal goes out directly
   await within(gone, 8000, 'victim ended');
+});
+
+test('F9: a one-shot command that is still running when the core stops is ended with it', async () => {
+  const dir = tempDir('acp-oneshot-');
+  const pidFileOf = join(dir, 'child.pid');
+  const script = `require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)`;
+  const done = runAgentCli(process.execPath, ['-e', script, pidFileOf], { timeoutMs: 60_000 });
+  await waitFor(() => existsSync(pidFileOf) && readFileSync(pidFileOf, 'utf8').length > 0);
+  const pid = Number(readFileSync(pidFileOf, 'utf8'));
+  extraPids.add(pid);
+  assert.ok(alive(pid));
+  killAllAgentsSync();
+  await within(done, 8000, 'the one-shot command settled');
+  assert.ok(!alive(pid), 'the child is gone');
 });

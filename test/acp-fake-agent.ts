@@ -167,10 +167,11 @@ async function playScript(id: unknown): Promise<void> {
           { optionId: 'allow_always', name: 'Allow always', kind: 'allow_always' },
           { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
         ];
-        await new Promise<Record<string, unknown>>((resolve) => {
+        const asked = new Promise<Record<string, unknown>>((resolve) => {
           waiting.set(rid, resolve);
           out({ jsonrpc: '2.0', id: rid, method: 'session/request_permission', params: { sessionId: 'sess_fake_1', toolCall: { toolCallId: st.id, title: st.title, kind: st.kind ?? 'execute', status: 'pending', ...(st.rawInput ? { rawInput: st.rawInput } : {}), ...(st.content ? { content: st.content } : {}) }, options } });
         });
+        if (st.async !== true) await asked; // async: true sends the request and goes on without waiting for the answer
         break;
       }
       case 'waitCancel': {

@@ -12,6 +12,7 @@ import type { TokenDelta } from '../../shared/acp-view.js';
 import type { AgentProcess } from './process.js';
 import { mapPermission, mapPlan, mapToolCall, type MappedPermission, type MappedTool } from './map.js';
 import { RpcClosed, RpcError, RpcPeer } from './rpc.js';
+import { HERMES_TOO_MANY_ASKS_TEXT } from './texts.js';
 
 export type { MappedPermission, MappedTool } from './map.js';
 
@@ -42,6 +43,8 @@ export interface AcpCallbacks {
    * use one of them, never both. The agent reports session-cumulative counters; this is the difference to the last report.
    */
   onUsage(deltaTokens: TokenDelta): void;
+  /** A line for the thread about something Legion did on its own (a refused flood of requests). Called at most once per turn for each kind. */
+  onNote?(text: string): void;
 }
 
 export interface AcpTurnEnd {
@@ -74,6 +77,8 @@ export interface AcpOpenInit {
 export const ACP_CANCEL_GRACE_MS = 10_000;
 /** Hermes denies a waiting approval itself after 300 s; the watchdog is paused for that long plus a small margin, then runs again. */
 export const ACP_PERMISSION_PAUSE_CAP_MS = 305_000;
+/** The most permission requests of one turn that may be open at once. Hermes asks one at a time; more than this is an agent gone wrong, and each open one holds a card for up to 300 s. */
+export const ACP_MAX_OPEN_PERMISSIONS = 8;
 
 // Per-method waits (Task 2 note: the peer's default is 30 s, too short for starting the agent's background service). A prompt has no limit; the watchdog guards it.
 const WAIT_INITIALIZE_MS = 30_000;
@@ -142,6 +147,8 @@ interface Turn {
   userCancelled: boolean;
   watchdogFired: boolean;
   cancelSent: boolean;
+  /** The extra requests were refused and the note was sent. */
+  floodNoted?: boolean;
   /** The open permission requests have paused the watchdog for the whole cap: it runs again while they stay open. */
   pauseExpired: boolean;
   watchdog?: NodeJS.Timeout;
@@ -415,6 +422,12 @@ export class AcpSession {
     if (!p || p.sessionId !== this.id || !turn || turn.done || turn.cancelSent) return Promise.resolve(CANCELLED_OUTCOME);
     const mapped = mapPermission(params);
     if (!mapped) return Promise.resolve(CANCELLED_OUTCOME);
+    if (turn.perms.size >= ACP_MAX_OPEN_PERMISSIONS) {
+      // an agent gone wrong could open hundreds of cards: past the cap a request gets the agent's own reject option at once (cancelled when it offers none)
+      if (!turn.floodNoted) { turn.floodNoted = true; safe(() => turn.cb.onNote?.(HERMES_TOO_MANY_ASKS_TEXT)); }
+      const reject = mapped.options.find((o) => o.kind === 'reject_once');
+      return Promise.resolve(reject ? { outcome: { outcome: 'selected', optionId: reject.optionId } } : CANCELLED_OUTCOME);
+    }
     turn.permIds.add(mapped.requestId);
     if (turn.watchdog) { clearTimeout(turn.watchdog); turn.watchdog = undefined; } // a waiting card is not a stuck agent...
     const cap = this.cfg.pauseCapMs;
@@ -442,6 +455,7 @@ export class AcpSession {
         },
       };
       turn.perms.add(pending);
+      this.armWatchdog(turn); // after the pause cap a further request must not leave the turn without a watchdog
       const offered = new Set(mapped.options.map((o) => o.optionId));
       new Promise<{ optionId: string } | { cancelled: true }>((res) => res(turn.cb.onPermission(mapped))).then(
         (answer) => pending.settle('optionId' in answer && offered.has(answer.optionId)
