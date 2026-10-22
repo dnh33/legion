@@ -1,6 +1,6 @@
 /** Settings API backend: validate, persist atomically to config.json, apply live. */
 import { existsSync, readFileSync } from 'node:fs';
-import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, buildAcpView } from '../shared/acp-view.js';
+import { ACP_MAX_STEPS_MAX, ACP_MAX_STEPS_MIN, ACP_MAX_TOKENS_MAX, ACP_MAX_TOKENS_MIN, ACP_PRICE_MAX, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, buildAcpView } from '../shared/acp-view.js';
 import type { AcpEntryPatch, AcpPatch, AcpSwitches } from '../shared/acp-view.js';
 import { applyAcpPatch, COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeAcp, normalizeGates, writeConfigFile } from '../shared/config.js';
 import { ENTRY_ID_RE } from '../shared/runtime.js';
@@ -136,6 +136,19 @@ function acpPatch(raw: unknown): AcpPatch {
       if (v.env !== undefined) e.env = strMap(v.env, `${f}.env`);
       if (v.enabled !== undefined) e.enabled = acpBool(v.enabled, `${f}.enabled`);
       if (v.contained !== undefined) e.contained = acpBool(v.contained, `${f}.contained`);
+      // Optional limits: a number sets one, null clears it, absent leaves it alone.
+      if (v.maxSteps !== undefined) e.maxSteps = v.maxSteps === null ? null : compactionNum(v.maxSteps, `${f}.maxSteps`, ACP_MAX_STEPS_MIN, ACP_MAX_STEPS_MAX, true);
+      if (v.maxTokensPerTask !== undefined) e.maxTokensPerTask = v.maxTokensPerTask === null ? null : compactionNum(v.maxTokensPerTask, `${f}.maxTokensPerTask`, ACP_MAX_TOKENS_MIN, ACP_MAX_TOKENS_MAX, true);
+      if (v.prices !== undefined) {
+        if (v.prices === null) e.prices = null;
+        else {
+          if (!isObj(v.prices)) throw new SettingsError(`${f}.prices must be an object with inputPerMTok and outputPerMTok, or null`);
+          e.prices = {
+            inputPerMTok: compactionNum(v.prices.inputPerMTok, `${f}.prices.inputPerMTok`, 0, ACP_PRICE_MAX),
+            outputPerMTok: compactionNum(v.prices.outputPerMTok, `${f}.prices.outputPerMTok`, 0, ACP_PRICE_MAX),
+          };
+        }
+      }
       return e;
     });
   }

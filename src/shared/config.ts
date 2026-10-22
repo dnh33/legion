@@ -8,6 +8,7 @@ import { defaultBlenderConfig, normalizeBlender } from './blender.js';
 import type { BlenderConfig } from './blender.js';
 import { MAX_ROOM_BUDGET_USD } from './comms.js';
 import { ACP_WATCHDOG_DEFAULT_MINUTES, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, BUILTIN_HERMES } from './acp-view.js';
+import { ACP_MAX_STEPS_MAX, ACP_MAX_STEPS_MIN, ACP_MAX_TOKENS_MAX, ACP_MAX_TOKENS_MIN, ACP_PRICE_MAX } from './acp-view.js';
 import type { AcpConfig, AcpEntry, AcpPatch } from './acp-view.js';
 import { ENTRY_ID_RE } from './runtime.js';
 import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, GatesConfig, LegionConfig } from './types.js';
@@ -79,6 +80,22 @@ export function defaultAcp(): AcpConfig {
   };
 }
 
+/** The optional limits of an entry: a value in range, a clamped number, or nothing (off). Same price check as a provider's. */
+function entryLimitFields(v: Record<string, unknown>): Pick<AcpEntry, 'maxSteps' | 'maxTokensPerTask' | 'prices'> {
+  const clamp = (x: unknown, lo: number, hi: number): number | undefined =>
+    typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : undefined;
+  const priceOk = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= ACP_PRICE_MAX;
+  const maxSteps = clamp(v.maxSteps, ACP_MAX_STEPS_MIN, ACP_MAX_STEPS_MAX);
+  const maxTokensPerTask = clamp(v.maxTokensPerTask, ACP_MAX_TOKENS_MIN, ACP_MAX_TOKENS_MAX);
+  const p = v.prices;
+  const prices = isRec(p) && priceOk(p.inputPerMTok) && priceOk(p.outputPerMTok) ? { inputPerMTok: p.inputPerMTok, outputPerMTok: p.outputPerMTok } : undefined;
+  return {
+    ...(maxSteps !== undefined ? { maxSteps } : {}),
+    ...(maxTokensPerTask !== undefined ? { maxTokensPerTask } : {}),
+    ...(prices ? { prices } : {}),
+  };
+}
+
 /** A user-added entry, or undefined when it cannot be run (no command, bad args). It is always untested, never contained, and starts switched off. */
 function customEntry(id: string, v: Record<string, unknown>): AcpEntry | undefined {
   const command = typeof v.command === 'string' ? v.command.trim() : '';
@@ -95,7 +112,7 @@ function customEntry(id: string, v: Record<string, unknown>): AcpEntry | undefin
     }
   }
   const label = typeof v.label === 'string' && v.label.trim() ? v.label.trim().slice(0, 60) : id;
-  return { id, label, command, args, ...(Object.keys(env).length ? { env } : {}), tested: false, enabled: v.enabled === true };
+  return { id, label, command, args, ...(Object.keys(env).length ? { env } : {}), tested: false, enabled: v.enabled === true, ...entryLimitFields(v) };
 }
 
 /** Reads the "acp" part of config.json into the one shape Legion accepts. Whatever is wrong is dropped or clamped, never trusted. */
@@ -110,10 +127,11 @@ export function normalizeAcp(raw: unknown): AcpConfig {
   for (const v of Array.isArray(raw.entries) ? raw.entries : []) {
     if (!isRec(v) || typeof v.id !== 'string' || !ENTRY_ID_RE.test(v.id) || v.id === 'claude') continue;
     if (v.id === BUILTIN_HERMES.id) {
-      // Legion's own entry: the file may switch it off or contain it, nothing else.
+      // Legion's own entry: the file may switch it off, contain it, or set its optional limits, nothing else.
       const hermes = out.entries[0]!;
       hermes.enabled = v.enabled !== false;
       if (typeof v.contained === 'boolean') hermes.contained = v.contained; else delete hermes.contained;
+      Object.assign(hermes, entryLimitFields(v));
       continue;
     }
     if (seen.has(v.id) || out.entries.length >= MAX_ACP_ENTRIES) continue;

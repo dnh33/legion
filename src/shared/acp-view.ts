@@ -15,7 +15,24 @@ export interface AcpEntry {
   enabled: boolean;
   /** Hermes only: run it in a Legion profile named `legion` (`-p legion`) instead of the user's own Hermes home. */
   contained?: boolean;
+  /** Optional limits, all absent (off) until set. A "step" is one tool call the agent makes. */
+  maxSteps?: number;
+  maxTokensPerTask?: number;
+  /** USD per million tokens. The agent reports token counts but never cost, so cost is only known when the owner enters these. */
+  prices?: AcpPrices;
 }
+
+export interface AcpPrices { inputPerMTok: number; outputPerMTok: number }
+
+export const ACP_MAX_STEPS_MIN = 1;
+export const ACP_MAX_STEPS_MAX = 10_000;
+export const ACP_MAX_TOKENS_MIN = 1_000;
+export const ACP_MAX_TOKENS_MAX = 100_000_000;
+/** The same ceiling provider prices have (USD per million tokens). */
+export const ACP_PRICE_MAX = 100_000;
+
+/** Tokens one agent turn used (the agent reports counts only). */
+export type TokenDelta = { input: number; output: number };
 
 /** The four "in between" items. Every one is off by default: Legion forwards the agent's own permission options unchanged. */
 export interface AcpSwitches { disasterStop: boolean; modeMap: boolean; stripSkipFlags: boolean; answerOnce: boolean }
@@ -41,6 +58,16 @@ export function entryLimits(e: AcpEntry): { legionTools: boolean; fullAllowed: b
   return e.tested ? { legionTools: true, fullAllowed: true } : { legionTools: false, fullAllowed: false };
 }
 
+/**
+ * What a turn cost in USD, or undefined when the entry has no prices (cost unknown). Same arithmetic as a provider's costOf,
+ * with a guard so a bad token count can never make a negative or NaN cost.
+ */
+export function acpCostOf(e: AcpEntry, delta: TokenDelta): number | undefined {
+  if (!e.prices) return undefined;
+  const n = (x: number) => (Number.isFinite(x) && x > 0 ? x : 0);
+  return (n(delta.input) * e.prices.inputPerMTok + n(delta.output) * e.prices.outputPerMTok) / 1_000_000;
+}
+
 /** The entry with this id, or undefined. A config with no acp block still knows the built-in entry. */
 export function acpEntry(config: { acp?: AcpConfig }, id: string): AcpEntry | undefined {
   const found = config.acp?.entries.find((e) => e.id === id);
@@ -61,6 +88,9 @@ export interface AcpEntryView {
   tested: boolean;
   enabled: boolean;
   contained?: boolean;
+  maxSteps?: number;
+  maxTokensPerTask?: number;
+  prices?: AcpPrices;
   legionTools: boolean;
   fullAllowed: boolean;
   detection: AcpDetection;
@@ -74,6 +104,9 @@ export function buildAcpView(acp: AcpConfig, detect?: (e: AcpEntry) => AcpDetect
     entries: acp.entries.map((e) => ({
       id: e.id, label: e.label, command: e.command, args: [...e.args], envKeys: Object.keys(e.env ?? {}),
       tested: e.tested, enabled: e.enabled, ...(e.contained !== undefined ? { contained: e.contained } : {}),
+      ...(e.maxSteps !== undefined ? { maxSteps: e.maxSteps } : {}),
+      ...(e.maxTokensPerTask !== undefined ? { maxTokensPerTask: e.maxTokensPerTask } : {}),
+      ...(e.prices ? { prices: { ...e.prices } } : {}),
       ...entryLimits(e), detection: detect?.(e) ?? { state: 'unknown' },
     })),
     switches: { ...acp.switches },
@@ -83,7 +116,9 @@ export function buildAcpView(acp: AcpConfig, detect?: (e: AcpEntry) => AcpDetect
 }
 
 /** One entry in a Settings patch. A known id changes only the fields named; a new id adds a custom entry (needs a command). */
-export interface AcpEntryPatch { id: string; label?: string; command?: string; args?: string[]; env?: Record<string, string>; enabled?: boolean; contained?: boolean; tested?: boolean }
+export interface AcpEntryPatch { id: string; label?: string; command?: string; args?: string[]; env?: Record<string, string>; enabled?: boolean; contained?: boolean; tested?: boolean;
+  /** A number sets a limit, null clears it, absent leaves it as it is. */
+  maxSteps?: number | null; maxTokensPerTask?: number | null; prices?: AcpPrices | null }
 
 /** The agent host part of PATCH /api/settings. Omitted fields are unchanged. */
 export interface AcpPatch { entries?: AcpEntryPatch[]; remove?: string[]; switches?: Partial<AcpSwitches>; watchdogMinutes?: number; firstUseSeen?: boolean }
