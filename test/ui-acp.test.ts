@@ -96,7 +96,7 @@ test('mode control: no Legion picker for Hermes while Match Legion\'s mode is of
   assert.deepEqual(agentModeControl({ model: 'sonnet', modeMap: false }), { kind: 'picker' });
   assert.deepEqual(agentModeControl({ model: 'openrouter:x/y', modeMap: false }), { kind: 'picker' });
   assert.deepEqual(agentModeControl({ model: 'acp:hermes', modeMap: false, hermesMode: 'smart' }), { kind: 'fixed', line: 'Hermes decides what to ask you. Its mode: Smart' });
-  assert.deepEqual(agentModeControl({ model: 'acp:hermes', modeMap: true }), { kind: 'picker', line: "Legion sets Hermes's mode from this" });
+  assert.deepEqual(agentModeControl({ model: 'acp:hermes', modeMap: true }), { kind: 'picker', line: "Legion sets Hermes's mode from this when a run starts" });
   assert.equal(hermesModeLine({ modeMap: false }), 'Hermes decides what to ask you. Its mode: not read yet');
   assert.equal(hermesModeLine({ modeMap: false, hermesMode: 'manual' }), 'Hermes decides what to ask you. Its mode: Manual');
 });

@@ -24,7 +24,7 @@ export const NOT_APPLIED_TO_HERMES = 'Not applied to Hermes agents';
 /** The four switches: label, one plain line. All off by default. */
 export const SWITCH_COPY: Record<keyof AcpSwitches, { label: string; hint: string }> = {
   disasterStop: { label: 'Stop disaster commands', hint: 'Legion refuses a command that could wipe a drive or your home folder before you are asked.' },
-  modeMap: { label: "Match Legion's mode", hint: "Legion sets Hermes's mode from the mode of the Legion agent. Off: Hermes decides what to ask you." },
+  modeMap: { label: "Match Legion's mode", hint: "Legion sets Hermes's mode from the mode of the Legion agent when a run starts, so a change reaches the next run. Off: Hermes decides what to ask you." },
   stripSkipFlags: { label: "Ignore Hermes's skip-approval settings", hint: 'Legion starts Hermes without the settings that make it approve its own commands.' },
   answerOnce: { label: 'Answer each request once', hint: "Hides Hermes's allow for the session and always options, so every request needs its own answer." },
 };
@@ -79,7 +79,7 @@ const MODE_WORDS: Record<string, string> = { manual: 'Manual', smart: 'Smart', o
  * so and names Hermes's own mode (read from its settings; "not read yet" before a check). With it on, the Legion picker shows and this line sits under it.
  */
 export function hermesModeLine(o: { modeMap: boolean; hermesMode?: string }): string {
-  if (o.modeMap) return "Legion sets Hermes's mode from this";
+  if (o.modeMap) return "Legion sets Hermes's mode from this when a run starts";
   const mode = o.hermesMode && MODE_WORDS[o.hermesMode] ? MODE_WORDS[o.hermesMode] : undefined;
   return `Hermes decides what to ask you. Its mode: ${mode ?? 'not read yet'}`;
 }
