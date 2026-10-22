@@ -357,6 +357,8 @@ export function createServer(ctx: CoreContext): Server {
     if (action !== 'check' && action !== 'setup') throw new HttpError(400, 'action must be "check" or "setup"');
     const entry = acpEntry(ctx.config, 'hermes');
     if (!entry) throw new HttpError(404, 'The Hermes entry is not in the config');
+    // R75: Hermes is off until the owner turns it on; setting up or checking its profile starts Hermes
+    if (!entry.enabled) throw new HttpError(409, 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts first.');
     return action === 'check' ? containedStatus(entry) : setUpContained(entry);
   });
 

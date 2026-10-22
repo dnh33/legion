@@ -245,20 +245,19 @@ test('a version a run reported is used when the handshake could not read one', a
 
 // ------------------------------------------------------------------ the probe rule, the cache, the environment
 
-test('probe rule: a disabled custom entry is not run at all and says "not checked"; an enabled one is checked; the built-in is checked either way', async () => {
+test('probe rule: a disabled custom entry is not run at all and says "not checked"; an enabled one is checked; the built-in is checked only when it is on (R75)', async () => {
   const off = custom({ enabled: false });
   const d = await detectAgent(off, deps());
   assert.equal(d.checked, false);
   assert.deepEqual(calls(), []);
-  const r = (await row('acp-other', [off]))!;
-  assert.match(r.detail, /not checked/i);
+  assert.deepEqual(await rowsOf([off]), [], 'a switched-off entry has no Doctor rows at all (R75)');
   assert.deepEqual(calls(), [], 'building the rows did not run it either');
   await detectAgent(custom(), deps());
   assert.ok(calls().length > 0, 'enabled custom entry is checked');
   forgetDetections();
   writeFileSync(log, '');
-  assert.equal((await detectAgent({ ...BUILTIN_HERMES, enabled: false }, deps())).checked, true);
-  assert.ok(calls().length > 0);
+  assert.equal((await detectAgent({ ...BUILTIN_HERMES, enabled: false }, deps())).checked, false);
+  assert.deepEqual(calls(), [], 'a switched-off Hermes is not started either');
 });
 
 test('the answer is kept for 10 minutes; a forced check and an expired one run again', async () => {
@@ -561,7 +560,8 @@ test('a handshake that never gets an answer ends at the limit: the program is st
 // ------------------------------------------------------------------ Doctor and catalog wiring
 
 const fakeQuery = (): QueryFn => ((_: unknown) => ({ accountInfo: async () => ({ email: 'a@b.c' }), interrupt: async () => undefined, close: () => undefined })) as unknown as QueryFn;
-const doctorConfig = () => { const c = defaultConfig(); c.workspaceDir = join(tempDir('acp-doctor-ws-'), 'ws'); return c; };
+// Hermes is off in a fresh config (R75, test/hermes-off.test.ts); these tests are about the rows of a Hermes the owner turned on
+const doctorConfig = () => { const c = defaultConfig(); c.acp.entries = [{ ...BUILTIN_HERMES }]; c.workspaceDir = join(tempDir('acp-doctor-ws-'), 'ws'); return c; };
 
 test('the Doctor starts no Hermes unless the core gives it the agent host', async () => {
   await runDoctor({ config: doctorConfig(), getBoat: () => null, queryFn: fakeQuery() });

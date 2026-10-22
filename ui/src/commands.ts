@@ -57,6 +57,10 @@ export async function runLegionCommand(text: string): Promise<'handled' | 'send'
       const [first, ...rest] = p.arg.split(/\s+/);
       const value = resolveModel(s.catalog, first);
       if (!value) { toast(`Unknown model “${first}”`, 'error'); return 'handled'; }
+      // R75: Hermes is off until "Offer Hermes" is on (and found): a typed name is not a way around the model list
+      if (isAgentHostModel(value) && s.catalog && !(s.catalog.hosts ?? []).some((h) => h.value === value.split('/')[0])) {
+        toast('Hermes is not offered. Turn on "Offer Hermes" in Settings, Agent hosts, and check that Hermes is installed.', 'error'); return 'handled';
+      }
       // a Hermes name the owner has not met yet shows the first-use card, as a pick in the picker does (Not now leaves the agent as it was)
       if (isAgentHostModel(value) && !getState().settings) await loadSettings();
       const step = slashModelStep(value, getState().settings?.acp.firstUseSeen === true, rest.length > 0);

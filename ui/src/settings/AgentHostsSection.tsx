@@ -4,7 +4,7 @@ import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES } from '../../../src
 import { CONTAINED_NEEDS_HERMES, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER, loosenedSwitches } from '../../../src/shared/acp-copy';
 import { PENDING_TEXT } from '../gates/useGatesView';
 import { api } from '../api';
-import { errText, loadSettings, runDoctor, saveSettings, toast, useStore } from '../store';
+import { errText, loadCatalog, loadSettings, runDoctor, saveSettings, toast, useStore } from '../store';
 import { copyText } from '../util';
 import { Icon } from '../components/icons';
 
@@ -29,6 +29,10 @@ export interface AgentHostsViewProps {
   switchPending?: boolean;
 }
 
+/** Under the switch while Hermes is off: what off means, in plain words. */
+const OFFER_OFF_HINT = 'Off until you turn it on. While it is off, Legion does not start Hermes or run any check on it, and Hermes is not in the model list.';
+const CONTAINED_NEEDS_OFFER = 'Turn on Offer Hermes first.';
+
 /** A web address (with or without https://) never breaks at its hyphens: it stays on one line, so it can be read and copied. */
 const ADDRESS = /((?:https?:\/\/)?[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\.[A-Za-z]{2,}(?:\/[^\s,;]*[^\s,;.])?)/;
 export function withLinks(text: string): React.ReactNode[] {
@@ -39,6 +43,8 @@ export function withLinks(text: string): React.ReactNode[] {
 export function hostState(e: AcpEntryView, checking: boolean): { title: string; detail?: string } {
   const d = e.detection;
   const name = e.label;
+  // R75: while Hermes is off, only the PATH lookup is known: found or not found, nothing was started
+  if (!e.enabled) return { title: d.state === 'found' ? `${name} found on your computer` : d.state === 'missing' ? `${name} not found on your computer` : `${name} is off` };
   if (d.state === 'missing') return { title: `${name} is not installed`, ...(d.detail ? { detail: d.detail } : {}) };
   if (d.state === 'error') return { title: `${name} is installed but does not start`, ...(d.detail ? { detail: d.detail } : {}) };
   if (d.state === 'found' && d.checked) return { title: `${name} found${d.version ? `, version ${d.version}` : ''}` };
@@ -55,7 +61,8 @@ export function AgentHostsView(p: AgentHostsViewProps) {
   const state = hermes ? hostState(hermes, p.checking) : undefined;
   // Hermes is not found on PATH: Contained has nothing to set up or check, and an old result would contradict the row above it.
   const missing = hermes?.detection.state === 'missing';
-  const dot = !hermes ? 'idle' : hermes.detection.state === 'found' && hermes.detection.checked ? 'ok' : hermes.detection.state === 'error' ? 'bad' : 'idle';
+  const on = hermes?.enabled === true;
+  const dot = !hermes || !on ? 'idle' : hermes.detection.state === 'found' && hermes.detection.checked ? 'ok' : hermes.detection.state === 'error' ? 'bad' : 'idle';
   return (
     <div className="set-section hosts">
       <header className="set-head"><h3>Agent hosts</h3><p>Other agents Legion can run for you. Hermes is optional: Claude works without it.</p></header>
@@ -67,13 +74,13 @@ export function AgentHostsView(p: AgentHostsViewProps) {
               <b>Hermes</b>
               <span className="set-hint" role="status">{withLinks(state.detail?.startsWith(state.title) ? state.detail : `${state.title}.${state.detail ? ` ${state.detail}` : ''}`)}</span>
             </div>
-            <button type="button" className="btn sm" onClick={p.onRecheck} disabled={p.checking}>{p.checking ? 'Checking…' : 'Check again'}</button>
+            {on && <button type="button" className="btn sm" onClick={p.onRecheck} disabled={p.checking}>{p.checking ? 'Checking…' : 'Check again'}</button>}
           </div>
           <label className="set-check"><input type="checkbox" checked={hermes.enabled} onChange={(e) => p.onToggle(hermes.id, e.target.checked)} />
-            <span><b>Offer Hermes in the model list</b><em>When Hermes is found, you can pick it for an agent.</em></span></label>
-          <label className="set-check"><input type="checkbox" checked={hermes.contained === true} disabled={missing} onChange={(e) => p.onContainedSwitch?.(e.target.checked)} />
-            <span><b>Contained</b><em>{missing ? CONTAINED_NEEDS_HERMES : hermes.contained === true ? CONTAINED_SWITCH_HINT : CONTAINED_OFF_HINT}</em></span></label>
-          {hermes.contained === true && !missing && (
+            <span><b>Offer Hermes</b><em>{on ? 'You can pick Hermes for an agent. Hermes asks its own questions and Legion passes them on.' : OFFER_OFF_HINT}</em></span></label>
+          <label className="set-check"><input type="checkbox" checked={hermes.contained === true} disabled={missing || !on} onChange={(e) => p.onContainedSwitch?.(e.target.checked)} />
+            <span><b>Contained</b><em>{!on ? CONTAINED_NEEDS_OFFER : missing ? CONTAINED_NEEDS_HERMES : hermes.contained === true ? CONTAINED_SWITCH_HINT : CONTAINED_OFF_HINT}</em></span></label>
+          {on && hermes.contained === true && !missing && (
             <div className="host-contained">
               <div className="host-actions">
                 <button type="button" className="btn sm" onClick={() => p.onContained('setup')} disabled={p.containedBusy}>Set up</button>
@@ -117,7 +124,8 @@ export function AgentHostsView(p: AgentHostsViewProps) {
 /** The Settings page: the full check of Hermes runs when it opens (it starts Hermes once, and only here, in the Doctor and when a run starts). */
 export function AgentHostsSection() {
   const settings = useStore((s) => s.settings);
-  const [checking, setChecking] = useState(true);
+  const hermesOn = settings?.acp.entries.find((e) => e.id === 'hermes')?.enabled === true;
+  const [checking, setChecking] = useState(hermesOn);
   const [contained, setContained] = useState<ContainedResult | null>(null);
   const [containedBusy, setContainedBusy] = useState(false);
   const [switchPending, setSwitchPending] = useState(false);
@@ -126,7 +134,9 @@ export function AgentHostsSection() {
     setChecking(true);
     try { await runDoctor(true); await loadSettings(); } finally { if (alive.current) setChecking(false); }
   };
-  useEffect(() => { alive.current = true; void check(); return () => { alive.current = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  // R75: the full check starts Hermes, so it runs only while "Offer Hermes" is on: when the page opens with it on, and when the owner turns it on
+  useEffect(() => { if (hermesOn) void check(); else setChecking(false); }, [hermesOn]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!settings) return <div className="set-section"><p className="set-hint" role="status">Loading{'…'}</p></div>;
   const save = async (patch: Parameters<typeof saveSettings>[0]): Promise<void> => { try { await saveSettings(patch, true); } catch (e) { toast(errText(e), 'error'); } };
   // R63: a switch that lets Hermes ask less goes through the app's native confirmation; one that keeps or tightens saves directly. Without the app (a plain browser) a loosening is refused here and by the core.
@@ -157,7 +167,7 @@ export function AgentHostsSection() {
     <AgentHostsView acp={settings.acp} checking={checking} contained={contained} containedBusy={containedBusy}
       switchPending={switchPending} onSwitch={(k, on) => void saveSwitch(k, on)}
       onWatchdog={(n) => void save({ acp: { watchdogMinutes: n } })}
-      onToggle={(id, on) => void save({ acp: { entries: [{ id, enabled: on }] } })}
+      onToggle={(id, on) => void save({ acp: { entries: [{ id, enabled: on }] } }).then(() => loadCatalog())}
       onContainedSwitch={(on) => void save({ acp: { entries: [{ id: 'hermes', contained: on }] } })}
       onContained={(a) => void runContained(a)} onRecheck={() => void check()} />
   );

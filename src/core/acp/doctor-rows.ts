@@ -86,6 +86,8 @@ const NOT_YET = 'Not checked yet. Open the Doctor and choose Re-run checks to ch
  * check, or say "not checked yet". The window asks for the first only when the Doctor is opened or re-run.
  */
 async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Promise<DoctorCheck[]> {
+  // R75: an entry that is switched off has no rows at all: nothing is looked up, nothing is started, nothing is said about it
+  if (!entry.enabled) return [];
   const base = `acp-${entry.id}`;
   const builtin = entry.id === BUILTIN_HERMES.id;
   const d = probe ? await detectAgent(entry, { ...deps, force: true }) : peekDetection(entry, deps.now);
@@ -94,7 +96,6 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Pr
     if (entry.contained) rows.push({ id: `${base}-contained`, label: 'Contained profile: not checked yet', ok: true, level: 'neutral', detail: NOT_YET });
     return rows;
   }
-  if (!d.checked) return [{ id: base, label: entry.label, ok: true, level: 'neutral', detail: `Not checked. ${entry.label} is switched off. Turn on "Offer Hermes in the model list" in Settings, Agent hosts, and Legion checks it.` }];
   if (!d.found) return [{ id: base, label: entry.label, ok: builtin, ...(builtin ? { level: 'neutral' as const } : {}), detail: d.detail }];
   const rows: DoctorCheck[] = [{ id: base, label: `${entry.label}: found`, ok: true, detail: d.path ?? entry.command }];
   if (!d.checkOk) {

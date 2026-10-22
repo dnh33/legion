@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { EventBus } from '../src/core/bus.js';
 import { SettingsError, SettingsService, validatePatch } from '../src/core/settings.js';
 import { defaultConfig, normalizeAcp } from '../src/shared/config.js';
-import { acpEntry, BUILTIN_HERMES, buildAcpView, containedArgs, entryLimits } from '../src/shared/acp-view.js';
+import { acpEntry, BUILTIN_HERMES, DEFAULT_HERMES, buildAcpView, containedArgs, entryLimits } from '../src/shared/acp-view.js';
 import type { AcpEntry } from '../src/shared/acp-view.js';
 
 const SWITCHES_OFF = { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false };
@@ -21,9 +21,10 @@ function svcOn(disk: unknown = { port: 4747 }) {
   return { svc, config, file };
 }
 
-test('a fresh config has the Hermes entry, all four switches off, 10 minutes, first use not seen', () => {
+test('a fresh config has the Hermes entry (off until the owner turns it on), all four switches off, 10 minutes, first use not seen', () => {
   const acp = defaultConfig().acp;
-  assert.deepEqual(acp.entries, [BUILTIN_HERMES]);
+  assert.deepEqual(acp.entries, [DEFAULT_HERMES]);
+  assert.deepEqual(DEFAULT_HERMES, { ...BUILTIN_HERMES, enabled: false });
   assert.deepEqual(BUILTIN_HERMES, { id: 'hermes', label: 'Hermes', command: 'hermes', args: ['acp'], tested: true, enabled: true });
   assert.deepEqual(acp.switches, SWITCHES_OFF);
   assert.equal(acp.watchdogMinutes, 10);
@@ -65,7 +66,8 @@ test('the built-in entry is always there and its command cannot be changed by th
   const n = normalizeAcp({ entries: [{ id: 'hermes', label: 'Mine', command: 'evil', args: ['x'], tested: false, enabled: false, contained: true }] });
   assert.equal(n.entries.length, 1);
   assert.deepEqual(n.entries[0], { ...BUILTIN_HERMES, enabled: false, contained: true }, 'only enabled and contained come from the file');
-  assert.deepEqual(normalizeAcp({ entries: [] }).entries, [BUILTIN_HERMES], 'a file that drops Hermes gets it back');
+  assert.deepEqual(normalizeAcp({ entries: [] }).entries, [DEFAULT_HERMES], 'a file that drops Hermes gets it back, off');
+  assert.deepEqual(normalizeAcp({ entries: [{ id: 'hermes', enabled: true }] }).entries, [BUILTIN_HERMES]);
 });
 
 test('a custom entry is forced untested, cannot be contained, and gets no Legion tools and no Full', () => {
@@ -94,9 +96,9 @@ test('containedArgs adds the legion profile when contained', () => {
 
 test('acpEntry looks an entry up by id in a config', () => {
   const cfg = defaultConfig();
-  assert.deepEqual(acpEntry(cfg, 'hermes'), BUILTIN_HERMES);
+  assert.deepEqual(acpEntry(cfg, 'hermes'), DEFAULT_HERMES);
   assert.equal(acpEntry(cfg, 'nope'), undefined);
-  assert.deepEqual(acpEntry({}, 'hermes'), BUILTIN_HERMES, 'a config with no acp block still knows the built-in entry');
+  assert.deepEqual(acpEntry({}, 'hermes'), DEFAULT_HERMES, 'a config with no acp block still knows the built-in entry, off');
   assert.equal(acpEntry({}, 'goose'), undefined);
 });
 

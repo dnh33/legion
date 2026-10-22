@@ -13,7 +13,7 @@ import { WebSearchService } from '../core/web-search/index.js';
 import { createWebSearchModule } from '../core/web-search/routes.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
+import { configPath, dataDir, loadConfig, migrateHermesOptIn, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
 import { killAllAgentsSync, registerLegionSecrets, sweepStaleAgents } from '../core/acp/process.js';
 import { revokeAllRunTokens } from '../core/acp/run-tokens.js';
@@ -135,6 +135,8 @@ async function main() {
   const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring, inheritMcp: () => config.claude.inheritMcp === true });
   // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
   const activity = createActivityLog({ dataDir: dataDir() });
+  // R75: Hermes is off until the owner turns it on. Someone who already used it (an agent on Hermes, or the Contained switch) keeps it on, once, before anything looks for it.
+  try { migrateHermesOptIn({ configPath: configPath(), config, agentsUseHermes: usesAgentHost(store.listAgents(), BUILTIN_HERMES.id) }); } catch (err) { log('hermes opt-in step failed', err); }
   // Hermes detection: the Doctor and the model list read it, and the two waits below come from what it read in Hermes's own settings (cached, so a card never waits on a probe)
   const agentHost: AgentHostDeps = { dataDir: dataDir(), entries: () => config.acp.entries, envKeep: () => gatesCore.envKeep(), inUse: (id) => usesAgentHost(store.listAgents(), id) };
   const seams = hostWaitSeams();

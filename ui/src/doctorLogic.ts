@@ -20,13 +20,13 @@ const isAgentRow = (c: Pick<DoctorCheck, 'id'>): boolean => c.id.startsWith('acp
  */
 export function keepProbedAgentRows(next: DoctorCheck[], prev: DoctorCheck[] | null): DoctorCheck[] {
   const keep = (prev ?? []).filter(isAgentRow);
-  if (keep.length === 0) return next;
+  // a fresh pass with no agent rows at all means Hermes was switched off (R75): the old rows go too
+  if (keep.length === 0 || !next.some(isAgentRow)) return next;
   const out: DoctorCheck[] = [];
   let placed = false;
   for (const c of next) {
     if (!isAgentRow(c)) { out.push(c); continue; }
     if (!placed) { out.push(...keep); placed = true; }
   }
-  if (!placed) out.push(...keep);
   return out;
 }

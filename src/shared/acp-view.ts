@@ -39,7 +39,10 @@ export interface AcpSwitches { disasterStop: boolean; modeMap: boolean; stripSki
 
 export interface AcpConfig { entries: AcpEntry[]; switches: AcpSwitches; watchdogMinutes: number; firstUseSeen: boolean }
 
+/** The Hermes entry as it is once the owner has turned "Offer Hermes" on. */
 export const BUILTIN_HERMES: AcpEntry = { id: 'hermes', label: 'Hermes', command: 'hermes', args: ['acp'], tested: true, enabled: true };
+/** The Hermes entry as Legion ships it: off until the owner turns "Offer Hermes" on in Settings, Agent hosts (nothing looks for it or starts it before that). */
+export const DEFAULT_HERMES: AcpEntry = { ...BUILTIN_HERMES, enabled: false };
 
 export const ACP_WATCHDOG_DEFAULT_MINUTES = 10;
 export const ACP_WATCHDOG_MIN_MINUTES = 1;
@@ -72,7 +75,7 @@ export function acpCostOf(e: AcpEntry, delta: TokenDelta): number | undefined {
 export function acpEntry(config: { acp?: AcpConfig }, id: string): AcpEntry | undefined {
   const found = config.acp?.entries.find((e) => e.id === id);
   if (found) return found;
-  return !config.acp && id === BUILTIN_HERMES.id ? BUILTIN_HERMES : undefined;
+  return !config.acp && id === BUILTIN_HERMES.id ? DEFAULT_HERMES : undefined;
 }
 
 /** What a check of the Contained Hermes profile (`legion`) found. `detail` is plain words for the window. */

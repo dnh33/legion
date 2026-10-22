@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { defaultBlenderConfig, normalizeBlender } from './blender.js';
 import type { BlenderConfig } from './blender.js';
 import { MAX_ROOM_BUDGET_USD } from './comms.js';
-import { ACP_WATCHDOG_DEFAULT_MINUTES, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, BUILTIN_HERMES } from './acp-view.js';
+import { ACP_WATCHDOG_DEFAULT_MINUTES, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, BUILTIN_HERMES, DEFAULT_HERMES } from './acp-view.js';
 import { ACP_MAX_STEPS_MAX, ACP_MAX_STEPS_MIN, ACP_MAX_TOKENS_MAX, ACP_MAX_TOKENS_MIN, ACP_PRICE_MAX } from './acp-view.js';
 import type { AcpConfig, AcpEntry, AcpPatch } from './acp-view.js';
 import { ENTRY_ID_RE } from './runtime.js';
@@ -73,7 +73,7 @@ const noControl = (s: string) => [...s].every((c) => c.charCodeAt(0) > 31 && c.c
 
 export function defaultAcp(): AcpConfig {
   return {
-    entries: [{ ...BUILTIN_HERMES, args: [...BUILTIN_HERMES.args] }],
+    entries: [{ ...DEFAULT_HERMES, args: [...DEFAULT_HERMES.args] }],
     switches: { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false },
     watchdogMinutes: ACP_WATCHDOG_DEFAULT_MINUTES,
     firstUseSeen: false,
@@ -129,7 +129,7 @@ export function normalizeAcp(raw: unknown): AcpConfig {
     if (v.id === BUILTIN_HERMES.id) {
       // Legion's own entry: the file may switch it off, contain it, or set its optional limits, nothing else.
       const hermes = out.entries[0]!;
-      hermes.enabled = v.enabled !== false;
+      hermes.enabled = v.enabled === true; // off until the owner turns it on
       if (typeof v.contained === 'boolean') hermes.contained = v.contained; else delete hermes.contained;
       Object.assign(hermes, entryLimitFields(v));
       continue;
@@ -446,6 +446,39 @@ function migrateConfigFile(p: string, raw: unknown): unknown {
   disk.migrations = [...done];
   try { writeConfigFile(p, JSON.stringify(disk, null, 2)); } catch { /* read-only: applied in memory this time, retried next start */ }
   return disk;
+}
+
+/** The id under which the one-time Hermes opt-in step is recorded in config.json "migrations". */
+export const HERMES_OPT_IN_MIGRATION = 'acp-hermes-opt-in';
+
+/**
+ * Hermes is off until the owner turns "Offer Hermes" on, but whoever already used it must not lose it at the update. Run once per config.json, at core
+ * start, when the agents are known: an agent on Hermes, or the Contained switch, counts as "already used" and writes `enabled: true`. An explicit
+ * `enabled` in the file (on or off) is never changed. Everyone else stays off. The step is recorded, so an owner who switches Hermes off later is
+ * not switched back on at the next start. Returns what it decided; an unreadable file is left alone.
+ */
+export function migrateHermesOptIn(o: { configPath: string; config: { acp: AcpConfig }; agentsUseHermes: boolean }): 'kept' | 'off' | 'explicit' | 'done' {
+  let disk: unknown;
+  try { disk = existsSync(o.configPath) ? JSON.parse(readFileSync(o.configPath, 'utf8')) : {}; } catch { return 'off'; }
+  if (!isRec(disk)) return 'off';
+  const done = Array.isArray(disk.migrations) ? disk.migrations.filter((m): m is string => typeof m === 'string') : [];
+  if (done.includes(HERMES_OPT_IN_MIGRATION)) return 'done';
+  const acp: Record<string, unknown> = isRec(disk.acp) ? disk.acp : {};
+  const entries: unknown[] = Array.isArray(acp.entries) ? acp.entries : [];
+  const entry = entries.find((e): e is Record<string, unknown> => isRec(e) && e.id === BUILTIN_HERMES.id);
+  const explicit = entry !== undefined && typeof entry.enabled === 'boolean';
+  const used = o.agentsUseHermes || entry?.contained === true;
+  const result = explicit ? 'explicit' : used ? 'kept' : 'off';
+  if (result === 'kept') {
+    if (entry) entry.enabled = true; else entries.push({ id: BUILTIN_HERMES.id, enabled: true });
+    acp.entries = entries;
+    disk.acp = acp;
+    const live = o.config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id);
+    if (live) live.enabled = true;
+  }
+  disk.migrations = [...done, HERMES_OPT_IN_MIGRATION];
+  try { writeConfigFile(o.configPath, JSON.stringify(disk, null, 2)); } catch { /* read-only: decided in memory this time, decided again next start */ }
+  return result;
 }
 
 /** Whatever the file held under "bsv", reduced to the one shape we accept (testnet only, boolean flag, an optional wallet URL string). */

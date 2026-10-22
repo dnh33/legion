@@ -1204,3 +1204,16 @@ test('W1b: when the reader fails the card says the check failed, not a vague "co
   r.broker.resolve(c.id, false);
   await r.done(t);
 });
+
+// ---------------------------------------------------------------- W3 / R75: Hermes is off until the owner turns it on
+
+test('R75: an agent on Hermes while "Offer Hermes" is off is refused before any process starts, in words that point to Settings, Agent hosts', async () => {
+  const r = rig({ entry: { enabled: false } });
+  const t = await r.run();
+  const end = await r.done(t);
+  assert.equal(end.status, 'error');
+  assert.match(end.error ?? '', /Offer Hermes/);
+  assert.match(end.error ?? '', /Settings, Agent hosts/);
+  assert.equal(existsSync(r.reportFile), false, 'the agent program was never started');
+  assert.equal(r.claudeRuns.length, 0, 'and Claude did not run instead');
+});

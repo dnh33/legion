@@ -814,3 +814,40 @@ test('R68: settings load once at start, and the screens that read Hermes switche
   const hook = src('ui/src/acp/useModeMap.ts');
   assert.match(hook, /known \? on : undefined/);
 });
+
+// ---------------------------------------------------------------- W3 / R75: Hermes is off until the owner turns it on
+
+test('R75: Agent hosts while Hermes is off: found or not found from the lookup alone, the switch, no check button, Contained waits for the switch', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const base = { checking: false, contained: null, containedBusy: false, onSwitch() {}, onWatchdog() {}, onContained() {}, onToggle() {}, onRecheck() {} };
+    const found = unesc(r.hosts({ ...base, acp: acp({ enabled: false, detection: { state: 'found', checked: false, detail: 'Hermes is on your computer.' } }) }));
+    assert.ok(found.includes('Hermes found on your computer'));
+    assert.doesNotMatch(found, /Check again|Checking|not checked yet|version/i);
+    assert.match(found, /<input type="checkbox"[^>]*><span><b>Offer Hermes<\/b>/, 'the switch is there and not checked');
+    assert.equal((found.match(/checked=""/g) ?? []).length, 0, 'nothing is on: Offer Hermes, the four switches and Contained are all off');
+    assert.match(found, /<input type="checkbox"[^>]*disabled=""[^>]*><span><b>Contained<\/b><em>Turn on Offer Hermes first\.<\/em>/);
+    assert.match(found, /does not start Hermes or run any check on it/);
+    assert.doesNotMatch(found, NO_DASH);
+    const missing = unesc(r.hosts({ ...base, acp: acp({ enabled: false, detection: { state: 'missing', checked: true, detail: 'Hermes is not installed. Install it from hermes-agent.nousresearch.com, then check again.' } }) }));
+    assert.ok(missing.includes('Hermes not found on your computer'));
+    assert.doesNotMatch(missing, /Install it from|is not installed/, 'no install talk and no Doctor words while it is off');
+    const on = unesc(r.hosts({ ...base, acp: acp({ enabled: true }) }));
+    assert.match(on, /Check again/);
+    assert.match(on, /You can pick Hermes for an agent/);
+  } finally { cleanup(); }
+});
+
+test('R75: the Doctor refresh drops the old Hermes rows when a fresh pass has none (Hermes was switched off)', () => {
+  const prev = [{ id: 'claude', ok: true, label: 'c', detail: '' }, { id: 'acp-hermes', ok: true, label: 'Hermes: found', detail: 'p' }];
+  const next = [{ id: 'claude', ok: true, label: 'c', detail: '' }];
+  assert.deepEqual(keepProbedAgentRows(next, prev), next);
+});
+
+test('R75: the Agent hosts page runs the full check only while Offer Hermes is on, and a typed /model acp:hermes cannot get around the model list', () => {
+  const page = src('ui/src/settings/AgentHostsSection.tsx');
+  assert.match(page, /useEffect\(\(\) => \{ if \(hermesOn\) void check\(\); else setChecking\(false\); \}, \[hermesOn\]\)/);
+  assert.doesNotMatch(page, /useEffect\(\(\) => \{ alive\.current = true; void check\(\)/);
+  assert.match(page, /\.then\(\(\) => loadCatalog\(\)\)/, 'the model list is read again after the switch changes');
+  assert.match(src('ui/src/commands.ts'), /isAgentHostModel\(value\) && s\.catalog && !\(s\.catalog\.hosts \?\? \[\]\)\.some/);
+});

@@ -160,8 +160,8 @@ export function hostWaitSeams(): { permissionWaitMs: (entry: AcpEntry) => number
 /** The built-in entry is the only Hermes: normalizeAcp never lets a custom entry take its id. Hermes's own subcommands go to it alone. */
 export const isHermes = (e: AcpEntry): boolean => e.id === BUILTIN_HERMES.id;
 
-/** Probed: the built-in entry, and a custom entry only once the owner switched it on (a custom command is an arbitrary program). */
-export const isProbed = (e: AcpEntry): boolean => isHermes(e) || e.enabled;
+/** Probed: an entry only once the owner switched it on (R75: Hermes is off until "Offer Hermes" is turned on; a custom command is an arbitrary program). */
+export const isProbed = (e: AcpEntry): boolean => e.enabled;
 
 /** The answer of the last check of this entry while it is fresh (10 minutes), else nothing. */
 const freshHit = (entry: AcpEntry, now: () => number): AgentDetection | undefined => {
@@ -183,6 +183,18 @@ export function peekDetection(entry: AcpEntry, now: () => number = Date.now): Ag
   if (!hit || now() - hit.at >= DETECT_TTL_MS) { hit = { at: now(), value: resolveOrExplain(entry) }; lookups.set(key, hit); }
   const looked = hit.value;
   return 'path' in looked ? { found: true, path: looked.path, checked: false, checkOk: false, pending: true, detail: `${entry.label} has not been checked yet.` } : looked.detection;
+}
+
+/**
+ * What Settings may show for an entry that is switched off (R75): is the program on PATH. A file lookup only, no process, and the answer is
+ * kept for as long as a detection lasts. Nothing else is known or asked.
+ */
+export function lookupAgent(entry: AcpEntry, now: () => number = Date.now): AgentDetection {
+  const key = keyOf(entry);
+  let hit = lookups.get(key);
+  if (!hit || now() - hit.at >= DETECT_TTL_MS) { hit = { at: now(), value: resolveOrExplain(entry) }; lookups.set(key, hit); }
+  const looked = hit.value;
+  return 'path' in looked ? { found: true, path: looked.path, checked: false, checkOk: false, pending: true, detail: `${entry.label} is on your computer.` } : looked.detection;
 }
 
 /** The catalog's view of an entry: on PATH, and whether a fresh check said it does not start. */

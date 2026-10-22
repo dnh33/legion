@@ -353,8 +353,24 @@ async function call(base: string, body: unknown, headers: Record<string, string>
   return { status: res.status, json: (await res.json()) as Record<string, unknown> };
 }
 
+test('R75: POST /api/acp/contained is refused while Hermes is off, and starts nothing', async () => {
+  const f = makeFakes();
+  const s = await start(f.ctx);
+  const admin = { Authorization: `Bearer ${TOKEN}`, 'X-Legion-Admin': TEST_ADMIN };
+  try {
+    writeFileSync(log, '');
+    for (const action of ['check', 'setup']) {
+      const r = await call(s.base, { action }, admin);
+      assert.equal(r.status, 409, action);
+      assert.match(String(r.json.error ?? ''), /Offer Hermes/);
+    }
+    assert.deepEqual(readFileSync(log, 'utf8').trim(), '', 'no Hermes command ran');
+  } finally { await s.close(); }
+});
+
 test('POST /api/acp/contained: check and setup answer for the app window only', async () => {
   const f = makeFakes();
+  (f.ctx.config as { acp?: unknown }).acp = { entries: [BUILTIN_HERMES], switches: {}, watchdogMinutes: 10, firstUseSeen: false };
   const s = await start(f.ctx);
   const admin = { Authorization: `Bearer ${TOKEN}`, 'X-Legion-Admin': TEST_ADMIN };
   try {

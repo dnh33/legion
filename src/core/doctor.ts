@@ -12,7 +12,7 @@ import { buildChildEnv, connectorSettings, isPlanOnly, planOnlySettings } from '
 import type { QueryFn } from './engine.js';
 import { claudeHomeDir } from './armory/discover.js';
 import { keyStoreDoctor, type KeyStoreStatus } from './providers/secrets.js';
-import { BUILTIN_HERMES } from '../shared/acp-view.js';
+import { BUILTIN_HERMES, DEFAULT_HERMES } from '../shared/acp-view.js';
 import type { AgentHostDeps } from './acp/detect.js';
 import { agentDoctorRows } from './acp/doctor-rows.js';
 
@@ -151,7 +151,7 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
   if (deps.agentHost) {
     const host = { ...deps.agentHost, stripSkipFlags: deps.agentHost.stripSkipFlags ?? (() => config.acp?.switches?.stripSkipFlags === true) };
     try {
-      const entries = host.entries ? host.entries() : (config.acp?.entries ?? [BUILTIN_HERMES]);
+      const entries = host.entries ? host.entries() : (config.acp?.entries ?? [DEFAULT_HERMES]);
       checks.push(...await agentDoctorRows(entries, host, { probe: deps.probeAgents === true }));
     } catch (e) {
       checks.push({ id: `acp-${BUILTIN_HERMES.id}`, label: BUILTIN_HERMES.label, ok: false, detail: e instanceof Error ? e.message : String(e) });

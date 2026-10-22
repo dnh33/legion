@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Catalog, CatalogCommand, CatalogHost, CatalogModel, LegionConfig } from '../shared/types.js';
-import { BUILTIN_HERMES, type AcpEntry } from '../shared/acp-view.js';
+import { DEFAULT_HERMES, type AcpEntry } from '../shared/acp-view.js';
 import { peekAgent, type AgentHostDeps } from './acp/detect.js';
 import { buildChildEnv, connectorSettings } from './engine.js';
 import { assessRun } from './folder-trust.js';
@@ -42,7 +42,7 @@ export async function getCatalog(deps: CatalogDeps, opts?: { force?: boolean }):
  */
 function agentHostRows(host: AgentHostDeps, config: LegionConfig): CatalogHost[] {
   let entries: AcpEntry[];
-  try { entries = host.entries ? host.entries() : (config.acp?.entries ?? [BUILTIN_HERMES]); } catch { return []; }
+  try { entries = host.entries ? host.entries() : (config.acp?.entries ?? [DEFAULT_HERMES]); } catch { return []; }
   const rows: CatalogHost[] = [];
   for (const e of entries) {
     if (!e.enabled) continue;

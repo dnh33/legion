@@ -2946,7 +2946,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         ? 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.'
         : `The agent host "${entryId ?? model.slice('acp:'.length)}" is not set up. Choose another model for this agent in Settings.`
       : !entry.enabled
-        ? `${entry.label} is switched off in Settings. Turn on "Offer Hermes in the model list" in Settings, Agent hosts, or choose another model for this agent.`
+        ? (entry.id === 'hermes' ? `${entry.label} is off. Turn on "Offer Hermes" in Settings, Agent hosts, or choose another model for this agent.` : `${entry.label} is switched off in Settings. Choose another model for this agent.`)
         : 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.';
     return { subtype: 'error_during_execution', isError: true, errorText: text };
   }
