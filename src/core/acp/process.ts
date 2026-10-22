@@ -213,13 +213,19 @@ export async function killPid(child: Killable): Promise<void> {
   });
 }
 
+/** Test seam: the helper run and the direct kill. */
+export interface KillSyncDeps { platform?: NodeJS.Platform; run?: typeof spawnSync; kill?: (pid: number) => void }
+
 /** With no time left (`timeoutMs` 0) the process is ended directly (TerminateProcess on Windows), without starting taskkill. */
-export function killPidSync(child: Killable, timeoutMs = 5000): void {
+export function killPidSync(child: Killable, timeoutMs = 5000, deps: KillSyncDeps = {}): void {
   if (!isLive(child)) return;
-  if (process.platform !== 'win32' || timeoutMs <= 0) { try { process.kill(child.pid, 'SIGKILL'); } catch { /* gone */ } return; }
-  const r = spawnSync(sys32('taskkill.exe'), ['/PID', String(child.pid), '/F'], { stdio: 'ignore', windowsHide: true, shell: false, timeout: timeoutMs });
-  // taskkill cut short by the time limit (a busy computer) or failing for another reason: end the process directly, the agent must not outlive the core
-  if (r.error || r.status !== 0) { try { process.kill(child.pid, 'SIGKILL'); } catch { /* gone */ } }
+  const direct = deps.kill ?? ((pid: number) => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } });
+  if ((deps.platform ?? process.platform) !== 'win32' || timeoutMs <= 0) { direct(child.pid); return; }
+  const r = (deps.run ?? spawnSync)(sys32('taskkill.exe'), ['/PID', String(child.pid), '/F'], { stdio: 'ignore', windowsHide: true, shell: false, timeout: timeoutMs });
+  // Only when the helper did not run to its end (it could not start, or the time limit cut it short, a busy computer) the process is ended
+  // directly: the agent must not outlive the core. Any answer from a finished helper, "not found" included, stands: the process is gone
+  // and its PID may belong to another program by now.
+  if (r.error) direct(child.pid);
 }
 
 // ---------------------------------------------------------------- pid file and sweep

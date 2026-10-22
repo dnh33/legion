@@ -744,3 +744,19 @@ test('F9: a one-shot command that is still running when the core stops is ended 
   await within(done, 8000, 'the one-shot command settled');
   assert.ok(!alive(pid), 'the child is gone');
 });
+
+test('killPidSync (Windows): a "not found" answer from the helper never falls back to a direct kill, a spawn error or a timeout does', () => {
+  const calls: string[] = [];
+  const mk = (r: { error?: Error; status: number | null }) => ({
+    platform: 'win32' as NodeJS.Platform,
+    run: () => r as never,
+    kill: (pid: number) => { calls.push(`kill ${pid}`); },
+  });
+  const live = { pid: 4242, exitCode: null, signalCode: null };
+  killPidSync(live, 5000, mk({ status: 128 })); // taskkill: process not found (already gone, the pid may belong to someone else by now)
+  killPidSync(live, 5000, mk({ status: 1 }));
+  assert.deepEqual(calls, [], 'a finished helper (any exit code) is the answer');
+  killPidSync(live, 5000, mk({ error: Object.assign(new Error('spawnSync taskkill.exe ETIMEDOUT'), { code: 'ETIMEDOUT' }), status: null }));
+  killPidSync(live, 5000, mk({ error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }), status: null }));
+  assert.deepEqual(calls, ['kill 4242', 'kill 4242']);
+});
