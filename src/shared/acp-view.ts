@@ -81,7 +81,15 @@ export interface AcpContainedStatus { exists: boolean; signedIn: boolean; policy
 export interface AcpContainedSetup { ok: boolean; detail: string; signInCommand: string }
 
 /** What the last check found for one entry. `unknown` until a check has run. */
-export interface AcpDetection { state: 'unknown' | 'found' | 'missing' | 'error'; version?: string; detail?: string }
+export interface AcpDetection {
+  state: 'unknown' | 'found' | 'missing' | 'error';
+  version?: string;
+  detail?: string;
+  /** False: on the PATH but not started yet (the window asks for a full check when Settings opens). */
+  checked?: boolean;
+  /** Hermes's own approvals mode, read from its settings. Absent until a check read it. */
+  approvalsMode?: 'manual' | 'smart' | 'off' | 'unknown';
+}
 
 export interface AcpEntryView {
   id: string;

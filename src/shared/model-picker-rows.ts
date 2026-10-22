@@ -7,6 +7,8 @@
  * its open state; a head toggles the same way with or without a query. No section label repeats a head's name.
  */
 
+import { HERMES_GROUP, HERMES_ITEM_NOTE, HERMES_NOTE } from './acp-copy.js';
+
 export interface PickerModel { value: string; displayName: string; description?: string; /** The model id the alias resolves to (claude-opus-5-5); a query matches it too. */ resolvedModel?: string }
 export interface PickerGroup { id: string; label: string; providerId: string; models: string[] }
 
@@ -17,6 +19,8 @@ export interface PickerInput {
   autoDescription: string;
   current: PickerModel[];
   older: PickerModel[];
+  /** Agent hosts the catalog lists (Hermes when it is found and on). Their own group, never a provider group. */
+  hosts?: Array<{ value: string; label: string; entryId: string }>;
   /** Creator groups of the switched-on providers (providerCreatorGroups). Model ids are the provider's own ids. */
   groups: PickerGroup[];
   /** `<provider>:<model>` values the owner has configured: a group holding one opens by default. */
@@ -32,7 +36,9 @@ export interface PickerInput {
 export interface PickerItem { kind: 'item'; id: string; value: string; displayName: string; description?: string; title?: string }
 export interface PickerHead { kind: 'head'; id: string; label: string; count: number; open: boolean }
 export interface PickerLabel { kind: 'label'; text: string }
-export type PickerRow = PickerItem | PickerHead | PickerLabel;
+/** Words under a label, not a stop for the keys. */
+export interface PickerNote { kind: 'note'; text: string }
+export type PickerRow = PickerItem | PickerHead | PickerLabel | PickerNote;
 
 export interface PickerLayout {
   /** The scrolling list: Auto, the Current models label and rows, then the creator groups. */
@@ -61,6 +67,13 @@ export function buildPickerLayout(input: PickerInput): PickerLayout {
     for (const m of currentHits) rows.push({ kind: 'item', id: m.value, value: m.value, displayName: m.displayName, description: m.description });
   }
 
+  // Hermes: its own group with the honest note. Built only from what the catalog lists as found and on; the model list of Hermes is never used.
+  for (const h of input.hosts ?? []) {
+    if (!hit(h.label, h.value, HERMES_GROUP)) continue;
+    rows.push({ kind: 'label', text: h.label }, { kind: 'note', text: HERMES_NOTE });
+    rows.push({ kind: 'item', id: h.value, value: h.value, displayName: h.label, description: HERMES_ITEM_NOTE });
+  }
+
   let older: PickerLayout['older'];
   const olderHits = input.older.filter((m) => hit(m.displayName, m.value, m.resolvedModel));
   if (olderHits.length) {
@@ -85,7 +98,7 @@ export function buildPickerLayout(input: PickerInput): PickerLayout {
   }
 
   const nav: Array<PickerItem | PickerHead> = [];
-  for (const r of rows) if (r.kind !== 'label') nav.push(r);
+  for (const r of rows) if (r.kind !== 'label' && r.kind !== 'note') nav.push(r);
   if (older) {
     nav.push(older.head);
     nav.push(...older.rows);

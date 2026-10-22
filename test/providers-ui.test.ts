@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 
+import { runtimeOf, splitPrefixed } from '../src/shared/runtime.js';
 const STORE = readFileSync(join(process.cwd(), 'ui/src/providers/providersStore.ts'), 'utf8');
 const SECTION = readFileSync(join(process.cwd(), 'ui/src/providers/ProvidersSection.tsx'), 'utf8');
 
@@ -14,7 +15,7 @@ function helpers() {
   assert.ok(a > 0 && aEnd > a && b > aEnd);
   const code = (STORE.slice(a, aEnd) + STORE.slice(b)).replace(/export /g, '').replace(/state\.view/g, 'null');
   const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  return new Function(`${js}\nreturn { needsConfirmation, providerModelGroups, providerModelLabel, modelsStale };`)() as {
+  return new Function('runtimeOf', 'splitPrefixed', `${js}\nreturn { needsConfirmation, providerModelGroups, providerModelLabel, modelsStale };`)(runtimeOf, splitPrefixed) as {
     modelsStale: (v: any, now: number) => boolean;
     needsConfirmation: (p: Record<string, unknown>) => boolean;
     providerModelGroups: (v: any) => Array<{ id: string; label: string; models: string[] }>;

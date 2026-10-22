@@ -37,7 +37,7 @@ export function overrideAllowed(agentModel: string | undefined, requested: strin
 }
 
 export function overrideRefusal(agentName: string, agentModel: string | undefined, requested: string): string {
-  if (offClaude(agentModel) || offClaude(requested)) return `${agentName} runs on ${agentModel ?? 'its own setting'}; a per-task model cannot change the provider or the model. Leave model out.`;
+  if (offClaude(agentModel) || offClaude(requested)) return `${agentName} runs on ${agentModel ?? 'its own setting'}; a per-task model cannot change where it runs or which model it uses. Leave model out.`;
   const ceil = rankModel(modelRank(agentModel));
   return `Model "${requested}" is above ${agentName}'s own model setting (${agentModel ?? 'auto'}, so at most ${ceil}). Ask for ${ceil} or lower, or leave model out.`;
 }

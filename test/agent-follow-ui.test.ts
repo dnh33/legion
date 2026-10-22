@@ -166,7 +166,7 @@ async function loadUi(state: Record<string, unknown>, gv: GatesView | null): Pro
         b.onResolve({ filter: /^(\.\.\/)*store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onLoad({ filter: /^store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const useStore = (sel) => sel(globalThis.__st);
-          export const saveSettings = async () => {}; export const errText = (e) => (e && e.message) ? e.message : String(e);
+          export const saveSettings = async () => {}; export const loadSettings = async () => {}; export const errText = (e) => (e && e.message) ? e.message : String(e);
           export const saveAgent = async () => {}; export const removeAgent = async () => {};
           export const closeOverlays = () => {}; export const openSettings = () => {}; export const loadCatalog = async () => {};
           export const toast = () => {}; export const openEditor = () => {}; export const selectAgent = () => {};` }));

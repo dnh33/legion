@@ -1,4 +1,5 @@
 import type { Project } from '../../src/shared/projects';
+import type { AcpContainedSetup, AcpContainedStatus } from '../../src/shared/acp-view';
 import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
@@ -223,7 +224,10 @@ export const api = {
   desktop: (agentId: string) => request<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),
   screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
   approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
-  decide: (id: string, allow: boolean, site?: 'always' | 'goal' | 'once') => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, site ? { allow, site } : { allow }),
+  decide: (id: string, allow: boolean, site?: 'always' | 'goal' | 'once') => request<{ ok: boolean; note?: string }>('POST', `/api/approvals/${encodeURIComponent(id)}`, site ? { allow, site } : { allow }),
+  /** An agent host card (Hermes): the answer names one of the options the card shows. `allow` is only the card's own reading of that option. */
+  decideOption: (id: string, allow: boolean, optionId: string) => request<{ ok: boolean; note?: string }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow, optionId }),
+  acpContained: (action: 'check' | 'setup') => request<AcpContainedStatus & Partial<AcpContainedSetup>>('POST', '/api/acp/contained', { action }),
   /** The away settings (0.3.0): per-project wait, pause, budget, notification level, the app's quiet hours and when each project was last looked at. */
   away: () => request<AwayView>('GET', '/api/away'),
   patchAwayProject: (id: string, b: Record<string, unknown>) => request<unknown>('PATCH', `/api/away/projects/${encodeURIComponent(id)}`, b),

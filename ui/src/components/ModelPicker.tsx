@@ -4,6 +4,8 @@ import { AUTO_INFO, groupModels, modelLabel, providerCreatorGroups } from '../mo
 import { loadProviders, refreshStaleModels, retryModels, useProviders } from '../providers/providersStore';
 import { buildPickerLayout, nextHighlightId, resolveHighlight, sameQuery, type PickerHead, type PickerItem } from '../../../src/shared/model-picker-rows';
 import { Icon } from './icons';
+import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
+import { firstUseOutcome, needsFirstUse } from '../../../src/shared/acp-copy';
 
 /** A DOM id for a row: option ids must be unique and free of spaces, slashes and colons. */
 const optionId = (id: string) => `mp-opt-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
@@ -23,6 +25,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   const { current, older, fallback } = groupModels(catalog);
   const providers = (view?.providers ?? []).filter((p) => p.enabled && p.models.length > 0);
   const groups = providerCreatorGroups(providers.map((p) => ({ id: p.id, label: p.label, models: p.models })));
+  const hosts = catalog?.hosts ?? [];
   const configured = providers.flatMap((p) => p.configuredModels.map((m) => `${p.id}:${m}`));
   const [olderOpen, setOlderOpen] = useState(() => older.some((m) => m.value === model));
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
@@ -43,7 +46,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   /** Set by a key (arrows, typing) and on mount: only then does the highlight scroll into view. A hover never scrolls the list. */
   const scrollOnKey = useRef(true);
 
-  const layout = buildPickerLayout({ query: q, selected: model, autoDescription: AUTO_INFO, current, older, groups, configured, olderOpen, groupOpen, queryOpen });
+  const layout = buildPickerLayout({ query: q, selected: model, autoDescription: AUTO_INFO, current, older, groups, configured, olderOpen, groupOpen, queryOpen, hosts });
   const { nav } = layout;
   const hl = resolveHighlight(nav, hlId, q, model);
   const cur = hl >= 0 ? nav[hl] : undefined;
@@ -67,7 +70,20 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
     scrollOnKey.current = true; setQ(v); setHlId(undefined); setQueryOpen({});
   };
   const move = (d: 1 | -1) => { const id = nextHighlightId(nav, hlId, q, model, d); if (id !== undefined) { scrollOnKey.current = true; setHlId(id); } };
-  const pick = (v: string) => { setModelChoice(v); onClose(); };
+  // the first pick of Hermes shows its card; Use Hermes takes it, Not now leaves the agent as it was
+  const firstUse = useFirstUse();
+  const [pendingHost, setPendingHost] = useState<string | null>(null);
+  const pick = (v: string) => {
+    if (needsFirstUse(v, firstUse.seen)) { setPendingHost(v); return; }
+    setModelChoice(v); onClose();
+  };
+  const answerFirstUse = (choice: 'use' | 'notNow') => {
+    const o = firstUseOutcome(choice, model, pendingHost ?? model);
+    void firstUse.markSeen();
+    setPendingHost(null);
+    if (o.model !== model) setModelChoice(o.model);
+    onClose();
+  };
 
   useEffect(() => {
     if (!catalog && !loading) void loadCatalog();
@@ -120,6 +136,8 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   return (
     <div className="popover model-pop" ref={box} tabIndex={-1}
       onKeyDown={(e) => {
+        // while the Hermes card is open its own buttons take the keys; Escape is Not now
+        if (pendingHost) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); answerFirstUse('notNow'); } return; }
         if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
         else if (e.key === 'Enter') { e.preventDefault(); if (cur?.kind === 'head') toggleHead(cur); else if (cur?.kind === 'item') pick(cur.value); }
@@ -138,12 +156,14 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
             <div className="pop-list" ref={list} onScroll={syncEdge}>
               {layout.rows.map((r, k) => r.kind === 'label'
                 ? <div key={`label-${k}`} className="mp-group mp-label" role="presentation">{r.text}</div>
+                : r.kind === 'note' ? <div key={`note-${k}`} className="mp-note" role="presentation">{r.text}</div>
                 : r.kind === 'head' ? headRow(r) : itemRow(r))}
               {layout.older && <>{headRow(layout.older.head)}{layout.older.rows.map(itemRow)}</>}
             </div>
           </div>
         )}
       </div>
+      {pendingHost && <AcpFirstUseView onUse={() => answerFirstUse('use')} onNotNow={() => answerFirstUse('notNow')} />}
       {noMatch && <div className="mp-empty" role="status">No models match “{q.trim()}”.</div>}
       <div className="pop-foot">
         {loading && !catalog ? <span>Loading models{'…'}</span>

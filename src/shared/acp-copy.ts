@@ -1,0 +1,95 @@
+/**
+ * The words and the small pure rules of the Hermes parts of the window (picker group, thread badge, first-use card, Hermes card, Settings,
+ * mode line, usage line). One file so the window, the core and the tests read the same text. Plain words, no dashes, "your computer".
+ */
+import { runtimeOf } from './runtime.js';
+import type { AcpSwitches } from './acp-view.js';
+
+/** What an agent host card says when the agent stops waiting for it (Hermes denies a request nobody answers after 300 s). */
+export const ACP_CLOSED_NOTE = 'The agent stopped waiting';
+/** What a card says when it is answered after it closed: nothing was sent, nothing was run. */
+export const ACP_LATE_NOTE = 'Hermes had already stopped waiting, so nothing was run.';
+
+/** The one honest sentence about what Hermes does. It is the picker note, the first-use text and the badge tooltip. */
+export const HERMES_NOTE = 'Hermes uses its own tools on your computer: files, commands and the web. Legion shows the questions Hermes asks you, but cannot see most of what it does.';
+export const HERMES_BADGE = 'Hermes \u00b7 acts on your computer';
+export const HERMES_GROUP = 'Hermes';
+export const HERMES_ITEM_NOTE = 'Uses the model you set in Hermes.';
+
+export const FIRST_USE = { title: 'Before you use Hermes', use: 'Use Hermes', notNow: 'Not now' } as const;
+export const HERMES_ASKS = 'Hermes asks';
+export const HERMES_NO_COST = 'Hermes does not report cost.';
+export const NOT_APPLIED_TO_HERMES = 'Not applied to Hermes agents';
+
+/** The four switches: label, one plain line. All off by default. */
+export const SWITCH_COPY: Record<keyof AcpSwitches, { label: string; hint: string }> = {
+  disasterStop: { label: 'Stop disaster commands', hint: 'Legion refuses a command that could wipe a drive or your home folder before you are asked.' },
+  modeMap: { label: "Match Legion's mode", hint: "Legion sets Hermes's mode from the mode of the Legion agent. Off: Hermes decides what to ask you." },
+  stripSkipFlags: { label: "Ignore Hermes's skip-approval settings", hint: 'Legion starts Hermes without the settings that make it approve its own commands.' },
+  answerOnce: { label: 'Answer each request once', hint: "Hides Hermes's allow for the session and always options, so every request needs its own answer." },
+};
+export const SWITCH_ORDER: ReadonlyArray<keyof AcpSwitches> = ['disasterStop', 'modeMap', 'stripSkipFlags', 'answerOnce'];
+
+export const CUSTOM_ENTRIES_NOTE = 'Other agent hosts are added in the config file, not here.';
+
+/** A Hermes agent: its model value starts with `acp:`. */
+export const isAgentHostModel = (m: string | undefined): boolean => runtimeOf(m) === 'acp';
+
+const MODE_WORDS: Record<string, string> = { manual: 'Manual', smart: 'Smart', off: 'Off' };
+
+/**
+ * The fixed line that replaces a Legion mode picker for a Hermes agent. With the switch off Legion does not touch Hermes's mode, so the line says
+ * so and names Hermes's own mode (read from its settings; "not read yet" before a check). With it on, the Legion picker shows and this line sits under it.
+ */
+export function hermesModeLine(o: { modeMap: boolean; hermesMode?: string }): string {
+  if (o.modeMap) return "Legion sets Hermes's mode from this";
+  const mode = o.hermesMode && MODE_WORDS[o.hermesMode] ? MODE_WORDS[o.hermesMode] : undefined;
+  return `Hermes decides what to ask you. Its mode: ${mode ?? 'not read yet'}`;
+}
+export const MATCH_MODE_LINK = "Match Legion's mode";
+
+/** The usage line of a Hermes task: tokens when known, then the fixed no-cost sentence (unless the owner entered prices and a cost exists). */
+export function hermesUsageLine(t: { tokenUsage?: { inputTokens?: number; outputTokens?: number; unknown?: boolean }; costUsd?: number | null }): string {
+  const u = t.tokenUsage;
+  const tokens = u?.inputTokens != null ? `${u.inputTokens} in / ${u.outputTokens ?? 0} out` : 'tokens not reported';
+  const unknown = u?.unknown && u.inputTokens != null ? ' (not all counted)' : '';
+  return `${tokens}${unknown}. ${t.costUsd == null ? HERMES_NO_COST : `Cost from your prices: $${t.costUsd.toFixed(4)}.`}`;
+}
+
+/** Time left on an agent host card. `ended` once it reaches zero: the card then says the agent stopped waiting. */
+export function cardCountdown(expiresAt: string | undefined, now: number): { ended: boolean; text: string } | undefined {
+  if (!expiresAt) return undefined;
+  const ms = Date.parse(expiresAt) - now;
+  if (!Number.isFinite(ms)) return undefined;
+  if (ms <= 0) return { ended: true, text: ACP_CLOSED_NOTE };
+  const s = Math.ceil(ms / 1000);
+  return { ended: false, text: `Closes in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` };
+}
+
+/** The Hermes model value label for the pill and the editor: `acp:hermes` -> Hermes, `acp:hermes/x` -> Hermes · x. */
+export function acpModelLabel(value: string | undefined, hostLabel: (entryId: string) => string | undefined = () => undefined): string | undefined {
+  if (runtimeOf(value) !== 'acp') return undefined;
+  const rest = value!.slice('acp:'.length);
+  const slash = rest.indexOf('/');
+  const id = slash < 0 ? rest : rest.slice(0, slash);
+  const label = hostLabel(id) ?? (id ? id[0]!.toUpperCase() + id.slice(1) : 'Agent');
+  return slash < 0 ? label : `${label} \u00b7 ${rest.slice(slash + 1)}`;
+}
+
+/**
+ * What stands in for a Legion mode picker. Not a Hermes agent, or Match Legion's mode on: the normal picker (with the line under it for Hermes).
+ * Hermes with the switch off: no picker at all, a fixed line (Legion does not set Hermes's mode, so a picker would promise something untrue).
+ */
+export function agentModeControl(o: { model: string | undefined; modeMap: boolean; hermesMode?: string }): { kind: 'picker'; line?: string } | { kind: 'fixed'; line: string } {
+  if (!isAgentHostModel(o.model)) return { kind: 'picker' };
+  const line = hermesModeLine({ modeMap: o.modeMap, ...(o.hermesMode ? { hermesMode: o.hermesMode } : {}) });
+  return o.modeMap ? { kind: 'picker', line } : { kind: 'fixed', line };
+}
+
+/** The first pick of Hermes shows the card once (`firstUseSeen`). */
+export const needsFirstUse = (model: string | undefined, firstUseSeen: boolean): boolean => isAgentHostModel(model) && !firstUseSeen;
+
+/** Use Hermes takes the pick; Not now leaves the agent as it was. Either way the card has been met and is not shown again. */
+export function firstUseOutcome(choice: 'use' | 'notNow', current: string, picked: string): { model: string; seen: true } {
+  return { model: choice === 'use' ? picked : current, seen: true };
+}

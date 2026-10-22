@@ -12,6 +12,7 @@ import { stricterMode } from './permission-mode.js';
 import type { RunMode } from './permission-mode.js';
 import { longestWaitSeconds, startAskTimer } from './away/policy.js';
 import type { AskPolicy, AskTimer } from './away/policy.js';
+import { ACP_CLOSED_NOTE, ACP_LATE_NOTE } from '../shared/acp-copy.js';
 
 /** The run's own task list (TodoWrite, and the TaskCreate/Update/List/Get tools that replaced it) is notes, not an action: never carded. */
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Task', 'Agent']);
@@ -208,10 +209,7 @@ export function describeWaited(elapsedMs: number, baseMs: number): string {
 
 interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer; alwaysRefusal?: string; /** Closes the card when the agent host stops waiting (a card raised inside one of its tool calls). */ deadline?: ReturnType<typeof setTimeout>; /** Stops listening for the call's cancel. */ detach?: () => void }
 
-/** What an agent host card says when the agent stops waiting for it (Hermes denies a request nobody answers after 300 s). */
-export const ACP_CLOSED_NOTE = 'The agent stopped waiting';
-/** What a card says when it is answered after it closed: nothing was sent, nothing was run. */
-export const ACP_LATE_NOTE = 'Hermes had already stopped waiting, so nothing was run.';
+export { ACP_CLOSED_NOTE, ACP_LATE_NOTE } from '../shared/acp-copy.js';
 
 /** How an agent host card ended: an option of the card, a plain no, or closed with no answer (deadline, cancel, the turn ended). */
 export type AcpAnswer = { kind: 'option'; optionId: string } | { kind: 'denied' } | { kind: 'closed'; note: string };

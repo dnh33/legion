@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { ACP_MAX_STEPS_MAX, ACP_MAX_STEPS_MIN, ACP_MAX_TOKENS_MAX, ACP_MAX_TOKENS_MIN, ACP_PRICE_MAX, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, buildAcpView } from '../shared/acp-view.js';
 import type { AcpEntryPatch, AcpPatch, AcpSwitches } from '../shared/acp-view.js';
+import { peekDetection, toAcpDetection } from './acp/detect.js';
 import { applyAcpPatch, COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeAcp, normalizeGates, writeConfigFile } from '../shared/config.js';
 import { ENTRY_ID_RE } from '../shared/runtime.js';
 import { budgetCap } from '../shared/continue.js';
@@ -283,7 +284,7 @@ export class SettingsService {
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
       compaction: { ...(c.compaction ?? DEFAULT_COMPACTION), contextWindowOverride: c.compaction?.contextWindowOverride ?? null },
       gates: normalizeGates(c.gates ?? DEFAULT_GATES),
-      acp: buildAcpView(normalizeAcp(c.acp)),
+      acp: buildAcpView(normalizeAcp(c.acp), (e) => toAcpDetection(peekDetection(e))),
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
       ...(this.deps.install ? { install: this.deps.install } : {}),
     };

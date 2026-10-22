@@ -18,6 +18,7 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
 import type { SettingsSection } from './components/settingsNav';
+import { keepProbedAgentRows } from './doctorLogic';
 export type { SettingsSection };
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
@@ -291,6 +292,8 @@ export function handleEvent(e: LegionEvent) {
       setState((s) => (s.approvals.some((a) => a.id === e.approval.id) ? {} : { approvals: [...s.approvals, e.approval] }));
       break;
     case 'approval.resolved':
+      // an agent host card that closed with no answer (the agent stopped waiting): say so, in the card's own words
+      if (e.note) toast(e.note, 'info');
       setState((s) => ({
         approvals: s.approvals.filter((a) => a.id !== e.approvalId),
         denials: noteDenial(s.denials, s.approvals.find((a) => a.id === e.approvalId), e.allowed),
@@ -376,7 +379,9 @@ export function init() {
 export async function runDoctor(probe = false) {
   setState({ doctorLoading: true });
   try {
-    const doctor = await api.doctor(probe);
+    const fresh = await api.doctor(probe);
+    // a refresh that did not start Hermes keeps the rows an earlier probe filled in while the window shows them
+    const doctor = !probe && getState().doctorOpen ? keepProbedAgentRows(fresh, getState().doctor) : fresh;
     setState({ doctor, doctorLoading: false });
   } catch (e) {
     setState({ doctorLoading: false });
@@ -573,7 +578,16 @@ export function settleApproval(id: string, allow: boolean, announce = true) {
 
 export async function decide(id: string, allow: boolean, site?: 'always' | 'goal' | 'once') {
   settleApproval(id, allow, false); // optimistic; the sound waits for the send
-  try { await api.decide(id, allow, site); tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+  try { const r = await api.decide(id, allow, site); if (r.ok === false && r.note) toast(r.note, 'info'); else tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+}
+
+/**
+ * Answer an agent host card (Hermes) with one of its own options. `allow` is only how the card reads that option for the core's checks; the core
+ * sends the option the owner chose. An answer after the agent stopped waiting is not sent: the core says why and the window shows it.
+ */
+export async function decideOption(id: string, allow: boolean, optionId: string) {
+  settleApproval(id, allow, false);
+  try { const r = await api.decideOption(id, allow, optionId); if (r.ok === false && r.note) toast(r.note, 'info'); else tellDecision(allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 /**

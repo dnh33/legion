@@ -1,0 +1,56 @@
+import { useEffect, useRef, useState } from 'react';
+import type { ApprovalRequest } from '../../../src/shared/types';
+import { HERMES_ASKS, cardCountdown } from '../../../src/shared/acp-copy';
+import { decideOption } from '../store';
+import { useCardArm, useArmUi } from '../a11y/keyClock';
+import { Icon } from './icons';
+
+/** Every second while a card has a deadline. The count itself is not announced to a screen reader: only the end is. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+  return now;
+}
+
+/**
+ * The card for a request Hermes made. The exact command, path or diff is `summary`; the buttons are Hermes's own options, named as Hermes named them.
+ * Nothing here is remembered, and an option's kind is read only to tell the core whether the option allows. The card shows the time Hermes still
+ * waits and, at the end, that the agent stopped waiting: an answer then would be refused, so no button is left.
+ */
+export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
+  const tick = useNow(!!a.expiresAt && now === undefined);
+  const left = cardCountdown(a.expiresAt, now ?? tick);
+  const ended = left?.ended === true;
+  const arm = useCardArm(`approval:${a.id}`);
+  const { armed, refresh } = useArmUi(arm);
+  const box = useRef<HTMLDivElement>(null);
+  // the focused button goes away at the end: keep focus on the card, not on the page
+  useEffect(() => {
+    if (ended && box.current?.contains(document.activeElement) && document.activeElement !== box.current) box.current.focus();
+  }, [ended]);
+  const answer = (optionId: string, kind: string) => (e: React.MouseEvent) => {
+    if (!arm.click(e.detail, performance.now())) { refresh(); return; }
+    void decideOption(a.id, kind.startsWith('allow'), optionId);
+  };
+  return (
+    <div ref={box} className="approval acp-card" tabIndex={0} data-approval-id={a.id} data-armed={armed ? 'true' : 'false'} role="group" aria-label={HERMES_ASKS}
+      onFocus={(e) => { arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); refresh(); }}>
+      <div className="approval-head">
+        <Icon name="shield" size={14} />
+        <span>{HERMES_ASKS}</span>
+        {a.acpTitle && <b className="approval-tool">{a.acpTitle}</b>}
+      </div>
+      <pre className="approval-sum">{a.summary}</pre>
+      <div className="approval-actions">
+        {!ended && (a.acpOptions ?? []).map((o) => (
+          <button key={o.optionId} type="button" className={o.kind === 'allow_once' ? 'btn primary' : 'btn'} onClick={answer(o.optionId, o.kind)}>{o.name}</button>
+        ))}
+        {left && <span className={`approval-note acp-left${ended ? ' is-ended' : ''}`} role={ended ? 'status' : undefined}>{left.text}</span>}
+      </div>
+    </div>
+  );
+}

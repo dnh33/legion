@@ -1247,10 +1247,10 @@ export class Engine {
     const offClaudeAgent = runtimeOf(agent.model) !== 'claude';
     if (picked && offClaudeAgent && decision.model !== agent.model) {
       // a bot's pick never moves a provider or agent host agent to another model or to Claude (that would send the owner's data somewhere else)
-      decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own provider setting` };
+      decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own model setting` };
     } else if (picked && !offClaudeAgent && runtimeOf(decision.model) !== 'claude') {
       const own = rankModel(modelRank(agent.model));
-      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot pick a provider; using ${own}` };
+      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot move it off Claude; using ${own}` };
     } else if (picked && modelRank(decision.model) > modelRank(agent.model)) {
       const capped = rankModel(modelRank(agent.model));
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };

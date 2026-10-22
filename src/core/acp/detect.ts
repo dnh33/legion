@@ -25,7 +25,7 @@
  *  - auth.adopt_external_logins defaults to true (config_defaults.py:1775): Hermes borrows the Claude Code login.
  */
 import { tmpdir } from 'node:os';
-import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
+import { BUILTIN_HERMES, type AcpDetection, type AcpEntry } from '../../shared/acp-view.js';
 import { VERSION } from '../../shared/config.js';
 import { redact } from '../log/redact.js';
 import { asJson, CONTAINED_PROFILE, why, type Out } from './contained.js';
@@ -177,6 +177,15 @@ export function peekDetection(entry: AcpEntry, now: () => number = Date.now): Ag
 export function peekAgent(entry: AcpEntry, now: () => number = Date.now): { found: boolean; startsOk?: boolean } {
   const d = peekDetection(entry, now);
   return { found: d.found, ...(d.found && !d.pending ? { startsOk: d.checkOk } : {}) };
+}
+
+/** What the window may know about an entry: the same facts, as the settings view carries them. */
+export function toAcpDetection(d: AgentDetection): AcpDetection {
+  const state: AcpDetection['state'] = !d.found ? (d.checked ? 'missing' : 'unknown') : d.checked && !d.checkOk ? 'error' : 'found';
+  return {
+    state, checked: d.checked, ...(d.version ? { version: d.version } : {}),
+    ...(d.approvalsMode && d.approvalsMode !== 'unknown' ? { approvalsMode: d.approvalsMode } : {}), detail: d.detail,
+  };
 }
 
 export function detectAgent(entry: AcpEntry, deps: Partial<AgentHostDeps> & DetectOptions = {}): Promise<AgentDetection> {

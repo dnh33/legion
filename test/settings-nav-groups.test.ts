@@ -9,15 +9,15 @@ test('groups and their members, in order', () => {
     ['Get started', ['claude']],
     ['Your agents', ['gates', 'armory', 'house']],
     ['Staying informed', ['spending', 'notifications']],
-    ['Connections', ['mcp', 'github', 'providers', 'connections', 'boat', 'blender']],
+    ['Connections', ['mcp', 'github', 'providers', 'hosts', 'connections', 'boat', 'blender']],
     ['Advanced', ['accessibility', 'logs', 'compaction']],
     [null, ['about']],
   ]);
 });
 
 test('flat NAV follows the group order and keeps every section once', () => {
-  assert.deepEqual(NAV.map((n) => n.id), ['claude', 'gates', 'armory', 'house', 'spending', 'notifications', 'mcp', 'github', 'providers', 'connections', 'boat', 'blender', 'accessibility', 'logs', 'compaction', 'about']);
-  assert.equal(new Set(NAV.map((n) => n.id)).size, 16);
+  assert.deepEqual(NAV.map((n) => n.id), ['claude', 'gates', 'armory', 'house', 'spending', 'notifications', 'mcp', 'github', 'providers', 'hosts', 'connections', 'boat', 'blender', 'accessibility', 'logs', 'compaction', 'about']);
+  assert.equal(new Set(NAV.map((n) => n.id)).size, 17);
 });
 
 test('labels and hints survive; Notifications hint updated', () => {
