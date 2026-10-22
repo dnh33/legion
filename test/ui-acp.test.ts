@@ -929,8 +929,8 @@ test('W4 M4: the Contained profile has one name in user text and docs; `legion` 
 
 // ---------------------------------------------------------------- W4 M8: a custom agent host is never Hermes
 
-const AIDER_HOSTS = [{ value: 'acp:aider', label: 'Aider', entryId: 'aider' }];
-const stAider = (agents: unknown[]) => ({ ...st(agents, acp({ id: 'aider', label: 'Aider', command: 'aider-acp', args: [] })), catalog: { hosts: AIDER_HOSTS, models: [], commands: [], fetchedAt: '' } });
+const ORBIT_HOSTS = [{ value: 'acp:orbit', label: 'Orbit', entryId: 'orbit' }];
+const stOrbit = (agents: unknown[]) => ({ ...st(agents, acp({ id: 'orbit', label: 'Orbit', command: 'orbit-acp', args: [] })), catalog: { hosts: ORBIT_HOSTS, models: [], commands: [], fetchedAt: '' } });
 
 test('W4 M8: the words that name Hermes take the host\'s own name, and Hermes keeps its exact text', () => {
   assert.equal(agentHostNote('Hermes'), HERMES_NOTE);
@@ -941,36 +941,36 @@ test('W4 M8: the words that name Hermes take the host\'s own name, and Hermes ke
   assert.equal(hostModeChip('Hermes'), HERMES_MODE_CHIP);
   assert.equal(notAppliedTo('Hermes'), NOT_APPLIED_TO_HERMES);
   assert.equal(hostPromptPlaceholder('Hermes'), HERMES_PROMPT_PLACEHOLDER);
-  const words = [agentHostNote('Aider'), agentHostOwnTools('Aider'), hostBadge('Aider'), hostNoCost('Aider'), hostAsks('Aider'), hostModeChip('Aider'), notAppliedTo('Aider'), hostPromptPlaceholder('Aider'), hostItemNote('Aider'),
-    hermesModeLine({ modeMap: false, name: 'Aider' }), hermesModeLine({ modeMap: true, name: 'Aider' }), hermesUsageLine({ status: 'done', name: 'Aider' })];
-  for (const w of words) { assert.ok(w.includes('Aider'), w); assert.doesNotMatch(w, /Hermes/, w); assert.doesNotMatch(w, NO_DASH); }
-  assert.equal(hostNameOf('acp:aider/x', (id) => (id === 'aider' ? 'Aider' : undefined)), 'Aider');
+  const words = [agentHostNote('Orbit'), agentHostOwnTools('Orbit'), hostBadge('Orbit'), hostNoCost('Orbit'), hostAsks('Orbit'), hostModeChip('Orbit'), notAppliedTo('Orbit'), hostPromptPlaceholder('Orbit'), hostItemNote('Orbit'),
+    hermesModeLine({ modeMap: false, name: 'Orbit' }), hermesModeLine({ modeMap: true, name: 'Orbit' }), hermesUsageLine({ status: 'done', name: 'Orbit' })];
+  for (const w of words) { assert.ok(w.includes('Orbit'), w); assert.doesNotMatch(w, /Hermes/, w); assert.doesNotMatch(w, NO_DASH); }
+  assert.equal(hostNameOf('acp:orbit/x', (id) => (id === 'orbit' ? 'Orbit' : undefined)), 'Orbit');
   assert.equal(hostNameOf('acp:hermes'), 'Hermes');
   assert.equal(isHermesModel('acp:hermes/m'), true);
-  assert.equal(isHermesModel('acp:aider'), false);
+  assert.equal(isHermesModel('acp:orbit'), false);
   assert.equal(isHermesModel('sonnet'), false);
-  assert.equal(needsFirstUse('acp:aider', false), false, 'the first-use card is about Hermes only');
+  assert.equal(needsFirstUse('acp:orbit', false), false, 'the first-use card is about Hermes only');
   assert.equal(needsFirstUse('acp:hermes', false), true);
 });
 
 test('W4 M8: a custom agent host reads as itself in the card, the badge, the usage line, the picker and the editor, never as Hermes', async () => {
-  const lay = buildPickerLayout(baseInput({ hosts: AIDER_HOSTS }));
+  const lay = buildPickerLayout(baseInput({ hosts: ORBIT_HOSTS }));
   assert.ok(!JSON.stringify(lay.rows).includes('Hermes'), 'no Hermes word in the picker group of another host');
-  const { r, cleanup } = await loadUi(stAider([AGENT('x', { model: 'acp:aider' })]));
+  const { r, cleanup } = await loadUi(stOrbit([AGENT('x', { model: 'acp:orbit' })]));
   try {
-    const a = { id: 'apr_c', taskId: 't', agentId: 'x', toolName: 'acp_execute', summary: 'ls', input: {}, at: '', noRemember: true, acpTitle: 'Run', acpLabel: 'Aider',
+    const a = { id: 'apr_c', taskId: 't', agentId: 'x', toolName: 'acp_execute', summary: 'ls', input: {}, at: '', noRemember: true, acpTitle: 'Run', acpLabel: 'Orbit',
       acpOptions: [{ optionId: 'o1', name: 'Allow once', kind: 'allow_once' }, { optionId: 'o3', name: 'Deny', kind: 'reject_once' }] };
     const card = unesc(r.card(a, 1_000_000));
-    assert.ok(card.includes('Aider asks') && !card.includes('Hermes'), 'the card names its host');
+    assert.ok(card.includes('Orbit asks') && !card.includes('Hermes'), 'the card names its host');
     const closed = unesc(r.closedCard({ card: a, note: ACP_CLOSED_NOTE }));
-    assert.ok(closed.includes('Aider asks') && !closed.includes('Hermes'));
-    const b = unesc(r.badge({ runtime: 'Aider', model: 'acp:aider' }));
-    assert.ok(b.includes('Aider \u00b7 acts on your computer') && !b.includes('Hermes'));
-    const u = unesc(r.usage({ runtime: 'Aider', model: 'acp:aider', tokenUsage: { inputTokens: 5, outputTokens: 2 } }));
-    assert.ok(u.includes('Aider does not report cost.') && !u.includes('Hermes'));
+    assert.ok(closed.includes('Orbit asks') && !closed.includes('Hermes'));
+    const b = unesc(r.badge({ runtime: 'Orbit', model: 'acp:orbit' }));
+    assert.ok(b.includes('Orbit \u00b7 acts on your computer') && !b.includes('Hermes'));
+    const u = unesc(r.usage({ runtime: 'Orbit', model: 'acp:orbit', tokenUsage: { inputTokens: 5, outputTokens: 2 } }));
+    assert.ok(u.includes('Orbit does not report cost.') && !u.includes('Hermes'));
     const e = unesc(r.editor('x'));
-    assert.ok(e.includes('Aider uses its own tools on your computer'), 'the host note');
-    assert.ok(e.includes('<optgroup label="Aider">'), 'its own group in the select');
+    assert.ok(e.includes('Orbit uses its own tools on your computer'), 'the host note');
+    assert.ok(e.includes('<optgroup label="Orbit">'), 'its own group in the select');
     assert.doesNotMatch(e, /Hermes/, 'nothing in the editor names Hermes');
   } finally { cleanup(); }
 });
@@ -993,7 +993,7 @@ test('W4 M11: the Folder field sits in one place under the model row, after the 
 
 test('W4 M13: code comments in the Hermes files carry no ledger numbers or task names (the public repo has no such ledger)', () => {
   const files = ['src/bin/legion-core.ts', 'src/core/acp/contained.ts', 'src/core/acp/detect.ts', 'src/core/acp/doctor-rows.ts', 'src/core/acp/session.ts', 'src/core/acp/run-helpers.ts', 'src/core/acp/map.ts',
-    'src/core/approvals.ts', 'src/core/doctor.ts', 'src/core/server.ts', 'src/shared/acp-copy.ts', 'src/shared/types.ts', 'ui/src/commands.ts', 'ui/src/components/AcpCard.tsx', 'ui/src/doctorLogic.ts',
+    'src/core/approvals.ts', 'src/core/doctor.ts', 'src/core/engine.ts', 'src/core/server.ts', 'src/shared/acp-copy.ts', 'src/shared/types.ts', 'ui/src/commands.ts', 'ui/src/components/AcpCard.tsx', 'ui/src/doctorLogic.ts',
     'ui/src/gates/GatesSection.tsx', 'ui/src/gates/gatesLogic.ts', 'ui/src/settings/AgentHostsSection.tsx', 'ui/src/store.ts', 'ui/src/acp/HermesBadge.tsx'];
   for (const f of files) assert.doesNotMatch(src(f), /\bR[0-9]{2}\b|\(R[0-9]{1,2}\)|Task [0-9]+ note|Task 12 |live check 2026/, `${f} names a ledger entry`);
   assert.doesNotMatch(src('src/core/acp/contained.ts'), /Qwen/, 'no product name but Hermes and Claude');

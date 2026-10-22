@@ -56,6 +56,8 @@ Every Hermes run is marked as touched by outside content ("tainted") from its fi
 
 By default Legion passes Hermes's own permission options through unchanged. The card shows the exact command, path or change, then one button per option, named as Hermes named it. Legion does not change Hermes's mode and does not remember an answer.
 
+The card shows the whole command or change in a box that scrolls. Text past 20,000 characters is cut, the card says how many characters it cut, and it offers only the No options, so you are never asked to allow text you could not read. A card shows at most 8 of Hermes's options (the first allow once and reject once are always kept), and a long option name is cut on its button with the whole name on hover. The A key answers a card only when it has exactly one allow option and that option allows once; D always says no.
+
 A card also carries a line such as "This touches Legion's own settings" when a request names Legion's data folder or one of its settings files, or a line about Hermes's own settings when it names Hermes's folder. This is a note on the card. The question is still yours to answer.
 
 ### The four switches
