@@ -222,12 +222,13 @@ test('the profile does not borrow the login of another program: the setting is w
   assert.equal(st.signedIn, false, 'a borrowed login does not count as its own sign-in');
 });
 
-test('the detail text claims only what the read-back proves', async () => {
+test('the detail text claims only what the read-back proves, in these exact words', async () => {
+  const CLAIM = 'Hermes reports that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow the Claude Code or Codex logins. Tools you add to that profile yourself are not checked.';
   const up = await setUpContained(BUILTIN_HERMES);
   const st = await containedStatus(BUILTIN_HERMES);
   for (const t of [up.detail, st.detail]) {
-    assert.doesNotMatch(t, /only file tools|has only/i, t);
-    assert.match(t, /tool list/i, t);
+    assert.ok(t.includes(CLAIM), t);
+    assert.doesNotMatch(t, /only file tools|has only|other programs/i, t);
   }
 });
 
@@ -237,6 +238,12 @@ test('a missing credential is said as what Hermes lists, not as a flat "not sign
   assert.equal(st.signedIn, false);
   assert.match(st.detail, /lists no credential/i);
   assert.doesNotMatch(st.detail, /not signed in/i);
+  assert.match(st.detail, /main Hermes sign-in/, 'it says a main Hermes sign-in would count too');
+  writeFileSync(join(state, 'profiles', 'legion', 'signed-in'), '');
+  const signed = await containedStatus(BUILTIN_HERMES);
+  assert.equal(signed.signedIn, true);
+  assert.match(signed.detail, /Hermes can use a credential for it/);
+  assert.match(signed.detail, /may be your main Hermes sign-in/, 'the profile may be using the main Hermes sign-in');
 });
 
 test('a profile show that fails for another reason is reported as a Hermes failure, not as "not set up"', async () => {
@@ -296,6 +303,43 @@ test('a long value Hermes reports back is cut before it is shown', async () => {
   const up = await setUpContained(BUILTIN_HERMES);
   assert.equal(up.ok, false);
   assert.ok(up.detail.length < 300, `${up.detail.length} characters`);
+});
+
+// ---------------------------------------------------------------- fix round 2
+
+test('a profile create that hits its own limit says that limit, not 60 seconds', async () => {
+  const run = async (_c: string, args: string[]) => {
+    if (args[1] === 'show') return { code: 1, stdout: '', stderr: "Error: Profile 'legion' does not exist.", timedOut: false };
+    return { code: null, stdout: '', stderr: '', timedOut: true };
+  };
+  const r = await setUpContained(BUILTIN_HERMES, { run });
+  assert.equal(r.ok, false);
+  assert.match(r.detail, /within 180 seconds/);
+  assert.doesNotMatch(r.detail, /60 seconds/);
+});
+
+test('a set up that starts while a check is running waits for the check', async () => {
+  const seen: string[][] = [];
+  let open!: () => void;
+  const gate = new Promise<void>((r) => { open = r; });
+  const run = async (_c: string, args: string[]) => {
+    seen.push(args);
+    if (seen.length === 1) await gate; // the check's first command is slow
+    const json = args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : '["file"]';
+    return { code: 0, stdout: args.includes('--json') ? json : '', stderr: '', timedOut: false };
+  };
+  const check = containedStatus(BUILTIN_HERMES, { run });
+  const up = setUpContained(BUILTIN_HERMES, { run });
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  const startedEarly = seen.length;
+  open(); // always let the check finish, so a failing assertion cannot leave the test waiting
+  assert.equal(startedEarly, 1, 'the set up has not started a command while the check is still running');
+  const [st, done] = await Promise.all([check, up]);
+  assert.equal(st.policyOk, true, st.detail);
+  assert.equal(done.ok, true, done.detail);
+  const firstSet = seen.findIndex((c) => c.includes('set'));
+  const lastCheck = seen.findIndex((c) => c.includes('auth') && c.includes('list'));
+  assert.ok(lastCheck >= 0 && firstSet > lastCheck, 'every command of the check ran before the first write');
 });
 
 // ---------------------------------------------------------------- the route

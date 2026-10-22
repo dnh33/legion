@@ -1,6 +1,6 @@
 /**
  * The "Contained" Hermes setup: a Hermes profile named `legion` that Legion creates and checks, so Hermes runs with its own approval
- * mode, a tool list set to file tools and no borrowed logins, apart from the owner's own Hermes home. It is an option; the default stays
+ * mode, a tool list set to file tools and the Claude Code and Codex logins not borrowed, apart from the owner's own Hermes home. It is an option; the default stays
  * the owner's own Hermes. The read-back proves the three settings and nothing more: tools, servers or plugins the owner adds to that
  * profile later are not checked.
  *
@@ -21,7 +21,11 @@
  *  - `auth add` needs a provider name, and a bare `setup` is the whole wizard (terminal, messaging, tools). The command shown to the owner
  *    is `setup model`, the single provider-and-model section (hermes_cli/subcommands/setup.py:11-17).
  *  - By default Hermes borrows the Claude Code login (agent/credential_sources.py:32-45), and the two then share one rotating token family.
- *    `auth.adopt_external_logins false` stops that, so `auth list` shows only the profile's own sign-ins. The key is a boolean in the
+ *    `auth.adopt_external_logins false` stops that for the Claude Code and Codex CLI logins only (agent/credential_sources.py:24-45).
+ *    A Copilot token from `gh auth token` or the environment and a Qwen CLI login are still seeded (agent/credential_pool.py:2657-2725), and
+ *    a named profile with no credential of its own for a provider falls back on the main Hermes sign-in (hermes_cli/auth.py:948-972), which
+ *    the owner accepts (R53). So "signed in" means Hermes can use a credential for the profile, not that it is the profile's own.
+ *    The key is a boolean in the
  *    defaults (hermes_cli/config_defaults.py:1775), so `config set` turns the word `false` into a real false (hermes_cli/config.py:3198-3228)
  *    and `config get --json` prints `false`.
  */
@@ -43,18 +47,19 @@ const POLICY = [
   { key: 'auth.adopt_external_logins', set: 'false', want: false },
 ] as const;
 /** What the read-back proves, said once. Nothing is claimed about tools, servers or plugins the owner adds to the profile. */
-const POLICY_HOLDS = 'Hermes reports that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow logins from other programs. Tools you add to that profile yourself are not checked.';
+const POLICY_HOLDS = 'Hermes reports that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow the Claude Code or Codex logins. Tools you add to that profile yourself are not checked.';
 
 type Run = typeof runAgentCli;
 export interface ContainedDeps { run?: Run }
 
-interface Out { code: number | null; stdout: string; stderr: string; timedOut: boolean }
+interface Out { code: number | null; stdout: string; stderr: string; timedOut: boolean; /** the limit this command ran with, set by `runner` */ limitMs?: number }
 
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 const clean = (s: string) => s.replace(ANSI, '');
+const timedOutText = (r: Out) => `Hermes did not answer within ${Math.round((r.limitMs ?? CONTAINED_TIMEOUT_MS) / 1000)} seconds`;
 /** The one line that says what went wrong, from Hermes's own words, redacted and short. */
 function why(r: Out): string {
-  if (r.timedOut) return 'Hermes did not answer within 60 seconds';
+  if (r.timedOut) return timedOutText(r);
   const lines = clean(`${r.stderr}\n${r.stdout}`).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const line = lines.find((l) => /error|✗|not set|does not exist|refus|cannot|could not|no such/i.test(l)) ?? lines[lines.length - 1] ?? `Hermes stopped with code ${r.code ?? 'unknown'}`;
   return redact(line).slice(0, 200);
@@ -62,7 +67,7 @@ function why(r: Out): string {
 /** No exit code: Hermes did not start, or it was stopped at the limit. Either way nothing more is run. */
 const notStarted = (r: Out) => r.code === null;
 const startFailure = (r: Out) => r.timedOut
-  ? 'Hermes did not answer within 60 seconds. Try again.'
+  ? `${timedOutText(r)}. Try again.`
   : `Legion could not start Hermes: ${why(r)}. Check that Hermes is installed on your computer.`;
 
 /** The command the owner runs once to sign the profile in. */
@@ -74,7 +79,7 @@ export function signInCommand(entry: Pick<AcpEntry, 'command'>): string {
 function runner(deps: ContainedDeps | undefined) {
   const run = deps?.run ?? runAgentCli;
   // a neutral working folder: nothing of the owner's project or of Legion's own folder
-  return (entry: AcpEntry, args: string[], timeoutMs = CONTAINED_TIMEOUT_MS) => run(entry.command, args, { timeoutMs, cwd: tmpdir() || homedir() });
+  return async (entry: AcpEntry, args: string[], timeoutMs = CONTAINED_TIMEOUT_MS): Promise<Out> => ({ ...(await run(entry.command, args, { timeoutMs, cwd: tmpdir() || homedir() })), limitMs: timeoutMs });
 }
 
 /** `--json` prints the value on the last line; a notice Hermes prints before it is skipped. */
@@ -136,14 +141,17 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   if (!found.exists) return { exists: false, signedIn: false, policyOk: false, detail: 'The Legion profile has not been set up yet.' };
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return { exists: true, signedIn: false, policyOk: false, detail: startFailure(policy.startFailed) };
-  // Signed in = Hermes lists at least one credential for the profile (its own sign-in or a key in its environment). With
-  // auth.adopt_external_logins false the list no longer holds a login borrowed from another program. Legion never sees the key.
+  // Signed in = Hermes lists at least one credential it can use for the profile: its own sign-in, a key in its environment, or the main
+  // Hermes sign-in it falls back on (R53). With auth.adopt_external_logins false the Claude Code and Codex logins are not in the list.
+  // Legion never sees the key.
   const auth = await go(entry, ['-p', CONTAINED_PROFILE, 'auth', 'list']);
   const signedIn = auth.code === 0 && /\(\d+ credentials?\)/.test(clean(auth.stdout));
   const policyOk = policy.problems.length === 0;
   const parts = [
     policyOk ? POLICY_HOLDS : policy.problems.join(' '),
-    signedIn ? 'Hermes lists a credential for it.' : `Hermes lists no credential for it yet. Run ${signInCommand(entry)} in a terminal to sign in.`,
+    signedIn
+      ? 'Hermes can use a credential for it. That may be your main Hermes sign-in, which a Legion profile can fall back on.'
+      : `Hermes lists no credential for it yet (a main Hermes sign-in would count too). Run ${signInCommand(entry)} in a terminal to sign in.`,
   ];
   return { exists: true, signedIn, policyOk, detail: parts.join(' ') };
 }
@@ -154,7 +162,11 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
  */
 export function setUpContained(entry: AcpEntry, deps?: ContainedDeps): Promise<AcpContainedSetup> {
   if (inflightSetUp) return inflightSetUp;
-  const p = doSetUp(entry, deps).finally(() => { if (inflightSetUp === p) inflightSetUp = undefined; });
+  const p = (async () => {
+    // a set up that starts while a check runs waits for it, so the check never reads half-written settings
+    if (inflightCheck) await inflightCheck.catch(() => undefined);
+    return doSetUp(entry, deps);
+  })().finally(() => { if (inflightSetUp === p) inflightSetUp = undefined; });
   inflightSetUp = p;
   return p;
 }
