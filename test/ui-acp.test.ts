@@ -851,3 +851,12 @@ test('R75: the Agent hosts page runs the full check only while Offer Hermes is o
   assert.match(page, /\.then\(\(\) => loadCatalog\(\)\)/, 'the model list is read again after the switch changes');
   assert.match(src('ui/src/commands.ts'), /isAgentHostModel\(value\) && s\.catalog && !\(s\.catalog\.hosts \?\? \[\]\)\.some/);
 });
+
+test('M7: while a Hermes task is still running, the usage line does not claim "tokens not reported" (tokens arrive when a turn ends)', async () => {
+  const { hermesUsageLine, HERMES_NO_COST } = await import('../src/shared/acp-copy.js');
+  assert.equal(hermesUsageLine({ status: 'running' }), HERMES_NO_COST);
+  assert.equal(hermesUsageLine({ status: 'queued' }), HERMES_NO_COST);
+  assert.match(hermesUsageLine({ status: 'done' }), /^tokens not reported\./);
+  assert.match(hermesUsageLine({ status: 'running', tokenUsage: { inputTokens: 5, outputTokens: 2 } }), /^5 in \/ 2 out\./);
+  assert.match(hermesUsageLine({}), /^tokens not reported\./, 'no status known: the old wording');
+});

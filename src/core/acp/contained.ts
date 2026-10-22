@@ -22,7 +22,7 @@
  *    is `setup model`, the single provider-and-model section (hermes_cli/subcommands/setup.py:11-17).
  *  - By default Hermes borrows the Claude Code login (agent/credential_sources.py:32-45), and the two then share one rotating token family.
  *    `auth.adopt_external_logins false` stops that for the Claude Code login and one other coding CLI's login only (agent/credential_sources.py:24-45).
- *    A GitHub token from `gh auth token` or the environment and a Qwen CLI login are still seeded (agent/credential_pool.py:2657-2725), and
+ *    A GitHub token from `gh auth token` or the environment and another coding tool's login are still seeded (agent/credential_pool.py:2657-2725), and
  *    a named profile with no credential of its own for a provider falls back on the main Hermes sign-in (hermes_cli/auth.py:948-972), which
  *    the owner accepts (R53). So "signed in" means Hermes can use a credential for the profile, not that it is the profile's own.
  *    The key is a boolean in the

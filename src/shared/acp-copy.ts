@@ -100,11 +100,14 @@ export function threadOnHermes(task: { runtime?: string; model?: string; request
 }
 
 /** The usage line of a Hermes task: tokens when known, then the fixed no-cost sentence (unless the owner entered prices and a cost exists). */
-export function hermesUsageLine(t: { tokenUsage?: { inputTokens?: number; outputTokens?: number; unknown?: boolean }; costUsd?: number | null }): string {
+export function hermesUsageLine(t: { status?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number; unknown?: boolean }; costUsd?: number | null }): string {
   const u = t.tokenUsage;
+  const noCost = t.costUsd == null ? HERMES_NO_COST : `Cost from your prices: $${t.costUsd.toFixed(4)}.`;
+  // tokens arrive when a turn ends: until then a running task has nothing to report yet, which is not the same as "not reported"
+  if (u?.inputTokens == null && (t.status === 'running' || t.status === 'queued')) return noCost;
   const tokens = u?.inputTokens != null ? `${u.inputTokens} in / ${u.outputTokens ?? 0} out` : 'tokens not reported';
   const unknown = u?.unknown && u.inputTokens != null ? ' (not all counted)' : '';
-  return `${tokens}${unknown}. ${t.costUsd == null ? HERMES_NO_COST : `Cost from your prices: $${t.costUsd.toFixed(4)}.`}`;
+  return `${tokens}${unknown}. ${noCost}`;
 }
 
 /** Time left on an agent host card. `ended` once it reaches zero: the card then says the agent stopped waiting. */
