@@ -252,7 +252,7 @@ test('render: a Hermes agent in the editor gets the Hermes note, no provider not
     assert.ok(h.includes('Hermes decides what to ask you. Its mode: Smart'));
     assert.ok(h.includes("Match Legion's mode"), 'a link to the switch');
     assert.match(h, /Folder<input/, 'a Hermes agent chooses its folder first');
-    assert.ok(h.indexOf('Folder<input') < h.indexOf('System prompt'), 'the folder comes first');
+    assert.match(h, /Folder<input/, 'a Hermes agent has a Folder field');
     const c = unesc(r.editor('c'));
     assert.match(c, /Approvals<select/);
     assert.doesNotMatch(c, /Folder<input/);
@@ -674,7 +674,7 @@ test('I7: the card sends the option Hermes named, verbatim; the first-use flows 
   assert.doesNotMatch(src('ui/src/components/ModelPicker.tsx') + src('ui/src/components/AgentEditor.tsx'), /runDoctor\(true\)|api\.doctor/);
   // R39: the folder travels in the save body for a Hermes agent
   assert.match(ed, /\.\.\.\(onHost && \(cwd\.trim\(\) \|\| existing\?\.cwd\) \? \{ cwd: cwd\.trim\(\) \} : \{\}\)/);
-  assert.match(ed, /const needFolder = onHost && !cwd\.trim\(\) && !inProject;/);
+  assert.doesNotMatch(ed, /needFolder/, 'the folder field has one place and no longer moves when a path is typed');
 });
 
 // ---------------------------------------------------------------- wiring pins and copy rules
@@ -973,4 +973,20 @@ test('W4 M8: a custom agent host reads as itself in the card, the badge, the usa
     assert.ok(e.includes('<optgroup label="Aider">'), 'its own group in the select');
     assert.doesNotMatch(e, /Hermes/, 'nothing in the editor names Hermes');
   } finally { cleanup(); }
+});
+
+test('W4 M11: the Folder field sits in one place under the model row, after the name, whether or not a path is typed, and the typed path stays', async () => {
+  const empty = await loadUi(st([AGENT('h', { model: 'acp:hermes' })]));
+  const typed = await loadUi(st([AGENT('h', { model: 'acp:hermes', cwd: 'D:\work\site' })]));
+  try {
+    const a = unesc(empty.r.editor('h'));
+    const b = unesc(typed.r.editor('h'));
+    for (const h of [a, b]) {
+      assert.ok(h.indexOf('Name<input') < h.indexOf('Folder<input'), 'after the name');
+      assert.ok(h.indexOf('<optgroup label="Hermes">') < h.indexOf('Folder<input'), 'under the model row');
+    }
+    const order = (h: string) => ['Emoji<input', 'Name<input', 'System prompt', '<optgroup label="Hermes">', 'Folder<input'].map((k) => h.indexOf(k)).every((x, i, all) => i === 0 || x > all[i - 1]!);
+    assert.ok(order(a) && order(b), 'the same order with and without a path');
+    assert.ok(b.includes('value="D:\work\site"'), 'the typed path stays in the field');
+  } finally { empty.cleanup(); typed.cleanup(); }
 });

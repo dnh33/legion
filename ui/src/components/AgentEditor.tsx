@@ -92,7 +92,6 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const hostName = hostNameOf(model, (eid) => settings?.acp.entries.find((e) => e.id === eid)?.label ?? hosts.find((h) => h.entryId === eid)?.label);
   const modeCtl = agentModeControl({ model, modeMap: settings?.acp.switches.modeMap === true, name: hostName, ...(hermesEntry?.detection.approvalsMode ? { hermesMode: hermesEntry.detection.approvalsMode } : {}) });
   const inProject = id !== null && projects.some((p) => p.status !== 'archived' && p.members.includes(id));
-  const needFolder = onHost && !cwd.trim() && !inProject;
   const folderField = (
     <label>Folder<input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder={`The folder ${hostName} works in`} spellCheck={false} aria-describedby="hm-folder-note" />
       <span className="field-note" id="hm-folder-note">{inProject ? 'This agent is in a project, so ' + hostName + ' works in the project folder. This folder is used outside it.' : hostName + ' works in this folder. Choose one outside Legion\'s data folder.'}</span></label>
@@ -145,7 +144,6 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
         <button className="btn primary" onClick={() => void submit()} disabled={!name.trim() || busy || skillsTooMany}>{id ? 'Save' : 'Create agent'}</button>
       </>}>
       <form className="form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-        {needFolder && folderField}
         <div className="row">
           <label className="f-emoji">Emoji<input value={emoji} maxLength={4} onChange={(e) => setEmoji(e.target.value)} /></label>
           <label className="grow">Name<input data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Researcher" /></label>
@@ -190,7 +188,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </label>
           )}
         </div>
-        {onHost && !needFolder && folderField}
+        {onHost && folderField}
         {onHost ? <p className="field-note" data-testid="hermes-own-tools">{agentHostOwnTools(hostName)}</p> : <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
           onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />}
         {leaving ? (

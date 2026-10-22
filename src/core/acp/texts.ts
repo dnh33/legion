@@ -4,7 +4,7 @@
  */
 import type { AcpRefusalReason } from './session.js';
 
-export const HERMES_CWD_TEXT = "Hermes agents need a project folder outside Legion's data folder. Choose a folder for this agent.";
+export const HERMES_CWD_TEXT = "Hermes agents need a folder outside Legion's data folder. Choose a folder for this agent.";
 export const HERMES_WATCHDOG_TEXT = 'Hermes stopped answering, so Legion stopped this task. Try again, or check Hermes in Doctor.';
 
 /** What each reason the agent gave means for the person. The agent's own words are kept out of the headline and can be copied from the log. */

@@ -413,7 +413,7 @@ test('cwd rule: a folder inside or above Legion\'s data folder or the Hermes hom
     const end = await r.done(await r.run());
     assert.equal(end.status, 'error');
     assert.equal(end.error, HERMES_CWD_TEXT);
-    assert.equal(HERMES_CWD_TEXT, 'Hermes agents need a project folder outside Legion\'s data folder. Choose a folder for this agent.');
+    assert.equal(HERMES_CWD_TEXT, 'Hermes agents need a folder outside Legion\'s data folder. Choose a folder for this agent.');
     assert.equal(existsSync(r.logFile), false, 'the agent was never started');
     assert.equal(r.tokens.length, 0, 'and no key was issued');
   }
