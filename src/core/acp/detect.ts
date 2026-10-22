@@ -335,12 +335,12 @@ export function readAgentWaits(entry: AcpEntry, deps: Partial<AgentHostDeps> = {
 }
 
 /**
- * Background warm-up of Hermes's own settings (R58: a user who only uses Claude pays nothing). At core start only an owner who has met the Hermes card
- * gets the full check; at a Hermes run start everyone gets at least the two waits, and the full check when the card was met. Never a switched-off
+ * Background warm-up of Hermes's own settings (R58, R62: a user who only uses Claude pays nothing, whatever they clicked on the first-use card). At core
+ * start only a roster with an agent that uses Hermes (`inUse`) gets the full check; at a Hermes run start everyone gets at least the two waits, and the full check when an agent uses it. Never a switched-off
  * Hermes, never another agent host.
  */
-export function warmHermes(entry: AcpEntry, deps: Partial<AgentHostDeps>, o: { firstUseSeen: boolean; runStart: boolean }): Promise<void> {
+export function warmHermes(entry: AcpEntry, deps: Partial<AgentHostDeps>, o: { inUse: boolean; runStart: boolean }): Promise<void> {
   if (!isHermes(entry) || !entry.enabled) return Promise.resolve();
-  if (o.firstUseSeen) return detectAgent(entry, deps).then(() => undefined);
+  if (o.inUse) return detectAgent(entry, deps).then(() => undefined);
   return o.runStart ? readAgentWaits(entry, deps) : Promise.resolve();
 }

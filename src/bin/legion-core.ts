@@ -19,6 +19,7 @@ import { killAllAgentsSync, registerLegionSecrets, sweepStaleAgents } from '../c
 import { revokeAllRunTokens } from '../core/acp/run-tokens.js';
 import { hostWaitSeams, warmHermes as hermesWarmUp, type AgentHostDeps } from '../core/acp/detect.js';
 import { BUILTIN_HERMES, type AcpEntry } from '../shared/acp-view.js';
+import { usesAgentHost } from '../shared/runtime.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -138,9 +139,9 @@ async function main() {
   const agentHost: AgentHostDeps = { dataDir: dataDir(), entries: () => config.acp.entries, envKeep: () => gatesCore.envKeep() };
   const seams = hostWaitSeams(() => config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id));
   // R58: the model list and the Doctor at app start or after a settings save never start Hermes. The full check runs when the window opens or re-runs the Doctor,
-  // at core start for an owner who has met the Hermes card (firstUseSeen), and at a Hermes run start (which at least reads Hermes's own two waits). A switched-off Hermes is never warmed.
+  // at core start only when an agent uses Hermes (R62: answering the first-use card starts nothing), and at a Hermes run start (which at least reads Hermes's own two waits). A switched-off Hermes is never warmed.
   const warmHermes = (e: AcpEntry | undefined, runStart: boolean): void => {
-    if (e) void hermesWarmUp(e, agentHost, { firstUseSeen: config.acp.firstUseSeen, runStart }).catch((err) => log('hermes detection failed', err));
+    if (e) void hermesWarmUp(e, agentHost, { inUse: usesAgentHost(store.listAgents(), e.id), runStart }).catch((err) => log('hermes detection failed', err));
   };
   const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, agentHost: { dataDir: dataDir(), port: config.port, permissionWaitMs: seams.permissionWaitMs, toolWaitMs: seams.toolWaitMs, onRunStart: (e) => warmHermes(e, true) }, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
@@ -213,7 +214,7 @@ async function main() {
 `); // the one ready line in core.log (nothing parses it)
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
-    // an owner who has met the Hermes card gets its own waits read now, in the background, so the first card already closes when Hermes denies it
+    // a roster with an agent on Hermes gets its own waits read now, in the background, so the first card already closes when Hermes denies it
     warmHermes(config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id), false);
   }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
 

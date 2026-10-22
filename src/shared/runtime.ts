@@ -32,6 +32,11 @@ export function providerIdOf(model: string | undefined): string | undefined {
   return runtimeOf(model) === 'provider' ? splitPrefixed(model)!.prefix : undefined;
 }
 
+/** Whether any agent in the roster runs on this agent host entry (`acp:<entryId>` or `acp:<entryId>/<model>`). */
+export function usesAgentHost(agents: ReadonlyArray<{ model?: string }>, entryId: string): boolean {
+  return agents.some((a) => typeof a.model === 'string' && parseAcpModel(a.model)?.entryId === entryId);
+}
+
 /** `acp:hermes` -> `{entryId:'hermes'}`; `acp:hermes/anthropic:claude-x` -> `{entryId:'hermes', modelId:'anthropic:claude-x'}`. Undefined for any other value. */
 export function parseAcpModel(model: string): { entryId: string; modelId?: string } | undefined {
   if (runtimeOf(model) !== 'acp') return undefined;

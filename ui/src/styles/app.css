@@ -7,8 +7,8 @@ code, pre, kbd { font-family: var(--font-mono); }
 ::selection { background: var(--accent-soft); }
 :where(:root[data-kbd-nav][data-focus-rings]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
 input:is(:not([type]), [type=text], [type=search], [type=password], [type=number], [type=email], [type=url], [type=tel]):focus-visible, textarea:focus-visible { outline: none; }
-/* Rings off: no browser default focus outline either (it is a ring too). The tint below is the keyboard cue. Not under forced colours, where the outline below must show. */
-@media not all and (forced-colors: active) { :root[data-kbd-nav]:not([data-focus-rings]) :focus-visible { outline: none; } }
+/* Rings off: no browser default focus outline either (it is a ring too), whether or not a key was pressed (a button focused by code after typing would draw it). The tint below is the keyboard cue. Not under forced colours, where the outline below must show. */
+@media not all and (forced-colors: active) { :root:not([data-focus-rings]) :focus-visible { outline: none; } }
 /* Rings are off by default. Settings > Accessibility ("Show focus rings") sets data-focus-rings on <html>; with it, the rings below show for keyboard focus (ui/src/a11y/kbdNav.ts sets data-kbd-nav). */
 /* Windows high contrast (forced colours) strips the tint, so keyboard focus gets a system-colour outline whatever the setting. The one ring that is not behind it. */
 @media (forced-colors: active) { :root[data-kbd-nav] :focus-visible { outline: 2px solid Highlight; outline-offset: 2px; } }

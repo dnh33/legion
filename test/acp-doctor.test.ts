@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import { forgetLegionSecrets, registerLegionSecrets } from '../src/core/acp/process.js';
 import { BUILTIN_HERMES, type AcpEntry } from '../src/shared/acp-view.js';
+import { usesAgentHost } from '../src/shared/runtime.js';
 import { ENV_KEEP_LABEL } from '../src/shared/gates-registry.js';
 import {
   CHECK_TIMEOUT_MS, DETECT_TTL_MS, TESTED_HERMES, agentWaits, detectAgent, forgetDetections, hostWaitSeams, noteAgentVersion, noteAuthFailure, warmHermes,
@@ -652,24 +653,32 @@ test('catalog: a cached failed check hides the row for 10 minutes only, so a Her
 
 test('R58: a Hermes run start reads only Hermes\'s own waits when it has not been met yet: two settings reads, no start check, no handshake, kept 10 minutes', async () => {
   ownConfig({ 'approvals.timeout': 45, 'timeouts.mcp.tool_call': 20 });
-  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: true });
+  await warmHermes(BUILTIN_HERMES, deps(), { inUse: false, runStart: true });
   const got = calls().map((c) => JSON.stringify(c)).sort();
   assert.deepEqual(got, [JSON.stringify(GET('approvals.timeout')), JSON.stringify(GET('timeouts.mcp.tool_call'))].sort());
   assert.deepEqual(agentWaits(BUILTIN_HERMES), { permissionWaitMs: 45_000, toolWaitMs: 10_000 });
-  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: true });
+  await warmHermes(BUILTIN_HERMES, deps(), { inUse: false, runStart: true });
   assert.equal(calls().length, 2, 'kept');
   clock += DETECT_TTL_MS + 1;
-  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: true });
+  await warmHermes(BUILTIN_HERMES, deps(), { inUse: false, runStart: true });
   assert.equal(calls().length, 4, 'read again after 10 minutes');
 });
 
-test('R58: who warms Hermes: core start only after the first-use card, a run start always (waits at least), never a switched-off Hermes or another entry', async () => {
-  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: false, runStart: false });
-  assert.deepEqual(calls(), [], 'core start, Hermes not met yet');
-  await warmHermes({ ...BUILTIN_HERMES, enabled: false }, deps(), { firstUseSeen: true, runStart: true });
-  await warmHermes(custom(), deps(), { firstUseSeen: true, runStart: true });
+test('R58/R62: who warms Hermes: core start only when an agent uses Hermes (never because a card was answered), a run start always (waits at least), never a switched-off Hermes or another entry', async () => {
+  await warmHermes(BUILTIN_HERMES, deps(), { inUse: false, runStart: false });
+  assert.deepEqual(calls(), [], 'core start, no agent uses Hermes: a Claude-only owner pays nothing');
+  await warmHermes({ ...BUILTIN_HERMES, enabled: false }, deps(), { inUse: true, runStart: true });
+  await warmHermes(custom(), deps(), { inUse: true, runStart: true });
   assert.deepEqual(calls(), [], 'switched off, and not Hermes');
-  await warmHermes(BUILTIN_HERMES, deps(), { firstUseSeen: true, runStart: false });
-  assert.deepEqual(calls()[0], ['acp', '--check'], 'a met Hermes gets the full check');
+  await warmHermes(BUILTIN_HERMES, deps(), { inUse: true, runStart: false });
+  assert.deepEqual(calls()[0], ['acp', '--check'], 'an agent that uses Hermes gets the full check at core start');
   assert.ok(agentWaits(BUILTIN_HERMES));
+});
+
+test('R62: an agent uses Hermes only when its model is that entry; a Claude-only roster never does, whatever the first-use card says', () => {
+  assert.equal(usesAgentHost([{ model: 'sonnet' }, { model: 'auto' }, { model: 'openrouter:x/y' }, {}], 'hermes'), false);
+  assert.equal(usesAgentHost([{ model: 'sonnet' }, { model: 'acp:hermes' }], 'hermes'), true);
+  assert.equal(usesAgentHost([{ model: 'acp:hermes/some-model' }], 'hermes'), true);
+  assert.equal(usesAgentHost([{ model: 'acp:other' }], 'hermes'), false, 'another agent host is not Hermes');
+  assert.equal(usesAgentHost([], 'hermes'), false);
 });
