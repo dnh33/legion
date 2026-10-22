@@ -52,7 +52,7 @@ test('the app behind is blocked while the card is open: every key is dropped, th
   assert.match(win, /mainWc\.on\('before-input-event', dropInput\)/);
   assert.match(win, /const dropInput = \(e: Electron\.Event\): void => e\.preventDefault\(\);/, 'no key is let through, reload shortcuts included');
   assert.match(win, /mainWc\.on\('before-mouse-event', dropInput\)/);
-  assert.match(win, /mainWc\.on\('focus', pageFocus\.onFocus\)/); assert.match(win, /main\.on\('focus', takeFocus\)/);
+  assert.match(win, /mainWc\.on\('focus', pageFocus\.onFocus\)/); assert.match(win, /main\.on\(ev as 'show', refresh\)/, 'the Legion window focus repaints and refocuses the card (FRONT_EVENTS)');
   assert.match(win, /main\.once\('closed', onMainClosed\)/); assert.match(win, /main\.on\('hide', onMainHidden\)/);
   for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) assert.ok(win.includes(`'${ev}'`), `follows ${ev}`);
   assert.match(win, /main\.contentView\.on\('bounds-changed', sync\)/);
@@ -298,4 +298,32 @@ test('wording: what the README, SECURITY.md, the BSV doc and the BSV panel tell 
   for (const f of files) assert.doesNotMatch(read(f).replace(/\bmain's confirm window\b/g, ''), /confirm window|Legion's confirm windows?/i, f);
   assert.match(read('CHANGELOG.md'), /asked in Legion's confirm card, shown inside Legion/);
   assert.doesNotMatch(read('src/electron/admin-logic.ts').replace(/^\s*(\/\/|\*|\/\*\*).*$/gm, ''), /confirm it in native dialogs/);
+});
+
+// ---- page dialogs and the card behind other windows (review notes M1 and L4)
+
+/** Source with comments removed, so a word in a comment never counts as code. */
+const code = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+const uiFiles = (dir: string): string[] => readdirSync(`${ROOT}/${dir}`, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? uiFiles(`${dir}/${d.name}`) : /\.(ts|tsx)$/.test(d.name) ? [`${dir}/${d.name}`] : []));
+
+test('the Legion window never lets its page raise a box: dialogs are switched off in the web preferences', () => {
+  const prefs = /function createWindow[\s\S]*?webPreferences: \{([^}]*)\}/.exec(main)?.[1] ?? '';
+  assert.ok(prefs.includes('sandbox: true'), 'the right block was read');
+  assert.ok(prefs.includes('disableDialogs: true'), 'alert, confirm and prompt from the page are suppressed by Electron itself');
+});
+
+test('no page code calls alert, confirm or prompt: the questions the UI asks are in-app dialogs', () => {
+  const files = uiFiles('ui/src');
+  assert.ok(files.length > 100, 'the UI files were found');
+  const hits = files.filter((f) => /(?<![\w$.])(?:(?:window|globalThis|self)\.)?(?:alert|confirm|prompt)\s*\(/.test(code(read(f))));
+  assert.deepEqual(hits, []);
+});
+
+test('the card is drawn when Legion is uncovered or brought forward: repainted on show, restore and focus, with background throttling off', () => {
+  const prefs = /webPreferences: \{([^}]*)\}/.exec(win)?.[1] ?? '';
+  assert.ok(prefs.includes('backgroundThrottling: false'), 'the card page is not treated as a background page while Legion is covered');
+  assert.match(win, /const FRONT_EVENTS = \['show', 'restore', 'focus'\] as const;/);
+  assert.match(win, /const refresh = \(\): void => \{ sync\(\); if \(!wc\.isDestroyed\(\)\) repaintCard\(wc\); \};/);
+  assert.match(win, /for \(const ev of FRONT_EVENTS\) main\.on\(ev as 'show', refresh\);/);
+  assert.match(win, /for \(const ev of FRONT_EVENTS\) main\.removeListener\(ev as 'show', refresh\);/, 'taken off again when the question ends');
 });

@@ -1,7 +1,7 @@
 /** The rules of the Legion confirm card: what a question may ask, how an answer is read, how the card is laid over the Legion window. No electron. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADDRESS_RE, ADDRESS_TAIL, bringForward, buildModel, CONFIRM_BUSY, ConfirmBusyError, createAnswerGate, LIMITS, nativeOptions, orBusy, overlayBounds, overlayZoom, pickTheme, prepareConfirm, resolveIds, syncOverlay, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
+import { ADDRESS_RE, ADDRESS_TAIL, bringForward, buildModel, CONFIRM_BUSY, ConfirmBusyError, createAnswerGate, LIMITS, nativeOptions, orBusy, overlayBounds, overlayZoom, pickTheme, prepareConfirm, repaintCard, resolveIds, syncOverlay, TONE_TAGS, type ConfirmOptions } from '../src/electron/confirm-window-logic.js';
 
 const NONCE = 'a'.repeat(32);
 const ctx = { nonce: NONCE, theme: 'dark' as const };
@@ -280,4 +280,17 @@ test('opening: once the page has died (or the opening has failed) no later step 
   await assert.rejects(run, /the page stopped/);
   await new Promise((r) => setTimeout(r, 120));
   assert.deepEqual(called, [], 'render was never started on a dead page');
+});
+
+test('repaintCard: when Legion is shown or focused, the card is repainted and then takes the focus; a gone or failing card never throws', () => {
+  const calls: string[] = [];
+  const card = { isDestroyed: () => false, invalidate: () => { calls.push('invalidate'); }, focus: () => { calls.push('focus'); } };
+  repaintCard(card);
+  assert.deepEqual(calls, ['invalidate', 'focus'], 'repaint first, then the keyboard');
+  calls.length = 0;
+  repaintCard({ ...card, isDestroyed: () => true });
+  assert.equal(calls.length, 0, 'a destroyed card is left alone');
+  const failing = { isDestroyed: () => false, invalidate: () => { throw new Error('gone'); }, focus: () => { calls.push('focus'); } };
+  assert.doesNotThrow(() => repaintCard(failing));
+  assert.deepEqual(calls, ['focus'], 'a failed repaint does not stop the focus');
 });

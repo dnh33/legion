@@ -532,6 +532,8 @@ function createWindow(showOnReady: boolean): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // No page code can raise a native alert, confirm or prompt box: it would sit over the confirm card. Legion asks its own questions in the app.
+      disableDialogs: true,
     },
   });
   win.setMenuBarVisibility(false);

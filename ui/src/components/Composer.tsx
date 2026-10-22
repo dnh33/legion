@@ -215,10 +215,10 @@ export function Composer() {
                 title="Add this message to the run (Enter): Claude reads it after its current step. Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Add</button>
             : <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Queue message"
                 title="Queue this message (Enter). Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Queue</button>)}
-          {running && started > 0 && <button type="button" className="send stop team" onClick={() => { if (!confirmStop(taskId)) return; pauseQueue(qkey); void stopTeam(taskId!); }} aria-label={stopTeamLabel(started)}
+          {running && started > 0 && <button type="button" className="send stop team" onClick={() => { void (async () => { if (!(await confirmStop(taskId))) return; pauseQueue(qkey); void stopTeam(taskId!, true); })(); }} aria-label={stopTeamLabel(started)}
             title={stopTeamLabel(started)}><Icon name="stop" size={14} /> Stop all ({started + 1})</button>}
           {running
-            ? <button className="send stop" onClick={() => { if (!confirmStop(taskId)) return; pauseQueue(qkey); void cancelSelected(true); }} aria-label="Stop"><Icon name="stop" size={14} /> Stop</button>
+            ? <button className="send stop" onClick={() => { void (async () => { if (!(await confirmStop(taskId))) return; pauseQueue(qkey); void cancelSelected(true); })(); }} aria-label="Stop"><Icon name="stop" size={14} /> Stop</button>
             : !busy && <button className="send" disabled={!text.trim()} onClick={() => void submit()} aria-label="Send"><Icon name="send" size={14} /></button>}
         </div>
       </div>

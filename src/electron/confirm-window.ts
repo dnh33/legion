@@ -6,7 +6,7 @@
  * contents. There is no preload, no node and no network (the page's policy allows none). Its web contents live in a session of their own.
  *
  * While the card is open the app behind it gets no mouse down, up or move (the card covers it, and main drops what reaches the page anyway) and no keyboard
- * (main drops every key for the Legion page), and the card is focused whenever the Legion window or its page gains it (for the page, on the next turn). A
+ * (main drops every key for the Legion page), and the card is repainted and focused whenever the Legion window is shown, restored or focused, or its page gains the focus (for the page, on the next turn): a card that opened while Legion was covered is drawn as soon as Legion is uncovered. A
  * wheel over the card goes to the card, because it is the topmost view; the mouse hook carries no wheel, so a wheel sent to the page by other means is not
  * dropped. No system dialog opens over the card, and no card under one: main shows them under the confirm lock (`underLock` in the logic file). Closing the Legion window, quitting, a crash and a timeout all end as "no", and the view is removed every time.
  *
@@ -21,7 +21,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bringForward, buildModel, ConfirmBusyError, createAnswerGate, deferFocus, nativeOptions, overlayZoom, pickTheme, prepareConfirm, syncOverlay, type ConfirmOptions, type OverlayMain, type OverlayView } from './confirm-window-logic.js';
+import { bringForward, buildModel, ConfirmBusyError, createAnswerGate, deferFocus, nativeOptions, overlayZoom, pickTheme, prepareConfirm, repaintCard, syncOverlay, type ConfirmOptions, type OverlayMain, type OverlayView } from './confirm-window-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -102,7 +102,7 @@ async function ask(opts: ConfirmOptions): Promise<number> {
     lockDownSession();
     view = new WebContentsView({
       // no preload, no node, no dev tools; its own in-memory session
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false, devTools: false, spellcheck: false, partition: CONFIRM_PARTITION, zoomFactor: zoom },
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false, devTools: false, spellcheck: false, partition: CONFIRM_PARTITION, zoomFactor: zoom, backgroundThrottling: false },
     });
     view.setBackgroundColor('#00000000'); // transparent: the page draws the dim and the card
   } catch (e) { return native(nativeParent(main), opts, `the card could not be made (${e instanceof Error ? e.message : String(e)})`); }
@@ -121,6 +121,8 @@ async function ask(opts: ConfirmOptions): Promise<number> {
   const overlayView: OverlayView = { getBounds: () => view.getBounds(), setBounds: (r) => view.setBounds(r), getZoom: () => wc.getZoomFactor(), setZoom: (z) => wc.setZoomFactor(z) };
   const sync = (): void => { try { if (!wc.isDestroyed()) syncOverlay(overlayMain, overlayView); } catch { /* the next event syncs again */ } };
   const takeFocus = (): void => { try { if (!wc.isDestroyed()) wc.focus(); } catch { /* gone */ } };
+  // Legion shown, restored or focused: a card that opened while Legion was covered is drawn now, and has the keyboard
+  const refresh = (): void => { sync(); if (!wc.isDestroyed()) repaintCard(wc); };
   /** Removes the view from the Legion window and closes its web contents: nothing of the card is left, whichever way it ended. */
   const dispose = (): void => {
     try { if (!main.isDestroyed()) main.contentView.removeChildView(view); } catch { /* not attached, or gone */ }
@@ -138,15 +140,16 @@ async function ask(opts: ConfirmOptions): Promise<number> {
     const dropInput = (e: Electron.Event): void => e.preventDefault();
     const onMainClosed = (): void => finish(cancel, 'the Legion window was closed: cancelled');
     const onMainHidden = (): void => finish(cancel, 'the Legion window was hidden: cancelled');
-    const SYNC_EVENTS = ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen', 'show'] as const;
+    const SYNC_EVENTS = ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'] as const;
+    const FRONT_EVENTS = ['show', 'restore', 'focus'] as const;
     const onQuit = (): void => finish(cancel, 'the app is closing: cancelled');
     const guardMain = (): void => {
       mainWc.on('before-input-event', dropInput);
       mainWc.on('before-mouse-event', dropInput);
       mainWc.on('focus', pageFocus.onFocus);
       mainWc.on('zoom-changed', sync);
-      main.on('focus', takeFocus);
       for (const ev of SYNC_EVENTS) main.on(ev as 'resize', sync);
+      for (const ev of FRONT_EVENTS) main.on(ev as 'show', refresh);
       main.contentView.on('bounds-changed', sync);
       main.once('closed', onMainClosed);
       main.on('hide', onMainHidden);
@@ -158,8 +161,8 @@ async function ask(opts: ConfirmOptions): Promise<number> {
         mainWc.removeListener('before-mouse-event', dropInput);
         mainWc.removeListener('focus', pageFocus.onFocus);
         mainWc.removeListener('zoom-changed', sync);
-        main.removeListener('focus', takeFocus);
         for (const ev of SYNC_EVENTS) main.removeListener(ev as 'resize', sync);
+        for (const ev of FRONT_EVENTS) main.removeListener(ev as 'show', refresh);
         main.contentView.removeListener('bounds-changed', sync);
         main.removeListener('closed', onMainClosed);
         main.removeListener('hide', onMainHidden);

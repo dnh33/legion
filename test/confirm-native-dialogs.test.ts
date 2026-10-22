@@ -110,7 +110,8 @@ test('the wiring: the page focus is deferred and cleared at the end, the window 
   assert.match(win, /mainWc\.on\('focus', pageFocus\.onFocus\)/);
   assert.match(win, /mainWc\.removeListener\('focus', pageFocus\.onFocus\)/);
   assert.doesNotMatch(win, /mainWc\.on\('focus', takeFocus\)/, 'the old grab inside the event');
-  assert.match(win, /main\.on\('focus', takeFocus\)/);
+  assert.match(win, /for \(const ev of FRONT_EVENTS\) main\.on\(ev as 'show', refresh\)/, 'the window focus is immediate: it repaints the card and takes the focus');
+  assert.match(win, /FRONT_EVENTS = \['show', 'restore', 'focus'\]/);
   assert.match(win, /const unguardMain[\s\S]*?pageFocus\.cancel\(\)/);
   assert.doesNotMatch(win, /dropped here as well/, 'before-mouse-event carries no wheel events, so the comment may not claim the mouse is dropped');
   assert.match(win, /wheel/i);

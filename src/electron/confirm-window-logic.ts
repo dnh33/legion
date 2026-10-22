@@ -250,6 +250,16 @@ export function deferFocus(take: () => void, timers: { set(fn: () => void, ms: n
   };
 }
 
+/**
+ * Legion was shown, restored or focused while a card is open (it may have been covered, so the card was not being drawn): schedule a full repaint of the
+ * card, then give it the keyboard. A card that is gone or fails is left alone; the repaint failing must not stop the focus.
+ */
+export function repaintCard(card: { isDestroyed(): boolean; invalidate(): void; focus(): void }): void {
+  try { if (card.isDestroyed()) return; } catch { return; }
+  try { card.invalidate(); } catch { /* the next event repaints again */ }
+  try { card.focus(); } catch { /* gone */ }
+}
+
 // ---------------------------------------------------------------- opening the window
 
 export interface PrepareSteps {
