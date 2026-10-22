@@ -224,6 +224,13 @@ export class ApprovalBroker {
   private readonly acp = new Map<string, AcpPending>();
   /** Cards that closed with no answer from the owner, kept so a late answer can be told why nothing happened. */
   private readonly closed = new Map<string, string>();
+  /**
+   * Cards that closed on their own and stay in the thread (R60), whole, so a window that was reloaded draws them again (R61). The window dismisses them
+   * (`dismissClosed`); a task that was stopped or deleted, or begins a new turn after a finished one, takes its cards with it, as the window does.
+   */
+  private readonly kept = new Map<string, { card: ApprovalRequest; note: string; late?: string }>();
+  /** Tasks seen to have finished: a turn that starts again for one of them drops its kept cards. */
+  private readonly endedTasks = new Set<string>();
   /** The tool call an agent host is waiting for, seen by every card that call raises (it follows the call through its awaits). */
   private readonly scope = new AsyncLocalStorage<{ taskId: string; atMs: number; signal?: AbortSignal; ended: boolean }>();
   private readonly timeoutMs: number;
@@ -242,7 +249,17 @@ export class ApprovalBroker {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
     this.policy = opts?.policy;
     this.now = opts?.now;
+    bus.on((e) => {
+      if (e.type === 'task.deleted') { this.dropKept(e.taskId); this.endedTasks.delete(e.taskId); return; }
+      if (e.type !== 'task.updated') return;
+      const s = e.task.status;
+      if (s === 'cancelled') { this.dropKept(e.task.id); this.endedTasks.delete(e.task.id); }
+      else if (s === 'done' || s === 'error') this.endedTasks.add(e.task.id);
+      else if (this.endedTasks.delete(e.task.id)) this.dropKept(e.task.id);
+    });
   }
+
+  private dropKept(taskId: string): void { for (const [id, k] of [...this.kept]) if (k.card.taskId === taskId) this.kept.delete(id); }
 
   /** The away module attaches its policy after the brokers are built. Absent: today's behaviour. */
   setPolicy(policy: AskPolicy | undefined): void { this.policy = policy; }
@@ -355,7 +372,18 @@ export class ApprovalBroker {
   pending(): ApprovalRequest[] { return [...[...this.items.values()].map((p) => p.req), ...[...this.acp.values()].map((a) => a.req)]; }
 
   /** Why a card that has closed did not take an answer (an agent host stopped waiting), or undefined for a card that is open or unknown. */
-  lateNote(id: string): string | undefined { return this.closed.get(id); }
+  lateNote(id: string): string | undefined {
+    const note = this.closed.get(id);
+    const k = this.kept.get(id);
+    if (note && k) k.late = note; // the only caller is an answer that came too late: a reloaded window shows that too
+    return note;
+  }
+
+  /** The closed cards that stay in the thread, oldest first. The state snapshot carries them. */
+  closedCards(): Array<{ card: ApprovalRequest; note: string; late?: string }> { return [...this.kept.values()].map((k) => ({ ...k })); }
+
+  /** The owner dismissed a closed card. False when it is not kept (unknown, or already gone). */
+  dismissClosed(id: string): boolean { return this.kept.delete(id); }
 
   /**
    * Run `fn` while an agent host waits for one tool call that must finish by `atMs`: a card that call raises meanwhile (by `request`) shows
@@ -395,15 +423,18 @@ export class ApprovalBroker {
     if (!a) return false;
     this.acp.delete(id);
     clearTimeout(a.timer);
-    if (answer.kind === 'closed') this.keepClosed(id);
+    if (answer.kind === 'closed') this.keepClosed(id, answer.stays ? { card: a.req, note: answer.note } : undefined);
     this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: answer.kind === 'option' && allows(a.req.acpOptions?.find((o) => o.optionId === answer.optionId)?.kind), ...(answer.kind === 'closed' ? { note: answer.note, ...(answer.stays ? { stays: true as const } : {}) } : {}) });
     a.resolve(answer);
     return true;
   }
 
-  private keepClosed(id: string): void {
+  private keepClosed(id: string, stays?: { card: ApprovalRequest; note: string }): void {
     this.closed.set(id, ACP_LATE_NOTE);
     if (this.closed.size > CLOSED_KEPT) for (const k of this.closed.keys()) { this.closed.delete(k); if (this.closed.size <= CLOSED_KEPT) break; }
+    if (!stays) return;
+    this.kept.set(id, stays);
+    if (this.kept.size > CLOSED_KEPT) for (const k of this.kept.keys()) { this.kept.delete(k); if (this.kept.size <= CLOSED_KEPT) break; }
   }
 
   private settle(id: string, allow: boolean, note?: string): boolean {
@@ -413,7 +444,7 @@ export class ApprovalBroker {
     p.timer.cancel();
     if (p.deadline) clearTimeout(p.deadline);
     p.detach?.();
-    if (note) this.keepClosed(id);
+    if (note) this.keepClosed(id, { card: p.req, note });
     this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: allow, ...(note ? { note, stays: true as const } : {}) });
     p.resolve(allow);
     return true;

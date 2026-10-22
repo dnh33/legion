@@ -350,7 +350,7 @@ async function loadStore(): Promise<{ s: Record<string, (...a: any[]) => any>; c
         b.onLoad({ filter: /^api$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export class ApiError extends Error {}
           export const request = async () => ({}); export const subscribe = () => () => {};
-          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; }, decideOption: async (...a) => { (globalThis.__decideCalls ||= []).push(a); return globalThis.__decideNext; } };` }));
+          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; }, decideOption: async (...a) => { (globalThis.__decideCalls ||= []).push(a); return globalThis.__decideNext; }, state: async () => globalThis.__stateNext, dismissClosed: async (id) => { (globalThis.__dismissCalls ||= []).push(id); return { ok: true }; } };` }));
       },
     }],
   });
@@ -505,6 +505,35 @@ test('R60 behaviour: the real store keeps a card that closed at the deadline, dr
     resolve('apr_5');
     assert.deepEqual(closedIds(), ['apr_5']);
   } finally { delete g.__decideNext; if (hadWindow === undefined) delete g.window; else g.window = hadWindow; cleanup(); }
+});
+
+test('W2b item 1 (R61): after a reload the window draws the closed cards the core kept; Dismiss tells the core; a card it already has is not drawn twice', async () => {
+  const { s, cleanup } = await loadStore();
+  const g = globalThis as Record<string, unknown>;
+  const closedIds = (): string[] => (s.getState().closedCards as Array<{ card: { id: string } }>).map((c) => c.card.id);
+  const snap = (over: Record<string, unknown>) => ({ version: '0', agents: [], tasks: [], vms: [], approvals: [], boatConfigured: false, auth: 'claude-login', ...over });
+  try {
+    g.__dismissCalls = [];
+    s.setState({ closedCards: [], approvals: [] });
+    g.__stateNext = snap({ closedCards: [{ card: HCARD('apr_k1'), note: ACP_CLOSED_NOTE }, { card: HCARD('apr_k2'), note: ACP_CLOSED_NOTE, late: ACP_LATE_NOTE }] });
+    await s.refresh();
+    assert.deepEqual(closedIds(), ['apr_k1', 'apr_k2'], 'a reloaded window shows what the core kept');
+    assert.equal(s.getState().closedCards[1].late, ACP_LATE_NOTE, 'with the late note, in its own words');
+    await s.refresh();
+    assert.deepEqual(closedIds(), ['apr_k1', 'apr_k2'], 'a second read adds nothing');
+    s.dismissClosed('apr_k1');
+    assert.deepEqual(g.__dismissCalls, ['apr_k1'], 'the core is told, so a reload does not bring it back');
+    assert.deepEqual(closedIds(), ['apr_k2']);
+    // the core no longer keeps a card (dismissed in another window, or its task ended): the window drops it with the next read
+    g.__stateNext = snap({ closedCards: [] });
+    await s.refresh();
+    assert.deepEqual(closedIds(), [], 'the core is the source of truth');
+    // a snapshot from a core that sends none leaves the window's own closed cards alone
+    s.setState({ closedCards: [{ card: HCARD('apr_k3'), note: ACP_CLOSED_NOTE }] });
+    g.__stateNext = snap({});
+    await s.refresh();
+    assert.deepEqual(closedIds(), ['apr_k3']);
+  } finally { delete g.__stateNext; delete g.__dismissCalls; cleanup(); }
 });
 
 test('R60 behaviour: focus that was inside the card when it closed is handed to the closed card, not dropped to the page', async () => {

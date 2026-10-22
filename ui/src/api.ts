@@ -246,6 +246,7 @@ export const api = {
   /** This week's spend of one project, what was spent since `since`, and whether its budget is reached. */
   projectSpend: (id: string, since?: string) => request<ProjectSpend>('GET', `/api/spend?scope=project&project=${encodeURIComponent(id)}${since ? `&since=${encodeURIComponent(since)}` : ''}`),
   /** The app is about to send an Allow in the last seconds of an ask's wait: delay the core's deny. It never answers the ask. */
+  dismissClosed: (id: string) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}/dismiss`, {}),
   holdApproval: (id: string, ms: number) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}/hold`, { ms }),
   questions: () => request<PendingQuestion[]>('GET', '/api/questions'),
   /** One pick per question, in the order they were asked. Admin only (the POST refuses an MCP-class token). */

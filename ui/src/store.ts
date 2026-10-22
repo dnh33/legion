@@ -358,6 +358,8 @@ export async function refresh() {
       return {
         loaded: true, version: snap.version, auth: snap.auth, boatConfigured: snap.boatConfigured, boatHealth: snap.boat ?? s.boatHealth,
         agents: snap.agents, tasks: keepTasks(s.tasks, snap.tasks, new Set(s.selectedTaskId ? [s.selectedTaskId] : [])), vms, approvals: dedupeById(snap.approvals), questions: dedupeById(snap.questions ?? s.questions),
+        // the core keeps the cards that closed on their own until they are dismissed (R61): a reloaded window draws them again, one it already has is kept as it is
+        ...(snap.closedCards ? { closedCards: snap.closedCards.map((k) => s.closedCards.find((c) => c.card.id === k.card.id) ?? { card: k.card, note: k.note, ...(k.late ? { late: k.late } : {}) }) } : {}),
         // opened mid-run: show the run's turn, tool and checklist now, not after its next event
         progress: snap.progress ?? s.progress,
         queue: snap.queue ?? null, parked: snap.parked ?? [], caps: snap.caps ?? {},
@@ -639,6 +641,7 @@ function closeLate(card: ApprovalRequest | undefined, note: string): void {
 export function dismissClosed(id: string): void {
   const had = focusInCard(id);
   setState((s) => ({ closedCards: s.closedCards.filter((c) => c.card.id !== id) }));
+  void api.dismissClosed(id).catch(() => { /* the card is gone from the window; a reload may show it once more */ });
   if (had) { try { document.querySelector<HTMLElement>('[data-composer]')?.focus(); } catch { /* no composer on this page */ } }
 }
 

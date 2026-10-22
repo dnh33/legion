@@ -572,6 +572,8 @@ export interface StateSnapshot {
   tasks: Task[];              // newest first, max 200
   vms: VmRecord[];
   approvals: ApprovalRequest[];   // pending
+  /** Agent host cards that closed on their own and stay in the thread until dismissed (R60/R61), so a reloaded window draws them again. Admin only. */
+  closedCards?: Array<{ card: ApprovalRequest; note: string; late?: string }>;
   /** Structured questions waiting for the owner's answer (the question card). Admin only; a token-only client never gets this. */
   questions?: PendingQuestion[];
   boatConfigured: boolean;

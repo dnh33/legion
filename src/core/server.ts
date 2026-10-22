@@ -286,6 +286,8 @@ export function createServer(ctx: CoreContext): Server {
       : ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown)).map(withoutResult),
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
+    // closed cards that stay in the thread: the window that was reloaded draws them again (admin only, like the open cards' answers)
+    ...(isAdminReq(req) && ctx.approvals.closedCards ? { closedCards: ctx.approvals.closedCards().filter((c) => agentIdVisible(ctx, c.card.agentId)) } : {}),
     // Structured questions are admin-only: a token-only client never gets them (the same class as room text). Absent for a token client.
     ...(isAdminReq(req) ? { questions: (ctx.questions?.pending() ?? []).filter((q) => agentIdVisible(ctx, q.agentId)) } : {}),
     boatConfigured: ctx.boatConfigured(),
@@ -597,6 +599,8 @@ export function createServer(ctx: CoreContext): Server {
     }
     catch (e) { throw new HttpError(400, e instanceof Error ? e.message : 'That answer is not allowed on this card.'); }
   });
+  // The owner dismissed a closed card in the thread: the core stops keeping it (admin only by default-deny; the window's call)
+  route('POST', '/api/approvals/:id/dismiss', ({ params }) => ({ ok: ctx.approvals.dismissClosed?.(params[0]) ?? false }));
   // The app is about to send an answer in the last seconds of an ask's wait: delay the core's deny (once, a few seconds). It never answers the ask.
   route('POST', '/api/approvals/:id/hold', ({ params, body }) => {
     if (!isObj(body) || typeof body.ms !== 'number' || !Number.isFinite(body.ms) || body.ms <= 0) throw new HttpError(400, 'body {ms:number above 0} required');
