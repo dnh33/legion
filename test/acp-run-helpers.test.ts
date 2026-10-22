@@ -48,3 +48,25 @@ test('permissionWaitOf: a huge or odd value is clamped to what a card can wait, 
   assert.equal(permissionWaitOf(() => Number.MAX_VALUE), MAX_CARD_WAIT_MS);
   assert.ok(MAX_CARD_WAIT_MS < 2 ** 31 - 1 && MAX_CARD_WAIT_MS > HERMES_SELF_DENY_MS);
 });
+
+test('requestPaths: a patch header is read the way Hermes applies it (no space after the stars, move to a second path)', () => {
+  const mk = (patch: string) => ({ toolName: 'Write', input: { patch }, }) as Parameters<typeof requestPaths>[0];
+  const got = requestPaths(mk(['*** Begin Patch', '***Update File: a.txt', '***   Add   File:   b.txt  ', '*** Move File:  c.txt   ->   d.txt ', '*** End Patch'].join('\n')), 'linux');
+  assert.deepEqual([...got.paths].sort(), ['a.txt', 'b.txt', 'c.txt', 'd.txt']);
+  assert.equal(got.unreadable, undefined);
+});
+
+test('requestPaths: a patch full of whitespace is read in linear time, and a patch too long to scan is unreadable (fails closed)', () => {
+  const mk = (patch: string) => ({ toolName: 'Write', input: { patch }, }) as Parameters<typeof requestPaths>[0];
+  const time = (patch: string): number => { const t = process.hrtime.bigint(); requestPaths(mk(patch), 'linux'); return Number(process.hrtime.bigint() - t) / 1e6; };
+  const spaces = ' '.repeat(200_000);
+  // the shapes that made the old pattern quadratic, and the shapes a nested-quantifier rewrite would still be slow on
+  const shapes = [`*** Move File: a${spaces}`, `*** Move File:${spaces}x`, `***${spaces}Update File: a`, `*** Update File:${spaces}`, `*** Move File: a${spaces}-${spaces}>${spaces}`, `*** Move File: ${'a ->'.repeat(50_000)}`];
+  time(shapes[0]!); // warm up
+  for (const s of shapes) {
+    const ms = time(s);
+    assert.ok(ms < 250, `a ${s.length}-character line took ${ms.toFixed(1)} ms`); // the old pattern took seconds; the bound is wide for a loaded machine
+  }
+  const big = requestPaths(mk(`*** Update File: a.txt\n${'x\n'.repeat(700_000)}*** Update File: ../later.txt`), 'linux');
+  assert.ok(big.unreadable, 'a header past the scanned part must not be missed');
+});

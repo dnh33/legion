@@ -87,9 +87,35 @@ export function plainWindowsPath(p: string): string | undefined {
   return /^[a-z]:(?:[\\/]|$)/i.test(rest) ? rest : undefined;
 }
 
-// How Hermes reads the files of a V4A patch (acp_adapter/edit_approval.py:49-50, opened 2026-10-22): the same headers, so Legion sees the same targets.
-const V4A_FILE = /^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*([^\n]+)$/gm;
-const V4A_MOVE = /^\*\*\*\s+Move\s+File:\s*([^\n]+?)\s*->\s*([^\n]+)$/gm;
+// How Hermes applies a V4A patch (tools/patch_parser.py:52-55, opened 2026-10-22): one header per line, matched from the start of the line, with no
+// space needed after the stars. Legion reads the same headers, line by line, so no pattern can run long on a line of white space.
+const V4A_FILE = /^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*([^\n]+)/;
+const V4A_MOVE = /^\*\*\*\s*Move\s+File:\s*([^\n]+)/;
+
+/** The most of a patch Legion reads, and the most of one header line. A patch or a header beyond them is not read, and the caller fails closed. */
+export const MAX_PATCH_SCAN = 1_048_576;
+export const MAX_HEADER_LINE = 8_192;
+
+/** The paths a patch names, or why it could not be read. Linear in the length of the patch. */
+function patchPaths(patch: string): { paths: string[]; unreadable?: string } {
+  if (patch.length > MAX_PATCH_SCAN) return { paths: [], unreadable: 'the patch is too long to read safely' };
+  const paths: string[] = [];
+  for (const line of patch.split('\n')) {
+    if (!line.startsWith('***')) continue;
+    if (line.length > MAX_HEADER_LINE) return { paths, unreadable: 'a line of the patch is too long to read safely' };
+    const mv = V4A_MOVE.exec(line);
+    if (mv) {
+      const rest = mv[1]!;
+      const arrow = rest.indexOf('->', 1);
+      if (arrow > 0) paths.push(rest.slice(0, arrow).trim(), rest.slice(arrow + 2).trim());
+      else paths.push(rest.trim()); // no arrow: Hermes rejects it, and the one path it names is still checked
+      continue;
+    }
+    const f = V4A_FILE.exec(line);
+    if (f) paths.push(f[1]!.trim());
+  }
+  return { paths };
+}
 
 /**
  * Every path an edit request names, in plain spelling, and why one could not be read. Hermes joins the paths of a multi-file patch with ", " into one
@@ -118,8 +144,9 @@ export function requestPaths(r: Pick<MappedPermission, 'toolName' | 'input' | 'd
   if (r.diff?.path) add(r.diff.path);
   const patch = r.input.patch;
   if (typeof patch === 'string') {
-    for (const m of patch.matchAll(V4A_FILE)) add(m[1]!.trim());
-    for (const m of patch.matchAll(V4A_MOVE)) { add(m[1]!.trim()); add(m[2]!.trim()); }
+    const read = patchPaths(patch);
+    for (const p of read.paths) add(p);
+    if (read.unreadable) bad(read.unreadable);
   }
   if (r.toolName === 'Write' && paths.size === 0) bad('it does not say which file it changes');
   return { paths: [...paths], ...(unreadable ? { unreadable } : {}) };
