@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import { AUTH, makeFakes, start } from './helpers-c.js';
@@ -1137,4 +1137,70 @@ test('F15: the text of a failure shows no local path and no secret, whether it c
     assert.match(text, /\[path\]/);
   }
   assert.match(launch, /^Hermes could not be started\./);
+});
+
+// ---------------------------------------------------------------- final wave W1b
+
+test('W1b: ~ and a relative path in an edit request are expanded (home, the session folder) before the protected check', async () => {
+  const r = bypassRig();
+  const saved = { home: process.env.HOME, profile: process.env.USERPROFILE };
+  process.env.HOME = r.root;
+  process.env.USERPROFILE = r.root;
+  try {
+    r.setScript([
+      EDIT('edit-approval-1', '~/data/gates/rules.json'),
+      EDIT('edit-approval-2', `~${BS}hermes-home${BS}config.yaml`),
+      EDIT('edit-approval-3', relative(r.work, join(r.dataDir, 'gates', 'x'))),
+      EDIT('edit-approval-4', 'notes.txt'),
+      END(),
+    ]);
+    const t = await r.run();
+    for (let i = 0; i < 3; i++) { const c = await r.nextCard(); assert.match(c.summary, /own settings/, `request ${i}`); r.broker.resolve(c.id, false); }
+    assert.equal((await r.done(t)).status, 'done');
+    assert.deepEqual(outcomeOf(r.answersTo(9103)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'a plain file inside the folder is still answered without a card');
+  } finally {
+    if (saved.home === undefined) delete process.env.HOME; else process.env.HOME = saved.home;
+    if (saved.profile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = saved.profile;
+  }
+});
+
+test('W1b: ~ in a path is expanded for the owner Block rules too', async () => {
+  const saved = { home: process.env.HOME, profile: process.env.USERPROFILE };
+  const r = rig({ approval: 'ask', switches: { modeMap: true } });
+  process.env.HOME = r.root;
+  process.env.USERPROFILE = r.root;
+  try {
+    r.config.gates = { rules: [{ id: 'gr_h1', enabled: true, then: 'deny', label: 'no secret folder', source: 'user', when: { paths: [`${r.root.split(BS).join('/')}/secret/**`] } }], presetsVersion: 0 } as never;
+    r.setScript([EDIT('edit-approval-1', '~/secret/key.txt'), END()]);
+    const t = await r.run();
+    await r.done(t);
+    assert.equal(r.broker.pending().length, 0, 'refused by the rule, no card');
+    assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'deny' });
+  } finally {
+    if (saved.home === undefined) delete process.env.HOME; else process.env.HOME = saved.home;
+    if (saved.profile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = saved.profile;
+  }
+});
+
+test('W1b: a command that is not text gets a card in Bypass (Legion cannot judge it), never an auto-allow', async () => {
+  const r = bypassRig();
+  r.setScript([{ op: 'permission', id: 'perm-check-1', title: 'run it', kind: 'execute', rawInput: { command: ['rm', '-rf', 'x'] } }, END()]);
+  const t = await r.run();
+  const c = await r.nextCard();
+  assert.match(c.summary, /cannot tell/);
+  assert.match(c.summary, /not text/);
+  r.broker.resolve(c.id, false);
+  await r.done(t);
+});
+
+test('W1b: when the reader fails the card says the check failed, not a vague "could not read it safely"', async () => {
+  const r = bypassRig();
+  (r.engine as any).acpFolderRead = () => { throw new Error('reader broke'); };
+  r.setScript([CMD('perm-check-1', 'ls'), END()]);
+  const t = await r.run();
+  const c = await r.nextCard();
+  assert.match(c.summary, /the check itself failed/);
+  assert.doesNotMatch(c.summary, /read it safely/);
+  r.broker.resolve(c.id, false);
+  await r.done(t);
 });

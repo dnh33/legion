@@ -83,7 +83,7 @@ import type { RunToken, RunToolsHost } from './acp/run-tokens.js';
 import { RUN_TOOL_WAIT_MAX_S } from './acp/run-tools.js';
 import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
-import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths, toolWaitOf } from './acp/run-helpers.js';
+import { agentModeFor, cardSummary, commandNamesPath, expandRequestPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths, toolWaitOf } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
 import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, blockedNote, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
 import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
@@ -2984,6 +2984,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const readable = command.length > 0 && command.length <= MAX_READABLE;
     const found = requestPaths(r);
     let unreadable = found.unreadable;
+    // the agent opens a path from its own folder, and `~` in its home folder: both are expanded here before the compare
+    const opened: string[] = [];
+    for (const p of found.paths) { const x = expandRequestPath(p, folder); if (x === undefined) unreadable ??= "a file in it is named through another user's home folder"; else opened.push(x); }
+    if (r.toolName === 'Bash' && typeof r.input.command !== 'string') unreadable ??= 'its command is not text';
     const own = new Set(hermesHomes(entry, this.agentHost?.hermesHome));
     const kinds = this.acpShellKinds();
     for (const t of this.acpOffLimits(entry)) {
@@ -2991,10 +2995,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (!name) continue;
       let hit = false;
       try {
-        hit = found.paths.some((p) => pathInside(t, resolve(folder, p)));
+        hit = opened.some((p) => pathInside(t, p));
         // the whole path in the text is a cheap, exact test, so it runs on a command of any length; the guard reads only one it can hold
         if (!hit && command) hit = commandNamesPath(command, t) || (readable && kinds.some((k) => this.acpFolderRead(command, k, [t], folder) === 'names'));
-      } catch { unreadable ??= 'Legion could not read it safely'; }
+      } catch { unreadable ??= 'the check itself failed'; }
       if (hit) return { settings: `${own.has(t) ? `${entry.label}'s` : "Legion's"} own settings: ${name}`, ...(unreadable ? { unreadable } : {}) };
     }
     return unreadable ? { unreadable } : {};
@@ -3009,7 +3013,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       for (const kind of kinds) { const refused = refuseCatastrophic(command, kind); if (refused) return refused; }
       const folders = [...this.protectedDirs(), ...(this.agentHost ? [this.agentHost.dataDir] : [])];
       for (const kind of kinds) if (this.acpFolderRead(command, kind, folders, folder) === 'names') return "It works on Legion's own settings folder.";
-    } catch { return 'Legion could not read it safely.'; }
+    } catch { return 'The check itself failed.'; }
     return undefined;
   }
 
@@ -3023,7 +3027,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       for (const kind of kinds) { const why = unjudgeableCommand(command, kind); if (why) return why; }
       const folders = [...this.protectedDirs(), ...(this.agentHost ? [this.agentHost.dataDir] : [])];
       for (const kind of kinds) if (this.acpFolderRead(command, kind, folders, folder) === 'hidden') return "a path in it is built when it runs and could point at Legion's own settings folder";
-    } catch { return 'Legion could not read it safely'; }
+    } catch { return 'the check itself failed'; }
     return undefined;
   }
 
@@ -3047,7 +3051,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (!rules.some((x) => x.enabled && x.then === 'deny')) return false;
     const base = { toolName: r.toolName, agentId: agent.id, cwd: folder, tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } };
     const calls: Array<Record<string, unknown>> = [r.input];
-    if (r.toolName !== 'Bash') for (const p of requestPaths(r).paths) calls.push({ ...r.input, file_path: p });
+    if (r.toolName !== 'Bash') {
+      for (const p of requestPaths(r).paths) {
+        calls.push({ ...r.input, file_path: p });
+        const x = expandRequestPath(p, folder); // the file the agent will open: `~` and a relative path are read as the agent reads them
+        if (x !== undefined && x !== p) calls.push({ ...r.input, file_path: x });
+      }
+    }
     try { return calls.some((input) => decideGate({ ...base, input }, rules, 'full', false).verdict === 'deny'); } catch { return true; } // a rule check that cannot run refuses, it never allows
   }
 

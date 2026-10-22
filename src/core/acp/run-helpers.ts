@@ -3,7 +3,7 @@
  * which tool calls are Legion's own route, and where the agent keeps its home.
  */
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { MAX_TIMER_MS } from '../away/policy.js';
 import type { AcpEntry } from '../../shared/acp-view.js';
 import type { RunMode } from '../../shared/types.js';
@@ -63,7 +63,7 @@ export const MAX_CARD_WAIT_MS = MAX_TIMER_MS - 120_000;
 /** The card's wait for an agent's request, in ms: what the owner's setting gives (a number or a function read at each request), else the agent's default. Never above MAX_CARD_WAIT_MS. */
 export function permissionWaitOf(setting: number | ((entry: AcpEntry) => number | undefined) | undefined, entry?: AcpEntry): number {
   let ms: number | undefined;
-  try { ms = typeof setting === 'function' ? (entry ? setting(entry) : undefined) : setting; } catch { ms = undefined; }
+  try { ms = typeof setting === 'function' ? setting(entry as AcpEntry) : setting; } catch { ms = undefined; }
   return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_CARD_WAIT_MS) : HERMES_SELF_DENY_MS;
 }
 
@@ -73,7 +73,7 @@ export function permissionWaitOf(setting: number | ((entry: AcpEntry) => number 
  */
 export function toolWaitOf(setting: number | ((entry: AcpEntry) => number | undefined) | undefined, entry?: AcpEntry): number {
   let ms: number | undefined;
-  try { ms = typeof setting === 'function' ? (entry ? setting(entry) : undefined) : setting; } catch { ms = undefined; }
+  try { ms = typeof setting === 'function' ? setting(entry as AcpEntry) : setting; } catch { ms = undefined; }
   return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_CARD_WAIT_MS) : RUN_TOOL_WAIT_MAX_S * 1000;
 }
 
@@ -97,8 +97,18 @@ export function plainWindowsPath(p: string): string | undefined {
 
 // How Hermes applies a V4A patch (tools/patch_parser.py:52-55, opened 2026-10-22): one header per line, matched from the start of the line, with no
 // space needed after the stars. Legion reads the same headers, line by line, so no pattern can run long on a line of white space.
-const V4A_FILE = /^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*([^\n]+)/;
-const V4A_MOVE = /^\*\*\*\s*Move\s+File:\s*([^\n]+)/;
+// Python's \s also matches \x1c to \x1f and \x85, which JavaScript's does not, so the class below names them and strip() trims them.
+const V4A_FILE = /^\*\*\*[\s\x1c-\x1f\x85]*(?:Update|Add|Delete)[\s\x1c-\x1f\x85]+File:[\s\x1c-\x1f\x85]*([^\n]+)/;
+const V4A_MOVE = /^\*\*\*[\s\x1c-\x1f\x85]*Move[\s\x1c-\x1f\x85]+File:[\s\x1c-\x1f\x85]*([^\n]+)/;
+const isSpace = (c: string): boolean => /[\s\x1c-\x1f\x85]/.test(c);
+/** Python's str.strip(): the white space at both ends, \x1c to \x1f and \x85 included. A loop, so a long run of white space costs one pass. */
+function strip(text: string): string {
+  let a = 0;
+  let b = text.length;
+  while (a < b && isSpace(text[a]!)) a++;
+  while (b > a && isSpace(text[b - 1]!)) b--;
+  return text.slice(a, b);
+}
 
 /** The most of a patch Legion reads, and the most of one header line. A patch or a header beyond them is not read, and the caller fails closed. */
 export const MAX_PATCH_SCAN = 1_048_576;
@@ -115,14 +125,26 @@ function patchPaths(patch: string): { paths: string[]; unreadable?: string } {
     if (mv) {
       const rest = mv[1]!;
       const arrow = rest.indexOf('->', 1);
-      if (arrow > 0) paths.push(rest.slice(0, arrow).trim(), rest.slice(arrow + 2).trim());
-      else paths.push(rest.trim()); // no arrow: Hermes rejects it, and the one path it names is still checked
+      if (arrow > 0) paths.push(strip(rest.slice(0, arrow)), strip(rest.slice(arrow + 2)));
+      else paths.push(strip(rest)); // no arrow: Hermes rejects it, and the one path it names is still checked
       continue;
     }
     const f = V4A_FILE.exec(line);
-    if (f) paths.push(f[1]!.trim());
+    if (f) paths.push(strip(f[1]!));
   }
   return { paths };
+}
+
+const MAX_JOIN_PIECES = 64;
+
+/**
+ * Where a path of a request points when the agent opens it: `~` and `~/x` are in the home folder, any other path is from the session folder.
+ * Undefined for `~name` (another user's home folder, which the agent's shell expands and Legion cannot read): the caller fails closed.
+ */
+export function expandRequestPath(p: string, cwd: string, home: string = homedir()): string | undefined {
+  if (p === '~') return home;
+  if (p.startsWith('~')) return p[1] === '/' || p[1] === '\\' ? join(home, p.slice(2)) : undefined;
+  return resolve(cwd, p);
 }
 
 /**
@@ -136,8 +158,14 @@ export function requestPaths(r: Pick<MappedPermission, 'toolName' | 'input' | 'd
   const bad = (why: string): void => { unreadable ??= why; };
   const add = (raw: string): void => {
     if (raw.includes('\0')) { bad('a file name in it holds a character no file name has'); return; }
-    for (const piece of [raw, ...raw.split(',')]) {
-      const t = piece.trim();
+    // Hermes joins the paths with ", " and a path may hold a comma of its own: the field is checked whole, in pieces, and as every run of
+    // neighbouring pieces put back together. The pieces are capped so the number of runs stays small; past the cap it fails closed.
+    const pieces = raw.split(',');
+    const candidates = [raw, ...pieces];
+    if (pieces.length > MAX_JOIN_PIECES) bad('it names too many files to read safely');
+    else for (let i = 0; i < pieces.length; i++) for (let j = i + 2; j <= pieces.length; j++) if (j - i < pieces.length) candidates.push(pieces.slice(i, j).join(','));
+    for (const piece of candidates) {
+      const t = strip(piece);
       if (!t) continue;
       const p = platform === 'win32' ? plainWindowsPath(t) : t;
       if (p === undefined) { bad('a file in it is named by a device path Legion cannot read'); continue; }

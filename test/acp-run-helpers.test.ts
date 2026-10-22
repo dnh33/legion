@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HERMES_SELF_DENY_MS, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
+import { expandRequestPath, HERMES_SELF_DENY_MS, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
 
 // Pure pieces of an agent host run. Hermes joins the paths of a multi-file patch with ", " (acp_adapter/edit_approval.py:106-126)
 // and reads the patch headers with the two regexes at edit_approval.py:49-50.
@@ -85,4 +85,38 @@ test('stripPaths: a local path in text from Hermes or the system becomes [path];
     ['Hermes failed. Internal error', 'Hermes failed. Internal error'],
   ];
   for (const [input, want] of cases) assert.equal(stripPaths(input), want, input);
+});
+
+test('requestPaths: a path with ", " inside it is checked whole even when it is not the first piece of the join', () => {
+  const mk = (file_path: string) => ({ toolName: 'Write', input: { file_path } }) as Parameters<typeof requestPaths>[0];
+  const got = requestPaths(mk('a.txt, /srv/my data, v2/gates/x'), 'linux');
+  assert.ok(got.paths.includes('/srv/my data, v2/gates/x'), `the later path is rejoined: ${JSON.stringify(got.paths)}`);
+  assert.ok(got.paths.includes('a.txt'));
+});
+
+test('requestPaths: a join of very many pieces is bounded (the pieces are capped and the rest is unreadable)', () => {
+  const many = Array.from({ length: 5000 }, (_, i) => `f${i}.txt`).join(', ');
+  const started = Date.now();
+  const got = requestPaths({ toolName: 'Write', input: { file_path: many } } as Parameters<typeof requestPaths>[0], 'linux');
+  assert.ok(Date.now() - started < 1000, 'bounded work');
+  assert.ok(got.unreadable, 'past the cap it fails closed');
+});
+
+test('requestPaths: a patch header is read with the white space Python counts (\\x1c to \\x1f, \\x85) as well', () => {
+  const mk = (patch: string) => ({ toolName: 'Write', input: { patch } }) as Parameters<typeof requestPaths>[0];
+  const got = requestPaths(mk(['*** Begin Patch', '***\u001cUpdate\u0085File:\u001fgates.json', '*** End Patch'].join('\n')), 'linux');
+  assert.deepEqual(got.paths, ['gates.json']);
+});
+
+test('expandRequestPath: ~ is the home folder, a relative path is from the session folder, ~name cannot be read', () => {
+  const win = process.platform === 'win32';
+  const home = win ? 'C:\\Users\\me' : '/home/me';
+  const cwd = win ? 'D:\\work' : '/work';
+  const j = (...p: string[]) => p.join(win ? '\\' : '/');
+  assert.equal(expandRequestPath('~', cwd, home), home);
+  assert.equal(expandRequestPath('~/x/y.txt', cwd, home), j(home, 'x', 'y.txt'));
+  assert.equal(expandRequestPath('~\\x', cwd, home), j(home, 'x'));
+  assert.equal(expandRequestPath('a/b.txt', cwd, home), j(cwd, 'a', 'b.txt'));
+  assert.equal(expandRequestPath('../up.txt', cwd, home), win ? 'D:\\up.txt' : '/up.txt');
+  assert.equal(expandRequestPath('~other/x', cwd, home), undefined, 'another user home is not Legion to read');
 });
