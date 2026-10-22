@@ -85,7 +85,7 @@ import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
 import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, toolWaitOf } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
-import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, disasterNote, named, refusalText, toolPolicyText } from './acp/texts.js';
+import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
 import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
@@ -3114,6 +3114,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const policy = this.acpPolicyOf(e);
     if (policy) return N(policy);
     const raw = e instanceof Error ? e.message : String(e);
+    const state = sessionStateText(`${raw} ${e instanceof RpcError ? JSON.stringify(e.data ?? '') : ''}`);
+    if (state) return N(state);
     if (e instanceof RpcClosed) {
       const last = (proc?.stderrTail() ?? '').trim().split('\n').pop()?.trim();
       return `${N('Hermes stopped before it finished.')}${last ? ` It said: ${this.redactText(last).slice(0, 200)}` : ''}`;

@@ -1066,3 +1066,14 @@ test('R51: a Contained run that passes the gate runs, and an entry that is not C
   assert.equal((await b.done(await b.run())).status, 'done');
   assert.deepEqual(asked, ['hermes'], 'only the Contained run asked');
 });
+
+test('R70: Continue after a core restart maps session_busy and unknown_execution to plain words, never the raw code', async () => {
+  for (const [details, want] of [['session_busy', /still finishing the last turn/], ['unknown_execution: do not resend accepted input; a turn in this session was lost', /not sure how the last turn ended/]] as const) {
+    const r = rig({ fakeArgs: ['--prompt-error', details] });
+    const end = await r.done(await r.run());
+    assert.equal(end.status, 'error');
+    assert.match(end.error ?? '', want);
+    assert.doesNotMatch(end.error ?? '', /session_busy|unknown_execution/);
+    assert.ok(!/[\u2013\u2014]/.test(end.error ?? ''));
+  }
+});

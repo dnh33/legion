@@ -112,8 +112,7 @@ async function policyProblems(go: ReturnType<typeof runner>, entry: AcpEntry): P
     const j = asJson(allow.stdout);
     if (!j.ok) problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Legion profile (${why(allow)}).`);
     else if (!emptyList(j.value)) problems.push(`${ALLOWLIST_KEY} is not empty for the Legion profile, so the commands on it run without asking you. Clear it with: ${signInCommand(entry).replace(/ setup model$/, '')} config unset ${ALLOWLIST_KEY}`);
-  } else if (!/not set/i.test(clean(`${allow.stderr}
-${allow.stdout}`))) {
+  } else if (!/not set/i.test(`${clean(allow.stderr)} ${clean(allow.stdout)}`)) {
     problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Legion profile (${why(allow)}).`);
   }
   return { problems };

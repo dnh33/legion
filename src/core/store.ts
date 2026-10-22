@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.js';
 import { nowIso } from '../shared/util.js';
 import { BUILDER_SOUL, ROSTER, SCOUT_SOUL, ZEALOT_SOUL, withLegacyCommsLines } from './roster.js';
+import { HERMES_RESTART_TEXT, named } from './acp/texts.js';
 import { TaskIndex, type PageQuery } from './task-index.js';
 import { messageWindow, searchMessages, type MsgHit } from './message-pages.js';
 
@@ -279,7 +280,8 @@ export class Store {
     for (const t of this.tasks.values()) {
       if (t.status === 'running' || t.status === 'queued') {
         t.status = 'error';
-        t.error = 'Legion restarted';
+        // a Hermes turn lives in Hermes's own background service: it may still run, and Legion cannot stop it from here
+        t.error = t.acp ? `Legion restarted. ${named(HERMES_RESTART_TEXT, t.runtime ?? 'Hermes')}` : 'Legion restarted';
         t.updatedAt = ts;
         this.index.set(t);
         n++;

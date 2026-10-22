@@ -30,7 +30,7 @@
  * --fail-set-model <message> / --fail-set-mode <message> make that call fail. --with-close advertises sessionCapabilities.close and answers session/close
  *   (Hermes advertises no close). --cancel-error makes the `cancel` and `stream` modes answer the open prompt with an error after session/cancel
  *   (Hermes admitted_turn_failed) instead of "cancelled".
- * --prompt-error makes every session/prompt fail with an error (no cancel involved).
+ * --prompt-error [details] makes every session/prompt fail with an error (no cancel involved); the details default to "something broke".
  * session/resume and session/load answer {} for sess_fake_1 (load first replays one old message) and fail with details "not_found" for sess_missing.
  * --report writes { argv, env, cwd, pid, mode, daemonPid? } at start. --log appends every message the agent receives (one JSON per line).
  * --daemon starts a detached sleeper that must outlive this agent (the Hermes background service) and reports its PID as daemonPid.
@@ -79,7 +79,7 @@ const waiting = new Map<unknown, (msg: Record<string, unknown>) => void>(); // r
 
 async function prompt(id: unknown): Promise<void> {
   turns += 1;
-  if (argv.includes('--prompt-error')) { fail(id, -32603, 'Internal error', { details: 'something broke' }); return; }
+  if (argv.includes('--prompt-error')) { const given = opt('--prompt-error'); fail(id, -32603, 'Internal error', { details: given && !given.startsWith('--') ? given : 'something broke' }); return; }
   if (mode === 'hang') return;
   if (mode === 'crash') { process.stderr.write('Traceback (most recent call last):\n  fake agent crashed on purpose\n'); process.exit(1); }
   if (mode === 'overflow') out('x'.repeat(17 * 1024 * 1024));

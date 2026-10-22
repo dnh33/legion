@@ -26,6 +26,20 @@ export function toolPolicyText(raw: string): string | undefined {
   return undefined;
 }
 
+/** After Legion stopped, crashed or restarted in the middle of a Hermes run: Hermes works in its own background service, so Legion cannot stop what it was doing. */
+export const HERMES_RESTART_TEXT = 'Hermes may still be working on the last step on your computer, and Legion cannot stop it now. Look in Hermes before you continue this task.';
+/** Continue hit a conversation Hermes still runs a turn in (`session_busy`). */
+export const HERMES_BUSY_TEXT = 'Hermes is still finishing the last turn. Try again in a moment.';
+/** Continue hit a conversation whose last turn Hermes lost when it was interrupted (`unknown_execution`). */
+export const HERMES_LOST_TURN_TEXT = 'Hermes is not sure how the last turn ended, because Legion or Hermes stopped in the middle of it. Look at the result in Hermes before you send the same message again, or start a new conversation.';
+
+/** The plain words for a conversation state Hermes reports as a code, or undefined. */
+export function sessionStateText(raw: string): string | undefined {
+  if (/\bunknown_execution\b/.test(raw)) return HERMES_LOST_TURN_TEXT;
+  if (/\bsession_busy\b/.test(raw)) return HERMES_BUSY_TEXT;
+  return undefined;
+}
+
 export const HERMES_NOT_ALLOWED_TEXT = 'You did not allow this, so Hermes was not started.';
 export const HERMES_MAX_TOKENS_TEXT = 'Hermes ran out of room to answer. Ask again, or split the task into smaller steps.';
 export const HERMES_REFUSED_TEXT = 'Hermes declined to continue this task.';
