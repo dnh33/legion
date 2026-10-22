@@ -7,6 +7,7 @@ import type { Preset } from '../../../src/shared/gates-registry';
 import { GatesNote } from '../gates/GatesPresets';
 import { disabledReason, presetChoices, type GatesView } from '../gates/presetsLogic';
 import { useGatesAction, useGatesView, type GatesNote as Note } from '../gates/useGatesView';
+import { FIRST_RUN_CLAUDE_LINE } from '../../../src/shared/claude-checks-copy';
 import { PRESET_STRINGS, continueFrom, laterFrom, listWords, shouldShowPresetChoice, type Batch } from './presetChoiceLogic';
 import { Icon } from '../components/icons';
 import { toast, useStore } from '../store';
@@ -37,6 +38,7 @@ export function PresetChoiceView({ view, agents, selected, follow, busy, note, o
     <form ref={form} className="firstrun preset-choice" aria-labelledby="preset-choice-h" onSubmit={(e) => { e.preventDefault(); if (!busy) onContinue(); }}>
       <h3 id="preset-choice-h">{PRESET_STRINGS.title}</h3>
       <p className="lead">{PRESET_STRINGS.lead}</p>
+      <p className="field-note preset-claude">{FIRST_RUN_CLAUDE_LINE}</p>
       <fieldset className="gates-fs" role="radiogroup" aria-labelledby="preset-choice-h" disabled={busy}>
         {presetChoices().map((c) => {
           const why = disabledReason(view, c.id);

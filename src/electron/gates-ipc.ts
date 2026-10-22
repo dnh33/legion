@@ -12,7 +12,7 @@ import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import type { ConfirmRequest, CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; firstRunChoice?: true; noticeSeen?: true }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; claudeOwnChecks?: boolean; firstRunChoice?: true; noticeSeen?: true; claudeNoticeSeen?: true }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -63,7 +63,10 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
       // only a path: the core scans the folder itself and works the fingerprint out; the window never names one
       if (typeof x !== 'string' || !x.trim() || x.length > TRUSTED_FOLDER_PATH_MAX) return undefined;
       out[k] = x;
-    } else if ((k === 'firstRunChoice' || k === 'noticeSeen') && isApp) {
+    } else if (k === 'claudeOwnChecks' && isApp) {
+      if (typeof x !== 'boolean') return undefined;
+      out.claudeOwnChecks = x;
+    } else if ((k === 'firstRunChoice' || k === 'noticeSeen' || k === 'claudeNoticeSeen') && isApp) {
       if (x !== true) return undefined;
       out[k] = true;
     } else if (k === 'limit' && !isApp) {
@@ -115,6 +118,7 @@ function titleFor(ch: GatesChange, lines: string[]): string {
   if (keys.length !== 1) return GENERAL_TITLE;
   if (keys[0] === 'allowedHosts') return 'Allow these sites?';
   if (keys[0] === 'envKeep') return 'Keep these variables?';
+  if (keys[0] === 'claudeOwnChecks') return "Use Claude's own permission checks?";
   if (keys[0] === 'trustFolder') return 'Let this folder run its own commands?';
   const own = lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE);
   if (keys[0] === 'overrides' && own.length > 0 && own.every((l) => LIMIT_LABELS.some((lb) => l.startsWith(`${lb}:`)))) return 'Raise these limits?';

@@ -173,7 +173,7 @@ A bare `call POST /api/tasks` runs the default reply `[harness] scout done` (no 
 Steps are plain JSON: `{say: 'text'}`, `{tool: 'Bash', input: {...}, as: 'key'}`, `{wait: ms}`, `{result: 'text', costUsd?, error?}`. For a `tool` step the model plays the part Claude Code plays between messages, so Legion's own gates run for real:
 
 1. the engine's `PreToolUse` hook is called first (this is where Legion marks a run **tainted**: `WebFetch`, `Bash` and unknown tools taint, file tools and Legion's own do not);
-2. the engine's `canUseTool` is called when the engine set one (`ask` and `auto-edits` agents, and every run under an `ask` ceiling). A denial comes back as the tool result with `decision: 'deny'`. A `full` agent started by the app has no `canUseTool` (bypass mode), exactly like the real thing;
+2. the engine's `canUseTool` is called when the engine set one (`ask`, `auto-edits` and Smart agents, every run under an `ask` ceiling, and a `full` Claude agent while Claude's own checks are on, where it carries only Claude's question about deleting the project folder). A denial comes back as the tool result with `decision: 'deny'`. A `full` agent with Claude's own checks off has no `canUseTool` (bypass mode), exactly like the real thing;
 3. an in-process Legion tool (`mcp__legion_comms__room_create`, `mcp__legion_kg__kg_capture`, `mcp__legion_bsv__bsv_status`, `mcp__legion__ask` ...) is called through a real MCP client over an in-memory transport, so its input schema is validated;
 4. any other tool (`Bash`, `Write`, `WebFetch` ...) is **not executed**; the script gets a fixed "tool not executed" text.
 

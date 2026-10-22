@@ -25,7 +25,7 @@ function seeds() { const d = cleanupTemp('legion-welcome-seeds-'); const st = ne
 
 test('Enter on the default keeps Ask and writes firstRunChoice', () => {
   const p = presetSubmit('ask');
-  assert.deepEqual(p.patch, { preset: 'ask', firstRunChoice: true });
+  assert.deepEqual(p.patch, { preset: 'ask', firstRunChoice: true, claudeNoticeSeen: true });
   assert.equal(p.needsConfirm, false, 'Ask is the safest: no dialog');
 });
 
@@ -33,7 +33,7 @@ test('a looser choice returns a patch that needs the native confirm', () => {
   for (const c of presetChoices().filter((x) => x.looser)) {
     const p = presetSubmit(c.id);
     assert.equal(p.needsConfirm, true, c.id);
-    assert.deepEqual(p.patch, { preset: c.id, firstRunChoice: true });
+    assert.deepEqual(p.patch, { preset: c.id, firstRunChoice: true, claudeNoticeSeen: true });
   }
 });
 

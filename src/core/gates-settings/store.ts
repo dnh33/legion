@@ -55,6 +55,8 @@ const KEY_MESSAGE = "Legion needs a key from your computer's keystore to sign ga
 const blank = (): GateSettings => ({ version: 1 });
 /** What a damaged or unreadable file reads as (spec 4.1). A missing file is blank, not this. */
 const damaged = (): GateSettings => ({ version: 1, preset: 'ask' });
+/** The app file's damaged record also holds Claude's own checks OFF (the stricter, old path): a blank file would read as ON, and only the owner's own save turns it on. */
+const damagedApp = (): GateSettings => ({ version: 1, preset: 'ask', claudeOwnChecks: false });
 /** The default when the caller names no presets: only Ask until the caller widens it. */
 const ASK_ONLY: readonly Preset[] = ['ask'];
 
@@ -152,6 +154,8 @@ const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
   smart: `Legion decides when to ask. ${PRESET_LINES.smart} Everything else runs.`,
   bypass: `No permission cards. Agents run commands, change files and write to GitHub without asking. Only a command that changes ${PROTECTED_FILES_TEXT} still asks. ${BYPASS_KEYS_LINE} Everything is logged.`,
 };
+export const CLAUDE_OWN_ON_LINE = "Claude agents use Claude's own permission checks. Legion's Smart judge and its new-site, protected-file and project-delete cards no longer run for them. Legion's blocks, its safety floor and its own-file guards still apply.";
+export const CLAUDE_OWN_OFF_LINE = "Claude agents follow Legion's own permission cards again.";
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
 const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
 const gateDef = (id: string) => GATES.find((g) => g.id === id);
@@ -192,6 +196,9 @@ function describeChange(before: GateSettings, next: GateSettings, isApp: boolean
       if (id === 'tool-cards' || id === 'module-cards') out.sandbox = true;
     } else if (valueLooser(now, was)) out.tighten.push(`${g.label}: on again.`);
   }
+  // Claude's own checks replace Legion's cards for Claude agents: on is the looser side (absent means on)
+  if (isApp && before.claudeOwnChecks === false && next.claudeOwnChecks !== false) out.loosen.push(CLAUDE_OWN_ON_LINE);
+  else if (isApp && before.claudeOwnChecks !== false && next.claudeOwnChecks === false) out.tighten.push(CLAUDE_OWN_OFF_LINE);
   const added = (a: string[] | undefined, b: string[] | undefined): string[] => (b ?? []).filter((x) => !(a ?? []).includes(x));
   // kept variables first: they can hold a secret, and a long list of sites is cut short in the dialog
   for (const v of added(before.envKeep, next.envKeep)) out.loosen.push(`Commands keep the variable ${v}, which can hold a secret. In API key or cloud mode, Claude's own scrub may still hide it from Claude's commands.`);
@@ -350,7 +357,7 @@ export class GatesStore {
     if (this.lost && name === 'app') {
       // Ask everywhere: every project (those with a file, those named by `ids`) gets an Ask file, signed. Nothing from disk is imported.
       for (const id of new Set([...this.projects.keys(), ...ids])) { this.projects.set(id, damaged()); this.settle(id); }
-      this.appS = damaged();
+      this.appS = damagedApp();
       if (this.keyState !== 'unreadable') this.lost = false; // an unopenable key cannot verify anything: Ask stays
     } else if (this.lost) this.projects.set(name, damaged());
     this.settle(name);
@@ -395,7 +402,7 @@ export class GatesStore {
     this.appVerified = false; this.appGen = 0; this.maxProjGen = 0;
     if (this.signer && this.keyState !== 'new' && !existsSync(join(this.folder, 'app.json'))) this.lost = true;
     this.appS = this.readOne('app') ?? blank();
-    if (this.lost) { this.outside.add('app'); if (!this.pending.has('app')) this.appS = damaged(); }
+    if (this.lost) { this.outside.add('app'); if (!this.pending.has('app')) this.appS = damagedApp(); }
     for (const n of existsSync(this.folder) ? readdirSync(this.folder) : []) {
       const m = /^(.+)\.json$/.exec(n);
       if (!m || !PROJECT_ID_RE.test(m[1]!)) continue;
@@ -426,8 +433,8 @@ export class GatesStore {
   /** Validates a patch and returns the settings it would give. Throws a 400 for anything wrong; never looks at the key. */
   private build(cur: GateSettings, body: Record<string, unknown>, isApp: boolean): GateSettings {
     if ('shellFloorOff' in body) throw new GatesError(400, "Legion's shell safety floor has no switch.");
-    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen')) {
-      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, firstRunChoice and noticeSeen can be changed here.');
+    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen' && k !== 'claudeNoticeSeen' && k !== 'claudeOwnChecks')) {
+      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, claudeOwnChecks, firstRunChoice, noticeSeen and claudeNoticeSeen can be changed here.');
     }
     const out: GateSettings = { ...cur, version: 1 };
     if ('limit' in body) {
@@ -489,7 +496,13 @@ export class GatesStore {
       if (rest.length >= TRUSTED_FOLDERS_MAX) throw new GatesError(400, `At most ${TRUSTED_FOLDERS_MAX} trusted folders. Remove one first.`);
       out.trustedFolders = [...rest, rec];
     }
-    for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {
+    if ('claudeOwnChecks' in body) {
+      if (!isApp) throw new GatesError(400, "Claude's own checks are set for the whole app, not per project.");
+      if (typeof body.claudeOwnChecks !== 'boolean') throw new GatesError(400, 'claudeOwnChecks must be true or false.');
+      // absent means on: only the off side is written down
+      if (body.claudeOwnChecks) delete out.claudeOwnChecks; else out.claudeOwnChecks = false;
+    }
+    for (const flag of ['firstRunChoice', 'noticeSeen', 'claudeNoticeSeen'] as const) {
       if (!(flag in body)) continue;
       if (!isApp) throw new GatesError(400, 'That note is kept for the whole app, not per project.');
       if (body[flag] !== true) throw new GatesError(400, flag + ' can only be set to true.');
@@ -530,7 +543,11 @@ export class GatesStore {
         if (!isApp) throw new Error('trustedFolders');
         const l = parseTrusted(raw.trustedFolders); if (l.length) out.trustedFolders = l;
       }
-      for (const flag of ['firstRunChoice', 'noticeSeen'] as const) {
+      if (raw.claudeOwnChecks !== undefined) {
+        if (!isApp || raw.claudeOwnChecks !== false) throw new Error('claudeOwnChecks');
+        out.claudeOwnChecks = false;
+      }
+      for (const flag of ['firstRunChoice', 'noticeSeen', 'claudeNoticeSeen'] as const) {
         if (raw[flag] === undefined) continue;
         if (!isApp || raw[flag] !== true) throw new Error(flag);
         out[flag] = true;
@@ -565,7 +582,7 @@ export class GatesStore {
         // not proven to be ours (or no cap): not applied, left on disk for the owner to accept or keep theirs
         this.outside.add(name);
         this.pending.set(name, out);
-        return damaged();
+        return isApp ? damagedApp() : damaged();
       }
       if (verified && !isApp) this.fileGens.set(name, gen);
       // a field this version no longer has (the shell floor switch) is dropped here and gone from the file after this rewrite;
@@ -579,7 +596,7 @@ export class GatesStore {
       // Write the Ask record back only once the damaged original is safely aside, so the write never removes it.
       // A restart then reads Ask from disk instead of a blank file (which would lose the cap).
       if (setAside) this.mark(name);
-      return damaged();
+      return name === 'app' ? damagedApp() : damaged();
     }
   }
 

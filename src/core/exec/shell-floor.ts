@@ -800,7 +800,8 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
   if (hidden) return `Refused: this command is ${hidden}. Text that is decoded or encoded cannot be read before it runs, so it is blocked for every agent, even full access. Run the command itself, written out plainly.`;
   // Quoted text of several words on a line that runs no text is data (a commit message, a grep pattern): read it as a
   // space. A one-word quote (`format "c:"`) is kept, unquoted, so quoting a target cannot hide it.
-  const text = runsText(cmd) ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? '')));
+  const runs = runsText(cmd) || (shell === 'pwsh' && PS_STRING_RUNS.test(cmd));
+  const text = runs ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? '')));
   // a Git Bash doubled switch (bcdedit //delete, cipher //w) is the switch the program receives
   const scan = text.replace(/[\^"']/g, '').toLowerCase().replace(/(^|\s)\/\/(?=[a-z?][\w:?.-]*(?:\s|$))/g, '$1/');
   for (const [re, what] of [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS]) if (re.test(scan)) return say(what);
@@ -852,7 +853,7 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
       if (inner) return inner;
     }
     // one plain scan per quote; only when something on the line runs text (a shell's -c, eval, ssh, a pipe into sh)
-    if (runsText(cmd)) for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+    if (runs) for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
       const t = m[1] ?? m[2] ?? '';
       if (!/\s/.test(t)) continue;
       // text after `alias x=` or `trap '…'` or a here-string is a command too
@@ -861,6 +862,309 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
     }
   }
   return undefined;
+}
+
+const LONG_WINDOW = 5_000;
+/** Past this length (of the command without its heredoc bodies) even the read costs too much for the core: such a command is carded unread. */
+export const MAX_READ_IN_PARTS = 64_000;
+/** A command this large is never walked at all (a heredoc body is skipped cheaply, but the walk is still linear in what it must look at). */
+const MAX_WALKED = 8_000_000;
+/** How much of a too-long statement is re-read in 5,000-character windows, only to name the dangerous text on the card. */
+const WINDOW_BUDGET = 16_000;
+/** How much of a group of statements opens the next group: a shape shorter than this that spans statements is always whole in one group. */
+const LONG_TAIL = 1_000;
+/** A line of a window that holds the catastrophic text, so a card can show the dangerous part and not the padding in front of it. */
+function dangerousPart(window: string, shell: ShellKind): string {
+  for (const piece of window.split(/\r?\n|;|&&|\|\|/)) if (piece.trim() && refuseCatastrophic(piece, shell)) return piece.trim();
+  return window;
+}
+
+/**
+ * A heredoc whose body is run as code: the line before it names a shell, an interpreter or something that runs its input. Its body is not data, so it stays in the scan.
+ * (A body that only a file or a plain program receives is data. The list is a heuristic: a body saved to a file and run later is not caught.)
+ */
+const CODE_FED = /(?:^|[\s;&|(`])(?:(?:sudo|env|exec|nohup|time|command)\s+)*(?:\S*[\\/])?(?:(?:ba|z|da|k|c|a|fi|tc)?sh|pwsh|powershell|cmd|eval|source|\.|ssh|su|xargs|at|batch|crontab|expect|python[\d.]*|node|perl|ruby|php|lua|osascript|sqlite3|psql|mysql|deno|bun|iex|invoke-expression)(?:\.exe)?(?=$|[\s;&|)<>])/i;
+
+/**
+ * PowerShell text that turns a string into something that runs: a script block made from a string, a call of a string (`& $s`), the engine's InvokeScript and
+ * ExpandString, Add-Type, or a script file (`.ps1`, `.psm1`, `.bat`, `.cmd`: a here-string saved to one and run). The short refusal reads quoted text as a command when this is in the line.
+ */
+const PS_STRING_RUNS = /\b(?:scriptblock|invokescript|expandstring|add-type)\b|::create\s*\(|(?:^|[\s;|({])&\s*[$(]|\.(?:ps1|psm1|bat|cmd)\b/i;
+/** PowerShell text that runs a string as code: Invoke-Expression and iex, Invoke-Command, a job, the forms above, another shell. */
+const PS_RUNS = new RegExp(`${PS_STRING_RUNS.source}|\\b(?:invoke-expression|iex|invoke-command|icm|start-job|start-threadjob)\\b|\\b(?:powershell|pwsh|cmd|bash|sh|wsl|python[\\d.]*|node)(?:\\.exe)?\\b`, 'i');
+
+/** A command cut into statements, or the length that made it too long to cut. */
+type Cut = { statements: string[] } | { tooLong: number };
+
+/**
+ * Cuts a command into statements for the long scan, in one linear walk. A run of blanks (and a backslash-newline, a PowerShell backtick-newline, a cmd caret-newline)
+ * becomes one space, so padding cannot spread a command's words past the scan window. A statement ends at a newline, `;`, `&&` or `||` outside quotes and parentheses
+ * (a pipe stays inside it: `base64 -d | sh` needs both sides). A heredoc body (`<<WORD ... WORD`; a PowerShell here-string) is data and is left out only
+ * when nothing can run it: the line that opens it does not feed a shell or interpreter, its word closes, it holds no `$(` or backtick (a here-string: and the command
+ * nowhere runs a string, with Invoke-Expression, a script block, `&` or another shell). Otherwise its lines are read like any other. A `<<` inside quotes, a comment or arithmetic is no heredoc.
+ * Stops at once when the rest is more than MAX_READ_IN_PARTS long.
+ */
+function cutStatements(raw: string, shell: ShellKind): Cut {
+  const L = raw.length;
+  const statements: string[] = [];
+  let parts: string[] = [];
+  let from = 0;
+  let resid = 0;
+  let depth = 0;
+  let tick = false;
+  let pending: string[] = [];
+  let pendingQuoted: boolean[] = [];
+  const sh = shell === 'sh'; const ps = shell === 'pwsh'; const cmd = shell === 'cmd';
+  // blanks: space, tab, CR, FF, VT; PowerShell also takes every Unicode space as a separator
+  const blank = (c: number): boolean => c === 32 || c === 9 || c === 13 || c === 12 || c === 11 || (ps && c > 127 && (c === 0xa0 || c === 0x85 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000));
+  const flush = (to: number): void => { if (to > from) { parts.push(raw.slice(from, to)); resid += to - from; } };
+  // one space for a run of blanks, even when escapes and newlines-joined lines sit between its pieces
+  const sp = (): void => { if (parts.length && parts[parts.length - 1] !== ' ') parts.push(' '); };
+  // a `<<` that opened a heredoc (its body is cut out, or kept to be read as lines) is made a plain `<`, so the refusal does not skip the lines after it as a body it no longer sees
+  // (the separator that ended a statement stays at its end, so a shape that spans one, such as a fork bomb, is still whole in a group)
+  const end = (sep = '\n'): void => {
+    let s = parts.join('').trim();
+    parts = [];
+    if (sh && s.includes('<<')) s = s.replace(/(?<!<)<<(?!<)-?/g, '<');
+    if (!s && sep === ';' && statements.length && statements[statements.length - 1]!.endsWith(';')) return; // a run of `;` is one separator, like a run of blanks
+    if (s || sep !== '\n') statements.push(s + sep);
+  };
+  // the work the search for heredoc closers may do: one body costs its length once, so this allows a few that never close and then trusts no heredoc (all lines are read)
+  let budget = 3 * L + 10_000;
+  let heredocs = true;
+  // Can the body between two positions run something: does it hold `$(` or a backtick? Asked at rising positions, so each stretch of text is searched once.
+  const SUBST = /\$\(|`/g;
+  let nextSubst = -2;
+  const holdsSubst = (from: number, to: number): boolean => {
+    if (nextSubst !== -1 && nextSubst < from) { SUBST.lastIndex = from; const m = SUBST.exec(raw); nextSubst = m ? m.index : -1; }
+    return nextSubst !== -1 && nextSubst < to;
+  };
+  // PowerShell text that turns a string into code anywhere in the command: a here-string is then no longer data
+  let runsStrings: boolean | undefined;
+  const psRuns = (): boolean => (runsStrings ??= PS_RUNS.test(raw));
+  const over =(): Cut | undefined => (resid > MAX_READ_IN_PARTS ? { tooLong: resid } : undefined);
+  let i = 0;
+  while (i < L) {
+    const c = raw.charCodeAt(i);
+    // a quoted run is skipped whole: its blanks and separators are left as they are
+    if (c === 39 && !cmd) { // '
+      if (sh) { const j = raw.indexOf("'", i + 1); i = j < 0 ? L : j + 1; }
+      else { let j = i + 1; for (;;) { const k = raw.indexOf("'", j); if (k < 0) { j = L; break; } if (raw.charCodeAt(k + 1) === 39) { j = k + 2; continue; } j = k + 1; break; } i = j; }
+      if (i - from > MAX_READ_IN_PARTS + 1) { flush(i); from = i; const s = over(); if (s) return s; }
+      continue;
+    }
+    if (c === 34) { // "
+      let j = i + 1;
+      while (j < L) { const d = raw.charCodeAt(j); if (d === 34) { j++; break; } j += (d === 92 && sh) || (d === 96 && ps) ? 2 : 1; }
+      i = Math.min(j, L);
+      if (i - from > MAX_READ_IN_PARTS + 1) { flush(i); from = i; const s = over(); if (s) return s; }
+      continue;
+    }
+    if (sh && c === 36 && raw.charCodeAt(i + 1) === 39) { // $'..' takes backslash escapes
+      let j = i + 2;
+      while (j < L) { const d = raw.charCodeAt(j); if (d === 39) { j++; break; } j += d === 92 ? 2 : 1; }
+      i = Math.min(j, L);
+      continue;
+    }
+    if (ps && c === 64 && (raw.charCodeAt(i + 1) === 39 || raw.charCodeAt(i + 1) === 34)) { // @' or @" and a newline: a here-string
+      const q = raw[i + 1]!;
+      let a = i + 2; while (a < L && blank(raw.charCodeAt(a))) a++;
+      if (raw.charCodeAt(a) === 10) {
+        // the body runs to a line that starts with q@ (blanks before it are allowed: that ends it no later than PowerShell does)
+        let found = -1;
+        for (let ls = a + 1; ls <= L;) {
+          let le = raw.indexOf('\n', ls); if (le < 0) le = L;
+          let b = ls; while (b < le && blank(raw.charCodeAt(b))) b++;
+          if (raw[b] === q && raw[b + 1] === '@') { found = le; break; }
+          budget -= le - ls + 1;
+          ls = le + 1;
+          if (budget < 0) { found = -1; break; }
+        }
+        // data only when nothing runs it: the statement before it does not feed a shell, the command nowhere runs a string, and an expandable body holds no `$( )`
+        if (found >= 0 && !CODE_FED.test(parts.join('') + raw.slice(from, i)) && !psRuns() && !(q === '"' && holdsSubst(a + 1, found))) {
+          flush(i + 2); parts.push('\n'); end();
+          from = Math.min(found + 1, L); i = from;
+          const s = over(); if (s) return s;
+          continue;
+        }
+      }
+      i += 2; continue;
+    }
+    if ((sh && c === 92) || (ps && c === 96)) { // an escape: before a newline it joins the lines, otherwise the next character is plain text
+      const n = raw.charCodeAt(i + 1);
+      if (n === 10 || (n === 13 && raw.charCodeAt(i + 2) === 10)) { flush(i); sp(); i += n === 13 ? 3 : 2; from = i; const s = over(); if (s) return s; continue; }
+      i += 2; continue;
+    }
+    if (cmd && c === 94) { // ^ before a newline joins the lines
+      const n = raw.charCodeAt(i + 1);
+      if (n === 10 || (n === 13 && raw.charCodeAt(i + 2) === 10)) { flush(i); sp(); i += n === 13 ? 3 : 2; from = i; const s = over(); if (s) return s; continue; }
+    }
+    if (blank(c)) {
+      let j = i + 1; while (j < L && blank(raw.charCodeAt(j))) j++;
+      flush(i); sp(); from = j; i = j;
+      const s = over(); if (s) return s;
+      continue;
+    }
+    // a comment: no quote in it opens one, and no `<<` in it starts a heredoc (its text stays in the statement)
+    if (c === 35 && !cmd && (i === 0 || blank(raw.charCodeAt(i - 1)) || raw.charCodeAt(i - 1) === 10 || ';&|('.includes(raw[i - 1]!))) {
+      const j = raw.indexOf('\n', i); i = j < 0 ? L : j; continue;
+    }
+    if (ps && c === 60 && raw.charCodeAt(i + 1) === 35) { const j = raw.indexOf('#>', i + 2); i = j < 0 ? L : j + 2; continue; } // <# block comment #>
+    if (c === 10) {
+      flush(i);
+      if (depth > 0 && !pending.length) { parts.push('\n'); i++; from = i; continue; }
+      const opener = pending.length ? parts.join('') : '';
+      end(); i++; from = i;
+      const s = over(); if (s) return s;
+      if (pending.length) {
+        const words = pending; pending = [];
+        const quoted = pendingQuoted.every(Boolean); pendingQuoted = [];
+        // every word must close, and the line that opens them must not feed a shell: otherwise the lines are read like any other
+        const bodiesFrom = i; let at = i; let all = true;
+        for (const w of words) {
+          let found = -1;
+          for (let ls = at; ls <= L;) {
+            let le = raw.indexOf('\n', ls); if (le < 0) le = L;
+            let a = ls; while (a < le && (raw.charCodeAt(a) === 9 || raw.charCodeAt(a) === 32)) a++;
+            if (raw.startsWith(w, a)) { let b = a + w.length; while (b < le && blank(raw.charCodeAt(b))) b++; if (b === le) { found = le; break; } }
+            budget -= le - ls + 1;
+            ls = le + 1;
+            if (budget < 0) { heredocs = false; break; }
+          }
+          if (found < 0) { all = false; break; }
+          at = Math.min(found + 1, L);
+        }
+        // a body is data when it closes and nothing runs it: the line that opens it does not feed a shell and does not pipe (a pipe can end in one, even on the line after the body),
+        // and it cannot expand: a quoted word keeps `$(` and backticks as plain text, an unquoted body is read when it holds either
+        if (all && !CODE_FED.test(opener) && !opener.includes('|') && (quoted || !holdsSubst(bodiesFrom, at))) { i = at; from = at; }
+      }
+      continue;
+    }
+    if (c === 59 && depth === 0 && !cmd) { flush(i); end(';'); i++; from = i; const s = over(); if (s) return s; continue; }
+    if ((c === 38 && raw.charCodeAt(i + 1) === 38) || (c === 124 && raw.charCodeAt(i + 1) === 124)) {
+      if (depth === 0) { flush(i); end(raw.slice(i, i + 2)); i += 2; from = i; const s = over(); if (s) return s; continue; }
+      i += 2; continue;
+    }
+    if (cmd && c === 38 && depth === 0) { flush(i); end('&'); i++; from = i; const s = over(); if (s) return s; continue; }
+    if (c === 40) { depth++; i++; continue; }
+    if (c === 41) { if (depth > 0) depth--; i++; continue; }
+    if (sh && c === 96) { depth += tick ? -1 : 1; if (depth < 0) depth = 0; tick = !tick; i++; continue; }
+    if (sh && c === 60 && raw.charCodeAt(i + 1) === 60 && raw.charCodeAt(i + 2) !== 60 && raw.charCodeAt(i - 1) !== 60 && depth === 0) {
+      // <<WORD or <<-WORD: the word, with its quotes and backslashes taken off, is the line that closes the body
+      let j = i + 2; if (raw.charCodeAt(j) === 45) j++;
+      while (j < L && blank(raw.charCodeAt(j))) j++;
+      let word = ''; let wordQuoted = false;
+      while (j < L) {
+        const d = raw.charCodeAt(j);
+        if (d === 39 || d === 34) { const k = raw.indexOf(raw[j]!, j + 1); if (k < 0) { j = L; break; } word += raw.slice(j + 1, k); j = k + 1; wordQuoted = true; continue; }
+        if (d === 92) { if (j + 1 < L) word += raw[j + 1]; j += 2; wordQuoted = true; continue; }
+        if (blank(d) || d === 10 || d === 59 || d === 38 || d === 124 || d === 60 || d === 62 || d === 40 || d === 41) break;
+        word += raw[j]; j++;
+      }
+      if (word && heredocs) { pending.push(word); pendingQuoted.push(wordQuoted); }
+      i = Math.max(Math.min(j, L), i + 2);
+      continue;
+    }
+    i++;
+    if (i - from > MAX_READ_IN_PARTS + 1) { flush(i); from = i; const s = over(); if (s) return s; }
+  }
+  flush(L);
+  end();
+  const s = over(); if (s) return s;
+  return { statements };
+}
+
+/** The refusal read over one stretch of text, and again with its substitutions read flat when it holds three or more (the refusal itself stops at two levels). */
+function scanText(text: string, shell: ShellKind): { reason: string; part: string } | undefined {
+  let reason = refuseCatastrophic(text, shell);
+  let shown = text;
+  if (!reason && (text.match(/\$\(|`/g)?.length ?? 0) >= 3) {
+    shown = text.replace(/\$\(|[`()]/g, ' ');
+    reason = refuseCatastrophic(shown, shell);
+  }
+  return reason ? { reason, part: dangerousPart(shown, shell) } : undefined;
+}
+
+/**
+ * The catastrophic check for a command too long to read whole (over MAX_READABLE): the same refusal, read over the command cut into statements (cutStatements).
+ * Padding in front of, behind, around or inside the command hides nothing, a heredoc body that cannot run is data, and the cost stays linear in the length.
+ * The statements are read in groups of up to 5,000 characters. A statement that is still longer than that once its blanks are collapsed cannot be judged by
+ * reading it: it comes back as `unread`, to be asked about (after a try over its first 16,000 characters in windows, to name the dangerous text on the card).
+ * A command with more than MAX_READ_IN_PARTS characters outside its heredoc bodies is not read at all. No hit: it goes on.
+ */
+export function longCatastrophic(raw: string, shell: ShellKind = 'sh'): { kind: 'found' | 'unread'; reason: string; part: string } | undefined {
+  const tooLong = (n: number): { kind: 'unread'; reason: string; part: string } => ({ kind: 'unread', reason: `it is too long to check, even in parts (${n.toLocaleString('en-US')} characters)`, part: raw.slice(0, 1000) });
+  if (raw.length > MAX_WALKED) return tooLong(raw.length);
+  const cut = cutStatements(raw, shell);
+  if ('tooLong' in cut) return tooLong(cut.tooLong);
+  let group: string[] = []; let size = 0; let fresh = 0;
+  let budget = WINDOW_BUDGET;
+  let oversize: string | undefined;
+  // the group is read, and its last 1,000 characters of statements open the next one, so a shape of up to 1,000 characters that spans statements is whole in some group
+  const readGroup = (keepTail: boolean): { kind: 'found'; reason: string; part: string } | undefined => {
+    const hit = fresh ? scanText(group.join(' '), shell) : undefined;
+    let k = group.length; let n = 0;
+    if (keepTail) while (k > 0 && n + group[k - 1]!.length + 1 <= LONG_TAIL) { n += group[k - 1]!.length + 1; k--; }
+    else k = group.length;
+    group = group.slice(k); size = n; fresh = 0;
+    return hit ? { kind: 'found', ...hit } : undefined;
+  };
+  for (const st of cut.statements) {
+    if (st.length > LONG_WINDOW) {
+      const g = readGroup(false); if (g) return g;
+      oversize ??= st;
+      for (let at = 0; at < st.length && budget > 0; at += 4_000, budget -= 4_000) {
+        const hit = scanText(st.slice(at, at + LONG_WINDOW), shell);
+        if (hit) return { kind: 'found', ...hit };
+      }
+      continue;
+    }
+    if (size + st.length + 1 > LONG_WINDOW) { const g = readGroup(true); if (g) return g; if (size + st.length + 1 > LONG_WINDOW) { group = []; size = 0; } }
+    group.push(st); size += st.length + 1; fresh++;
+  }
+  const g = readGroup(false); if (g) return g;
+  if (oversize !== undefined) return { kind: 'unread', reason: `one statement is too long to check (${oversize.length.toLocaleString('en-US')} characters, even with its blanks collapsed)`, part: oversize.slice(0, 1000) };
+  return undefined;
+}
+
+/**
+ * A command's text with its blanks collapsed (and its heredoc bodies cut), for a command that is over MAX_READABLE only because of padding: the delete reader
+ * can then read it like the plain command. Undefined when the command is too long to cut. Quoted text is kept as it is.
+ */
+export function collapsedText(raw: string, shell: ShellKind): string | undefined {
+  if (raw.length > MAX_WALKED) return undefined;
+  const cut = cutStatements(raw, shell);
+  return 'tooLong' in cut ? undefined : cut.statements.join('');
+}
+
+const DELETE_VERB = /(?:^|[\s;&|(){}"'`])(?:remove-item|ri|rm|rmdir|rd|del|erase|rimraf)(?=$|[\s;&|)"'/])/i;
+const RECURSE_FLAG = /(?:^|[^\w-])-r[a-z]*|\/s(?!\w)/i;
+/**
+ * For a PowerShell or cmd text too long to read: the stretch around a delete verb when the text also has a recursive switch (`-Recurse`, `-r`, `/s`) somewhere, else undefined.
+ * Two plain searches, linear. It cannot tell what is deleted, only that a recursive delete is in there.
+ */
+export function recursiveDeleteSnippet(text: string): string | undefined {
+  const m = DELETE_VERB.exec(text);
+  if (!m || !RECURSE_FLAG.test(text)) return undefined;
+  const at = Math.max(0, m.index - 100);
+  return text.slice(at, at + 1000);
+}
+
+/**
+ * The Windows shells a Bash command starts with a script of their own (`cmd /c ...`, `powershell -Command ...`), each with its script text and the kind to read it as.
+ * The script is the rest of the line; one pair of outer quotes is taken off (and `\"` made `"` inside double quotes). Empty when the command starts none.
+ */
+export function windowsShellTexts(command: string): Array<{ kind: ShellKind; text: string }> {
+  const out: Array<{ kind: ShellKind; text: string }> = [];
+  const take = (kind: ShellKind, rest: string | undefined): void => {
+    let t = (rest ?? '').trim();
+    const q = t[0];
+    if ((q === '"' || q === "'") && t.length > 1) { const k = t.lastIndexOf(q); if (k > 0) t = t.slice(1, k); if (q === '"') t = t.replace(/\\"/g, '"'); }
+    if (t) out.push({ kind, text: t });
+  };
+  for (const m of command.matchAll(/\bcmd(?:\.exe)?\s+(?:\/\/?[a-z]\s+)*?\/\/?[ck]\s+([^\n]*)/gi)) take('cmd', m[1]);
+  for (const m of command.matchAll(/\b(?:powershell|pwsh)(?:\.exe)?\b[^\n]*?\s-c(?:ommand)?\s+([^\n]*)/gi)) take('pwsh', m[1]);
+  return out;
 }
 
 /* ---------- commands that cannot be read ---------- */
@@ -1301,7 +1605,10 @@ function place(v: string, shell: ShellKind, cwd: string | undefined): Placed {
   const abs = DRIVE.test(w) || w.startsWith('/');
   if (!abs && cwd === undefined) {
     const rel = w.split('/').filter((s) => s && s !== '.');
-    return !rel.length || rel.includes('..') ? 'here' : { rel };
+    // a run of `..` at the start only moves the start: `..\other` is a folder called other, wherever the shell is (the caller asks if any folder of that name could hold the project)
+    const lead = rel.findIndex((s) => s !== '..');
+    const rest = lead < 0 ? [] : rel.slice(lead);
+    return !rest.length || rest.includes('..') ? 'here' : { rel: rest };
   }
   // a working folder is a drive path (Windows) or a POSIX path (Linux, macOS); anything else cannot be placed
   const posixCwd = cwd !== undefined && cwd.startsWith('/');

@@ -3,6 +3,7 @@ import { effectiveMode, presetMode } from '../../../src/core/permission-mode.js'
 import type { AgentProfile, ApprovalMode, RunMode, Task } from '../../../src/shared/types.js';
 import type { Project } from '../../../src/shared/projects.js';
 import type { Preset } from '../../../src/shared/gates-registry.js';
+import { checkerChipText, checkerFallbackLine } from '../../../src/shared/claude-checks-copy.js';
 import { AGENT_MODE_HELP, AGENT_MODE_LABEL, MODE_LABEL, PRESET_LABEL, runsAsChip, webChip, type GatesView } from './presetsLogic.js';
 
 /** What the agent editor's Approvals field offers. `project` is "Follow project"; the rest are the agent's own mode. */
@@ -138,9 +139,9 @@ export function seedWords(agent: Pick<AgentProfile, 'seedApproval'> | undefined)
 
 type RunsAs = { text: string; reason?: string; full?: true; title?: string };
 /** What the run header shows next to the agent: how the run asks, and how much of the web it read. Both hidden when the run has nothing to say. */
-export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefined, agent: (Pick<AgentProfile, 'approval' | 'approvalSource'> & { name?: string }) | undefined, projects: readonly Project[], view: GatesView | null): { runsAs?: RunsAs; web?: string } {
+export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin' | 'claudeChecker'> & Partial<Pick<Task, 'claudeCheckerModel'>> | undefined, agent: (Pick<AgentProfile, 'approval' | 'approvalSource'> & { name?: string }) | undefined, projects: readonly Project[], view: GatesView | null): { runsAs?: RunsAs; web?: string; checker?: { text: string; title: string } } {
   if (!task) return {};
-  const out: { runsAs?: RunsAs; web?: string } = {};
+  const out: { runsAs?: RunsAs; web?: string; checker?: { text: string; title: string } } = {};
   const ra = task.runsAs;
   if (ra && agent) {
     // the project the run STARTED in, never the one the task sits in now
@@ -163,6 +164,14 @@ export function runChips(task: Pick<Task, 'runsAs' | 'web' | 'origin'> | undefin
     });
     // A run that asks for nothing keeps the amber warning the old approval pill had.
     if (ra.mode === 'full') out.runsAs.full = true;
+  }
+  // A Smart run that could not use Claude's checker: Claude asks as in Ask. One chip says both ("Smart: Claude asks as in Ask (no checker for <model>)"), with the whole
+  // line on hover and for screen readers. A run with no "Runs as" chip keeps a chip of its own.
+  if (task.claudeChecker === 'fallback') {
+    const line = checkerFallbackLine([{ ...(agent?.name ? { agent: agent.name } : {}), ...(task.claudeCheckerModel ? { model: task.claudeCheckerModel } : {}) }]);
+    const text = checkerChipText(task.claudeCheckerModel);
+    if (out.runsAs) { out.runsAs.text = text; out.runsAs.title = `${out.runsAs.title ?? ''} ${line}`.trim(); out.runsAs.reason ??= line; }
+    else out.checker = { text, title: line };
   }
   const web = task.web ? webChip(task.web) : undefined;
   if (web) out.web = web;

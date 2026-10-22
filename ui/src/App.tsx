@@ -30,6 +30,7 @@ import { HoldChip } from './projects/page/HoldChip';
 import { CoreRestartBanner } from './coreRestart/CoreRestartBanner';
 import { startCoreRestart } from './coreRestart/coreRestartStore';
 import { WhatsNew } from './whatsnew/WhatsNew';
+import { ClaudeNotice } from './gates/ClaudeChecks';
 import { initProjects, openAsk } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
@@ -136,6 +137,7 @@ export function App() {
       <main className="center">
         <CoreRestartBanner />
         <HoldChip />
+        <ClaudeNotice />
         {settingsOpen ? <SettingsPanel /> : (
           <>
             {view === 'chat' && <><Thread /><Composer /></>}

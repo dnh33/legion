@@ -194,7 +194,7 @@ async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Pro
   const { changes, preset } = req;
   // the app default (first-run screen): what it would do, as the core words it
   let presetPv: { loosens: boolean; digest: string; lines: string[] } | undefined;
-  const patch = preset !== undefined ? { preset, firstRunChoice: true } : undefined;
+  const patch = preset !== undefined ? { preset, firstRunChoice: true, claudeNoticeSeen: true } : undefined;
   if (patch) {
     const cur = await deps.call('GET', '/api/gates/settings');
     if (!cur || cur.status !== 200) return { ...noCore, applied: [] };

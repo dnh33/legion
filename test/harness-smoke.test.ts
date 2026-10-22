@@ -116,3 +116,21 @@ test('harness sweep: removes only dead, marked legion-harness-* folders; never a
     assert.deepEqual([existsSync(dead), existsSync(live), existsSync(unmarked), existsSync(wrongMarker), existsSync(foreign)], [false, true, true, true, true]);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
+
+test('harness fake model: canUseTool is reached only where Claude Code itself would ask (hooks, deny, bypass, allowedTools, reads, accept-edits)', async () => {
+  const { decide } = await import(pathToFileURL(join(root, 'scripts', 'harness', 'fake-model.mjs')).href) as { decide: (o: Record<string, unknown>, tool: string, hook: { decision?: string; reason?: string }) => { behavior: string } };
+  const b = (o: Record<string, unknown>, tool: string, hook: { decision?: string } = {}) => decide(o, tool, hook).behavior;
+  assert.equal(b({ permissionMode: 'default' }, 'Read'), 'allow', 'a read needs no card in default mode');
+  assert.equal(b({}, 'Grep'), 'allow');
+  assert.equal(b({ permissionMode: 'default' }, 'Bash'), 'ask', 'a shell command is asked about in default mode');
+  assert.equal(b({ permissionMode: 'default' }, 'Write'), 'ask');
+  assert.equal(b({ permissionMode: 'acceptEdits' }, 'Write'), 'allow');
+  assert.equal(b({ permissionMode: 'acceptEdits' }, 'Bash'), 'ask');
+  assert.equal(b({ permissionMode: 'bypassPermissions' }, 'Bash'), 'allow', 'bypass never reaches canUseTool');
+  assert.equal(b({ permissionMode: 'default', allowedTools: ['WebFetch'] }, 'WebFetch'), 'allow');
+  assert.equal(b({ permissionMode: 'default', disallowedTools: ['Bash'] }, 'Bash'), 'deny');
+  assert.equal(b({ permissionMode: 'bypassPermissions', disallowedTools: ['Bash'] }, 'Bash'), 'deny', 'a deny rule holds in every mode');
+  assert.equal(b({ permissionMode: 'default' }, 'Read', { decision: 'ask' }), 'ask', 'a hook ask forces the prompt, even for a read');
+  assert.equal(b({ permissionMode: 'default' }, 'Bash', { decision: 'allow' }), 'allow', 'a hook allow skips the prompt');
+  assert.equal(b({ permissionMode: 'bypassPermissions' }, 'Read', { decision: 'deny' }), 'deny', 'a hook deny holds in every mode');
+});
