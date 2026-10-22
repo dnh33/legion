@@ -317,7 +317,7 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     assert.ok(CONTAINED_SWITCH_HINT.includes(CONTAINED_CHECKS), 'it reuses the core wording of what is checked');
     assert.match(CONTAINED_SWITCH_HINT, /asks before it runs a command/);
     assert.match(CONTAINED_SWITCH_HINT, /tool list for Legion runs is set to file tools/);
-    assert.match(CONTAINED_SWITCH_HINT, /does not borrow the Claude Code or Codex logins/);
+    assert.match(CONTAINED_SWITCH_HINT, /does not borrow your Claude Code login or another coding tool's login/);
     assert.match(CONTAINED_SWITCH_HINT, /may use your main Hermes sign-in/);
     assert.doesNotMatch(CONTAINED_SWITCH_HINT, NO_DASH);
     assert.match(src('src/core/acp/contained.ts'), /CONTAINED_CHECKS/, 'the core builds its read-back sentence from the same words');

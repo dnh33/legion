@@ -31,7 +31,7 @@ test('every loosening has one plain line, no dash, no outside product', () => {
     const l = LOOSEN_LINES[k];
     assert.ok(l && l.length > 20, k);
     assert.doesNotMatch(l, NO_DASH);
-    assert.doesNotMatch(l, /this computer|Claude Code|Codex/i);
+    assert.doesNotMatch(l, /this computer|Claude Code/i);
   }
 });
 

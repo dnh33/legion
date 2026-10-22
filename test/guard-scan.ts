@@ -107,14 +107,14 @@ export function emDashesOutsideComments(file: string, src: string): Hit[] {
 
 /** Product names of other coding agents, kept encoded so this repo does not spell them. */
 const enc = (list: string[]): string[] => list.map((b) => Buffer.from(b, 'base64').toString());
-/** Distinctive names: matched in any letter case, as whole words. */
-const DISTINCT = enc(['SGVybWVz', 'Q29kZXg=', 'R3Jvaw==', 'V2luZHN1cmY=', 'QWlkZXI=', 'T3BlbkNvZGU=', 'T3BlbkhhbmRz', 'Q3Jld0FJ', 'QXV0b0dQVA==', 'T3BlbkNsYXc=']);
+/** Distinctive names (0.3.8: the named integration target is not in the list; it may be named): matched in any letter case, as whole words. */
+const DISTINCT = enc(['Q29kZXg=', 'R3Jvaw==', 'V2luZHN1cmY=', 'QWlkZXI=', 'T3BlbkNvZGU=', 'T3BlbkhhbmRz', 'Q3Jld0FJ', 'QXV0b0dQVA==', 'T3BlbkNsYXc=']);
 /** Names that are also plain words in code or prose: matched only when written with a capital, as whole words. */
 const CAPITAL = enc(['Q3Vyc29y', 'Q2xpbmU=', 'Q29waWxvdA==', 'RGV2aW4=', 'Um9vIENvZGU=', 'S2lsbyBDb2Rl', 'R2VtaW5pIENMSQ==']);
 const NAMED = new RegExp(String.raw`\b(?:${DISTINCT.join('|')})\b`, 'i');
 const NAMED_CAP = new RegExp(String.raw`\b(?:${CAPITAL.join('|')})\b`);
 /** The feature "Soul" + the product word is Legion's own name for the agents' souls; it is not the product. */
-const OWN_PHRASE = new RegExp(String.raw`\bsouls?[ -]${DISTINCT[1]}\b`, 'gi');
+const OWN_PHRASE = new RegExp(String.raw`\bsouls?[ -]${DISTINCT[0]}\b`, 'gi');
 
 /** The gate ids no file reads: an id counts as read when a source file (comments cut out) writes it as a quoted string. The registry itself is the caller's to leave out. */
 export function unreadGates(ids: readonly string[], sources: ReadonlyArray<{ file: string; text: string }>): string[] {

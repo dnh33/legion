@@ -73,7 +73,6 @@ const NAME_ALLOW: Allow[] = [
   { file: 'src/core/protected-paths.ts', why: 'the protected-paths list must name the config folders other tools keep in a project, to keep agents out of them' },
   { file: 'test/protected-paths.test.ts', why: 'asserts the protected config folders above' },
   { file: 'test/model-groups.test.ts', why: 'a model id from a model provider\'s catalog, used as sample data' },
-  { file: 'test/away-copy.test.ts', why: 'a negative assertion: the away copy must not spell these words, so the words appear in the assertion' },
   { file: 'test/project-page-source.test.ts', why: 'a negative assertion: the project page source must not spell these words, so the words appear in the assertion' },
 ];
 test('no other coding-agent product is named in src, ui, test or scripts', () => {
@@ -85,7 +84,9 @@ test('no other coding-agent product is named in src, ui, test or scripts', () =>
 });
 test('the name scanner sees planted names, and not its own feature name', () => {
   const enc = (s: string): string => Buffer.from(s, 'base64').toString();
-  assert.equal(agentNameHits('x.ts', `// ${enc('SGVybWVz')} does it`).length, 1);
+  assert.equal(agentNameHits('x.ts', `// ${enc('QWlkZXI=')} does it`).length, 1);
+  // the named integration target of 0.3.8 is allowed; every other product stays banned
+  assert.equal(agentNameHits('x.ts', `// ${enc('SGVybWVz')} does it`).length, 0);
   assert.equal(agentNameHits('x.ts', `const a = '${enc('Q29kZXg=').toLowerCase()}.exe';`).length, 1);
   assert.equal(agentNameHits('x.ts', `<b>${enc('Q3Vyc29y')} rules</b>`).length, 1);
   assert.equal(agentNameHits('x.css', 'a { cursor: pointer; } const cursor = 1;').length, 0);

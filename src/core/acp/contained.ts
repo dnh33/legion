@@ -1,6 +1,6 @@
 /**
  * The "Contained" Hermes setup: a Hermes profile named `legion` that Legion creates and checks, so Hermes runs with its own approval
- * mode, a tool list set to file tools and the Claude Code and Codex logins not borrowed, apart from the owner's own Hermes home. It is an option; the default stays
+ * mode, a tool list set to file tools and your Claude Code login and another coding CLI's login not borrowed, apart from the owner's own Hermes home. It is an option; the default stays
  * the owner's own Hermes. The read-back proves the three settings and nothing more: tools, servers or plugins the owner adds to that
  * profile later are not checked.
  *
@@ -21,8 +21,8 @@
  *  - `auth add` needs a provider name, and a bare `setup` is the whole wizard (terminal, messaging, tools). The command shown to the owner
  *    is `setup model`, the single provider-and-model section (hermes_cli/subcommands/setup.py:11-17).
  *  - By default Hermes borrows the Claude Code login (agent/credential_sources.py:32-45), and the two then share one rotating token family.
- *    `auth.adopt_external_logins false` stops that for the Claude Code and Codex CLI logins only (agent/credential_sources.py:24-45).
- *    A Copilot token from `gh auth token` or the environment and a Qwen CLI login are still seeded (agent/credential_pool.py:2657-2725), and
+ *    `auth.adopt_external_logins false` stops that for the Claude Code login and one other coding CLI's login only (agent/credential_sources.py:24-45).
+ *    A GitHub token from `gh auth token` or the environment and a Qwen CLI login are still seeded (agent/credential_pool.py:2657-2725), and
  *    a named profile with no credential of its own for a provider falls back on the main Hermes sign-in (hermes_cli/auth.py:948-972), which
  *    the owner accepts (R53). So "signed in" means Hermes can use a credential for the profile, not that it is the profile's own.
  *    The key is a boolean in the
@@ -143,7 +143,7 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return { exists: true, signedIn: false, policyOk: false, detail: startFailure(policy.startFailed) };
   // Signed in = Hermes lists at least one credential it can use for the profile: its own sign-in, a key in its environment, or the main
-  // Hermes sign-in it falls back on (R53). With auth.adopt_external_logins false the Claude Code and Codex logins are not in the list.
+  // Hermes sign-in it falls back on (R53). With auth.adopt_external_logins false the Claude Code login and another coding CLI's login are not in the list.
   // Legion never sees the key.
   const auth = await go(entry, ['-p', CONTAINED_PROFILE, 'auth', 'list']);
   const signedIn = auth.code === 0 && /\(\d+ credentials?\)/.test(clean(auth.stdout));
