@@ -721,7 +721,7 @@ test('R72: an approval-skip flag in the environment Hermes would get turns the a
   };
   const calm = await withEnv({});
   assert.equal(calm.ok, true);
-  assert.match(calm.detail, /asks you before it runs a command/);
+  assert.match(calm.detail, /asks you before commands it marks as dangerous/);
   for (const v of ['1', 'true', 'YES', ' on ']) {
     const r = await withEnv({ HERMES_YOLO_MODE: v });
     assert.equal(r.ok, false, v);
@@ -736,7 +736,7 @@ test('R72: an approval-skip flag in the environment Hermes would get turns the a
   assert.equal(own.ok, false, 'a flag the entry itself sets counts');
   const stripped = await withEnv({ HERMES_YOLO_MODE: '1' }, { stripSkipFlags: () => true });
   assert.equal(stripped.ok, true, 'the switch that strips the flags is on: Hermes never gets it');
-  assert.match(stripped.detail, /asks you before it runs a command/);
+  assert.match(stripped.detail, /asks you before commands it marks as dangerous/);
   const safe = await withEnv({ HERMES_SAFE_MODE: '1', HERMES_IGNORE_USER_CONFIG: 'true' });
   assert.equal(safe.level, 'warn');
   assert.match(safe.detail, /HERMES_SAFE_MODE/);
@@ -757,4 +757,25 @@ test('F7: peekDetection walks PATH once per detection lifetime, found or not; a 
   assert.equal(peekDetection(BUILTIN_HERMES, now).found, true, 'and remembers that');
   await detectAgent(BUILTIN_HERMES, { ...deps(), force: true }); // a Doctor check looks for itself
   assert.equal(peekDetection(BUILTIN_HERMES, now).found, false);
+});
+
+// ------------------------------------------------------------------ R67: a Claude-only user never sees a Hermes warning
+
+test('R67: while nobody uses Hermes every Hermes row is plain information, amber and red rows included; in use they are as before', async () => {
+  ownConfig({ 'approvals.mode': 'smart', 'auth.adopt_external_logins': true });
+  const notInUse = await agentDoctorRows([BUILTIN_HERMES], { dataDir, now, inUse: () => false });
+  assert.ok(notInUse.length >= 4);
+  for (const r of notInUse) { assert.equal(r.ok, true, r.id); assert.notEqual(r.level, 'warn', r.id); }
+  assert.ok(notInUse.every((r) => r.level === 'neutral'), 'all neutral: nothing to act on until Hermes is used');
+  const approvals = notInUse.find((r) => r.id === 'acp-hermes-approvals')!;
+  assert.match(approvals.detail, /AI approve some commands/, 'the words stay, only the colour goes');
+  forgetDetections();
+  const used = await agentDoctorRows([BUILTIN_HERMES], { dataDir, now, inUse: (id) => id === 'hermes' });
+  assert.equal(used.find((r) => r.id === 'acp-hermes-approvals')!.level, 'warn');
+  assert.equal(used.find((r) => r.id === 'acp-hermes-logins')!.level, 'warn');
+  forgetDetections();
+  setEnv('FAKE_HERMES_CHECK_FAIL', 'boom');
+  const broken = await agentDoctorRows([BUILTIN_HERMES], { dataDir, now, inUse: () => false });
+  assert.ok(broken.every((r) => r.ok), 'a Hermes that does not start is not a fault for someone who does not use it');
+  assert.ok(broken.every((r) => r.level === 'neutral'));
 });

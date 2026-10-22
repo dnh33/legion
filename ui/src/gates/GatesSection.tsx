@@ -4,8 +4,8 @@ import type { Project } from '../../../src/shared/projects';
 import { dismissGateSuggestion, errText, loadGateSuggestions, rememberGate, saveSettings, useStore } from '../store';
 import { Icon } from '../components/icons';
 import {
-  CONTEXT_CHIPS, GATE_PRESETS, GATES_EMPTY, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
-  consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
+  CONTEXT_CHIPS, GATE_PRESETS, GATES_EMPTY, HERMES_VERDICT_TEXT, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
+  consequenceLine, gateSentence, gateTestResult, hermesGateResult, newGateId, presetRule, ruleHostless, toggleIn,
   type GateTestResult,
 } from './gatesLogic';
 import { GatesBanner, GatesPresets, EVERYTHING } from './GatesPresets';
@@ -16,7 +16,7 @@ import { QaGates, RailsList } from './RailsList';
 import { ActivityView } from './ActivityView';
 import { useGatesAction, useGatesView } from './useGatesView';
 import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from './presetsLogic';
-import { NOT_APPLIED_TO_HERMES, isAgentHostModel } from '../../../src/shared/acp-copy';
+import { isAgentHostModel } from '../../../src/shared/acp-copy';
 import './gates.css';
 
 const THEN_BADGE: Record<GateVerdict, { text: string }> = {
@@ -193,14 +193,14 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
   const [text, setText] = useState('');
   const [result, setResult] = useState<GateTestResult | null>(null);
   const agent = agents.find((a) => a.id === agentId);
-  const modeMap = useStore((st) => st.settings?.acp?.switches?.modeMap === true);
-  // Legion's gates and modes do not decide what a Hermes agent asks (unless Match Legion's mode is on), so a dry run of them would say something untrue
-  const apart = isAgentHostModel(agent?.model) && !modeMap;
+  // Legion's modes and its Ask and Allow rules do not decide what a Hermes agent asks, so a dry run of them would say something untrue. Block rules do reach Hermes, in every mode (R71): that is what the tester shows for it.
+  const onHermes = isAgentHostModel(agent?.model);
   const mode: ApprovalMode = agent?.approval ?? 'ask';
   const tool = TEST_TOOLS.find((t) => t.id === toolId) ?? TEST_TOOLS[0];
   const run = () => {
     const input: Record<string, unknown> = tool.kind === 'command' ? { command: text } : tool.kind === 'path' ? { path: text } : {};
-    setResult(gateTestResult(rules, { toolName: tool.toolName, input, agentId, mode }));
+    const call = { toolName: tool.toolName, input, agentId, mode };
+    setResult(onHermes ? hermesGateResult(rules, call) : gateTestResult(rules, call));
   };
   return (
     <div className="set-card gate-tester" aria-label="Try it">
@@ -221,22 +221,22 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
       <div className="set-inline">
         <input className="grow" value={text} placeholder={tool.placeholder} spellCheck={false} aria-label={tool.kind === 'path' ? 'Path' : 'Command'}
           disabled={tool.kind === 'none'} onChange={(e) => { setText(e.target.value); setResult(null); }} />
-        <button type="button" className="btn" onClick={run} disabled={apart || (tool.kind !== 'none' && !text.trim())}>Test</button>
+        <button type="button" className="btn" onClick={run} disabled={tool.kind !== 'none' && !text.trim()}>Test</button>
       </div>
-      {apart
-        ? <span className="set-hint">{NOT_APPLIED_TO_HERMES}. Hermes decides what to ask you.</span>
+      {onHermes
+        ? <span className="set-hint">Only Block rules reach a Hermes agent: a blocked request is refused with no card. Anything else is for Hermes to ask you about.</span>
         : <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>}
-      {result && !apart && <GateTestOut result={result} />}
+      {result && <GateTestOut result={result} hermes={onHermes} />}
     </div>
   );
 }
 
 /** The tester's readout: the verdict, every rule that matched, and the honest line when nothing decided it. */
-export function GateTestOut({ result }: { result: GateTestResult }) {
+export function GateTestOut({ result, hermes = false }: { result: GateTestResult; hermes?: boolean }) {
   return (
     <div className={`gate-test-out v-${result.verdict}`} role="status">
-      <b>{VERDICT_TEXT[result.verdict]}</b>
-      <span className="muted-s">{result.matched.length ? `${result.matched.length} matching gate${result.matched.length === 1 ? '' : 's'}` : 'No gate matched. Your mode decides, exactly as without gates.'}</span>
+      <b>{hermes ? HERMES_VERDICT_TEXT[result.verdict === 'deny' ? 'deny' : 'baseline'] : VERDICT_TEXT[result.verdict]}</b>
+      <span className="muted-s">{result.matched.length ? `${result.matched.length} matching gate${result.matched.length === 1 ? '' : 's'}` : hermes ? 'No Block rule matched.' : 'No gate matched. Your mode decides, exactly as without gates.'}</span>
       <ul>
         {result.matched.map((r) => (
           <li key={r.id}><span className={`gate-then ${r.then}`}>{THEN_BADGE[r.then].text}</span> {r.label}{r.enabled ? '' : ' (off)'}

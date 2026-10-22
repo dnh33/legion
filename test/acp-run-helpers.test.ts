@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandRequestPath, HERMES_SELF_DENY_MS, hermesHomes, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
+import { expandRequestPath, HERMES_SELF_DENY_MS, expandHermesHome, hermesHomes, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
 
 // Pure pieces of an agent host run. Hermes joins the paths of a multi-file patch with ", " (acp_adapter/edit_approval.py:106-126)
 // and reads the patch headers with the two regexes at edit_approval.py:49-50.
@@ -130,4 +130,25 @@ test('hermesHomes: the default home carries HERMES_DATA_DIR_SUFFIX, from the ent
   const win = hermesHomes(entry(), undefined, { HERMES_DATA_DIR_SUFFIX: '-work', LOCALAPPDATA: 'C:\L' }, 'win32');
   assert.ok(win.some((h) => h.endsWith('hermes-work')), JSON.stringify(win));
   assert.ok(hermesHomes(entry(), undefined, {}, 'linux').some((h) => h.endsWith('.hermes')), 'no suffix: the plain default');
+});
+
+test('R74 hermesHomes: ~ and variables in HERMES_HOME are expanded the way Hermes expands them (hermes_constants.py:46-48: expanduser(expandvars(path)))', () => {
+  const entry = (env?: Record<string, string>) => ({ id: 'hermes', label: 'Hermes', command: 'hermes', args: [], tested: true, enabled: true, ...(env ? { env } : {}) }) as Parameters<typeof hermesHomes>[0];
+  const posixEnv = { HOME: '/home/me', WORK: '/srv/w', HERMES_HOME: '~/.hermes-x' };
+  assert.deepEqual(hermesHomes(entry(), undefined, posixEnv, 'linux', '/home/me'), ['/home/me/.hermes-x']);
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: '$WORK/h' }), undefined, posixEnv, 'linux', '/home/me'), ['/srv/w/h']);
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: '${WORK}/h' }), undefined, posixEnv, 'linux', '/home/me'), ['/srv/w/h']);
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: '$NOPE/h' }), undefined, posixEnv, 'linux', '/home/me'), ['$NOPE/h'], 'an unknown variable stays as written, as Python leaves it');
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: '%WORK%/h' }), undefined, posixEnv, 'linux', '/home/me'), ['%WORK%/h'], 'percent syntax is Windows only');
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: '~' }), undefined, posixEnv, 'linux', '/home/me'), ['/home/me']);
+  assert.equal(expandHermesHome('~other/x', posixEnv, 'linux', '/home/me'), '~other/x', 'another user home on posix is the system to answer; Legion keeps it as written');
+  const winEnv = { USERPROFILE: `C:${BS}Users${BS}me`, Work: `D:${BS}w`, USERNAME: 'me' };
+  const winHome = `C:${BS}Users${BS}me`;
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: `%WORK%${BS}h` }), undefined, winEnv, 'win32', winHome), [`D:${BS}w${BS}h`], 'names are matched without case on Windows');
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: `$work${BS}h` }), undefined, winEnv, 'win32', winHome), [`D:${BS}w${BS}h`], '$VAR works on Windows too');
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: `~${BS}hermes` }), undefined, winEnv, 'win32', winHome), [`${winHome}${BS}hermes`]);
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: `%USERPROFILE%${BS}.h` }), undefined, winEnv, 'win32', winHome), [`${winHome}${BS}.h`]);
+  assert.deepEqual(hermesHomes(entry({ HERMES_HOME: `~other${BS}h` }), undefined, winEnv, 'win32', winHome), [`C:${BS}Users${BS}other${BS}h`], 'ntpath.expanduser swaps the last folder of the home for the named user');
+  // the override (a profile folder Legion computed) is expanded the same way
+  assert.deepEqual(hermesHomes(entry(), '~/p', posixEnv, 'linux', '/home/me').slice(0, 1), ['/home/me/p']);
 });

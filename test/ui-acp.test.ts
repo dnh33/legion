@@ -13,7 +13,7 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { buildPickerLayout, type PickerInput } from '../src/shared/model-picker-rows.js';
 import {
-  ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
+  ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, HERMES_OWN_TOOLS, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
   acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, slashModelStep, titleAddsInfo,
   CONTAINED_NEEDS_HERMES, HERMES_MODE_CHIP, HERMES_PROMPT_PLACEHOLDER, threadOnHermes,
 } from '../src/shared/acp-copy.js';
@@ -23,6 +23,8 @@ import { unitModel } from '../ui/src/projects/page/pageLogic.js';
 import { NAV, NAV_GROUPS } from '../ui/src/components/settingsNav.js';
 import { checkKind, keepProbedAgentRows } from '../ui/src/doctorLogic.js';
 import { overrideRefusal } from '../src/core/model-cap.js';
+import { HERMES_VERDICT_TEXT, hermesGateResult } from '../ui/src/gates/gatesLogic.js';
+import type { GateRule } from '../src/shared/types.js';
 
 const REPO = existsSync(join(fileURLToPath(import.meta.url), '..', '..', 'ui', 'vite.config.ts')) ? join(fileURLToPath(import.meta.url), '..', '..') : join(fileURLToPath(import.meta.url), '..', '..', '..');
 const src = (p: string): string => readFileSync(join(REPO, p), 'utf8').replace(/\r\n/g, '\n');
@@ -86,7 +88,7 @@ test('card: time left counts down and the card ends with the agent stopped waiti
   assert.deepEqual(cardCountdown(at, 1_000_000 + 272_000), { ended: true, text: 'The agent stopped waiting' });
   assert.equal(cardCountdown(undefined, 0), undefined, 'a card without a deadline shows no time');
   assert.equal(ACP_CLOSED_NOTE, 'The agent stopped waiting');
-  assert.equal(ACP_LATE_NOTE, 'Hermes had already stopped waiting, so nothing was run.');
+  assert.equal(ACP_LATE_NOTE, 'Your answer was not sent, so nothing was run.');
   assert.equal(HERMES_ASKS, 'Hermes asks');
 });
 
@@ -131,7 +133,7 @@ test('render: the project cap row and the preset row say Not applied to Hermes a
     const gOn = unesc(r.presets({ view, scope: 'p1', projects: [project], agents, modeMap: true }));
     assert.ok(!gOn.includes(NOT_APPLIED_TO_HERMES));
   } finally { cleanup(); }
-  assert.match(src('ui/src/projects/page/AskSection.tsx'), /switches\.modeMap/, 'the page reads the switch');
+  assert.match(src('ui/src/projects/page/AskSection.tsx'), /useModeMap\(\)/, 'the page reads the switch');
   assert.match(src('ui/src/gates/GatesSection.tsx'), /switches\??\.modeMap/, 'the gates section reads the switch');
 });
 
@@ -315,7 +317,7 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     assert.doesNotMatch(h, /none of your other Hermes settings|only file tools/);
     assert.ok(h.includes(CONTAINED_OFF_HINT), 'the switch text is the shared wording (Contained is off here)');
     assert.ok(CONTAINED_SWITCH_HINT.includes(CONTAINED_CHECKS), 'it reuses the core wording of what is checked');
-    assert.match(CONTAINED_SWITCH_HINT, /asks before it runs a command/);
+    assert.match(CONTAINED_SWITCH_HINT, /asks before commands it marks as dangerous/);
     assert.match(CONTAINED_SWITCH_HINT, /tool list for Legion runs is set to file tools/);
     assert.match(CONTAINED_SWITCH_HINT, /does not borrow your Claude Code login or another coding tool's login/);
     assert.match(CONTAINED_SWITCH_HINT, /may use your main Hermes sign-in/);
@@ -531,7 +533,7 @@ test('I2: a Hermes agent shows no Legion mode chip with a task open or not, whil
   assert.equal(threadOnHermes({ model: 'acp:hermes/m' }, undefined), true);
   assert.equal(threadOnHermes({ requestedModel: 'acp:hermes' }, { model: 'acp:hermes' }), true, 'queued, not run yet');
   const th = src('ui/src/components/Thread.tsx');
-  assert.match(th, /threadOnHermes\(task, agent\) && settings\?\.acp\?\.switches\?\.modeMap !== true \? <span className="chip-pill"[^>]*>\{HERMES_MODE_CHIP\}<\/span> : task\?\.runsAs/, 'the fixed line stands where the Legion chip was');
+  assert.match(th, /threadOnHermes\(task, agent\) && modeMap === undefined \? null : threadOnHermes\(task, agent\) && modeMap !== true \? <span className="chip-pill"[^>]*>\{HERMES_MODE_CHIP\}<\/span> : task\?\.runsAs/, 'the fixed line stands where the Legion chip was, and nothing shows until the settings are read');
 });
 
 test('I3: the project Overview shows no Legion mode and no raw id for a Hermes agent while the switch is off', () => {
@@ -549,9 +551,9 @@ test('I3: the project Overview shows no Legion mode and no raw id for a Hermes a
   assert.equal(claude.model, 'sonnet', 'a Claude agent shows what it showed before');
   assert.doesNotMatch(src('ui/src/projects/page/Overview.tsx') + src('ui/src/projects/page/pageLogic.ts'), /Hermes/, 'test/project-page-source.test.ts keeps outside names out of this folder');
   const gt = src('ui/src/gates/GatesSection.tsx');
-  assert.match(gt, /const apart = isAgentHostModel\(agent\?\.model\) && !modeMap;/);
-  assert.match(gt, /disabled=\{apart \|\|/, 'the Try it tester does not dry-run Legion gates for a Hermes agent');
-  assert.match(gt, /\{NOT_APPLIED_TO_HERMES\}\. Hermes decides what to ask you\./);
+  assert.match(gt, /const onHermes = isAgentHostModel\(agent\?\.model\);/);
+  assert.match(gt, /onHermes \? hermesGateResult\(rules, call\) : gateTestResult\(rules, call\)/, 'the Try it tester dry-runs only the Block rules for a Hermes agent');
+  assert.match(gt, /Only Block rules reach a Hermes agent/);
 });
 
 test('I5, item 10: a Hermes agent in the editor has no Claude wording, and the Match Legion\'s mode link asks before it throws away edits', async () => {
@@ -736,4 +738,50 @@ test('fix 3, item 4: no orphan word in the hosts row, and the Contained hint nam
     assert.ok(on.includes(CONTAINED_SWITCH_HINT), 'with the buttons showing, the text may name them');
     assert.match(on, />Set up</);
   } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------- W2: R68, R69, R71 and the text-only Minors
+
+test('R69: the editor of a Hermes agent hides Shell, .env, Connectors, Computer and Skills and says why once; a Claude agent keeps them', async () => {
+  const ui = await loadUi(st([AGENT('h', { model: 'acp:hermes' }), AGENT('c', { model: 'sonnet' })], acp({}, {})));
+  try {
+    const h = unesc(ui.r.editor('h'));
+    for (const gone of ['Shell (your computer)', '.env files<select', '>Connectors<', 'Computer (boat.dev VM)']) assert.ok(!h.includes(gone), `a Hermes agent has no ${gone}`);
+    assert.ok(h.includes(HERMES_OWN_TOOLS));
+    assert.equal(h.split(HERMES_OWN_TOOLS).length - 1, 1, 'said once');
+    const c = unesc(ui.r.editor('c'));
+    for (const kept of ['Shell (your computer)', '.env files<select', '>Connectors<', 'Computer (boat.dev VM)']) assert.ok(c.includes(kept), `a Claude agent keeps ${kept}`);
+    assert.ok(!c.includes(HERMES_OWN_TOOLS));
+  } finally { ui.cleanup(); }
+  assert.doesNotMatch(HERMES_OWN_TOOLS, NO_DASH);
+  assert.match(HERMES_OWN_TOOLS, /^Hermes uses its own tools and settings/);
+});
+
+test('R71: the Try it tester shows the Block result for a Hermes agent whatever Match Legion\'s mode says; only a Block rule counts', () => {
+  const rule = (id: string, then: 'allow' | 'ask' | 'deny', enabled = true): GateRule => ({ id, enabled, then, when: { commands: ['rm -rf *'] }, label: `${then} rm`, source: 'user' } as GateRule);
+  const call = { toolName: 'Bash', input: { command: 'rm -rf x' }, agentId: 'h', mode: 'ask' as const };
+  const blocked = hermesGateResult([rule('a', 'ask'), rule('d', 'deny')], call);
+  assert.equal(blocked.verdict, 'deny');
+  assert.deepEqual(blocked.matched.map((r) => r.id), ['d'], 'an Ask rule never answers for Hermes, so it is not listed');
+  assert.match(HERMES_VERDICT_TEXT.deny, /refused/);
+  assert.match(HERMES_VERDICT_TEXT.deny, /no card/);
+  assert.equal(hermesGateResult([rule('a', 'ask'), rule('w', 'allow')], call).verdict, 'baseline', 'only Ask and Allow rules: Hermes decides');
+  assert.equal(hermesGateResult([rule('d', 'deny', false)], call).verdict, 'baseline', 'a rule that is off blocks nothing');
+  assert.equal(hermesGateResult([rule('d', 'deny')], { ...call, mode: 'full' }).verdict, 'deny', 'Full does not lift a Block rule');
+  for (const t of Object.values(HERMES_VERDICT_TEXT)) assert.doesNotMatch(t, NO_DASH);
+  const g = src('ui/src/gates/GatesSection.tsx');
+  assert.match(g, /hermesGateResult\(rules,/, 'the tester calls it for a Hermes agent');
+  assert.doesNotMatch(g, /const apart = isAgentHostModel\(agent\?\.model\) && !modeMap;/, 'no longer switched off when Match Legion\'s mode is off');
+});
+
+test('R68: settings load once at start, and the screens that read Hermes switches wait for them instead of guessing', () => {
+  const s = src('ui/src/store.ts');
+  assert.match(s, /void loadSettings\(true\);/, 'init reads the settings');
+  assert.match(s, /export async function loadSettings\(quiet = false\)/);
+  const t = src('ui/src/components/Thread.tsx');
+  assert.match(t, /useModeMap\(\)/);
+  assert.doesNotMatch(t, /settings\?\.acp\?\.switches\?\.modeMap !== true/, 'the chip no longer reads a missing setting as off');
+  for (const f of ['ui/src/projects/page/AskSection.tsx', 'ui/src/projects/page/Overview.tsx']) assert.match(src(f), /useModeMap\(\)/, f);
+  const hook = src('ui/src/acp/useModeMap.ts');
+  assert.match(hook, /known \? on : undefined/);
 });

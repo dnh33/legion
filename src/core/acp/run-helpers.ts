@@ -3,7 +3,7 @@
  * which tool calls are Legion's own route, and where the agent keeps its home.
  */
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import { MAX_TIMER_MS } from '../away/policy.js';
 import type { AcpEntry } from '../../shared/acp-view.js';
 import type { RunMode } from '../../shared/types.js';
@@ -188,17 +188,44 @@ export function requestPaths(r: Pick<MappedPermission, 'toolName' | 'input' | 'd
   return { paths: [...paths], ...(unreadable ? { unreadable } : {}) };
 }
 
+/**
+ * A Hermes home as Hermes reads it: `os.path.expanduser(os.path.expandvars(path))` (hermes_constants.py:46-48). Python leaves a name it cannot find as written;
+ * on Windows `$name`, `${name}` and `%name%` all expand and names match without case (ntpath.expandvars), elsewhere only `$name` and `${name}` do (posixpath.expandvars).
+ * A leading `~` is the home folder; `~name` is another user's: ntpath swaps the last folder of the home for that name, posixpath asks the system, which Legion cannot, so it stays as written.
+ */
+export function expandHermesHome(raw: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = homedir()): string {
+  const win = platform === 'win32';
+  const look = (name: string): string | undefined => {
+    if (!win) return env[name];
+    const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
+    return key === undefined ? undefined : env[key];
+  };
+  const vars = win ? /\$\{([^}]*)\}|\$([A-Za-z0-9_-]+)|%([^%]*)%/g : /\$\{([^}]*)\}|\$([A-Za-z0-9_]+)/g;
+  let out = raw.replace(vars, (all: string, a?: string, b?: string, c?: string) => look((a ?? b ?? c) as string) ?? all);
+  if (out.startsWith('~')) {
+    const sep = win ? /[\\/]/ : /\//;
+    const cut = out.slice(1).search(sep);
+    const name = cut < 0 ? out.slice(1) : out.slice(1, 1 + cut);
+    const rest = cut < 0 ? '' : out.slice(1 + cut);
+    const userHome = win ? (look('USERPROFILE') ?? home) : (look('HOME') ?? home);
+    if (!name) out = userHome + rest;
+    else if (win) out = (name === look('USERNAME') ? userHome : win32.join(win32.dirname(userHome), name)) + rest;
+  }
+  return out;
+}
+
 /** The folders that hold the agent's own settings: its home, the platform default when none is set, and any home the entry sets. */
-export function hermesHomes(entry: AcpEntry, override: string | undefined, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] {
+export function hermesHomes(entry: AcpEntry, override: string | undefined, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = homedir()): string[] {
   const out = new Set<string>();
-  if (override) out.add(override);
+  const ex = (p: string): string => expandHermesHome(p, { ...env, ...(entry.env ?? {}) }, platform, home);
+  if (override) out.add(ex(override));
   const set = entry.env?.HERMES_HOME ?? env.HERMES_HOME;
-  if (set && set.trim()) out.add(set.trim());
+  if (set && set.trim()) out.add(ex(set.trim()));
   if (!override && !(set && set.trim())) {
     // Hermes's own default (hermes_constants.py get_hermes_home): %LOCALAPPDATA%\hermes on Windows, ~/.hermes elsewhere
     const local = env.LOCALAPPDATA?.trim();
     const suffix = entry.env?.HERMES_DATA_DIR_SUFFIX ?? env.HERMES_DATA_DIR_SUFFIX ?? ''; // hermes_constants.py:51-58, added to the name as it stands
-    out.add(platform === 'win32' ? join(local || join(homedir(), 'AppData', 'Local'), `hermes${suffix}`) : join(homedir(), `.hermes${suffix}`));
+    out.add(platform === 'win32' ? join(local || join(home, 'AppData', 'Local'), `hermes${suffix}`) : join(home, `.hermes${suffix}`));
   }
   return [...out];
 }

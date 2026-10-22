@@ -156,7 +156,7 @@ const gateKey = (e: AcpEntry): string => JSON.stringify([e.id, e.command, e.env 
 export function resetContainedGate(): void { gate = undefined; }
 
 /**
- * Why a Contained run may not start, in plain words, or undefined when it may. The promise "Hermes asks before it runs a command" must hold when the run
+ * Why a Contained run may not start, in plain words, or undefined when it may. The promise "Hermes asks before commands it marks as dangerous" must hold when the run
  * starts, not only when the owner set the profile up: a profile that was edited since, or whose Hermes cannot be read, does not start. One read per
  * minute at most (shared with the Doctor's Check); an entry that is not Contained is never read.
  */

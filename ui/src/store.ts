@@ -386,7 +386,7 @@ export function init() {
     setState({ conn });
     if (conn === 'online' && prev !== 'online') {
       { const c = getState().catalog; if (!c || c.error) void loadCatalog(true); }
-      if (!getState().settings && getState().settingsOpen) void loadSettings(); // Settings that could not load while the core was away load by themselves when it is back
+      if (!getState().settings) void loadSettings(!getState().settingsOpen); // settings that could not load while the core was away load by themselves when it is back
       void refresh().then(() => { const t = getState().selectedTaskId; if (t) void loadTask(t, true); });
     }
     prev = conn;
@@ -394,6 +394,8 @@ export function init() {
   void refresh();
   void runDoctor();
   void loadCatalog();
+  // the Hermes mode line, Gates, Ask, Overview and the first-use flag read these: load them once at start, so none of them shows a guessed state (quiet: the window is not asking for Settings)
+  void loadSettings(true);
   // provider model labels ("OpenRouter · vendor/model") read the provider list: load it once at start
   void loadProviders();
 }
@@ -790,8 +792,9 @@ export async function setShowClosed(on: boolean) {
 }
 
 /* ---------- settings ---------- */
-export async function loadSettings() {
+export async function loadSettings(quiet = false) {
   try { setState({ settings: await api.settings(), settingsFail: null }); } catch (e) {
+    if (quiet) return; // a start-up read that failed says nothing: the next read (reconnect, Settings, a screen that needs it) tries again
     // the panel says why it is empty (no spinner that never ends); the toast stays for the moment itself
     setState({ settingsFail: { kind: e instanceof ApiError && e.status === 0 ? 'offline' : 'other', message: errText(e) } });
     toast(errText(e), 'error');

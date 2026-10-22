@@ -8,10 +8,14 @@ import type { AcpSwitches } from './acp-view.js';
 /** What an agent host card says when the agent stops waiting for it (Hermes denies a request nobody answers after 300 s). */
 export const ACP_CLOSED_NOTE = 'The agent stopped waiting';
 /** What a card says when it is answered after it closed: nothing was sent, nothing was run. */
-export const ACP_LATE_NOTE = 'Hermes had already stopped waiting, so nothing was run.';
+export const ACP_LATE_NOTE = 'Your answer was not sent, so nothing was run.';
 
 /** The one honest sentence about what Hermes does. It is the picker note, the first-use text and the badge tooltip. */
 export const HERMES_NOTE = 'Hermes uses its own tools on your computer: files, commands and the web. Legion shows the questions Hermes asks you, but cannot see most of what it does.';
+/** Said once in the agent editor in place of the settings that only reach Claude and provider agents: Skills, Connectors, Shell, .env files and Computer. */
+export const HERMES_OWN_TOOLS = 'Hermes uses its own tools and settings, so Skills, Connectors, Shell, .env files and Computer do not apply to it.';
+/** Said once in the first-use card (R73): Legion cannot see Hermes read files, so no card ever asks about them. */
+export const HERMES_READS = 'It can read any file your account can, Legion\'s data folder included, without asking you.';
 export const HERMES_BADGE = 'Hermes \u00b7 acts on your computer';
 export const HERMES_GROUP = 'Hermes';
 export const HERMES_ITEM_NOTE = 'Uses the model you set in Hermes.';
@@ -45,7 +49,7 @@ export function loosenedSwitches(current: AcpSwitches, patch: Partial<AcpSwitche
 }
 
 /** What the Contained read-back checks, said once: the core's check result and the Settings switch both use these words. */
-export const CONTAINED_CHECKS = "that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login";
+export const CONTAINED_CHECKS = "that the Legion profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login";
 /** The Contained switch text in Settings. It says what is checked and that the main Hermes sign-in may be used (R53); it claims nothing more. */
 export const CONTAINED_SWITCH_HINT = `Runs Hermes in its own profile named legion. Set up and Check read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
 /** The same text while Contained is off: Set up and Check are not on the page yet, so it does not name them. */

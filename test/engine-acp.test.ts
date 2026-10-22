@@ -240,8 +240,8 @@ test('R36 and Review Focus 3: the card shows when it closes, closes itself when 
   await until(() => r.answersTo(9100).length === 1, 5000); // the closing reply (cancelled) is the only one
   const before = r.msgs().filter((m) => m.id === 9100).length;
   assert.equal(r.broker.resolve(c.id, true, undefined, 'allow_once'), false, 'a late answer is not accepted');
-  assert.equal(r.broker.lateNote(c.id), 'Hermes had already stopped waiting, so nothing was run.');
-  assert.equal(ACP_LATE_NOTE, 'Hermes had already stopped waiting, so nothing was run.');
+  assert.equal(r.broker.lateNote(c.id), 'Your answer was not sent, so nothing was run.');
+  assert.equal(ACP_LATE_NOTE, 'Your answer was not sent, so nothing was run.');
   await r.done(t);
   assert.equal(r.msgs().filter((m) => m.id === 9100 && m.result?.outcome?.optionId === 'allow_once').length, 0, 'no allow went to Hermes');
   assert.equal(r.msgs().filter((m) => m.id === 9100).length, before, 'the late answer added no reply on the wire');

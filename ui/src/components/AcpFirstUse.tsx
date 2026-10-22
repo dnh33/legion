@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { FIRST_USE, HERMES_NOTE } from '../../../src/shared/acp-copy';
+import { FIRST_USE, HERMES_NOTE, HERMES_READS } from '../../../src/shared/acp-copy';
 import { loadSettings, saveSettings, useStore } from '../store';
 
 /** The first time Hermes is picked: what it does, and a way out. Skippable; shown once. Focus lands on the first button, so a keyboard user is not left behind. */
@@ -9,7 +9,7 @@ export function AcpFirstUseView({ onUse, onNotNow }: { onUse: () => void; onNotN
   return (
     <div className="acp-first" role="group" aria-label={FIRST_USE.title}>
       <b>{FIRST_USE.title}</b>
-      <p>{HERMES_NOTE}</p>
+      <p>{HERMES_NOTE} {HERMES_READS}</p>
       <div className="acp-first-actions">
         <button ref={first} type="button" className="btn primary" onClick={onUse}>{FIRST_USE.use}</button>
         <button type="button" className="btn" onClick={onNotNow}>{FIRST_USE.notNow}</button>

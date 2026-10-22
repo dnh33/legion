@@ -5,6 +5,7 @@ import { isArmed, threadKey } from '../../../src/shared/approval-keys';
 import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
 import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, CORE_NEXT_STEP, token } from '../api';
+import { useModeMap } from '../acp/useModeMap';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { useCoreRestart } from '../coreRestart/coreRestartStore';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
@@ -82,6 +83,7 @@ export function Thread() {
   const questions = useStore((s) => s.questions);
   const conn = useStore((s) => s.conn);
   const settings = useStore((s) => s.settings);
+  const modeMap = useModeMap(); // undefined until the settings are read
   const hermesApprovals = settings?.acp?.entries?.find((e) => e.id === 'hermes')?.detection.approvalsMode;
   const coreStopped = useCoreRestart((c) => c.stopped !== null); // the stopped banner above the views already says it
   const loaded = useStore((s) => s.loaded);
@@ -270,7 +272,7 @@ export function Thread() {
           {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
           <HermesBadge task={task} />
           {/* a Hermes agent shows no Legion mode chip while Match Legion's mode is off (Legion did not set how Hermes asks), with a task open or not: the fixed line stands in */}
-          {threadOnHermes(task, agent) && settings?.acp?.switches?.modeMap !== true ? <span className="chip-pill" title={hermesModeLine({ modeMap: false, ...(hermesApprovals ? { hermesMode: hermesApprovals } : {}) })}>{HERMES_MODE_CHIP}</span> : task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
+          {threadOnHermes(task, agent) && modeMap === undefined ? null : threadOnHermes(task, agent) && modeMap !== true ? <span className="chip-pill" title={hermesModeLine({ modeMap: false, ...(hermesApprovals ? { hermesMode: hermesApprovals } : {}) })}>{HERMES_MODE_CHIP}</span> : task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
           {task?.provider && !task.runtime && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
           {/* the usage line and the icons are one piece: for a Hermes thread they wrap together and the usage line is the one thing that is cut */}
           <span className="th-tail">

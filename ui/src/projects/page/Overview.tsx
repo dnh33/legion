@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { useRooms } from '../../rooms/roomsStore';
 import { openRoom } from '../../rooms/roomsStore';
 import { setView, useStore } from '../../store';
+import { useModeMap } from '../../acp/useModeMap';
 import { MODE_HELP, ageText, asksOf, budgetBanner, hereRuns, money, plural, projectTasks, queueText, runsMenu, spendBlock, stateGroups, unitModel, workingAgents } from './pageLogic';
 import type { BudgetVerdict, Group, GroupItem, PageFacts, Unit, UnitLine } from './pageLogic';
 import { patchAway, projectAway, runAnyway, setPaused, useAway } from '../awayStore';
@@ -239,8 +240,9 @@ function ItemRow({ it, f, openBoard }: { it: GroupItem; f: PageFacts; openBoard:
 
 /* ---------- by agent ---------- */
 function AgentUnits({ f, asks, weekByAgent }: { f: PageFacts; asks: ReturnType<typeof asksOf>; weekByAgent: Record<string, number> }) {
-  const modeMap = useStore((s) => s.settings?.acp?.switches?.modeMap === true);
-  const { units, idle, noTasks } = unitModel(f, { weekByAgent, modeMap }, asks);
+  const modeMap = useModeMap(); // undefined until the settings are read: no agent-host mode word on a guess
+  const { units, idle, noTasks } = unitModel(f, { weekByAgent, modeMap: modeMap === true }, asks);
+  if (modeMap === undefined) return null;
   return (
     <>
       {units.length > 0 && <section className="pg-grp" aria-label="Active"><h2>Active<span className="n num">{units.length}</span></h2><div className="pg-units">{units.map((u) => <UnitRow key={u.agentId} u={u} f={f} />)}</div></section>}

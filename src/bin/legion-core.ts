@@ -136,7 +136,7 @@ async function main() {
   // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
   const activity = createActivityLog({ dataDir: dataDir() });
   // Hermes detection: the Doctor and the model list read it, and the two waits below come from what it read in Hermes's own settings (cached, so a card never waits on a probe)
-  const agentHost: AgentHostDeps = { dataDir: dataDir(), entries: () => config.acp.entries, envKeep: () => gatesCore.envKeep() };
+  const agentHost: AgentHostDeps = { dataDir: dataDir(), entries: () => config.acp.entries, envKeep: () => gatesCore.envKeep(), inUse: (id) => usesAgentHost(store.listAgents(), id) };
   const seams = hostWaitSeams();
   // R58: the model list and the Doctor at app start or after a settings save never start Hermes. The full check runs when the window opens or re-runs the Doctor,
   // at core start only when an agent uses Hermes (R62: answering the first-use card starts nothing), and at a Hermes run start (which at least reads Hermes's own two waits). A switched-off Hermes is never warmed.

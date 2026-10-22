@@ -9,6 +9,7 @@ import { PROJECT_NOTICE, limitWords, shouldShowProjectNotice } from '../../gates
 import { disabledReason, presetChoices, scopeSummary, type GatesView } from '../../gates/presetsLogic';
 import { useGatesAction, useGatesView, type GatesChangeRequest, type GatesNote } from '../../gates/useGatesView';
 import { useStore } from '../../store';
+import { useModeMap } from '../../acp/useModeMap';
 import { announce } from './announce';
 
 type Run = (c: GatesChangeRequest, done: string) => Promise<boolean>;
@@ -72,10 +73,10 @@ export function AskSectionView({ project, agents, view, busy, note, run, modeMap
 
 export function AskSection({ project }: { project: Project }) {
   const agents = useStore((s) => s.agents);
-  const modeMap = useStore((s) => s.settings?.acp.switches.modeMap === true);
+  const modeMap = useModeMap(); // undefined until the settings are read: nothing is said about Hermes on a guess
   const { view, apply } = useGatesView();
   const { pending, note, run } = useGatesAction(apply);
-  if (!view) return null;
+  if (!view || modeMap === undefined) return null;
   return <AskSectionView project={project} agents={agents} view={view} busy={pending} note={note} run={run} modeMap={modeMap} />;
 }
 

@@ -17,7 +17,7 @@ import { GithubAccess } from '../github/GithubAccess';
 import { APPROVAL_CHOICES, CHOICE_HELP, SEED_TAG, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, seedWords, type ApprovalChoice } from '../gates/agentFollowLogic';
 import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
 import { runtimeOf } from '../../../src/shared/runtime';
-import { HERMES_NOTE, HERMES_PROMPT_PLACEHOLDER, MATCH_MODE_LINK, agentModeControl, firstUseOutcome, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
+import { HERMES_NOTE, HERMES_OWN_TOOLS, HERMES_PROMPT_PLACEHOLDER, MATCH_MODE_LINK, agentModeControl, firstUseOutcome, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
 import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
@@ -189,8 +189,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           )}
         </div>
         {onHermes && !needFolder && folderField}
-        <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
-          onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />
+        {onHermes ? <p className="field-note" data-testid="hermes-own-tools">{HERMES_OWN_TOOLS}</p> : <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
+          onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />}
         {leaving ? (
           <div className="arm-discard" role="alertdialog" aria-label="Unsaved changes">
             <span>{leaving.to === 'close' ? 'Throw away your changes? They are not saved.' : leaving.to === 'settings' ? 'Open Settings and throw away your changes? They are not saved.' : 'Open the Armory and throw away your Skills choice? It is not saved.'}</span>
@@ -198,17 +198,17 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
           </div>
         ) : null}
-        <fieldset>
+        {!onHermes && <fieldset>
           <legend>Connectors</legend>
           <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} onRetry={retryArea} />
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
-        </fieldset>
+        </fieldset>}
         {!onHermes && <fieldset>
           <legend>Task list</legend>
           <label className="check-row"><input type="checkbox" checked={taskList} onChange={(e) => setTaskList(e.target.checked)} /> Keep a task list on Claude (Claude Code's own task tools)</label>
           <span className="field-note">On by default for the lead. Newer Claude models plan without a written list; turn this on for agents that run long, multi-step work. Runs on other providers always have a task list.</span>
         </fieldset>}
-        <fieldset>
+        {!onHermes && <fieldset>
           <legend>Shell (your computer)</legend>
           <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on your computer</label>
           <span className="field-note">Off by default. When on, the agent gets its own shell inside the scope root below. Its approval mode still decides whether each call asks you, and Gates (Settings, Gates) refine when it asks. This switch decides whether the agent gets the tools at all.</span>
@@ -224,8 +224,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </select>
             <span className="field-note">Masked hides every value from all of this agent's tool output. .env.example and other templates are ordinary files.</span>
           </label>
-        </fieldset>
-        <fieldset>
+        </fieldset>}
+        {!onHermes && <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>
           <div className="row" style={{ opacity: vmOn ? 1 : 0.5 }}>
@@ -237,7 +237,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </label>
             <label className="grow">Stop after idle (min)<input disabled={!vmOn} type="number" min={1} value={idle} onChange={(e) => setIdle(Number(e.target.value))} /></label>
           </div>
-        </fieldset>
+        </fieldset>}
       </form>
     </Modal>
   );

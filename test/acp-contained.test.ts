@@ -227,7 +227,7 @@ test('the profile does not borrow the login of another program: the setting is w
 });
 
 test('the detail text claims only what the read-back proves, in these exact words', async () => {
-  const CLAIM = "Hermes reports that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login. Tools you add to that profile yourself are not checked.";
+  const CLAIM = "Hermes reports that the Legion profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login. Tools you add to that profile yourself are not checked.";
   const up = await setUpContained(BUILTIN_HERMES);
   const st = await containedStatus(BUILTIN_HERMES);
   for (const t of [up.detail, st.detail]) {

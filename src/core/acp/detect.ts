@@ -83,6 +83,8 @@ export interface AgentHostDeps {
   entries?: () => AcpEntry[];
   dataDir: string;
   envKeep?: () => readonly string[];
+  /** Does an agent use this host, or has the owner chosen it? Until then its Doctor rows are plain information, never amber or red. Default: yes. */
+  inUse?: (entryId: string) => boolean;
   /** Is the "ignore Hermes's skip-approval settings" switch on? The Doctor reads the environment Hermes would get with it. Default: off. */
   stripSkipFlags?: () => boolean;
   /** The environment Legion starts Hermes from. Default: its own. */

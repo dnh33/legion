@@ -66,7 +66,7 @@ function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection, deps: Ag
   if (mode === 'unknown') return { id, label, ok: true, detail: 'Legion could not read this setting from Hermes.' };
   if (mode === 'off') return { id, label, ok: false, detail: named(APPROVALS_OFF, entry.label), fix: `${quoted(entry.command)} config set approvals.mode manual` };
   if (mode === 'smart') return { id, label, ok: true, level: 'warn', detail: named(APPROVALS_SMART, entry.label) };
-  return { id, label, ok: true, detail: named('Hermes asks you before it runs a command.', entry.label) };
+  return { id, label, ok: true, detail: named('Hermes asks you before commands it marks as dangerous.', entry.label) };
 }
 
 async function containedRow(entry: AcpEntry, base: string, deps: AgentHostDeps): Promise<{ row: DoctorCheck; exists: boolean }> {
@@ -94,7 +94,7 @@ async function rowsFor(entry: AcpEntry, deps: AgentHostDeps, probe: boolean): Pr
     if (entry.contained) rows.push({ id: `${base}-contained`, label: 'Contained profile: not checked yet', ok: true, level: 'neutral', detail: NOT_YET });
     return rows;
   }
-  if (!d.checked) return [{ id: base, label: entry.label, ok: true, level: 'neutral', detail: `Not checked. ${entry.label} is switched off. Switch it on in Settings, Agent hosts, and Legion checks it.` }];
+  if (!d.checked) return [{ id: base, label: entry.label, ok: true, level: 'neutral', detail: `Not checked. ${entry.label} is switched off. Turn on "Offer Hermes in the model list" in Settings, Agent hosts, and Legion checks it.` }];
   if (!d.found) return [{ id: base, label: entry.label, ok: builtin, ...(builtin ? { level: 'neutral' as const } : {}), detail: d.detail }];
   const rows: DoctorCheck[] = [{ id: base, label: `${entry.label}: found`, ok: true, detail: d.path ?? entry.command }];
   if (!d.checkOk) {
@@ -126,7 +126,10 @@ export async function agentDoctorRows(entries: AcpEntry[], deps: AgentHostDeps, 
   const out: DoctorCheck[] = [];
   for (const entry of entries) {
     try {
-      out.push(...await rowsFor(entry, deps, opts.probe !== false));
+      const rows = await rowsFor(entry, deps, opts.probe !== false);
+      // A Claude-only user who happens to have Hermes installed gets no warning about it: the words stay, the colour and the count go.
+      const quiet = deps.inUse !== undefined && !entry.contained && !deps.inUse(entry.id);
+      out.push(...(quiet ? rows.map((r): DoctorCheck => ({ ...r, ok: true, level: 'neutral' })) : rows));
     } catch (e) {
       out.push({ id: `acp-${entry.id}`, label: entry.label, ok: false, detail: e instanceof Error ? e.message : String(e) });
     }

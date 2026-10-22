@@ -1271,7 +1271,7 @@ export class Engine {
       decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own model setting` };
     } else if (picked && !offClaudeAgent && runtimeOf(decision.model) !== 'claude') {
       const own = rankModel(modelRank(agent.model));
-      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot move it off Claude; using ${own}` };
+      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot ${runtimeOf(decision.model) === 'acp' ? 'move it off Claude' : 'pick a provider'}; using ${own}` };
     } else if (picked && modelRank(decision.model) > modelRank(agent.model)) {
       const capped = rankModel(modelRank(agent.model));
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
@@ -2946,7 +2946,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         ? 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.'
         : `The agent host "${entryId ?? model.slice('acp:'.length)}" is not set up. Choose another model for this agent in Settings.`
       : !entry.enabled
-        ? `${entry.label} is switched off in Settings. Turn it on in Agent hosts, or choose another model for this agent.`
+        ? `${entry.label} is switched off in Settings. Turn on "Offer Hermes in the model list" in Settings, Agent hosts, or choose another model for this agent.`
         : 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.';
     return { subtype: 'error_during_execution', isError: true, errorText: text };
   }
