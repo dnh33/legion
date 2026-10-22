@@ -1,0 +1,377 @@
+/**
+ * One ACP session over an agent process: handshake, a prompt turn with streamed updates, permission requests handed to a callback,
+ * cancel, a watchdog, and token deltas. No engine wiring here; the engine drives it (`AcpSession.open`, then `prompt` per turn).
+ * Wire shapes (camelCase): https://agentclientprotocol.com initialization, session-setup, prompt-turn, tool-calls, agent-plan, session-modes.
+ * What Hermes does on top: acp_adapter/gateway_server.py (new_session, _resume, prompt, cancel, set_session_model/mode), permissions.py,
+ * server.py:1019 (set_model). `session/set_model`, `models` in session replies and `usage` in the prompt reply are not on the stable spec
+ * pages; they come from the Hermes source above.
+ */
+import { VERSION } from '../../shared/config.js';
+import type { TodoItem } from '../../shared/types.js';
+import type { TokenDelta } from '../../shared/acp-view.js';
+import type { AgentProcess } from './process.js';
+import { mapPermission, mapPlan, mapToolCall, type MappedPermission, type MappedTool } from './map.js';
+import { RpcClosed, RpcError, RpcPeer } from './rpc.js';
+
+export type { MappedPermission, MappedTool } from './map.js';
+
+/** An ACP stdio MCP server entry (McpServerStdio: name, command, args, env as name/value pairs), as `session/new` takes it. */
+export type AcpStdioServer = { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> };
+
+export type AcpRefusalReason = 'acp-version' | 'no-policy' | 'protocol-mismatch' | 'breakaway' | 'auth' | 'not-found';
+
+/** The agent cannot be used as asked. `message` is the agent's own text where it gave one; the engine writes the words the user sees. */
+export class AcpRefusal extends Error {
+  constructor(readonly reason: AcpRefusalReason, message: string) {
+    super(message);
+    this.name = 'AcpRefusal';
+  }
+}
+
+export interface AcpCallbacks {
+  onText(delta: string): void;
+  onThought(delta: string): void;
+  onToolStart(t: MappedTool): void;
+  onToolUpdate(t: MappedTool): void;
+  /** Every plan update replaces the whole list. */
+  onPlan(items: TodoItem[]): void;
+  /** Answer with the agent's own optionId, or cancelled. An answer that comes after the request was withdrawn (cancel, watchdog) is dropped. */
+  onPermission(r: MappedPermission): Promise<{ optionId: string } | { cancelled: true }>;
+  /**
+   * The tokens this turn used. Called at most once per turn, when the turn ends, with the same figure as `AcpTurnEnd.usage`:
+   * use one of them, never both. The agent reports session-cumulative counters; this is the difference to the last report.
+   */
+  onUsage(deltaTokens: TokenDelta): void;
+}
+
+export interface AcpTurnEnd {
+  stopReason: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | 'watchdog';
+  /** Same figure as `onUsage`. Absent when the agent reported no usage. */
+  usage?: TokenDelta;
+}
+
+export interface AcpOpenInit {
+  cwd: string;
+  mcpServers: AcpStdioServer[];
+  resumeId?: string;
+  modelId?: string;
+  mode?: 'default' | 'accept_edits' | 'dont_ask';
+  /** The engine passes `watchdogMinutes * 60000`. No update and no open permission request for this long cancels the turn. 0 turns it off. */
+  watchdogMs: number;
+  /** How long a cancelled turn may take to end before it is ended without the agent's answer. Default ACP_CANCEL_GRACE_MS. */
+  cancelGraceMs?: number;
+}
+
+/** After session/cancel the agent gets this long to end the turn. */
+export const ACP_CANCEL_GRACE_MS = 10_000;
+
+// Per-method waits (Task 2 note: the peer's default is 30 s, too short for starting the agent's background service). A prompt has no limit; the watchdog guards it.
+const WAIT_INITIALIZE_MS = 30_000;
+const WAIT_SESSION_MS = 120_000;
+const WAIT_SET_MODEL_MS = 60_000; // Hermes does network I/O when it switches a model (server.py set_session_model)
+const WAIT_SET_MODE_MS = 30_000;
+const PROTOCOL_VERSION = 1;
+
+type Rec = Record<string, unknown>;
+const rec = (x: unknown): Rec | undefined => (x !== null && typeof x === 'object' && !Array.isArray(x) ? (x as Rec) : undefined);
+const CANCELLED_OUTCOME = { outcome: { outcome: 'cancelled' } } as const;
+const STOP_REASONS: readonly string[] = ['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'];
+
+// What an agent's error text means. UNVERIFIED for the real Python ACP SDK: where it puts a handler exception's text (error.message or
+// error.data.details), so both are searched. Markers: gateway_server.py:274, hermes_cli/gateway_runtime_start.py:79, gateway_client.py:307,
+// gateway/session_a2a.py:162, gateway_server.py:443/562/624, acp_adapter/session.py:574, schema page (-32000 auth required, -32002 not found).
+const MARKERS: Array<[AcpRefusalReason, RegExp]> = [
+  ['breakaway', /windows_breakaway_unavailable/],
+  ['no-policy', /acp_policy_unavailable/],
+  ['protocol-mismatch', /gateway protocol mismatch|gateway_protocol_mismatch/i],
+  ['not-found', /\bnot_found\b/],
+  ['auth', /no llm provider configured|auth_required|authentication required/i],
+];
+
+function refusalOf(e: unknown, stderr: () => string): AcpRefusal | undefined {
+  if (e instanceof RpcError) {
+    const details = rec(e.data)?.details;
+    const own = typeof details === 'string' && details ? details : e.message;
+    const haystack = `${e.message} ${typeof e.data === 'string' ? e.data : JSON.stringify(e.data ?? '')}`;
+    for (const [reason, re] of MARKERS) if (re.test(haystack)) return new AcpRefusal(reason, own);
+    if (e.code === -32002) return new AcpRefusal('not-found', own);
+    if (e.code === -32000) return new AcpRefusal('auth', own);
+    return undefined;
+  }
+  // The agent could not even answer (it exited while starting its service): its own last words are on stderr.
+  const tail = stderr();
+  for (const [reason, re] of MARKERS) {
+    if (reason === 'not-found') continue;
+    const line = tail.split('\n').find((l) => re.test(l));
+    if (line) return new AcpRefusal(reason, line.trim());
+  }
+  return undefined;
+}
+
+interface PendingPermission { settle(outcome: unknown): void }
+interface Turn {
+  cb: AcpCallbacks;
+  tools: Map<string, MappedTool>;
+  permIds: Set<string>;
+  perms: Set<PendingPermission>;
+  done: boolean;
+  userCancelled: boolean;
+  watchdogFired: boolean;
+  cancelSent: boolean;
+  watchdog?: NodeJS.Timeout;
+  grace?: NodeJS.Timeout;
+  end(e: AcpTurnEnd): void;
+}
+
+export class AcpSession {
+  private id = '';
+  private version = '';
+  private modelIds: string[] = [];
+  private turn: Turn | undefined;
+  private lastUsage: TokenDelta = { input: 0, output: 0 };
+
+  private constructor(
+    private readonly peer: RpcPeer,
+    private readonly stderr: () => string,
+    private readonly watchdogMs: number,
+    private readonly graceMs: number,
+  ) {
+    peer.onNotification('session/update', (params) => this.onUpdate(params));
+    peer.onRequest('session/request_permission', (params) => this.onPermissionRequest(params));
+    // No fs or terminal handlers: the client never advertises them, so a request for either gets "method not found".
+  }
+
+  get sessionId(): string { return this.id; }
+  get agentVersion(): string { return this.version; }
+  /** The model ids the agent offers, as it names them (pass one back as `modelId`). */
+  get models(): string[] { return [...this.modelIds]; }
+
+  /**
+   * Handshake and a session: `initialize`, then `session/new` (or `session/resume`, else `session/load`, with the same MCP servers again),
+   * then `session/set_model` and `session/set_mode` when asked. Throws AcpRefusal for an agent that cannot be used.
+   * It never stops the process: the caller owns it and stops it after a failure.
+   */
+  static async open(p: AgentProcess, init: AcpOpenInit): Promise<AcpSession> {
+    const peer = new RpcPeer(p.io, { requestTimeoutMs: WAIT_INITIALIZE_MS });
+    const s = new AcpSession(peer, () => p.stderrTail(), init.watchdogMs, init.cancelGraceMs ?? ACP_CANCEL_GRACE_MS);
+    const call = async (method: string, params: unknown, timeoutMs: number): Promise<unknown> => {
+      try {
+        return await peer.request<unknown>(method, params, timeoutMs);
+      } catch (e) {
+        throw refusalOf(e, s.stderr) ?? e;
+      }
+    };
+
+    const hello = rec(await call('initialize', {
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {}, // no fs, no terminal: the agent works in its own folder with its own tools
+      clientInfo: { name: 'legion', title: 'Legion', version: VERSION },
+    }, WAIT_INITIALIZE_MS));
+    const theirs = hello?.protocolVersion;
+    if (theirs !== PROTOCOL_VERSION) {
+      throw new AcpRefusal('acp-version', `The agent speaks ACP version ${typeof theirs === 'number' ? theirs : 'unknown'}; Legion speaks version ${PROTOCOL_VERSION}.`);
+    }
+    s.version = typeof rec(hello?.agentInfo)?.version === 'string' ? (rec(hello?.agentInfo)!.version as string) : '';
+    const caps = rec(hello?.agentCapabilities);
+    const canResume = rec(rec(caps?.sessionCapabilities)?.resume) !== undefined;
+    const canLoad = caps?.loadSession === true;
+
+    let reply: unknown;
+    if (init.resumeId !== undefined) {
+      const method = canResume ? 'session/resume' : canLoad ? 'session/load' : undefined;
+      if (!method) throw new AcpRefusal('not-found', 'The agent can neither resume nor load a session.');
+      // session/load replays the history as updates before it answers; no turn is open yet, so the driver drops them.
+      reply = await call(method, { sessionId: init.resumeId, cwd: init.cwd, mcpServers: init.mcpServers }, WAIT_SESSION_MS);
+      if (reply === null || reply === undefined) throw new AcpRefusal('not-found', 'The agent does not know that session.');
+      s.id = init.resumeId; // the reply has no sessionId; Hermes addresses the session by the id the client sent
+    } else {
+      reply = await call('session/new', { cwd: init.cwd, mcpServers: init.mcpServers }, WAIT_SESSION_MS);
+      const sid = rec(reply)?.sessionId;
+      if (typeof sid !== 'string' || sid === '') throw new Error('The agent did not give a session id.');
+      s.id = sid;
+    }
+    const available = rec(rec(reply)?.models)?.availableModels;
+    if (Array.isArray(available)) {
+      s.modelIds = available.map((m) => rec(m)?.modelId).filter((m): m is string => typeof m === 'string' && m !== '');
+    }
+    if (init.modelId !== undefined) await call('session/set_model', { sessionId: s.id, modelId: init.modelId }, WAIT_SET_MODEL_MS);
+    if (init.mode !== undefined) await call('session/set_mode', { sessionId: s.id, modeId: init.mode }, WAIT_SET_MODE_MS);
+    return s;
+  }
+
+  /**
+   * One prompt turn. Resolves when the agent ends it, when Legion cancels it, or when the watchdog does. Rejects when the connection
+   * breaks (RpcClosed) or the agent answers with an error (AcpRefusal for the known ones, RpcError otherwise). One turn at a time.
+   * After a watchdog end the prompt request is still open on the wire until the connection closes: stop the process.
+   */
+  async prompt(text: string, cb: AcpCallbacks): Promise<AcpTurnEnd> {
+    if (this.turn) throw new Error('A turn is already running on this session.');
+    let finish!: (e: AcpTurnEnd) => void;
+    let fail!: (e: unknown) => void;
+    const ended = new Promise<AcpTurnEnd>((res, rej) => { finish = res; fail = rej; });
+    const turn: Turn = {
+      cb, tools: new Map(), permIds: new Set(), perms: new Set(), done: false, userCancelled: false, watchdogFired: false, cancelSent: false,
+      end: (e) => finish(e),
+    };
+    this.turn = turn;
+    this.armWatchdog(turn);
+    this.peer.request<unknown>('session/prompt', { sessionId: this.id, prompt: [{ type: 'text', text }] }, 0).then(
+      (reply) => {
+        if (turn.done) return;
+        try { finish(this.endOf(reply, turn)); } catch (e) { fail(e); }
+      },
+      (e) => {
+        if (turn.done) return;
+        if (e instanceof RpcClosed && turn.watchdogFired) finish({ stopReason: 'watchdog' });
+        else if (e instanceof RpcClosed && turn.userCancelled) finish({ stopReason: 'cancelled' });
+        else fail(refusalOf(e, this.stderr) ?? e);
+      },
+    );
+    try {
+      return await ended;
+    } finally {
+      this.retire(turn);
+    }
+  }
+
+  /**
+   * Ask the agent to stop the running turn: every open permission request is answered cancelled at once, then `session/cancel` is sent.
+   * The turn ends when the agent answers, or after the grace period. Nothing happens when no turn is running.
+   */
+  async cancel(): Promise<void> {
+    const turn = this.turn;
+    if (!turn || turn.done) return;
+    if (!turn.userCancelled && !turn.watchdogFired) {
+      turn.userCancelled = true;
+      if (turn.watchdog) clearTimeout(turn.watchdog);
+      turn.grace = setTimeout(() => turn.end({ stopReason: 'cancelled' }), this.graceMs);
+    }
+    this.sendCancel(turn);
+  }
+
+  // ---------------------------------------------------------------- turn plumbing
+
+  private sendCancel(turn: Turn): void {
+    for (const p of [...turn.perms]) p.settle(CANCELLED_OUTCOME); // the spec says MUST answer every pending request cancelled
+    if (turn.cancelSent) return;
+    turn.cancelSent = true;
+    this.peer.notify('session/cancel', { sessionId: this.id });
+  }
+
+  private armWatchdog(turn: Turn): void {
+    if (turn.watchdog) clearTimeout(turn.watchdog);
+    turn.watchdog = undefined;
+    if (turn.done || turn.watchdogFired || turn.userCancelled || turn.perms.size > 0) return;
+    if (!(this.watchdogMs > 0) || !Number.isFinite(this.watchdogMs)) return;
+    turn.watchdog = setTimeout(() => {
+      if (turn.done || turn.perms.size > 0) return;
+      turn.watchdogFired = true;
+      this.sendCancel(turn);
+      turn.grace = setTimeout(() => turn.end({ stopReason: 'watchdog' }), this.graceMs);
+    }, this.watchdogMs);
+  }
+
+  private retire(turn: Turn): void {
+    turn.done = true;
+    if (turn.watchdog) clearTimeout(turn.watchdog);
+    if (turn.grace) clearTimeout(turn.grace);
+    for (const p of [...turn.perms]) p.settle(CANCELLED_OUTCOME);
+    if (this.turn === turn) this.turn = undefined;
+  }
+
+  private endOf(reply: unknown, turn: Turn): AcpTurnEnd {
+    const r = rec(reply);
+    const reason = r?.stopReason;
+    if (typeof reason !== 'string' || !STOP_REASONS.includes(reason)) throw new Error(`The agent ended the turn with an unknown stop reason (${String(reason)}).`);
+    const usage = this.usageDelta(rec(r?.usage));
+    if (usage) safe(() => turn.cb.onUsage(usage));
+    return { stopReason: turn.watchdogFired ? 'watchdog' : (reason as AcpTurnEnd['stopReason']), ...(usage ? { usage } : {}) };
+  }
+
+  /** The agent's counters are cumulative over the session. A counter that went down (a reset) starts over and reports 0 for that turn. */
+  private usageDelta(u: Rec | undefined): TokenDelta | undefined {
+    if (!u) return undefined;
+    const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0);
+    const cur = { input: n(u.inputTokens), output: n(u.outputTokens) };
+    const prev = this.lastUsage;
+    this.lastUsage = cur;
+    const reset = cur.input < prev.input || cur.output < prev.output;
+    return reset ? { input: 0, output: 0 } : { input: cur.input - prev.input, output: cur.output - prev.output };
+  }
+
+  private onUpdate(params: unknown): void {
+    const p = rec(params);
+    const turn = this.turn;
+    // Other sessions (the agent's daemon is shared with other clients), updates between turns and the replay of a loaded history are not ours.
+    if (!p || p.sessionId !== this.id || !turn || turn.done) return;
+    const u = rec(p.update);
+    if (!u) return;
+    this.armWatchdog(turn);
+    const cb = turn.cb;
+    switch (u.sessionUpdate) {
+      case 'agent_message_chunk':
+      case 'agent_thought_chunk': {
+        const c = rec(u.content);
+        if (c?.type === 'text' && typeof c.text === 'string' && c.text !== '') {
+          const text = c.text;
+          safe(() => (u.sessionUpdate === 'agent_message_chunk' ? cb.onText(text) : cb.onThought(text)));
+        }
+        return;
+      }
+      case 'tool_call':
+      case 'tool_call_update': {
+        const id = typeof u.toolCallId === 'string' ? u.toolCallId : '';
+        if (turn.permIds.has(id)) return; // the update that closes a permission card; Legion keeps its own card state
+        const prev = turn.tools.get(id);
+        const mapped = mapToolCall(u, u.sessionUpdate === 'tool_call' ? undefined : prev);
+        if (!mapped) return;
+        turn.tools.set(id, mapped);
+        safe(() => (u.sessionUpdate === 'tool_call' ? cb.onToolStart(mapped) : cb.onToolUpdate(mapped)));
+        return;
+      }
+      case 'plan': {
+        const items = mapPlan(u.entries);
+        safe(() => cb.onPlan(items));
+        return;
+      }
+      default:
+        return; // usage_update (context size), available_commands_update, session_info_update, mode changes: nothing Legion needs
+    }
+  }
+
+  private onPermissionRequest(params: unknown): Promise<unknown> {
+    const p = rec(params);
+    const turn = this.turn;
+    // Never leave a request unanswered. Cancelled is "not a denial" to Hermes's gateway (gateway_server.py _answer_permission).
+    if (!p || p.sessionId !== this.id || !turn || turn.done || turn.cancelSent) return Promise.resolve(CANCELLED_OUTCOME);
+    const mapped = mapPermission(params);
+    if (!mapped) return Promise.resolve(CANCELLED_OUTCOME);
+    turn.permIds.add(mapped.requestId);
+    if (turn.watchdog) { clearTimeout(turn.watchdog); turn.watchdog = undefined; } // a waiting card is not a stuck agent
+    return new Promise<unknown>((resolve) => {
+      let settled = false;
+      const pending: PendingPermission = {
+        settle: (outcome) => {
+          if (settled) return;
+          settled = true;
+          turn.perms.delete(pending);
+          this.armWatchdog(turn);
+          resolve(outcome);
+        },
+      };
+      turn.perms.add(pending);
+      const offered = new Set(mapped.options.map((o) => o.optionId));
+      new Promise<{ optionId: string } | { cancelled: true }>((res) => res(turn.cb.onPermission(mapped))).then(
+        (answer) => pending.settle('optionId' in answer && offered.has(answer.optionId)
+          ? { outcome: { outcome: 'selected', optionId: answer.optionId } }
+          : CANCELLED_OUTCOME),
+        () => pending.settle(CANCELLED_OUTCOME),
+      );
+    });
+  }
+}
+
+/** A callback that throws must not break the stream of updates. */
+function safe(fn: () => void): void {
+  try { fn(); } catch { /* the caller's problem, not the protocol's */ }
+}

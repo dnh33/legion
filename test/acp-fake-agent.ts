@@ -19,6 +19,11 @@
  *   noise       non-JSON lines on stdout (banner, warning) between the messages, and a line on stderr
  *   split       every message is written in three pieces with pauses between them
  *   overflow    a prompt first writes one 17 MiB line, then behaves like ok
+ *   plan        like ok, with a plan update (two entries) before the first chunk
+ *   foreign     like ok, with an update and a permission request for another session (sess_other) in the middle of the turn
+ * Flags: --fail-new <message> [--fail-code n] [--fail-in-data]  makes session/new fail (the message goes in error.data.details, with the message "Internal error", when --fail-in-data is given:
+ *   the shape the Python ACP SDK gives an exception raised in a Hermes handler); --no-resume drops the resume capability.
+ * session/resume and session/load answer {} for sess_fake_1 (load first replays one old message) and fail with details "not_found" for sess_missing.
  * --report writes { argv, env, cwd, pid, mode, daemonPid? } at start. --log appends every message the agent receives (one JSON per line).
  * --daemon starts a detached sleeper that must outlive this agent (the Hermes background service) and reports its PID as daemonPid.
  */
@@ -52,8 +57,8 @@ function out(msg: unknown): void {
   });
 }
 const reply = (id: unknown, result: unknown) => out({ jsonrpc: '2.0', id, result });
-const fail = (id: unknown, code: number, message: string) => out({ jsonrpc: '2.0', id, error: { code, message } });
-const update = (u: Record<string, unknown>) => out({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'sess_fake_1', update: u } });
+const fail = (id: unknown, code: number, message: string, data?: unknown) => out({ jsonrpc: '2.0', id, error: { code, message, ...(data !== undefined ? { data } : {}) } });
+const update = (u: Record<string, unknown>, sessionId = 'sess_fake_1') => out({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: u } });
 const text = (t: string) => ({ type: 'text', text: t });
 
 let turns = 0;
@@ -97,6 +102,12 @@ async function prompt(id: unknown): Promise<void> {
     reply(id, { stopReason: outcome?.outcome === 'cancelled' ? 'cancelled' : 'end_turn' });
     return;
   }
+  if (mode === 'plan') update({ sessionUpdate: 'plan', entries: [{ content: 'read the code', priority: 'medium', status: 'completed' }, { content: 'fix it', priority: 'medium', status: 'in_progress' }] });
+  if (mode === 'foreign') {
+    update({ sessionUpdate: 'agent_message_chunk', content: text('LEAK') }, 'sess_other');
+    waiting.set(9002, () => undefined);
+    out({ jsonrpc: '2.0', id: 9002, method: 'session/request_permission', params: { sessionId: 'sess_other', toolCall: { toolCallId: 'perm-check-other', title: 'x', kind: 'execute', status: 'pending', rawInput: { command: 'echo other' } }, options: [{ optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }] } });
+  }
   update({ sessionUpdate: 'agent_thought_chunk', content: text('thinking') });
   if (mode === 'noise') { out('WARNING: fake agent banner, not JSON'); process.stderr.write('fake agent: a log line on stderr\n'); }
   update({ sessionUpdate: 'agent_message_chunk', content: text('hello ') });
@@ -117,16 +128,33 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
       if (mode === 'noise') out('Fake agent v0.0.0 starting (this line is not JSON)');
       reply(id, {
         protocolVersion: mode === 'bad-version' ? 99 : 1,
-        agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } },
+        agentCapabilities: { loadSession: true, ...(argv.includes('--no-resume') ? {} : { sessionCapabilities: { resume: {}, list: {}, fork: {} } }), promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } },
         agentInfo: { name: 'fake-agent', title: 'Fake agent', version: '0.0.1-fake' },
         authMethods: [],
       });
       return;
     case 'session/new':
       if (mode === 'no-policy') { fail(id, -32603, 'acp_policy_unavailable'); return; }
-      reply(id, { sessionId: 'sess_fake_1' });
+      if (opt('--fail-new') !== undefined) {
+        const message = opt('--fail-new')!;
+        if (argv.includes('--fail-in-data')) fail(id, Number(opt('--fail-code') ?? -32603), 'Internal error', { details: message });
+        else fail(id, Number(opt('--fail-code') ?? -32603), message);
+        return;
+      }
+      reply(id, {
+        sessionId: 'sess_fake_1',
+        models: { availableModels: [{ modelId: 'prov:model-a', name: 'Model A' }, { modelId: 'prov:model-b', name: 'Model B' }], currentModelId: 'prov:model-a' },
+        modes: { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'accept_edits', name: 'Accept Edits' }, { id: 'dont_ask', name: "Don't Ask" }] },
+      });
       return;
-    case 'session/load':
+    case 'session/resume':
+    case 'session/load': {
+      const sid = String((msg.params as Record<string, unknown> | undefined)?.sessionId);
+      if (sid === 'sess_missing') { fail(id, -32603, 'Internal error', { details: 'not_found' }); return; }
+      if (method === 'session/load') update({ sessionUpdate: 'agent_message_chunk', content: text('old history') }, sid);
+      reply(id, method === 'session/resume' ? { models: { availableModels: [{ modelId: 'prov:model-a', name: 'Model A' }], currentModelId: 'prov:model-a' } } : {});
+      return;
+    }
     case 'session/set_model':
     case 'session/set_mode':
       reply(id, {});
