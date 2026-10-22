@@ -20,6 +20,14 @@ export function agentModeFor(mode: RunMode): 'default' | 'accept_edits' | 'dont_
   return 'default'; // ask, smart and smart-edits: the agent keeps asking (it has no mode that asks only about risk)
 }
 
+const WIN_PATH = /(?:[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/])[^\s"'<>|,;:)]*/g;
+const POSIX_PATH = /(?:~(?=\/)|\/(?:Users|home|root|var|opt|tmp|private|usr|etc|mnt|srv|Library))(?:\/[^\s"'<>|,;:)]*)?/g;
+
+/** Text from Hermes or the system with every local path (a drive path, a network path, a home or system folder, `~/...`) replaced by `[path]`: an error shown to a person or an outside client must not name where things live on the computer. */
+export function stripPaths(text: string): string {
+  return text.replace(WIN_PATH, '[path]').replace(POSIX_PATH, '[path]');
+}
+
 /** A tool call on Legion's own route: Hermes names such a call `mcp__editor_legion_<tag>__<tool>`. The route already wrote its rows. */
 export const isRouteTool = (name: string): boolean => /^mcp__editor_legion_[0-9a-z]+__/.test(name);
 

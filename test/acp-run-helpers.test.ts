@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HERMES_SELF_DENY_MS, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths } from '../src/core/acp/run-helpers.js';
+import { HERMES_SELF_DENY_MS, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
 
 // Pure pieces of an agent host run. Hermes joins the paths of a multi-file patch with ", " (acp_adapter/edit_approval.py:106-126)
 // and reads the patch headers with the two regexes at edit_approval.py:49-50.
@@ -69,4 +69,20 @@ test('requestPaths: a patch full of whitespace is read in linear time, and a pat
   }
   const big = requestPaths(mk(`*** Update File: a.txt\n${'x\n'.repeat(700_000)}*** Update File: ../later.txt`), 'linux');
   assert.ok(big.unreadable, 'a header past the scanned part must not be missed');
+});
+
+test('stripPaths: a local path in text from Hermes or the system becomes [path]; ordinary words and short names stay', () => {
+  const B = String.fromCharCode(92);
+  const cases: Array<[string, string]> = [
+    [`FileNotFoundError: C:${B}Users${B}jane${B}AppData${B}Local${B}hermes${B}config.yaml not found`, 'FileNotFoundError: [path] not found'],
+    [`failed at ${B}${B}server${B}share${B}x${B}y.txt now`, 'failed at [path] now'],
+    ['error in /home/jane/.hermes/config.yaml: bad', 'error in [path]: bad'],
+    ['cannot open /Users/jane/Library/x', 'cannot open [path]'],
+    ['cannot open ~/.hermes/auth.json', 'cannot open [path]'],
+    ['(C:/tools/hermes.exe)', '([path])'],
+    ['spawn hermes ENOENT', 'spawn hermes ENOENT'],
+    ['the api/v1/users endpoint answered 500', 'the api/v1/users endpoint answered 500'],
+    ['Hermes failed. Internal error', 'Hermes failed. Internal error'],
+  ];
+  for (const [input, want] of cases) assert.equal(stripPaths(input), want, input);
 });

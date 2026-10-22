@@ -15,9 +15,10 @@ import { TURN_LIMIT_PREFIX, BUDGET_LIMIT_PREFIX, TOKEN_LIMIT_PREFIX, isLimitPaus
 import type { AcpEntry, AcpSwitches } from '../src/shared/acp-view.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, ChatMessage, Task } from '../src/shared/types.js';
 import { registerSecret } from '../src/core/log/redact.js';
-import { forgetLegionSecrets, registerLegionSecrets } from '../src/core/acp/process.js';
+import { AgentLaunchError, forgetLegionSecrets, registerLegionSecrets } from '../src/core/acp/process.js';
 import { findRunGrant, issueRunToken, revokeAllRunTokens } from '../src/core/acp/run-tokens.js';
 import type { RunToken } from '../src/core/acp/run-tokens.js';
+import { RpcClosed } from '../src/core/acp/rpc.js';
 import { HERMES_CWD_TEXT, HERMES_WATCHDOG_TEXT } from '../src/core/acp/texts.js';
 
 // The engine's Hermes runtime against the scripted fake agent (test/acp-fake-agent.ts, mode `script`) and the real approval broker, which the tests answer.
@@ -1120,4 +1121,20 @@ test('R71: the owner\'s Block rules decide a Hermes request in every mode: the r
   assert.match(c.summary, /git push/, 'with no rules the request is a card (pass-through)');
   none.broker.resolve(c.id, false);
   await none.done(t);
+});
+
+test('F15: the text of a failure shows no local path and no secret, whether it comes from the system, from Hermes stderr or from an error', () => {
+  const r = rig();
+  const BSL = String.fromCharCode(92);
+  const winPath = `C:${BSL}Users${BSL}jane${BSL}AppData${BSL}Local${BSL}hermes${BSL}x.py`;
+  const fail = (e: unknown, proc?: unknown): string => (r.engine as any).acpFailText(e, proc, r.config.acp!.entries[0]);
+  const launch = fail(new AgentLaunchError('spawn-failed', `${winPath}: the system refused to start it (EACCES)`));
+  const NL = String.fromCharCode(10);
+  const closed = fail(new RpcClosed('closed'), { stderrTail: () => ['Traceback (most recent call last):', `  File "${winPath}", line 3`, 'PermissionError: /home/jane/.hermes/auth.json'].join(NL) });
+  const plain = fail(new Error(`cannot read ${winPath}`));
+  for (const text of [launch, closed, plain]) {
+    assert.doesNotMatch(text, /jane|AppData|\/home\//, text);
+    assert.match(text, /\[path\]/);
+  }
+  assert.match(launch, /^Hermes could not be started\./);
 });

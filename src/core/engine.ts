@@ -83,7 +83,7 @@ import type { RunToken, RunToolsHost } from './acp/run-tokens.js';
 import { RUN_TOOL_WAIT_MAX_S } from './acp/run-tools.js';
 import { RpcClosed, RpcError } from './acp/rpc.js';
 import type { MappedPermission } from './acp/map.js';
-import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, toolWaitOf } from './acp/run-helpers.js';
+import { agentModeFor, cardSummary, commandNamesPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths, toolWaitOf } from './acp/run-helpers.js';
 import { redact as logRedact } from './log/redact.js';
 import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, blockedNote, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
 import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
@@ -3126,11 +3126,13 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return toolPolicyText(`${raw} ${e instanceof RpcError ? JSON.stringify(e.data ?? '') : ''}`);
   }
 
-  /** What went wrong, in words a person reads. The agent's raw text is not the headline, and it never goes out unredacted. */
+  /** What went wrong, in words a person reads. The agent's raw text is not the headline, and it never goes out unredacted or with a local path in it (the task error is read by outside clients). The full text goes to the log. */
   private acpFailText(e: unknown, proc: AgentProcess | undefined, entry: AcpEntry): string {
     const N = (t: string): string => named(t, entry.label);
+    const shown = (t: string): string => stripPaths(this.redactText(t));
+    if (!(e instanceof AcpRefusal)) console.error(`[${entry.id}] run failed: ${this.redactText(e instanceof Error ? e.message : String(e)).slice(0, 2000)}${proc?.stderrTail ? ` | stderr: ${this.redactText(proc.stderrTail().trim().split('\n').slice(-3).join(' / ')).slice(0, 600)}` : ''}`);
     if (e instanceof AcpRefusal) return N(toolPolicyText(e.message) ?? refusalText(e.reason));
-    if (e instanceof AgentLaunchError) return e.code === 'not-found' ? N('Hermes was not found on your computer. Install it, or check its command in Settings, Agent hosts.') : `${N('Hermes could not be started.')} ${this.redactText(e.message)}`.slice(0, 300);
+    if (e instanceof AgentLaunchError) return e.code === 'not-found' ? N('Hermes was not found on your computer. Install it, or check its command in Settings, Agent hosts.') : `${N('Hermes could not be started.')} ${shown(e.message)}`.slice(0, 300);
     const policy = this.acpPolicyOf(e);
     if (policy) return N(policy);
     const raw = e instanceof Error ? e.message : String(e);
@@ -3138,9 +3140,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (state) return N(state);
     if (e instanceof RpcClosed) {
       const last = (proc?.stderrTail() ?? '').trim().split('\n').pop()?.trim();
-      return `${N('Hermes stopped before it finished.')}${last ? ` It said: ${this.redactText(last).slice(0, 200)}` : ''}`;
+      return `${N('Hermes stopped before it finished.')}${last ? ` It said: ${shown(last).slice(0, 200)}` : ''}`;
     }
-    return `${N('Hermes failed.')} ${this.redactText(raw).slice(0, 300)}`;
+    return `${N('Hermes failed.')} ${shown(raw).slice(0, 300)}`;
   }
 
   /**
