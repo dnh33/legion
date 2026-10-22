@@ -35,11 +35,12 @@ These claims are about Legion's own code.
 - **Provider agents.** An agent on an OpenAI-compatible provider has no Claude Code tools. It gets only Legion's own tools, and approvals still apply. Provider keys are stored apart from `config.json`.
 - **Claude agents and Claude's own checks.** By default (Settings, Gates, on unless you turn it off) a Claude agent follows Claude Code's own permission checks in every preset: Claude decides about its own tools, and whatever it is unsure about comes to you as a Legion card. Legion's own code still applies your Block rules, a stop for commands that could wipe a drive or your home folder (also for long or padded commands), protection of Legion's own files, folder trust, and the cards of Legion's own tools. A Legion Allow rule does not answer Claude's questions. If Legion cannot trust its settings file, the switch stays off.
 - **Window.** The Electron window is sandboxed, with context isolation and no Node integration.
+- **Confirm card.** A question that changes a setting or moves money (provider keys, gates, folder trust, agent modes, project folders, the browser tool, GitHub connect, BSV) is asked by Legion's confirm card, shown inside Legion: a view of its own that Legion's main process lays over the whole Legion window, with the app dimmed behind it. It is not a separate window. The Legion page cannot fake one or answer one: the card is isolated from the page (its own session, no preload, no network), the words come from main, and main takes an answer only from the card's own contents and only with a one-time id made for that question. While it is open, the app behind it gets no mouse and no keys. If the card cannot be shown, the same question goes to the system dialog. It never answers yes by itself.
 
 ## BSV mode (testing preview)
 
 - Legion's own code holds no key and signs nothing itself. It has one spend tool that asks a wallet on this computer to pay.
-- Each spend needs your confirmation in native dialogs. Default caps are small, and the recipient list is empty.
+- Each spend needs your confirmation in Legion's confirm card (or the system dialog if it cannot open). Default caps are small, and the recipient list is empty.
 - Spending on mainnet is off by default. Only you turn mainnet on, in the app, after a warning. Each mainnet spend needs its own arm.
 - The wallet's own prompt is not always the last gate. Whether your wallet asks too depends on the wallet.
 - The spend tool has been tested against fake wallets only. It is not verified against a real wallet or with real funds.
@@ -50,6 +51,7 @@ Details: [BSV mode](docs/BSV-MODE.md) and [wallet design](docs/BSV-WALLET-DESIGN
 ## What Legion does not protect against
 
 - **Programs that run as your OS user.** Such a program can read Legion's memory and take the admin secret. It can click Allow, edit Legion's files, read `config.json` and your Claude credentials, and call your BSV wallet directly. Only a VM or a separate OS account stops this.
+- **Pressing the confirm buttons.** Any program that runs as you, including an agent command in Full or Bypass, can press buttons in any window through the operating system's accessibility interface (UI Automation on Windows). That was true of the system dialogs before, and it is true of the confirm card. The confirm card keeps the Legion page and its scripts from answering; it does not keep another program on your computer from clicking.
 - **An agent with `full` approval.** `full` removes nearly every prompt for that agent: a Claude agent still gets a card for deleting the project folder, for a command too long to check and for Legion's own settings folder, and Legion's stop for disastrous commands holds. An agent with a shell or file tools can then act as you. Use `ask` or a VM for untrusted work. Do not give a shell to an agent that reads untrusted web content.
 - **Keys in `config.json`.** The boat.dev key and the Claude API key (in `api-key` mode) are stored there as plain text. An agent's Read tool can read them without a card. Keep the file private.
 - **The MCP token.** Treat it as a password. A holder can run your agents under the `ask` ceiling and read room text through tasks. A holder can also run a shell command in an agent's cloud VM without a Legion card.

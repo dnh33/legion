@@ -9,6 +9,7 @@ import { incomingWins } from './chat/tasksync';
 import { keepTasks } from './history/historyLogic';
 import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type ThreadMeta } from './chat/threadWindow';
 import { askToStop } from './chat/background';
+import { askApp } from './components/askStore';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { projectToShow } from './chat/taskTabs';
@@ -533,17 +534,38 @@ export async function sendPrompt(prompt: string): Promise<boolean> {
  * Whether the owner agrees to cancel this run. A run waiting on background agents ends them when it is cancelled (Stop, Ctrl+Enter and
  * "send now" all cancel), so that is said first (docs/CHAT.md). A run with none is not asked.
  */
-export function confirmStop(taskId: string | null): boolean {
+export async function confirmStop(taskId: string | null): Promise<boolean> {
   const n = taskId ? getState().progress[taskId]?.background ?? 0 : 0;
   if (n <= 0) return true;
-  return askToStop(n, (m) => window.confirm(m));
+  return askToStop(n, (m) => askApp({ title: 'Stop this run?', message: m, yes: 'Stop it', no: 'Keep running', danger: true }));
 }
 
-export async function cancelSelected(confirmed = false) {
-  const id = getState().selectedTaskId;
-  if (!id) return;
-  if (!confirmed && !confirmStop(id)) return;
-  try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
+/** Is this task's run live, and which run is it (its start time)? Read before a question and again after, so an answer meets the same run. */
+function runMark(taskId: string): { live: boolean; startedAt: string | null } {
+  const s = getState();
+  const t = s.tasks.find((x) => x.id === taskId);
+  return { live: t?.status === 'running' || t?.status === 'queued', startedAt: s.progress[taskId]?.startedAt ?? null };
+}
+
+/**
+ * Stop the run of `taskId`: ask first when it has background agents, then cancel THAT task. The question is a page dialog that does not
+ * freeze the window, so while it is open the selection can move (Alt+digit, Ctrl+N, an event) and the run can end, or end and start again
+ * (the queue sent the next message). The task asked about is the task cancelled, and a run that is no longer the one asked about is left
+ * alone. `onStop` runs only when the cancel goes ahead (the composer pauses its queue there). Resolves true when a cancel was sent.
+ */
+export async function stopAskedRun(taskId: string | null, onStop?: () => void): Promise<boolean> {
+  if (!taskId) return false;
+  const before = runMark(taskId);
+  if (!(await confirmStop(taskId))) return false;
+  const now = runMark(taskId);
+  if (before.live && (!now.live || now.startedAt !== before.startedAt)) return false;
+  onStop?.();
+  try { await api.cancelTask(taskId); } catch (e) { toast(errText(e), 'error'); }
+  return true;
+}
+
+export async function cancelSelected() {
+  await stopAskedRun(getState().selectedTaskId);
 }
 
 /**
@@ -691,12 +713,11 @@ export async function deleteTask(id: string) {
   try { await api.deleteTask(id); handleEvent({ type: 'task.deleted', taskId: id }); } catch (e) { toast(errText(e), 'error'); }
 }
 export async function stopTask(id: string) {
-  if (!confirmStop(id)) return;
-  try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
+  await stopAskedRun(id);
 }
 /** Stop a task and every task it started. Asks first when the task is waiting on background agents, like Stop does. */
-export async function stopTeam(id: string) {
-  if (!confirmStop(id)) return;
+export async function stopTeam(id: string, confirmed = false) {
+  if (!confirmed && !(await confirmStop(id))) return;
   try { await api.cancelTeam(id); } catch (e) { toast(errText(e), 'error'); }
 }
 export async function setShowClosed(on: boolean) {

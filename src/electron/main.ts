@@ -1,18 +1,22 @@
 /** Electron main process. */
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, powerMonitor, safeStorage, shell, Tray } from 'electron';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice } from './updater-main.js';
+import { confirmAfterBoot, holdStartIfUpdating, initUpdater, logStartOutcome, recoverAtStart, showOutcomeNotice, updateBusy } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
+import { CONFIRM_BUSY, ConfirmBusyError, underLock } from './confirm-window-logic.js';
+import { configureConfirmWindow, confirmWindow, confirmWindowBusy, holdConfirmWindow, releaseConfirmWindow } from './confirm-window.js';
 import { webSearchChange } from './web-search-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
 import { rotateRawLog } from '../core/log/rotate-file.js';
+import { formatLine } from '../core/log/logger.js';
+import { CoreRestartState, CrashTracker, RESTART_DELAY_MS, SingleFlight, decideRestart, exitLine, restartSwitchStatus, sweepSwitchTemps, writeRestartSwitch, type RestartFacts } from './core-restart-logic.js';
 import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, ensureGatesKey, gatesKeyFilePath, gatesKeyLine, gatesKeyState, keyLine, loadConnectorKey, providerKeyLaunchLine, providerKeyStoreReady, providerKeyUnlocks, setAsideProviderKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
@@ -20,7 +24,7 @@ import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { acquireStartLock, decideSingleInstance } from './instance-logic.js';
 import { gatesChange } from './gates-ipc.js';
 import { agentModeBatch, agentModeChange } from './agent-mode-ipc.js';
-import { projectChange } from './project-ipc.js';
+import { makePickFolder, projectChange } from './project-ipc.js';
 import { startSignals } from './signals.js';
 import type { Signals } from './signals.js';
 import { browserChange } from './browser-ipc.js';
@@ -66,6 +70,15 @@ let signals: Signals | undefined;
 let gatesKeyMadeThisSession = false;
 let coreProc: ChildProcess | null = null;
 let quitting = false;
+/** The core child that proved it holds our secret. Only its unexpected exit can restart the core (a start that never got ready is the splash's error). */
+let provenChild: ChildProcess | null = null;
+/** The computer is logging off or shutting down. Its own flag: a logoff another app cancels must not leave the window hidden for good. */
+let sessionEnding = false;
+let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+const crashes = new CrashTracker();
+const restartState = new CoreRestartState();
+/** One core restart at a time: the tray, the banner button, a provider-key restart and the auto-restart share it. */
+const restartFlight = new SingleFlight<string | null>();
 let booting = true;
 let splash: BrowserWindow | null = null;
 /** Per-launch admin secret of the core child we spawned (memory only: stdin pipe to the child, IPC to our own renderer; never env, argv or disk). */
@@ -77,6 +90,11 @@ let adminSecret: string | undefined;
 let nativeSecret: string | undefined;
 /** True while a BSV confirmation dialog is open: a second request waits for the person, it does not stack dialogs. */
 let bsvDialogOpen = false;
+/** The confirm lock for system dialogs (the folder chooser, the core questions, the updater): held while one is open, so no confirm card opens under it. */
+const confirmLock = { hold: holdConfirmWindow, release: releaseConfirmWindow };
+/** A system dialog for the updater under the confirm lock: undefined (nothing shown) while a card is open, unless it waits. */
+const cardDialog = <T,>(show: () => Promise<T>, o?: { wait?: boolean }): Promise<T | undefined> =>
+  underLock(confirmLock, show, o).catch((e: unknown) => { if (e instanceof ConfirmBusyError) return undefined; throw e; });
 /** What `legion:bootstrap` hands to the renderer: set only after /health proved the core on the port is our child and holds the secret. */
 let rendererAdmin: string | undefined;
 /**
@@ -145,12 +163,14 @@ function stopForeignPid(pid: number): void {
   } catch { /* already gone */ }
 }
 
+/** taskkill that takes longer than this is given up on, so one hung call cannot hold up every later restart. */
+const KILL_TIMEOUT_MS = 10_000;
 /** Stops our own core child and everything it started: taskkill /T /F on Windows, a signal to its process group elsewhere (it is spawned detached). */
 function killTree(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
   return new Promise((done) => {
     const plan = child.pid ? killPlan(process.platform, child.pid, signal) : null;
     try {
-      if (plan?.kind === 'taskkill') { execFile(plan.cmd, plan.args, { windowsHide: true }, () => done()); return; }
+      if (plan?.kind === 'taskkill') { execFile(plan.cmd, plan.args, { windowsHide: true, timeout: KILL_TIMEOUT_MS }, () => done()); return; }
       if (plan?.kind === 'group') process.kill(plan.pid, plan.signal);
       else child.kill(signal);
     } catch { try { child.kill(signal); } catch { /* already gone */ } }
@@ -198,6 +218,7 @@ async function spawnCore(port: number): Promise<string | null> {
       env: { ...process.env, ...launch.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
     });
     coreProc = child;
+    appLog('info', 'core-spawn', { pid: child.pid ?? 0 });
     adminSecret = secret;
     nativeSecret = native;
     rendererAdmin = undefined;
@@ -211,9 +232,14 @@ async function spawnCore(port: number): Promise<string | null> {
         ? coreStartHint(launch.mode, err.code)
         : `Could not start core: ${err.message || err}`;
     });
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
+      // killCore clears coreProc BEFORE the exit, so a child that is still coreProc here was not stopped by anything in main
+      const intended = coreProc !== child;
       if (coreProc === child) { coreProc = null; adminSecret = undefined; nativeSecret = undefined; rendererAdmin = undefined; }
       if (!failure) failure = `Core exited (code ${code}). See core.log.`;
+      const proven = provenChild === child;
+      if (proven) provenChild = null;
+      if (!intended && proven) void onCoreCrash(code, signal);
     });
     await new Promise((r) => setTimeout(r, 200));
     return failure;
@@ -224,14 +250,15 @@ async function spawnCore(port: number): Promise<string | null> {
 
 /** Asks what to do with a foreign core that is busy. true = restart it now. */
 async function askRestartForeignCore(): Promise<boolean> {
-  const r = await dialog.showMessageBox({
+  // a restart can be asked for by the page: this system dialog waits for an open confirm card and holds the lock while open (no card under it)
+  const r = await underLock(confirmLock, () => dialog.showMessageBox({
     type: 'question',
     buttons: ['Restart now', 'Later'],
     defaultId: 1, cancelId: 1,
     message: 'Legion Core was started outside this app and is busy.',
     detail: 'Approvals and settings stay locked until Legion restarts it, because only a core started by this app holds the admin key. '
       + 'Restarting now cuts off its running tasks and pending approvals. Later keeps it running; use Restart core in the tray menu when it is idle.',
-  });
+  }), { wait: true });
   return r.response === 0;
 }
 
@@ -246,9 +273,9 @@ async function ensureCore(): Promise<string | null> {
     // Only a core that did not prove itself needs the lookup: its claimed pid must really own the listener before it can be killed.
     const listeners = mine ? undefined : await listenersOn(port);
     const action = coreAction({ health, ownProof: !!mine, busy, selfPid: process.pid, listeners });
-    if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
+    if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; provenChild = mine ? coreProc : null; return null; }
     if (action === 'blocked') {
-      dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }).catch(() => {});
+      void underLock(confirmLock, () => dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }), { wait: true }).catch(() => {});
       pinned = readConfig(); rendererAdmin = undefined;
       return null;
     }
@@ -264,7 +291,7 @@ async function ensureCore(): Promise<string | null> {
   while (Date.now() < deadline) {
     // up AND proved to hold our secret (a rogue that grabbed the port first never does)
     const mine = await ownCoreSecret(port);
-    if (mine) { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
+    if (mine) { pinned = { port, token: readConfig().token }; rendererAdmin = mine; provenChild = coreProc; return null; }
     if (!coreProc) return 'Core exited before becoming ready. See core.log.';
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -288,19 +315,94 @@ async function killCore(): Promise<void> {
 /** Tray "Restart core": rotates the admin secret. The window reload re-runs the preload, so the renderer picks up the new secret. */
 /** Restarts our core. Returns the error text and shows no dialog itself: the caller reports it once (the tray shows the box, the Connect flow returns it to the window). */
 async function restartCoreQuiet(): Promise<string | null> {
-  if (coreProc) {
-    await killCore();
-    await waitPortFree((pinned ?? readConfig()).port);
-  }
-  const err = await ensureCore();
-  win?.webContents.reload();
-  return err;
+  return restartFlight.run(async () => {
+    if (coreProc) {
+      await killCore();
+      await waitPortFree((pinned ?? readConfig()).port);
+    }
+    const err = await ensureCore();
+    win?.webContents.reload();
+    return err;
+  });
 }
 
 /** Tray "Restart core": the one place that shows the error box. */
 async function restartCore(): Promise<void> {
-  const err = await restartCoreQuiet();
+  const err = await manualRestart();
   if (err) dialog.showErrorBox('Could not restart Legion Core', err);
+}
+
+/** One line into <data>/logs/app.log. Never throws. */
+function appLog(level: 'info' | 'warn', event: string, fields: Record<string, string | number | boolean>): void {
+  try {
+    const dir = join(dataDir(), 'logs');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'app.log'), formatLine(new Date(), level, 'app', event, fields) + '\n');
+  } catch { /* a log line must never stop a restart */ }
+}
+
+/** The Settings switch "Restart Legion Core when it stops unexpectedly". A file in the data folder, because the core it concerns is the one that is dead. On unless it says false. */
+const appSettingsFile = (): string => join(dataDir(), 'app-settings.json');
+function restartSwitchOn(): boolean {
+  return restartSwitchStatus(appSettingsFile()).on; // a file that is locked right now reads as "do not restart"
+}
+function setRestartSwitch(on: boolean): void {
+  writeRestartSwitch(appSettingsFile(), on); // temp file and rename
+  appLog('info', 'core-restart-switch', { on });
+}
+
+/** Tells the window to read the restart state again (only for changes that do not reload it). */
+function notifyRestartChanged(): void {
+  try { if (win && !win.isDestroyed()) win.webContents.send('legion:core-restart-changed'); } catch { /* the window is gone */ }
+}
+
+/** The person restarts the core (tray, or the banner button): the crash count starts again and the stopped state ends. */
+async function manualRestart(): Promise<string | null> {
+  crashes.reset();
+  restartState.clearStopped();
+  appLog('info', 'core-restart', { note: 'restart asked for by you: the crash count starts again' });
+  const err = await restartCoreQuiet();
+  if (err) { restartState.noteStopped('failed'); notifyRestartChanged(); }
+  return err;
+}
+
+/** The computer is ending the session. The flag clears after a minute, in case another app cancelled the logoff. */
+function markSessionEnding(why: string): void {
+  sessionEnding = true;
+  appLog('info', 'session-end', { note: why });
+  if (sessionTimer) clearTimeout(sessionTimer);
+  sessionTimer = setTimeout(() => { sessionEnding = false; }, 60_000);
+  sessionTimer.unref?.();
+}
+
+/**
+ * Our core child proved itself and then exited with nobody in main asking for it. Restart it once, unless Legion is closing, an update owns
+ * the install, the switch is off, or it keeps stopping (3 in 5 minutes: then the window says so and the person restarts it).
+ */
+async function onCoreCrash(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+  const count = crashes.register();
+  appLog('warn', 'core-exit', { code: code ?? 'none', signal: signal ?? 'none', count, note: exitLine(code, signal, count) });
+  const facts = (): RestartFacts => {
+    const sw = restartSwitchStatus(appSettingsFile());
+    return { intended: false, booting, quitting, updating: updateBusy(root), sessionEnding, enabled: sw.on, ...(sw.error ? { switchError: sw.error } : {}), count };
+  };
+  const first = decideRestart(facts());
+  appLog('info', 'core-restart', { note: first.log });
+  if (first.action === 'stop-at-limit') { restartState.noteStopped('limit'); notifyRestartChanged(); }
+  // the splash owns the start; unless Legion is closing, the banner gives the person the button
+  if (first.action === 'stopped-starting') { restartState.noteStopped('starting'); notifyRestartChanged(); }
+  if (first.action !== 'restart') return;
+  await sleep(RESTART_DELAY_MS); // a whole-app kill finishes first
+  if (coreProc || restartFlight.busy) { appLog('info', 'core-restart', { note: 'not restarting: a core is already running again' }); return; }
+  const again = decideRestart(facts());
+  if (again.action !== 'restart') { appLog('info', 'core-restart', { note: again.log }); return; }
+  restartState.noteRestarted(); // before the reload that fetches it
+  const err = await restartCoreQuiet();
+  if (err) {
+    restartState.noteStopped('failed');
+    appLog('warn', 'core-restart', { note: `restart failed: ${err}` });
+    notifyRestartChanged();
+  } else appLog('info', 'core-restart', { note: 'restarted' });
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
@@ -329,15 +431,20 @@ async function ownCoreCall(method: 'GET' | 'POST' | 'PUT' | 'PATCH', route: stri
  * dialogs from it and sends the core the hash it read. The window can only name a request id. One dialog at a time (the lock is shared with
  * every other confirmation), in the order the cards arrived.
  */
+// Every settings and money confirmation is Legion's confirm card, shown inside the Legion window (confirm-window.ts). Its zoom and theme are the main window's.
+configureConfirmWindow({ getMainWin: () => win, log: (line) => { try { appendFileSync(join(dataDir(), 'core.log'), redact(`[${new Date().toISOString()}] ${line}\n`)); } catch { /* the question is asked all the same */ } } });
 const spendNative = createSpendNative({
   core: (method, route, body, native) => ownCoreCall(method, route, body, native),
   dialog: async (opts) => {
-    // a hidden or closed window must not hide the question: without a visible parent the dialog is shown on its own
-    const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, { ...opts, buttons: [...opts.buttons] }) : await dialog.showMessageBox({ ...opts, buttons: [...opts.buttons] });
+    // the card is shown inside the Legion window, which is restored first when it is hidden or minimized (a tray case)
+    const shown = { ...opts, buttons: [...opts.buttons] };
+    const r = await confirmWindow.showHeldMessageBox(shown);
     return r.response;
   },
-  acquire: () => { if (bsvDialogOpen) return false; bsvDialogOpen = true; return true; },
-  release: () => { bsvDialogOpen = false; },
+  // A review waits (the next tick, or the Review button's own message) while any other question is open, and then HOLDS the confirm lock until it is done:
+  // no other question can take the window between its own reads and questions, and be read as a "no" that denies a request nobody saw.
+  acquire: () => { if (bsvDialogOpen || !holdConfirmWindow()) return false; bsvDialogOpen = true; return true; },
+  release: () => { bsvDialogOpen = false; releaseConfirmWindow(); },
   changed: () => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:bsv-changed'); } catch { /* the window is gone */ } },
   bsvOn: async () => { const r = await ownCoreCall('GET', '/api/bsv'); return r?.status === 200 && (r.json as { enabled?: unknown } | undefined)?.enabled === true; },
 });
@@ -376,12 +483,16 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   }
   const c = bsvConfirmation(action, facts, walletLine);
   if (c.needsDialog) {
-    if (bsvDialogOpen) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
+    if (bsvDialogOpen || confirmWindowBusy()) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
     bsvDialogOpen = true;
     try {
-      const opts = { type: c.type, title: c.title, message: c.message, detail: c.detail, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
-      const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+      const { needsDialog: _n, method: _m, route: _r, body: _b, ...shown } = c; // the words and how to draw them; the route and body stay here
+      const opts = { ...shown, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
+      const r = await confirmWindow.showMessageBox(opts);
       if (r.response !== 1) return { ok: false, cancelled: true };
+    } catch (e) {
+      if (e instanceof ConfirmBusyError) return { ok: false, error: CONFIRM_BUSY }; // lost the lock between the check above and the window: not the person's cancel
+      throw e;
     } finally { bsvDialogOpen = false; }
   }
   const res = await ownCoreCall('POST', c.route, c.body, true);
@@ -421,6 +532,8 @@ function createWindow(showOnReady: boolean): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // No page code can raise a native alert, confirm or prompt box: it would sit over the confirm card. Legion asks its own questions in the app.
+      disableDialogs: true,
     },
   });
   win.setMenuBarVisibility(false);
@@ -449,6 +562,9 @@ function createWindow(showOnReady: boolean): void {
     if (!quitting) { e.preventDefault(); win?.hide(); }
   });
   win.on('closed', () => { win = null; });
+  // Windows: a shutdown, restart or logoff is coming (the cores die with it and must not be restarted)
+  win.on('query-session-end', () => markSessionEnding('query-session-end'));
+  win.on('session-end', () => markSessionEnding('session-end'));
 
   if (existsSync(uiIndex)) {
     console.log('[main] Loading UI from:', uiIndex);
@@ -640,41 +756,39 @@ if (instance.quit) {
   ipcMain.handle('legion:provider-change', async (e, raw: unknown): Promise<ProviderChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), unlocks: () => providerKeyUnlocks(dataDir(), safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), startOver: { storeReady: () => providerKeyStoreReady(safeStorage), unlocks: () => providerKeyUnlocks(dataDir(), safeStorage), setAsideKey: () => setAsideProviderKey(dataDir(), safeStorage).then((r) => { if (r === 'unavailable') throw new Error('key store unavailable'); }), restartCore: restartCoreQuiet } }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:web-search-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await webSearchChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await webSearchChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    const pickFolder = async (start?: string): Promise<string | undefined> => {
-      const r = await dialog.showOpenDialog(win!, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
-      return r.canceled ? undefined : r.filePaths[0];
-    };
-    try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
+    // the chooser is a system window the page can ask for: it holds the confirm lock while open, so it never covers a card and no card opens under it
+    const pickFolder = makePickFolder(dialog, () => win, confirmLock);
+    try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:gates-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await gatesChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await gatesChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:agent-mode-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await agentModeChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await agentModeChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:agent-mode-batch', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.', applied: [] };
-    try { return await agentModeBatch(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.', applied: [] }; }
+    try { return await agentModeBatch(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.', applied: [] }; }
   });
   ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
-    try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+    try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(confirmWindow, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:connector-connect', async (e) => {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
@@ -682,7 +796,7 @@ if (instance.quit) {
     try {
       return await connectGithub({
         call: (method, route, body) => ownCoreCall(method, route, body),
-        confirm: makeConfirm(dialog, () => win),
+        confirm: makeConfirm(confirmWindow, () => win),
         ensureKey: () => ensureConnectorKey(dataDir(), safeStorage),
         restartCore: restartCoreQuiet,
         openExternal,
@@ -713,12 +827,32 @@ if (instance.quit) {
     try { mkdirSync(dir, { recursive: true }); return (await shell.openPath(dir)) === ''; } catch { return false; }
   });
 
+  ipcMain.handle('legion:core-restart-state', (e) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { restarted: false, stopped: null };
+    return restartState.take();
+  });
+  ipcMain.handle('legion:core-restart-now', async (e): Promise<{ ok: boolean; error?: string }> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { const err = await manualRestart(); return err ? { ok: false, error: err } : { ok: true }; } catch { return { ok: false, error: 'The restart failed.' }; }
+  });
+  // No argument reads the switch; a boolean sets it.
+  ipcMain.handle('legion:core-restart-option', (e, raw: unknown): { ok: boolean; enabled: boolean; error?: string } => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, enabled: true, error: 'Refused: not the Legion window.' };
+    try { if (typeof raw === 'boolean') setRestartSwitch(raw); return { ok: true, enabled: restartSwitchOn() }; } catch { return { ok: false, enabled: restartSwitchOn(), error: 'The setting could not be saved.' }; }
+  });
+
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => { signals?.stop(); if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
   app.on('window-all-closed', () => { /* stay in tray */ });
   app.on('activate', () => showWindow());
 
   void app.whenReady().then(async () => {
+    // Linux and macOS tell the app about a shutdown here (Windows uses the window events above)
+    try { powerMonitor.on('shutdown', () => markSessionEnding('shutdown')); } catch { /* no power monitor here */ }
+    sweepSwitchTemps(dataDir()); // temp files an interrupted switch save left behind
     // An update that is swapping files right now owns the install: show a small window and wait, never start a core on files being replaced.
     if ((await holdStartIfUpdating(root, dataDir(), updateHandoff)) === 'exit') { quitting = true; app.exit(0); return; }
     await recoverAtStart(root, dataDir()); // finish or undo an update that was cut off, before the core starts
@@ -726,7 +860,7 @@ if (instance.quit) {
     await boot();
     if (coreBooted) void confirmAfterBoot(root, dataDir(), () => getHealth((pinned ?? readConfig()).port));
     shortcutsShareId();
-    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
+    const updaterHost = { installDir: root, dataDir: dataDir(), ownCoreCall, getWin: () => win, cardDialog, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } };
     initUpdater(updaterHost);
     if (coreBooted) void showOutcomeNotice(updaterHost, dataDir()); // an update that did not finish says so once, with Retry and Dismiss
   });

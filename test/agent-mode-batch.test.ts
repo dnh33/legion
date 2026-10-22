@@ -6,6 +6,7 @@ import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { agentModeBatch, parseAgentModeBatch, resetAgentModeCancelForTests } from '../src/electron/agent-mode-ipc.js';
 import type { AgentModeIpcDeps } from '../src/electron/agent-mode-ipc.js';
 import { createGatesCore, createGatesModule } from '../src/core/gates-settings/index.js';
@@ -155,4 +156,14 @@ test('batch: a core that does not answer changes nothing and says so', withBoot(
   const res = await agentModeBatch(follow(IDS), down);
   assert.match(res.error ?? '', /could not reach its own core/);
   assert.equal(r.dialogs.length, 0);
+}));
+
+test('busy: the batch question losing to an open one is "already open" with nothing applied, and a retry is not paused', withBoot([true], async (r) => {
+  r.core.store.patchApp({ preset: 'smart' });
+  const real = r.deps.confirm;
+  r.deps.confirm = async () => { throw new ConfirmBusyError(); };
+  assert.deepEqual(await agentModeBatch(follow(IDS), r.deps), { ok: false, error: CONFIRM_BUSY, applied: [] });
+  r.deps.confirm = real;
+  const retry = await agentModeBatch(follow(IDS), r.deps);
+  assert.equal(retry.ok, true, retry.error);
 }));

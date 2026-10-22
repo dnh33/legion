@@ -21,6 +21,14 @@ declare global {
       webSearchChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       onBsvChanged?(cb: () => void): () => void;
+      /** Legion Core stopped by itself: what main did. The restart notice is handed out once; `stopped` stays until the core is restarted. */
+      coreRestartState?(): Promise<{ restarted: boolean; stopped: 'limit' | 'failed' | null }>;
+      /** Main says the state changed without a reload of this window. */
+      onCoreRestartChanged?(cb: () => void): () => void;
+      /** The Restart core button: the same restart as the tray menu. */
+      restartCoreNow?(): Promise<{ ok: boolean; error?: string }>;
+      /** Settings, About: no argument reads "Restart Legion Core when it stops unexpectedly"; a boolean sets it. Main keeps it in the data folder. */
+      coreRestartOption?(on?: boolean): Promise<{ ok: boolean; enabled: boolean; error?: string }>;
       /** Tells the desktop which project page and thread this window shows (ids only), so it does not notify for what you are looking at. */
       reportView?(v: { pageProjectId: string | null; threadTaskId: string | null }): void;
       /** A notification or the tray asked to open an ask. */

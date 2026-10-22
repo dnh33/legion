@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { gatesChange, parseGatesChange, resetGatesCancelForTests } from '../src/electron/gates-ipc.js';
 import type { GatesIpcDeps } from '../src/electron/gates-ipc.js';
 import { createGatesCore, createGatesModule } from '../src/core/gates-settings/index.js';
@@ -356,7 +357,7 @@ test('M3: the window reaches the handler only through main, which checks the sen
   const i = main.indexOf("'legion:gates-change'");
   assert.ok(i > 0);
   const block = main.slice(i, i + 700);
-  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /gatesChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(dialog/);
+  assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /gatesChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(confirmWindow/);
   assert.match(main, /extraHeaders\?: Record<string, string>/); assert.match(main, /Object\.assign\(headers, extraHeaders\)/);
   const pre = readFileSync(root + 'src/electron/preload.cjs', 'utf8').replace(/\r\n/g, '\n');
   assert.match(pre, /gatesChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:gates-change', change\);/);
@@ -411,3 +412,14 @@ test('keep list: adding one name to a list that already has names asks about the
 test('keep list: a project cannot carry a keep list (the list is the app file only)', async () => {
   assert.equal(parseGatesChange({ kind: 'project', id: 'proj_0123456789ab', patch: { envKeep: ['NPM_TOKEN'] } }), undefined);
 });
+
+test('busy: a loosening question that lost to an open one is "already open"; it is not a cancel by the person, so a retry is not paused', withHarness([true], {}, async (r) => {
+  const real = r.deps.confirm;
+  r.deps.confirm = async () => { throw new ConfirmBusyError(); };
+  const lost = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, r.deps);
+  assert.deepEqual(lost, { ok: false, error: CONFIRM_BUSY });
+  assert.equal(writes(r).length, 0);
+  r.deps.confirm = real;
+  const retry = await gatesChange({ kind: 'app', patch: { preset: 'bypass' } }, r.deps);
+  assert.equal(retry.ok, true, `no "you cancelled a moment ago" for a question nobody saw: ${retry.error}`);
+}));

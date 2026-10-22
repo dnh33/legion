@@ -1,6 +1,7 @@
 /** First Connect on a launch without a key: main makes the key, restarts the core, and only then starts the sign-in (design 4.4, restart fallback). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { connectGithub, GITHUB_DEVICE_PAGE_URL } from '../src/electron/connector-ipc.js';
 import type { ConnectorIpcDeps } from '../src/electron/connector-ipc.js';
 
@@ -77,4 +78,12 @@ test('the GitHub App not registered: a plain "not available" before anything els
   assert.equal(out.ok, false);
   assert.match(out.error ?? '', /not available yet/);
   assert.ok(!r.log.some((l) => /ensureKey|restart|confirm|POST/.test(l)));
+});
+
+test('busy: the restart question losing to an open one is "already open", not Cancel, and no key is made or core restarted', async () => {
+  const r = rig();
+  r.deps.confirm = async () => { throw new ConfirmBusyError(); };
+  assert.deepEqual(await connectGithub(r.deps), { ok: false, error: CONFIRM_BUSY });
+  assert.ok(!r.log.some((l) => /ensureKey|restart|POST/.test(l)));
+  assert.deepEqual(await connectGithub(rig().deps), { ok: true, restarted: true, memoryOnly: false }, 'the lock was freed');
 });

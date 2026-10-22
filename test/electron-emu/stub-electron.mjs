@@ -8,3 +8,9 @@ export const shell = { openExternal() {}, openPath() {} }; export class Tray { c
 export const safeStorage = { isAsyncEncryptionAvailable: async () => false, encryptStringAsync: async () => Buffer.alloc(0), decryptStringAsync: async () => ({ result: '', shouldReEncrypt: false }) };
 export class Notification { static isSupported() { return false; } constructor(o) { this.o = o; } show() {} on() {} close() {} }
 export const screen = { getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }), getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }) };
+// Legion's confirm card is a WebContentsView in the Legion window. The emulator has no web contents to draw it in, so making the card fails and the
+// question goes to the system dialog above (the card's own fallback), which records the options main passes, as before.
+export const nativeTheme = { shouldUseDarkColors: false, on() {} };
+export const session = { fromPartition() { throw new Error('the emulator has no web contents'); } };
+export class WebContentsView { constructor() { throw new Error('the emulator has no web contents'); } }
+export const powerMonitor = { on() {} };

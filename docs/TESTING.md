@@ -24,7 +24,7 @@ The three trust classes you will keep meeting:
 | Anyone | none | `GET /health` only |
 | MCP-class client (Claude Code, Cowork, a bot that read `config.json`) | `Authorization: Bearer <authToken>` | `/mcp`, the short client list in `src/core/admin.ts`, and BSV Freeze. Tasks it starts run under an `ask` ceiling |
 | The app window | bearer + `X-Legion-Admin: <per-launch secret>` | every other route |
-| Electron main, after a native dialog | bearer + admin + `X-Legion-Native: <second secret>` | BSV policy changes (arm, unfreeze, caps, allowlist, Connect) |
+| Electron main, after a confirmation in Legion's confirm card | bearer + admin + `X-Legion-Native: <second secret>` | BSV policy changes (arm, unfreeze, caps, allowlist, Connect) |
 
 ## 2. Product-to-test map
 
@@ -203,7 +203,7 @@ Run `npm run --silent harness -- scenarios --list` for the authoritative proves 
 | `boat-lazy-key-probe` | Zero boat.dev calls at core start; the key probe runs on first VM use, creates no sandbox, runs once | The real boat.dev (owner check K1) |
 | `vm-start-stop` | VM start/usage/stop through the real manager to the fake boat; a stop boat.dev ignores is not reported as success; token cannot start | Real boat.dev, billing, the desktop stream |
 | `bsv-policy-tamper` | A policy change (admin + native) is saved and audited; a hand edit of `bsv/policy.json` freezes the chain, keeps the edited file as evidence, leaves the recorded caps in force and survives a restart | A same-user program that rewrites the file, the audit log and its anchor consistently |
-| `bsv-readonly` | Connect needs admin AND native; non-loopback refused with zero contact; exactly the four probe questions reach the wallet; `bsv_status` needs a card and its answer is untrusted-wrapped and taints; a hand-edited `walletUrl` is not used after restart; token Freeze works and blocks arming | A real wallet, the native dialog, spends, mainnet |
+| `bsv-readonly` | Connect needs admin AND native; non-loopback refused with zero contact; exactly the four probe questions reach the wallet; `bsv_status` needs a card and its answer is untrusted-wrapped and taints; a hand-edited `walletUrl` is not used after restart; token Freeze works and blocks arming | A real wallet, the confirm card, spends, mainnet |
 | `blender-off-and-fake-exe` | Bridge off by default and admin-only; normal agents get no `legion_blender`; the fake executable behaves | Real Blender, sandbox, live socket, local mode (not on this base) |
 | `harness-guards` | The fake wallet refuses the real wallet port and non-loopback targets | Anything about Legion |
 
@@ -225,7 +225,7 @@ Writing a new scenario: add `scenario({name, proves, doesNotProve, async run(h, 
 | Owner's Windows PC | Owner or a local agent on the PC | Windows paths, PowerShell 5.1, `taskkill`/`netstat`, installer, SmartScreen, tray, real Electron window, the real Claude sign-in, real boat.dev key (K1), real MCP hookup. List: [docs/design/tracker-pc-checks.md](design/tracker-pc-checks.md) (P1-P10, M1-M3, K1, U1, R1 and the handoff items) | A funded BSV wallet is never touched by automation |
 | Testnet-wallet VM, owner present | A VM with its own BSV Desktop on testnet, funded with testnet coins; Legion built inside it | Real BRC-100 behaviour for the status probe and (when built) the spend flow: steps V0-V12 in [docs/design/plan-bsv-rung3.md](design/plan-bsv-rung3.md) section 7.2 | Mainnet; the owner's host wallet |
 | Real Blender on the owner's PC | Owner at the machine | Official/community backend start, add-on install, a real live script, screenshots, Windows detection; list in [TESTING-BLENDER.md](TESTING-BLENDER.md) | The VM sandbox (needs a real boat.dev key too) |
-| Human only | The owner, at the keyboard | The wording and look of native dialogs and approval cards, wallet prompts, whether a flow feels safe, the mainnet real-funds steps R0-R11 (plan section 12.6b), any decision that spends money, accounts, CAPTCHAs, downloads | - |
+| Human only | The owner, at the keyboard | The wording and look of Legion's confirm card, the system dialogs and approval cards, wallet prompts, whether a flow feels safe, the mainnet real-funds steps R0-R11 (plan section 12.6b), any decision that spends money, accounts, CAPTCHAs, downloads | - |
 
 If you cannot run something (you are on Linux and it needs Windows), say "not verified" and why. Do not write "should pass".
 

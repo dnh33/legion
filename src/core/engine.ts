@@ -238,8 +238,8 @@ const CATALOG_WAIT_MS = 3000;
 const HOOK_DECIDED_MS = 60_000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
 const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
-/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state and the project list. */
-const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json']);
+/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state, the project list and app-settings.json (the desktop's own switches). */
+const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'app-settings.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
 const WEB_BATCH_MS = 10;
 type Decision = { allow: boolean; message?: string };
@@ -2260,7 +2260,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const all = this.protectedDirs();
     if (!all.length) return undefined;
     const mode = this.modeNow(job, agent);
-    // Full keeps one narrow card: a write or delete that NAMES the gate settings, the gates key, config, state or the project list (normal work
+    // Full keeps one narrow card: a write or delete that NAMES the gate settings, the gates key, config, state, the project list or app-settings.json (normal work
     // never writes them). A path built when the command runs is not carded in Full, and the rest of the data folder keeps Full's freedom.
     const full = (job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full';
     const folders = full ? all.filter((t) => FULL_CARD_NAMES.has(basename(t).toLowerCase())) : all;
