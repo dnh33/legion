@@ -872,7 +872,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .hermes-usage { white-space: nowrap; max-width: 100%; }
 .host-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .host-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
-.host-main .set-hint { overflow-wrap: anywhere; }
+.host-main .set-hint { overflow-wrap: anywhere; text-wrap: pretty; }
 .host-head { display: flex; flex-direction: column; gap: 4px; }
 .host-head > * { margin: 0; }
 .host-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: transparent; border: 1px solid var(--line-strong); }

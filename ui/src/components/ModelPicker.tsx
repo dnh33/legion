@@ -73,6 +73,8 @@ export function ModelPicker({ model, agentName, pending, onClose }: { model: str
   // the first pick of Hermes shows its card; Use Hermes takes it, Not now leaves the agent as it was
   const firstUse = useFirstUse();
   const [pendingHost, setPendingHost] = useState<string | null>(pending ?? null);
+  // `/model acp:hermes` can fire while the picker is already open: it then shows the card too
+  useEffect(() => { if (pending) setPendingHost(pending); }, [pending]);
   const pick = (v: string) => {
     if (needsFirstUse(v, firstUse.seen)) { setPendingHost(v); return; }
     setModelChoice(v); onClose();

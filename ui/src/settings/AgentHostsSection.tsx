@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AcpEntryView, AcpSwitches, AcpView } from '../../../src/shared/acp-view';
 import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES } from '../../../src/shared/acp-view';
-import { CONTAINED_NEEDS_HERMES, CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER, loosenedSwitches } from '../../../src/shared/acp-copy';
+import { CONTAINED_NEEDS_HERMES, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER, loosenedSwitches } from '../../../src/shared/acp-copy';
 import { PENDING_TEXT } from '../gates/useGatesView';
 import { api } from '../api';
 import { errText, loadSettings, runDoctor, saveSettings, toast, useStore } from '../store';
@@ -72,7 +72,7 @@ export function AgentHostsView(p: AgentHostsViewProps) {
           <label className="set-check"><input type="checkbox" checked={hermes.enabled} onChange={(e) => p.onToggle(hermes.id, e.target.checked)} />
             <span><b>Offer Hermes in the model list</b><em>When Hermes is found, you can pick it for an agent.</em></span></label>
           <label className="set-check"><input type="checkbox" checked={hermes.contained === true} disabled={missing} onChange={(e) => p.onContainedSwitch?.(e.target.checked)} />
-            <span><b>Contained</b><em>{missing ? CONTAINED_NEEDS_HERMES : CONTAINED_SWITCH_HINT}</em></span></label>
+            <span><b>Contained</b><em>{missing ? CONTAINED_NEEDS_HERMES : hermes.contained === true ? CONTAINED_SWITCH_HINT : CONTAINED_OFF_HINT}</em></span></label>
           {hermes.contained === true && !missing && (
             <div className="host-contained">
               <div className="host-actions">

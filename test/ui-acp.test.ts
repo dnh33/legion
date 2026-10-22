@@ -13,7 +13,7 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { buildPickerLayout, type PickerInput } from '../src/shared/model-picker-rows.js';
 import {
-  ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
+  ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
   acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, slashModelStep, titleAddsInfo,
   CONTAINED_NEEDS_HERMES, HERMES_MODE_CHIP, HERMES_PROMPT_PLACEHOLDER, threadOnHermes,
 } from '../src/shared/acp-copy.js';
@@ -313,7 +313,7 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     assert.match(h, /Contained/);
     // R53 / live check 2026-10-22: the switch says what the read-back checks, and that the main Hermes sign-in may be used. It never over-claims.
     assert.doesNotMatch(h, /none of your other Hermes settings|only file tools/);
-    assert.ok(h.includes(CONTAINED_SWITCH_HINT), 'the switch text is the shared wording');
+    assert.ok(h.includes(CONTAINED_OFF_HINT), 'the switch text is the shared wording (Contained is off here)');
     assert.ok(CONTAINED_SWITCH_HINT.includes(CONTAINED_CHECKS), 'it reuses the core wording of what is checked');
     assert.match(CONTAINED_SWITCH_HINT, /asks before it runs a command/);
     assert.match(CONTAINED_SWITCH_HINT, /tool list for Legion runs is set to file tools/);
@@ -689,4 +689,51 @@ test('M2: /model acp:hermes shows the first-use card like the picker; Not now le
   const comp = src('ui/src/components/Composer.tsx');
   assert.match(comp, /<ModelPicker[^>]*pending=\{pendingHost\}/, 'the composer hands the pick to the picker');
   assert.match(src('ui/src/components/ModelPicker.tsx'), /useState<string \| null>\(pending \?\? null\)/, 'the picker opens on the card');
+});
+
+test('fix 3, item 1: the waiting line shows only while a switch confirmation is open, and clears on confirm, cancel or error', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const base = { acp: acp({ detection: { state: 'missing', checked: true, detail: 'Hermes is not installed.' } }), checking: false, contained: null, containedBusy: false, onSwitch() {}, onWatchdog() {}, onContained() {}, onToggle() {}, onRecheck() {} };
+    // the loader stubs the shared text as 'x', so the line is counted by its live region
+    const lines = (h: string): number => (h.match(/<p class="set-hint" role="status">x<\/p>/g) ?? []).length;
+    assert.equal(lines(unesc(r.hosts(base))), 0, 'nothing pending: no line, switches usable');
+    assert.equal(lines(unesc(r.hosts({ ...base, switchPending: false }))), 0);
+    const open = unesc(r.hosts({ ...base, switchPending: true }));
+    assert.equal(lines(open), 1, 'the line shows once while the confirmation is open');
+    assert.equal((open.match(/disabled=""/g) ?? []).length >= 4, true, 'the four switches wait while it is open');
+  } finally { cleanup(); }
+  const sec = src('ui/src/settings/AgentHostsSection.tsx');
+  assert.match(sec, /setSwitchPending\(loosenedSwitches\(settings\.acp\.switches, patch\)\.length > 0\);/, 'only a loosening opens the line');
+  assert.match(sec, /finally \{ if \(alive\.current\) setSwitchPending\(false\); \}/, 'every way out (confirm, cancel, error) clears it');
+});
+
+test('fix 3, item 2: /model reads the settings only for a Hermes name, so a Claude user never gets a settings-load toast from it', () => {
+  const cmd = src('ui/src/commands.ts');
+  assert.doesNotMatch(cmd, /^\s*if \(!getState\(\)\.settings\) await loadSettings\(\);/m, 'not for every model');
+  assert.match(cmd, /if \(isAgentHostModel\(value\) && !getState\(\)\.settings\) await loadSettings\(\);/);
+});
+
+test('fix 3, item 3: an open picker shows the first-use card when the pending Hermes name changes', () => {
+  const mp = src('ui/src/components/ModelPicker.tsx');
+  assert.match(mp, /useEffect\(\(\) => \{ if \(pending\) setPendingHost\(pending\); \}, \[pending\]\);/);
+});
+
+test('fix 3, item 4: no orphan word in the hosts row, and the Contained hint names Set up and Check only while their buttons show', async () => {
+  const css = src('ui/src/styles/app.css');
+  assert.match(css, /\.host-main \.set-hint\s*\{[^}]*text-wrap:\s*pretty/, 'the row hint balances its last line');
+  assert.doesNotMatch(CONTAINED_OFF_HINT, /Set up|Check/, 'the buttons are hidden while Contained is off');
+  assert.doesNotMatch(CONTAINED_OFF_HINT, NO_DASH);
+  assert.ok(CONTAINED_OFF_HINT.includes(CONTAINED_CHECKS));
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const base = { checking: false, contained: null, containedBusy: false, onSwitch() {}, onWatchdog() {}, onContained() {}, onToggle() {}, onRecheck() {} };
+    const off = unesc(r.hosts({ ...base, acp: acp({ contained: false }) }));
+    assert.ok(off.includes(CONTAINED_OFF_HINT));
+    assert.doesNotMatch(off, />Set up<|>Check</);
+    assert.ok(!off.includes(CONTAINED_SWITCH_HINT));
+    const on = unesc(r.hosts({ ...base, acp: acp({ contained: true }) }));
+    assert.ok(on.includes(CONTAINED_SWITCH_HINT), 'with the buttons showing, the text may name them');
+    assert.match(on, />Set up</);
+  } finally { cleanup(); }
 });
