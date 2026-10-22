@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandRequestPath, HERMES_SELF_DENY_MS, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
+import { expandRequestPath, HERMES_SELF_DENY_MS, hermesHomes, MAX_CARD_WAIT_MS, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths } from '../src/core/acp/run-helpers.js';
 
 // Pure pieces of an agent host run. Hermes joins the paths of a multi-file patch with ", " (acp_adapter/edit_approval.py:106-126)
 // and reads the patch headers with the two regexes at edit_approval.py:49-50.
@@ -119,4 +119,15 @@ test('expandRequestPath: ~ is the home folder, a relative path is from the sessi
   assert.equal(expandRequestPath('a/b.txt', cwd, home), j(cwd, 'a', 'b.txt'));
   assert.equal(expandRequestPath('../up.txt', cwd, home), win ? 'D:\\up.txt' : '/up.txt');
   assert.equal(expandRequestPath('~other/x', cwd, home), undefined, 'another user home is not Legion to read');
+});
+
+test('hermesHomes: the default home carries HERMES_DATA_DIR_SUFFIX, from the entry or from the environment, as Hermes reads it', () => {
+  const entry = (env?: Record<string, string>) => ({ id: 'hermes', label: 'Hermes', command: 'hermes', args: [], tested: true, enabled: true, ...(env ? { env } : {}) }) as Parameters<typeof hermesHomes>[0];
+  const posix = hermesHomes(entry(), undefined, { HERMES_DATA_DIR_SUFFIX: '-work' }, 'linux');
+  assert.ok(posix.some((h) => h.endsWith('.hermes-work')), JSON.stringify(posix));
+  const fromEntry = hermesHomes(entry({ HERMES_DATA_DIR_SUFFIX: '-x' }), undefined, {}, 'linux');
+  assert.ok(fromEntry.some((h) => h.endsWith('.hermes-x')), JSON.stringify(fromEntry));
+  const win = hermesHomes(entry(), undefined, { HERMES_DATA_DIR_SUFFIX: '-work', LOCALAPPDATA: 'C:\L' }, 'win32');
+  assert.ok(win.some((h) => h.endsWith('hermes-work')), JSON.stringify(win));
+  assert.ok(hermesHomes(entry(), undefined, {}, 'linux').some((h) => h.endsWith('.hermes')), 'no suffix: the plain default');
 });

@@ -197,7 +197,8 @@ export function hermesHomes(entry: AcpEntry, override: string | undefined, env: 
   if (!override && !(set && set.trim())) {
     // Hermes's own default (hermes_constants.py get_hermes_home): %LOCALAPPDATA%\hermes on Windows, ~/.hermes elsewhere
     const local = env.LOCALAPPDATA?.trim();
-    out.add(platform === 'win32' ? join(local || join(homedir(), 'AppData', 'Local'), 'hermes') : join(homedir(), '.hermes'));
+    const suffix = entry.env?.HERMES_DATA_DIR_SUFFIX ?? env.HERMES_DATA_DIR_SUFFIX ?? ''; // hermes_constants.py:51-58, added to the name as it stands
+    out.add(platform === 'win32' ? join(local || join(homedir(), 'AppData', 'Local'), `hermes${suffix}`) : join(homedir(), `.hermes${suffix}`));
   }
   return [...out];
 }
