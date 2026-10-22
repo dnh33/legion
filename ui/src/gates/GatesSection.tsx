@@ -14,6 +14,7 @@ import { QaGates, RailsList } from './RailsList';
 import { ActivityView } from './ActivityView';
 import { useGatesAction, useGatesView } from './useGatesView';
 import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from './presetsLogic';
+import { NOT_APPLIED_TO_HERMES, isAgentHostModel } from '../../../src/shared/acp-copy';
 import './gates.css';
 
 const THEN_BADGE: Record<GateVerdict, { text: string }> = {
@@ -190,6 +191,9 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
   const [text, setText] = useState('');
   const [result, setResult] = useState<GateTestResult | null>(null);
   const agent = agents.find((a) => a.id === agentId);
+  const modeMap = useStore((st) => st.settings?.acp?.switches?.modeMap === true);
+  // Legion's gates and modes do not decide what a Hermes agent asks (unless Match Legion's mode is on), so a dry run of them would say something untrue
+  const apart = isAgentHostModel(agent?.model) && !modeMap;
   const mode: ApprovalMode = agent?.approval ?? 'ask';
   const tool = TEST_TOOLS.find((t) => t.id === toolId) ?? TEST_TOOLS[0];
   const run = () => {
@@ -215,10 +219,12 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
       <div className="set-inline">
         <input className="grow" value={text} placeholder={tool.placeholder} spellCheck={false} aria-label={tool.kind === 'path' ? 'Path' : 'Command'}
           disabled={tool.kind === 'none'} onChange={(e) => { setText(e.target.value); setResult(null); }} />
-        <button type="button" className="btn" onClick={run} disabled={tool.kind !== 'none' && !text.trim()}>Test</button>
+        <button type="button" className="btn" onClick={run} disabled={apart || (tool.kind !== 'none' && !text.trim())}>Test</button>
       </div>
-      <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
-      {result && <GateTestOut result={result} />}
+      {apart
+        ? <span className="set-hint">{NOT_APPLIED_TO_HERMES}. Hermes decides what to ask you.</span>
+        : <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>}
+      {result && !apart && <GateTestOut result={result} />}
     </div>
   );
 }
@@ -284,7 +290,7 @@ export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
  */
 export function GatesSection({ s }: { s: SettingsView }) {
   const agents = useStore((st) => st.agents);
-  const modeMap = useStore((st) => st.settings?.acp.switches.modeMap === true);
+  const modeMap = useStore((st) => st.settings?.acp?.switches?.modeMap === true);
   const projects = useStore((st) => st.projects);
   const tasks = useStore((st) => st.tasks);
   const { view, loadError, reload, apply } = useGatesView();

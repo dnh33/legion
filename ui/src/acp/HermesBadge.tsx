@@ -15,5 +15,5 @@ export function HermesBadge({ task }: { task: Pick<Task, 'runtime' | 'model'> | 
 /** Tokens, and that Hermes does not report cost (a cost shows only when the owner entered prices). */
 export function HermesUsage({ task }: { task: Pick<Task, 'runtime' | 'model' | 'tokenUsage' | 'costUsd'> | undefined }) {
   if (!task || !isHermesTask(task)) return null;
-  return <span className="th-cost hermes-usage" title="What this Hermes run used, as Hermes reports it.">{hermesUsageLine(task)}</span>;
+  return <span className="th-cost hermes-usage" title={`What this Hermes run used, as Hermes reports it. ${hermesUsageLine(task)}`}>{hermesUsageLine(task)}</span>;
 }

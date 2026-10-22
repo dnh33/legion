@@ -30,6 +30,20 @@ export const SWITCH_COPY: Record<keyof AcpSwitches, { label: string; hint: strin
 };
 export const SWITCH_ORDER: ReadonlyArray<keyof AcpSwitches> = ['disasterStop', 'modeMap', 'stripSkipFlags', 'answerOnce'];
 
+/** R63: the switches that make Hermes ask less when they change this way: the three safety switches turned off, and Match Legion's mode turned on. */
+const LOOSENS_WHEN: Record<keyof AcpSwitches, boolean> = { disasterStop: false, modeMap: true, stripSkipFlags: false, answerOnce: false };
+/** What each loosening allows, in one plain line. The native confirmation lists these and nothing else. */
+export const LOOSEN_LINES: Record<keyof AcpSwitches, string> = {
+  disasterStop: 'Legion will no longer refuse a command that could wipe a drive or your home folder before Hermes asks you.',
+  modeMap: "Legion will set Hermes's mode from the Legion agent, so an agent set to Full can make Hermes ask less.",
+  stripSkipFlags: "Hermes will start with its own skip-approval settings, so it can approve its own commands.",
+  answerOnce: 'Hermes will offer allow for the session and always again, so one answer can cover later requests.',
+};
+/** The switches in `patch` that change from what they are now to the value that lets Hermes ask less. A tightening, or no change, is not one. */
+export function loosenedSwitches(current: AcpSwitches, patch: Partial<AcpSwitches>): Array<keyof AcpSwitches> {
+  return SWITCH_ORDER.filter((k) => patch[k] !== undefined && patch[k] !== current[k] && patch[k] === LOOSENS_WHEN[k]);
+}
+
 /** What the Contained read-back checks, said once: the core's check result and the Settings switch both use these words. */
 export const CONTAINED_CHECKS = 'that the Legion profile asks before it runs a command, that its tool list for Legion runs is set to file tools, and that it does not borrow the Claude Code or Codex logins';
 /** The Contained switch text in Settings. It says what is checked and that the main Hermes sign-in may be used (R53); it claims nothing more. */
@@ -48,6 +62,9 @@ export function titleAddsInfo(title: string | undefined, summary: string): boole
   return t.split(/\s*:\s+/).map((p) => p.trim()).filter(Boolean).some((part) => !body.includes(part));
 }
 
+/** Why the Contained switch is off-limits while Hermes is not installed. */
+export const CONTAINED_NEEDS_HERMES = 'Contained needs Hermes. Install Hermes first, then come back to set it up.';
+
 export const CUSTOM_ENTRIES_NOTE = 'Other agent hosts are added in the config file, not here.';
 
 /** A Hermes agent: its model value starts with `acp:`. */
@@ -65,6 +82,16 @@ export function hermesModeLine(o: { modeMap: boolean; hermesMode?: string }): st
   return `Hermes decides what to ask you. Its mode: ${mode ?? 'not read yet'}`;
 }
 export const MATCH_MODE_LINK = "Match Legion's mode";
+/** The short form of the mode line where a chip or a pill has no room for the sentence (the thread header, the project page). The full line is its tooltip. */
+export const HERMES_MODE_CHIP = 'Hermes decides what to ask';
+/** The system prompt field of a Hermes agent: Legion puts it in front of the first message it sends. */
+export const HERMES_PROMPT_PLACEHOLDER = 'Put in front of the first message Legion sends Hermes.';
+
+/** Whether a thread runs on Hermes: the task when one is open (it ran, or will run, on Hermes), else the agent's own model. An old Claude task of an agent later moved to Hermes is still a Claude task. */
+export function threadOnHermes(task: { runtime?: string; model?: string; requestedModel?: string } | undefined, agent: { model?: string } | undefined): boolean {
+  if (task) return task.runtime === 'Hermes' || isAgentHostModel(task.model) || (task.runtime === undefined && isAgentHostModel(task.requestedModel));
+  return isAgentHostModel(agent?.model);
+}
 
 /** The usage line of a Hermes task: tokens when known, then the fixed no-cost sentence (unless the owner entered prices and a cost exists). */
 export function hermesUsageLine(t: { tokenUsage?: { inputTokens?: number; outputTokens?: number; unknown?: boolean }; costUsd?: number | null }): string {

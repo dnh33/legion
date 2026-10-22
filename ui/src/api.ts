@@ -30,6 +30,8 @@ declare global {
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       /** Gate settings that loosen anything: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
       gatesChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Hermes switches that let Hermes ask less: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
+      acpSwitchChange?(change: { switches: Record<string, boolean> }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       /** Raising how little an agent asks (Accept edits, Full, a looser followed preset): main shows the native confirmation and calls the core with a secret this window never holds. Keeping or tightening goes through the same call without a dialog. */
       agentModeChange?(change: { agentId: string; approval?: string; approvalSource?: string }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       agentModeBatch?(batch: { preset?: string; changes: Array<{ agentId: string; approval?: string; approvalSource?: string }> }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; presetSaved?: boolean; applied: string[]; failed?: Array<{ agentId: string; error: string }> }>;

@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('legion', {
   gatesChange(change) {
     return ipcRenderer.invoke('legion:gates-change', change);
   },
+  // Settings, Agent hosts: a Hermes switch that lets Hermes ask less. Main shows the native confirmation and holds the native secret.
+  acpSwitchChange(change) {
+    return ipcRenderer.invoke('legion:acp-switch-change', change);
+  },
   // Agent editor: raising how little an agent asks. Main shows the native confirmation and holds the native secret.
   agentModeChange(change) {
     return ipcRenderer.invoke('legion:agent-mode-change', change);

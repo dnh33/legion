@@ -130,6 +130,12 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .th-right { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 8px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .th-right > .chip-pill { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .th-cost { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* The two icons wrap as one group, never one by one onto a row of their own. */
+.th-icons { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+/* A Hermes thread has more in its header (badge, mode chip, usage line): the extra rows start at the title's edge, and the usage line is cut with an ellipsis (its tooltip has the whole line) instead of wrapping onto rows of its own. */
+.th-right.is-hermes { justify-content: flex-start; }
+.th-right.is-hermes .th-icons { margin-left: auto; }
+.th-right.is-hermes .hermes-usage { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .chip-pill { white-space: nowrap; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--muted); }
 .chip-pill.ap-full { color: var(--warn); border-color: rgba(255, 204, 102, .3); }
 .tasks-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--line); }
@@ -433,7 +439,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .checks { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .check { display: flex; gap: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); }
 .check.skeleton { height: 120px; animation: shimmer 1.4s infinite linear; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; }
-.check p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; } .check p.fix-prose { margin: 6px 0 8px; }
+.check p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; text-wrap: pretty; } .check p.fix-prose { margin: 6px 0 8px; }
 .check > div { min-width: 0; flex: 1; }
 .check-ic { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 50%; margin-top: 1px; }
 .check.ok .check-ic { background: var(--accent-soft); color: var(--accent-text); }
@@ -842,6 +848,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .ft-msg { color: var(--danger); font-size: 12.5px; }
 
 /* ---- Hermes: picker note, first-use card, Hermes card, mode line, Agent hosts, Doctor levels ---- */
+.nb { white-space: nowrap; }
 .mp-note { padding: 0 10px 6px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .acp-first { margin: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r); }
 .acp-first b { font-size: 13px; color: var(--text); }
@@ -858,7 +865,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .hermes-mode { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
 .hermes-mode .link-btn { align-self: flex-start; font-size: 12px; color: var(--text-2); }
 .chip-pill.hermes-badge { color: var(--text-2); background: var(--surface-2); }
-.hermes-usage { white-space: normal; max-width: 100%; }
+.hermes-usage { white-space: nowrap; max-width: 100%; }
 .host-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .host-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
 .host-main .set-hint { overflow-wrap: anywhere; }

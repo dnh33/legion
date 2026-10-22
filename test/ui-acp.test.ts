@@ -15,9 +15,11 @@ import { buildPickerLayout, type PickerInput } from '../src/shared/model-picker-
 import {
   ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
   acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, titleAddsInfo,
+  CONTAINED_NEEDS_HERMES, HERMES_MODE_CHIP, HERMES_PROMPT_PLACEHOLDER, threadOnHermes,
 } from '../src/shared/acp-copy.js';
 import { toAcpDetection } from '../src/core/acp/detect.js';
 import { limitWords } from '../ui/src/gates/agentFollowLogic.js';
+import { unitModel } from '../ui/src/projects/page/pageLogic.js';
 import { NAV, NAV_GROUPS } from '../ui/src/components/settingsNav.js';
 import { checkKind, keepProbedAgentRows } from '../ui/src/doctorLogic.js';
 import { overrideRefusal } from '../src/core/model-cap.js';
@@ -130,7 +132,7 @@ test('render: the project cap row and the preset row say Not applied to Hermes a
     assert.ok(!gOn.includes(NOT_APPLIED_TO_HERMES));
   } finally { cleanup(); }
   assert.match(src('ui/src/projects/page/AskSection.tsx'), /switches\.modeMap/, 'the page reads the switch');
-  assert.match(src('ui/src/gates/GatesSection.tsx'), /switches\.modeMap/, 'the gates section reads the switch');
+  assert.match(src('ui/src/gates/GatesSection.tsx'), /switches\??\.modeMap/, 'the gates section reads the switch');
 });
 
 test('usage line: tokens and that Hermes does not report cost', () => {
@@ -346,7 +348,7 @@ async function loadStore(): Promise<{ s: Record<string, (...a: any[]) => any>; c
         b.onLoad({ filter: /^api$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export class ApiError extends Error {}
           export const request = async () => ({}); export const subscribe = () => () => {};
-          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; }, decideOption: async () => globalThis.__decideNext };` }));
+          export const api = { doctor: async (probe) => { (globalThis.__doctorCalls ||= []).push(probe); return globalThis.__doctorNext; }, decideOption: async (...a) => { (globalThis.__decideCalls ||= []).push(a); return globalThis.__decideNext; } };` }));
       },
     }],
   });
@@ -500,6 +502,125 @@ test('R60 behaviour: focus that was inside the card when it closed is handed to 
   } finally { if (had === undefined) delete g.document; else g.document = had; cleanup(); }
 });
 
+// ---------------------------------------------------------------- fix round 1
+
+test('I2: a Hermes agent shows no Legion mode chip with a task open or not, while Match Legion\'s mode is off; an old Claude task keeps its own', () => {
+  assert.equal(threadOnHermes(undefined, { model: 'acp:hermes' }), true, 'no task yet: the agent decides');
+  assert.equal(threadOnHermes(undefined, { model: 'sonnet' }), false);
+  assert.equal(threadOnHermes(undefined, undefined), false);
+  assert.equal(threadOnHermes({ model: 'sonnet' }, { model: 'acp:hermes' }), false, 'a task that ran on Claude, from before the agent moved to Hermes');
+  assert.equal(threadOnHermes({ runtime: 'Hermes', model: 'x' }, { model: 'sonnet' }), true);
+  assert.equal(threadOnHermes({ model: 'acp:hermes/m' }, undefined), true);
+  assert.equal(threadOnHermes({ requestedModel: 'acp:hermes' }, { model: 'acp:hermes' }), true, 'queued, not run yet');
+  const th = src('ui/src/components/Thread.tsx');
+  assert.match(th, /threadOnHermes\(task, agent\) && settings\?\.acp\?\.switches\?\.modeMap !== true \? <span className="chip-pill"[^>]*>\{HERMES_MODE_CHIP\}<\/span> : task\?\.runsAs/, 'the fixed line stands where the Legion chip was');
+});
+
+test('I3: the project Overview shows no Legion mode and no raw id for a Hermes agent while the switch is off', () => {
+  const task = { id: 't1', agentId: 'h', projectId: 'p1', title: 'Fix the build', status: 'running', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+  const facts = (model: string) => ({
+    project: { id: 'p1', name: 'P', members: ['h'], status: 'active', createdAt: '' }, projects: [{ id: 'p1', name: 'P', status: 'active' }],
+    agents: [{ id: 'h', name: 'Helper', description: '', model, approval: 'full', approvalSource: 'own' }], tasks: [task], approvals: [], questions: [], queue: null, nowMs: Date.parse('2026-01-01T00:05:00.000Z'),
+  }) as unknown as Parameters<typeof unitModel>[0];
+  const off = unitModel(facts('acp:hermes'), {}).units[0]!;
+  assert.equal(off.mode, HERMES_MODE_CHIP);
+  assert.equal(off.model, 'Hermes', 'no raw acp:hermes');
+  assert.equal(unitModel(facts('acp:hermes'), { modeMap: true }).units[0]!.mode, 'Full', 'with the switch on the Legion mode is real');
+  const claude = unitModel(facts('sonnet'), {}).units[0]!;
+  assert.equal(claude.mode, 'Full');
+  assert.equal(claude.model, 'sonnet', 'a Claude agent shows what it showed before');
+  assert.doesNotMatch(src('ui/src/projects/page/Overview.tsx') + src('ui/src/projects/page/pageLogic.ts'), /Hermes/, 'test/project-page-source.test.ts keeps outside names out of this folder');
+  const gt = src('ui/src/gates/GatesSection.tsx');
+  assert.match(gt, /const apart = isAgentHostModel\(agent\?\.model\) && !modeMap;/);
+  assert.match(gt, /disabled=\{apart \|\|/, 'the Try it tester does not dry-run Legion gates for a Hermes agent');
+  assert.match(gt, /\{NOT_APPLIED_TO_HERMES\}\. Hermes decides what to ask you\./);
+});
+
+test('I5, item 10: a Hermes agent in the editor has no Claude wording, and the Match Legion\'s mode link asks before it throws away edits', async () => {
+  const on = await loadUi(st([AGENT('h', { model: 'acp:hermes' }), AGENT('c', { model: 'sonnet' })], acp({}, { modeMap: true })));
+  try {
+    const h = unesc(on.r.editor('h'));
+    assert.ok(h.includes(`placeholder="${HERMES_PROMPT_PLACEHOLDER}"`), 'a Hermes system prompt placeholder');
+    assert.doesNotMatch(h, /Appended to Claude Code|own task tools/, 'no Claude system prompt placeholder, no Claude task list');
+    assert.doesNotMatch(h, /Asks before Bash, edits and MCP tools/, 'the Approvals caption is Claude wording');
+    assert.ok(h.includes("Legion sets Hermes's mode from this"));
+    const c = unesc(on.r.editor('c'));
+    assert.ok(c.includes('Appended to Claude Code'), 'a Claude agent keeps its text');
+    assert.ok(c.includes('Asks before Bash, edits and MCP tools'));
+    assert.ok(c.includes('own task tools'), 'a Claude agent keeps its task list');
+  } finally { on.cleanup(); }
+  const off = await loadUi(st([AGENT('h', { model: 'acp:hermes' })]));
+  try { assert.doesNotMatch(unesc(off.r.editor('h')), /Appended to Claude Code|own task tools|Bash, edits/); } finally { off.cleanup(); }
+  assert.doesNotMatch(HERMES_PROMPT_PLACEHOLDER, NO_DASH);
+  const ed = src('ui/src/components/AgentEditor.tsx');
+  assert.match(ed, /const openHostSettings = \(\): void => \{ if \(dirty\) setLeaving\(\{ to: 'settings' \}\); else openSettings\('hosts'\); \};/);
+  assert.match(ed, /onClick=\{openHostSettings\}>\{MATCH_MODE_LINK\}/);
+  assert.doesNotMatch(ed, /onClick=\{\(\) => openSettings\('hosts'\)\}/, 'the unguarded link is gone');
+  assert.match(ed, /leaving\.to === 'settings'\) openSettings\('hosts'\)/, 'Discard opens Settings');
+});
+
+test('item 9: Settings, Agent hosts with Hermes not installed offers no Contained set-up, and the address never breaks at its hyphen', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const base = { checking: false, contained: null, containedBusy: false, onSwitch() {}, onWatchdog() {}, onContained() {}, onToggle() {}, onRecheck() {} };
+    const detail = 'Hermes is not installed. Install it from hermes-agent.nousresearch.com, then check again.';
+    // an old result and the Contained switch on from before Hermes went missing
+    const gone = unesc(r.hosts({ ...base, acp: acp({ contained: true, detection: { state: 'missing', checked: true, detail } }), contained: { kind: 'setup', ok: true, detail: 'The Legion profile is ready.', signInCommand: 'hermes -p legion setup model' } }));
+    assert.doesNotMatch(gone, /profile is ready|>Set up<|>Check<|hermes -p legion/, 'no stale result, no actions');
+    assert.ok(gone.includes(CONTAINED_NEEDS_HERMES), 'one plain line says why');
+    assert.match(gone, /disabled=""[^>]*\/?><span><b>Contained/);
+    assert.ok(gone.includes('<span class="nb">hermes-agent.nousresearch.com</span>'), 'the address stays on one line');
+    const found = unesc(r.hosts({ ...base, acp: acp({ contained: true }), contained: { kind: 'setup', ok: true, detail: 'The Legion profile is ready.' } }));
+    assert.match(found, />Set up</);
+    assert.ok(found.includes('The Legion profile is ready.'));
+    assert.ok(!found.includes(CONTAINED_NEEDS_HERMES));
+  } finally { cleanup(); }
+  assert.doesNotMatch(CONTAINED_NEEDS_HERMES, NO_DASH);
+});
+
+test('item 13: the first-use card takes the place of the picker list, so it covers no row and its note shows once', () => {
+  const mp = src('ui/src/components/ModelPicker.tsx');
+  assert.match(mp, /\{!pendingHost && <div className="pop-body"/);
+  assert.match(mp, /\{!pendingHost && <div className="pop-search">/);
+  assert.match(mp, /\{pendingHost && <AcpFirstUseView/);
+});
+
+test('item 12, 11: the header icons wrap as one group, the usage line is cut not wrapped, and the Doctor text avoids a one-word last line', () => {
+  const css = src('ui/src/styles/app.css');
+  assert.match(css, /\.th-icons \{[^}]*flex: none/);
+  assert.match(css, /\.hermes-usage \{[^}]*white-space: nowrap/);
+  assert.match(css, /\.th-right\.is-hermes \.hermes-usage \{[^}]*text-overflow: ellipsis/);
+  assert.match(css, /\.check p \{[^}]*text-wrap: pretty/);
+  assert.match(src('ui/src/components/Thread.tsx'), /<span className="th-icons">[\s\S]*Edit agent[\s\S]*<\/span>\s*<\/div>/);
+});
+
+test('I7: the card sends the option Hermes named, verbatim; the first-use flows keep the agent unchanged on Not now; Settings asks for the full check; the folder is in the save body', async () => {
+  const { s, cleanup } = await loadStore();
+  const g = globalThis as Record<string, unknown>;
+  const hadWindow = g.window; g.window = globalThis;
+  try {
+    s.setState({ approvals: [HCARD('apr_v1'), HCARD('apr_v2')], closedCards: [] });
+    g.__decideNext = { ok: true }; g.__decideCalls = [];
+    await s.decideOption('apr_v1', true, 'opt-session-7');
+    await s.decideOption('apr_v2', false, 'opt-deny-9');
+    assert.deepEqual((g.__decideCalls as unknown[][]).map((c) => [...c]), [['apr_v1', true, 'opt-session-7'], ['apr_v2', false, 'opt-deny-9']], 'Hermes\'s optionId goes through untouched');
+  } finally { delete g.__decideNext; delete g.__decideCalls; if (hadWindow === undefined) delete g.window; else g.window = hadWindow; cleanup(); }
+  assert.match(src('ui/src/components/AcpCard.tsx'), /answer\(o\.optionId, o\.kind\)/, 'the card passes the option as Hermes sent it');
+  // Not now: the picker and the editor take the outcome's model (the current one), and either way only mark the card seen
+  assert.deepEqual(firstUseOutcome('notNow', 'sonnet', 'acp:hermes'), { model: 'sonnet', seen: true });
+  const mp = src('ui/src/components/ModelPicker.tsx');
+  assert.match(mp, /const o = firstUseOutcome\(choice, model, pendingHost \?\? model\);[\s\S]*if \(o\.model !== model\) setModelChoice\(o\.model\);/);
+  const ed = src('ui/src/components/AgentEditor.tsx');
+  assert.match(ed, /onNotNow=\{\(\) => \{ const o = firstUseOutcome\('notNow', model, pendingHost\); setModel\(o\.model as ModelChoice\)/);
+  assert.match(ed, /onUse=\{\(\) => \{ const o = firstUseOutcome\('use', model, pendingHost\); setModel\(o\.model as ModelChoice\)/);
+  // R58: opening Settings, Agent hosts asks for the full check; the picker and the editor never do
+  assert.match(src('ui/src/settings/AgentHostsSection.tsx'), /await runDoctor\(true\); await loadSettings\(\)/);
+  assert.doesNotMatch(src('ui/src/components/ModelPicker.tsx') + src('ui/src/components/AgentEditor.tsx'), /runDoctor\(true\)|api\.doctor/);
+  // R39: the folder travels in the save body for a Hermes agent
+  assert.match(ed, /\.\.\.\(onHermes && \(cwd\.trim\(\) \|\| existing\?\.cwd\) \? \{ cwd: cwd\.trim\(\) \} : \{\}\)/);
+  assert.match(ed, /const needFolder = onHermes && !cwd\.trim\(\) && !inProject;/);
+});
+
 // ---------------------------------------------------------------- wiring pins and copy rules
 
 test('the agent rail never shows a raw model id for an agent with no description', () => {
@@ -520,11 +641,11 @@ test('wiring: the thread, the card, the Doctor and Settings use the new parts', 
   assert.match(src('ui/src/components/ModelPicker.tsx'), /hosts/);
   assert.match(src('ui/src/store.ts'), /keepProbedAgentRows/);
   assert.match(src('ui/src/api.ts'), /optionId/);
-  assert.match(src('ui/src/gates/RunChips.tsx') + src('ui/src/components/Thread.tsx'), /isAgentHostModel|HermesBadge/, 'the run header does not claim a Legion mode for Hermes');
+  assert.match(th, /threadOnHermes\(task, agent\)/, 'the run header does not claim a Legion mode for Hermes');
 });
 
 test('copy: no dash, no "this computer", only Hermes and Claude named, in every new string', () => {
-  for (const f of ['src/shared/acp-copy.ts', 'ui/src/components/AcpCard.tsx', 'ui/src/components/AcpFirstUse.tsx', 'ui/src/acp/HermesBadge.tsx', 'ui/src/settings/AgentHostsSection.tsx', 'ui/src/doctorLogic.ts']) {
+  for (const f of ['src/electron/acp-switch-ipc.ts', 'src/shared/acp-copy.ts', 'ui/src/components/AcpCard.tsx', 'ui/src/components/AcpFirstUse.tsx', 'ui/src/acp/HermesBadge.tsx', 'ui/src/settings/AgentHostsSection.tsx', 'ui/src/doctorLogic.ts']) {
     const text = src(f).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
     assert.doesNotMatch(text, NO_DASH, f);
   }

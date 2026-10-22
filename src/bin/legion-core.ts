@@ -196,7 +196,7 @@ async function main() {
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
     doctor: (probeAgents) => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys, agentHost, probeAgents: probeAgents === true }),
     catalog: (force) => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders(), hosts: agentHost }, { force }),
-    settings, adminSecret, projects, agentMode: gates.agentMode, away: awayCore.service, ...(board ? { board } : {}),
+    settings, adminSecret, ...(nativeSecret ? { nativeSecret } : {}), projects, agentMode: gates.agentMode, away: awayCore.service, ...(board ? { board } : {}),
   });
 
   restartReaper();

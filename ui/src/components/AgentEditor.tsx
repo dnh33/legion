@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentProfile, ApprovalMode, ModelChoice, VmSize } from '../../../src/shared/types';
-import { AUTO_INFO, groupModels, modelList } from '../models';
+import { AUTO_INFO, groupModels, modelLabel, modelList } from '../models';
 import { closeOverlays, loadCatalog, openSettings, removeAgent, saveAgent, useStore } from '../store';
 import { providerModelGroups, loadProviders, useProviders } from '../providers/providersStore';
 import { Modal } from './Modal';
@@ -17,7 +17,7 @@ import { GithubAccess } from '../github/GithubAccess';
 import { APPROVAL_CHOICES, CHOICE_HELP, SEED_TAG, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, seedWords, type ApprovalChoice } from '../gates/agentFollowLogic';
 import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
 import { runtimeOf } from '../../../src/shared/runtime';
-import { HERMES_NOTE, MATCH_MODE_LINK, agentModeControl, firstUseOutcome, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
+import { HERMES_NOTE, HERMES_PROMPT_PLACEHOLDER, MATCH_MODE_LINK, agentModeControl, firstUseOutcome, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
 import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
@@ -63,10 +63,12 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const fields = JSON.stringify([name, emoji, description, systemPrompt, model, choice, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList, cwd]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
-  const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
+  const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string } | { to: 'settings' }>(null);
   const keepBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (leaving) keepBtn.current?.focus(); }, [leaving]);
   const openArmory = (skill: string): void => { revealSkill(skill); openSettings('armory'); };
+  // the link to Settings throws the editor away like the Armory link does, so it asks first when there is anything unsaved
+  const openHostSettings = (): void => { if (dirty) setLeaving({ to: 'settings' }); else openSettings('hosts'); };
   const requestClose = (): void => {
     if (leaving) { setLeaving(null); return; }
     if (dirty) setLeaving({ to: 'close' }); else closeOverlays();
@@ -147,12 +149,12 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <label className="grow">Name<input data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Researcher" /></label>
         </div>
         <label>Description<input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One line: what this agent is for" /></label>
-        <label>System prompt<textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="Appended to Claude Code’s system prompt." /></label>
+        <label>System prompt<textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder={onHermes ? HERMES_PROMPT_PLACEHOLDER : 'Appended to Claude Code’s system prompt.'} /></label>
         <div className="row">
           <label className="grow">Model
             <select value={model} onChange={(e) => { const v = e.target.value; if (needsFirstUse(v, firstUse.seen)) setPendingHost(v); else setModel(v as ModelChoice); }}>
               <option value="auto">Auto {'\u00b7'} Sonnet or Opus per task</option>
-              {!known && <option value={model}>{model}</option>}
+              {!known && <option value={model}>{onHermes ? modelLabel(catalog, model) : model}</option>}
               <optgroup label={grouped.older.length ? 'Current models' : 'Models'}>{grouped.current.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>
               {grouped.older.length > 0 && <optgroup label="Older models">{grouped.older.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>}
               {hosts.length > 0 && <optgroup label="Hermes">{hosts.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}</optgroup>}
@@ -171,14 +173,14 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <div className="grow hermes-mode" role="group" aria-label="Approvals">
               <span className="hm-title">Approvals</span>
               <span className="field-note" role="status">{modeCtl.line}</span>
-              <button type="button" className="link-btn" onClick={() => openSettings('hosts')}>{MATCH_MODE_LINK}</button>
+              <button type="button" className="link-btn" onClick={openHostSettings}>{MATCH_MODE_LINK}</button>
             </div>
           ) : (
             <label className="grow">Approvals
               <select value={choice} onChange={(e) => setChoice(e.target.value as ApprovalChoice)}>
                 {APPROVAL_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
-              <span className="field-note">{CHOICE_HELP[choice]}</span>
+              {!onHermes && <span className="field-note">{CHOICE_HELP[choice]}</span>}
               {modeCtl.line && <span className="field-note">{modeCtl.line}</span>}
               {followLines && <span className="field-note" role="status">{followLines}</span>}
               {choice === choiceOf(existing) && seedWords(existing) && <span className="field-note seed-note" data-testid="seed-note"><span className="chip-pill">{SEED_TAG}</span> {seedWords(existing).slice(SEED_TAG.length + 2)}</span>}
@@ -191,8 +193,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />
         {leaving ? (
           <div className="arm-discard" role="alertdialog" aria-label="Unsaved changes">
-            <span>{leaving.to === 'close' ? 'Throw away your changes? They are not saved.' : 'Open the Armory and throw away your Skills choice? It is not saved.'}</span>
-            <button type="button" className="btn sm danger" onClick={() => { if (leaving.to === 'close') closeOverlays(); else openArmory(leaving.skill); }}>Discard</button>
+            <span>{leaving.to === 'close' ? 'Throw away your changes? They are not saved.' : leaving.to === 'settings' ? 'Open Settings and throw away your changes? They are not saved.' : 'Open the Armory and throw away your Skills choice? It is not saved.'}</span>
+            <button type="button" className="btn sm danger" onClick={() => { if (leaving.to === 'close') closeOverlays(); else if (leaving.to === 'settings') openSettings('hosts'); else openArmory(leaving.skill); }}>Discard</button>
             <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
           </div>
         ) : null}
@@ -201,11 +203,11 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} onRetry={retryArea} />
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
         </fieldset>
-        <fieldset>
+        {!onHermes && <fieldset>
           <legend>Task list</legend>
           <label className="check-row"><input type="checkbox" checked={taskList} onChange={(e) => setTaskList(e.target.checked)} /> Keep a task list on Claude (Claude Code's own task tools)</label>
           <span className="field-note">On by default for the lead. Newer Claude models plan without a written list; turn this on for agents that run long, multi-step work. Runs on other providers always have a task list.</span>
-        </fieldset>
+        </fieldset>}
         <fieldset>
           <legend>Shell (your computer)</legend>
           <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on your computer</label>

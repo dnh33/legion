@@ -145,11 +145,12 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
         else if (e.key === 'Tab') { e.preventDefault(); onClose(); }
       }}>
       <div className="pop-head"><span>Model</span><span className="muted-s">for {agentName}</span></div>
-      <div className="pop-search">
+      {/* the Hermes card takes the place of the search and the list while it is open: it never covers a row, and its note shows once (the list's own note is under it) */}
+      {!pendingHost && <div className="pop-search">
         <input className="mp-search" role="combobox" aria-expanded="true" value={q} onChange={(e) => changeQuery(e.target.value)}
           placeholder="Search models" aria-label="Search models" aria-controls="mp-listbox" aria-activedescendant={cur ? optionId(cur.id) : undefined} spellCheck={false} />
-      </div>
-      <div className="pop-body" role="listbox" id="mp-listbox" aria-label="Model">
+      </div>}
+      {!pendingHost && <div className="pop-body" role="listbox" id="mp-listbox" aria-label="Model">
         {(layout.rows.length > 0 || layout.older || noMatch) && (
           // four rows or more get a floor, so the list never shrinks to a sliver; a shorter list is just its own height
           <div className={`pop-listwrap${layout.rows.length >= 4 ? ' is-tall' : ''}${edge.top ? ' sh-top' : ''}${edge.bottom ? ' sh-bot' : ''}`}>
@@ -162,9 +163,9 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
             </div>
           </div>
         )}
-      </div>
+      </div>}
       {pendingHost && <AcpFirstUseView onUse={() => answerFirstUse('use')} onNotNow={() => answerFirstUse('notNow')} />}
-      {noMatch && <div className="mp-empty" role="status">No models match “{q.trim()}”.</div>}
+      {!pendingHost && noMatch && <div className="mp-empty" role="status">No models match “{q.trim()}”.</div>}
       <div className="pop-foot">
         {loading && !catalog ? <span>Loading models{'…'}</span>
           : fallback ? <><span>{catalog?.error ? 'Couldn’t load models from Claude Code.' : 'Showing default models.'}</span><button type="button" className="link-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => void loadCatalog(true)}>Retry</button></>

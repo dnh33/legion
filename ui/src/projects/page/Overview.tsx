@@ -239,7 +239,8 @@ function ItemRow({ it, f, openBoard }: { it: GroupItem; f: PageFacts; openBoard:
 
 /* ---------- by agent ---------- */
 function AgentUnits({ f, asks, weekByAgent }: { f: PageFacts; asks: ReturnType<typeof asksOf>; weekByAgent: Record<string, number> }) {
-  const { units, idle, noTasks } = unitModel(f, { weekByAgent }, asks);
+  const modeMap = useStore((s) => s.settings?.acp?.switches?.modeMap === true);
+  const { units, idle, noTasks } = unitModel(f, { weekByAgent, modeMap }, asks);
   return (
     <>
       {units.length > 0 && <section className="pg-grp" aria-label="Active"><h2>Active<span className="n num">{units.length}</span></h2><div className="pg-units">{units.map((u) => <UnitRow key={u.agentId} u={u} f={f} />)}</div></section>}

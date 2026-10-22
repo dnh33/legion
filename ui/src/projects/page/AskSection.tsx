@@ -21,7 +21,7 @@ function ResultLine({ note, pending }: { note: GatesNote | null; pending: boolea
 }
 
 /** The drawn section. State comes in as props so a test can render every state. */
-/** `modeMap`: Settings, Agent hosts, "Match Legion's mode". Off (the shipped default), a Hermes agent's row says the limit is not applied to it. */
+/** `modeMap`: Settings, Agent hosts, "Match Legion's mode". Off (the shipped default), an agent host agent's row says the limit is not applied to it. */
 export function AskSectionView({ project, agents, view, busy, note, run, modeMap = false }: { project: Project; agents: readonly AgentProfile[]; view: GatesView; busy: boolean; note: GatesNote | null; run: Run; modeMap?: boolean }) {
   const sum = scopeSummary(view, project.id);
   const words = limitWords(agents, project, view, { modeMap });

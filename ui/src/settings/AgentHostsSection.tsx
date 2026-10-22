@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AcpEntryView, AcpSwitches, AcpView } from '../../../src/shared/acp-view';
 import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES } from '../../../src/shared/acp-view';
-import { CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER } from '../../../src/shared/acp-copy';
+import { CONTAINED_NEEDS_HERMES, CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER, loosenedSwitches } from '../../../src/shared/acp-copy';
+import { PENDING_TEXT } from '../gates/useGatesView';
 import { api } from '../api';
 import { errText, loadSettings, runDoctor, saveSettings, toast, useStore } from '../store';
 import { copyText } from '../util';
@@ -24,6 +25,14 @@ export interface AgentHostsViewProps {
   /** The Contained switch of the Hermes entry. */
   onContainedSwitch?: (on: boolean) => void;
   onRecheck: () => void;
+  /** A switch change is waiting for the native confirmation: the switches wait too. */
+  switchPending?: boolean;
+}
+
+/** A web address (with or without https://) never breaks at its hyphens: it stays on one line, so it can be read and copied. */
+const ADDRESS = /((?:https?:\/\/)?[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\.[A-Za-z]{2,}(?:\/[^\s,;]*[^\s,;.])?)/;
+export function withLinks(text: string): React.ReactNode[] {
+  return text.split(ADDRESS).map((part, i) => (i % 2 === 1 ? <span key={i} className="nb">{part}</span> : part));
 }
 
 /** One line for what Legion found: installed or not, which version, whether it starts. */
@@ -44,6 +53,8 @@ export function AgentHostsView(p: AgentHostsViewProps) {
   useEffect(() => { setMins(String(p.acp.watchdogMinutes)); }, [p.acp.watchdogMinutes]);
   const minsOk = /^\d+$/.test(mins) && Number(mins) >= ACP_WATCHDOG_MIN_MINUTES && Number(mins) <= ACP_WATCHDOG_MAX_MINUTES;
   const state = hermes ? hostState(hermes, p.checking) : undefined;
+  // Hermes is not found on PATH: Contained has nothing to set up or check, and an old result would contradict the row above it.
+  const missing = hermes?.detection.state === 'missing';
   const dot = !hermes ? 'idle' : hermes.detection.state === 'found' && hermes.detection.checked ? 'ok' : hermes.detection.state === 'error' ? 'bad' : 'idle';
   return (
     <div className="set-section hosts">
@@ -54,15 +65,15 @@ export function AgentHostsView(p: AgentHostsViewProps) {
             <span className={`host-dot ${dot}`} aria-hidden="true" />
             <div className="host-main">
               <b>Hermes</b>
-              <span className="set-hint" role="status">{state.detail?.startsWith(state.title) ? state.detail : `${state.title}.${state.detail ? ` ${state.detail}` : ''}`}</span>
+              <span className="set-hint" role="status">{withLinks(state.detail?.startsWith(state.title) ? state.detail : `${state.title}.${state.detail ? ` ${state.detail}` : ''}`)}</span>
             </div>
             <button type="button" className="btn sm" onClick={p.onRecheck} disabled={p.checking}>{p.checking ? 'Checking…' : 'Check again'}</button>
           </div>
           <label className="set-check"><input type="checkbox" checked={hermes.enabled} onChange={(e) => p.onToggle(hermes.id, e.target.checked)} />
             <span><b>Offer Hermes in the model list</b><em>When Hermes is found, you can pick it for an agent.</em></span></label>
-          <label className="set-check"><input type="checkbox" checked={hermes.contained === true} onChange={(e) => p.onContainedSwitch?.(e.target.checked)} />
-            <span><b>Contained</b><em>{CONTAINED_SWITCH_HINT}</em></span></label>
-          {hermes.contained === true && (
+          <label className="set-check"><input type="checkbox" checked={hermes.contained === true} disabled={missing} onChange={(e) => p.onContainedSwitch?.(e.target.checked)} />
+            <span><b>Contained</b><em>{missing ? CONTAINED_NEEDS_HERMES : CONTAINED_SWITCH_HINT}</em></span></label>
+          {hermes.contained === true && !missing && (
             <div className="host-contained">
               <div className="host-actions">
                 <button type="button" className="btn sm" onClick={() => p.onContained('setup')} disabled={p.containedBusy}>Set up</button>
@@ -81,9 +92,10 @@ export function AgentHostsView(p: AgentHostsViewProps) {
         <div className="host-head"><h4>In between</h4>
           <p className="set-hint">Hermes asks you its own questions and Legion passes them on as Hermes wrote them. These four change that, and every one is off until you turn it on.</p></div>
         {SWITCH_ORDER.map((k) => (
-          <label key={k} className="set-check"><input type="checkbox" checked={p.acp.switches[k]} onChange={(e) => p.onSwitch(k, e.target.checked)} />
+          <label key={k} className="set-check"><input type="checkbox" checked={p.acp.switches[k]} disabled={p.switchPending === true} onChange={(e) => p.onSwitch(k, e.target.checked)} />
             <span><b>{SWITCH_COPY[k].label}</b><em>{SWITCH_COPY[k].hint}</em></span></label>
         ))}
+        {p.switchPending === true && <p className="set-hint" role="status">{PENDING_TEXT}</p>}
         <div className="set-field"><label className="set-label" htmlFor="hosts-watchdog">Watchdog minutes</label>
           <input id="hosts-watchdog" className="narrow" inputMode="numeric" value={mins} spellCheck={false} aria-invalid={!minsOk}
             onChange={(e) => setMins(e.target.value.replace(/[^\d]/g, ''))}
@@ -108,6 +120,7 @@ export function AgentHostsSection() {
   const [checking, setChecking] = useState(true);
   const [contained, setContained] = useState<ContainedResult | null>(null);
   const [containedBusy, setContainedBusy] = useState(false);
+  const [switchPending, setSwitchPending] = useState(false);
   const alive = useRef(true);
   const check = async (): Promise<void> => {
     setChecking(true);
@@ -116,6 +129,22 @@ export function AgentHostsSection() {
   useEffect(() => { alive.current = true; void check(); return () => { alive.current = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!settings) return <div className="set-section"><p className="set-hint" role="status">Loading{'…'}</p></div>;
   const save = async (patch: Parameters<typeof saveSettings>[0]): Promise<void> => { try { await saveSettings(patch, true); } catch (e) { toast(errText(e), 'error'); } };
+  // R63: a switch that lets Hermes ask less goes through the app's native confirmation; one that keeps or tightens saves directly. Without the app (a plain browser) a loosening is refused here and by the core.
+  const saveSwitch = async (k: keyof AcpSwitches, on: boolean): Promise<void> => {
+    const patch = { [k]: on } as Partial<AcpSwitches>;
+    const bridge = window.legion?.acpSwitchChange;
+    if (!bridge) {
+      if (loosenedSwitches(settings.acp.switches, patch).length > 0) { toast('This change needs the Legion app window, which asks you to confirm it.', 'error'); return; }
+      await save({ acp: { switches: patch } });
+      return;
+    }
+    setSwitchPending(loosenedSwitches(settings.acp.switches, patch).length > 0);
+    try {
+      const r = await bridge({ switches: patch });
+      if (r.ok) await loadSettings();
+      else toast(r.cancelled ? 'Not changed. You cancelled it.' : (r.error ?? 'The change failed.'), r.cancelled ? 'info' : 'error');
+    } catch (e) { toast(errText(e), 'error'); } finally { if (alive.current) setSwitchPending(false); }
+  };
   const runContained = async (action: 'check' | 'setup'): Promise<void> => {
     setContainedBusy(true);
     try {
@@ -126,7 +155,7 @@ export function AgentHostsSection() {
   };
   return (
     <AgentHostsView acp={settings.acp} checking={checking} contained={contained} containedBusy={containedBusy}
-      onSwitch={(k, on) => void save({ acp: { switches: { [k]: on } } })}
+      switchPending={switchPending} onSwitch={(k, on) => void saveSwitch(k, on)}
       onWatchdog={(n) => void save({ acp: { watchdogMinutes: n } })}
       onToggle={(id, on) => void save({ acp: { entries: [{ id, enabled: on }] } })}
       onContainedSwitch={(on) => void save({ acp: { entries: [{ id: 'hermes', contained: on }] } })}

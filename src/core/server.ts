@@ -11,12 +11,14 @@ import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
 import { normRepo } from '../shared/github-area.js';
 import { validRepoString } from './ci/repo.js';
 import { withholdEvent, withholdMessage, withholdTask } from './connector-withhold.js';
-import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isRunMcpPath, isSsePath, safeEqual } from './admin.js';
+import { ADMIN_HEADER, NATIVE_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isRunMcpPath, isSsePath, safeEqual } from './admin.js';
 import { findRunGrant, RUN_ROUTE } from './acp/run-tokens.js';
 import type { RunGrant } from './acp/run-tokens.js';
 import { serverForRun } from './acp/run-tools.js';
 import { containedStatus, setUpContained } from './acp/contained.js';
 import { acpEntry } from '../shared/acp-view.js';
+import type { AcpSwitches } from '../shared/acp-view.js';
+import { loosenedSwitches } from '../shared/acp-copy.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { QuestionBroker } from './questions.js';
 import type { EventBus } from './bus.js';
@@ -62,6 +64,8 @@ export interface CoreContext {
   board?: BoardStore;
   /** Checks a change of an agent's mode (the gates module makes it). Absent: only a change that keeps or tightens the mode is accepted. */
   agentMode?: AgentModeGuard;
+  /** The per-launch native secret (the app's main process only). Absent: a change that lets Hermes ask less is refused (R63). */
+  nativeSecret?: string;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -330,7 +334,16 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- settings --------------------------------------------------------
   route('GET', '/api/settings', () => ctx.settings.view());
-  route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
+  // R63: a Hermes switch change that lets Hermes ask less comes only from the app, after its native confirmation. A tightening or an unchanged value needs nothing.
+  route('PATCH', '/api/settings', (c) => {
+    const sw = isObj(c.body) && isObj(c.body.acp) && isObj(c.body.acp.switches) ? c.body.acp.switches : undefined;
+    if (sw && loosenedSwitches(ctx.settings.view().acp.switches, sw as Partial<AcpSwitches>).length > 0) {
+      if (!ctx.nativeSecret) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
+      const given = (c.req.headers as Record<string, string | string[] | undefined>)[NATIVE_HEADER];
+      if (typeof given !== 'string' || !safeEqual(given, ctx.nativeSecret)) throw new HttpError(403, 'native_confirmation_required: a change that lets Hermes ask less comes only from the app after its confirmation dialog');
+    }
+    return ctx.settings.patch(c.body);
+  });
   // Add/remove single gate rules in one synchronous step (no lost update). Admin-only by default-deny, like every settings route.
   route('POST', '/api/settings/gates/rules', ({ body }) => ctx.settings.editGateRules(body));
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
