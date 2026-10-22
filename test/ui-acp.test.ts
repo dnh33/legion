@@ -14,7 +14,7 @@ import { build } from 'esbuild';
 import { buildPickerLayout, type PickerInput } from '../src/shared/model-picker-rows.js';
 import {
   ACP_CLOSED_NOTE, ACP_LATE_NOTE, CONTAINED_CHECKS, CONTAINED_SWITCH_HINT, FIRST_USE, HERMES_ASKS, HERMES_BADGE, HERMES_NO_COST, HERMES_NOTE, NOT_APPLIED_TO_HERMES, SWITCH_COPY, SWITCH_ORDER,
-  acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, titleAddsInfo,
+  acpModelLabel, agentModeControl, cardCountdown, firstUseOutcome, hermesModeLine, hermesUsageLine, needsFirstUse, slashModelStep, titleAddsInfo,
   CONTAINED_NEEDS_HERMES, HERMES_MODE_CHIP, HERMES_PROMPT_PLACEHOLDER, threadOnHermes,
 } from '../src/shared/acp-copy.js';
 import { toAcpDetection } from '../src/core/acp/detect.js';
@@ -669,4 +669,18 @@ test('copy: no dash, no "this computer", only Hermes and Claude named, in every 
   }
   for (const k of SWITCH_ORDER) assert.doesNotMatch(SWITCH_COPY[k].label + SWITCH_COPY[k].hint, NO_DASH);
   assert.doesNotMatch(HERMES_NOTE + HERMES_BADGE + NOT_APPLIED_TO_HERMES, NO_DASH);
+});
+
+test('M2: /model acp:hermes shows the first-use card like the picker; Not now leaves the agent as it was', () => {
+  assert.equal(slashModelStep('acp:hermes', false, false), 'ask', 'the card, the same as a pick in the picker');
+  assert.equal(slashModelStep('acp:hermes', true, false), 'set', 'met once: the model is set');
+  assert.equal(slashModelStep('sonnet', false, false), 'set', 'a Claude model never asks');
+  assert.equal(slashModelStep('acp:hermes', false, true), 'send', 'a one-off message goes on as before (it is not a model change)');
+  assert.deepEqual(firstUseOutcome('notNow', 'sonnet', 'acp:hermes'), { model: 'sonnet', seen: true }, 'Not now keeps the agent');
+  const cmd = src('ui/src/commands.ts');
+  assert.match(cmd, /slashModelStep\(value, .*firstUseSeen === true, rest\.length > 0\)/, 'the slash path asks the same question as the picker');
+  assert.match(cmd, /new CustomEvent\('legion:model-picker', \{ detail: \{ pending: value \} \}\)/, 'and opens the picker on the card');
+  const comp = src('ui/src/components/Composer.tsx');
+  assert.match(comp, /<ModelPicker[^>]*pending=\{pendingHost\}/, 'the composer hands the pick to the picker');
+  assert.match(src('ui/src/components/ModelPicker.tsx'), /useState<string \| null>\(pending \?\? null\)/, 'the picker opens on the card');
 });

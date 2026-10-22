@@ -22,6 +22,8 @@ export function Composer() {
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [picker, setPicker] = useState(false);
+  /** A Hermes pick the slash path made: the picker opens on its first-use card. */
+  const [pendingHost, setPendingHost] = useState<string | null>(null);
   const [costAsk, setCostAsk] = useState<string | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const lastTyping = useRef(0);
@@ -113,12 +115,15 @@ export function Composer() {
   useEffect(fit, [text]);
   useEffect(() => {
     const f = () => ta.current?.focus();
-    const p = () => setPicker((o) => !o);
+    const p = (e: Event) => {
+      const pending = (e as CustomEvent<{ pending?: string } | undefined>).detail?.pending;
+      if (pending) { setPendingHost(pending); setPicker(true); } else { setPendingHost(null); setPicker((o) => !o); }
+    };
     window.addEventListener('legion:focus-composer', f);
     window.addEventListener('legion:model-picker', p);
     return () => { window.removeEventListener('legion:focus-composer', f); window.removeEventListener('legion:model-picker', p); };
   }, []);
-  const closePicker = () => { setPicker(false); ta.current?.focus(); };
+  const closePicker = () => { setPicker(false); setPendingHost(null); ta.current?.focus(); };
 
   /** mode 'interrupt' is Ctrl+Enter: cancel the current run and send this message now (the queue carries on behind it). */
   const submit = async (raw = text, mode: 'send' | 'interrupt' = 'send') => {
@@ -191,7 +196,7 @@ export function Composer() {
       <QueueStrip qkey={qkey} waiting={busyLabel(busy)} />
       <div className={`composer${running ? ' busy' : ''}`}>
         {menuOpen && <SlashMenu items={items} sel={Math.min(sel, Math.max(0, items.length - 1))} setSel={setSel} onPick={(m) => accept(m, false)} />}
-        {picker && <ModelPicker model={model} agentName={agentName} onClose={closePicker} />}
+        {picker && <ModelPicker model={model} agentName={agentName} pending={pendingHost} onClose={closePicker} />}
         {costAsk && <div className="cost-note" role="alert"><Icon name="shield" size={13} /> <b>/{costAsk}</b> can cost money. Press Enter again to run it, or keep typing to cancel.</div>}
         {argHint && <div className="arg-hint"><code>/{argHint.name}</code><span className="sm-hint">{argHint.hint}</span><span>{argHint.description}</span></div>}
         <textarea ref={ta} data-composer rows={1} value={text} placeholder={placeholder}

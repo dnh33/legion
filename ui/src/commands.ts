@@ -2,7 +2,8 @@ import type { CatalogCommand } from '../../src/shared/types';
 import { api, openExternal } from './api';
 import { resolveModel, modelLabel } from './models';
 import { openGithub } from './github/githubStore';
-import { compactNow, errText, getState, newTask, openDoctor, selectAgent, setModelChoice, toast, vmAction } from './store';
+import { compactNow, errText, getState, loadSettings, newTask, openDoctor, selectAgent, setModelChoice, toast, vmAction } from './store';
+import { slashModelStep } from '../../src/shared/acp-copy';
 
 export interface LegionCommand { name: string; description: string; argumentHint: string; /** true when it needs an argument before it can run */ needsArg: boolean; /** hidden from the empty-query list to keep it short; still found by typing */ rare?: boolean }
 
@@ -56,7 +57,11 @@ export async function runLegionCommand(text: string): Promise<'handled' | 'send'
       const [first, ...rest] = p.arg.split(/\s+/);
       const value = resolveModel(s.catalog, first);
       if (!value) { toast(`Unknown model “${first}”`, 'error'); return 'handled'; }
-      if (rest.length) return 'send';
+      // a Hermes name the owner has not met yet shows the first-use card, as a pick in the picker does (Not now leaves the agent as it was)
+      if (!getState().settings) await loadSettings();
+      const step = slashModelStep(value, getState().settings?.acp.firstUseSeen === true, rest.length > 0);
+      if (step === 'send') return 'send';
+      if (step === 'ask') { window.dispatchEvent(new CustomEvent('legion:model-picker', { detail: { pending: value } })); return 'handled'; }
       setModelChoice(value); toast(`Model set to ${modelLabel(s.catalog, value)}`); return 'handled';
     }
     case 'agent': {

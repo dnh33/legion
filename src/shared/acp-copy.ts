@@ -138,3 +138,9 @@ export const needsFirstUse = (model: string | undefined, firstUseSeen: boolean):
 export function firstUseOutcome(choice: 'use' | 'notNow', current: string, picked: string): { model: string; seen: true } {
   return { model: choice === 'use' ? picked : current, seen: true };
 }
+
+/** What `/model <name>` does: a Hermes name the owner has not met yet asks (the first-use card, as in the picker), a name with a message after it is a one-off and goes on, anything else sets the model. */
+export function slashModelStep(value: string, firstUseSeen: boolean, hasMessage: boolean): 'ask' | 'set' | 'send' {
+  if (hasMessage) return 'send';
+  return needsFirstUse(value, firstUseSeen) ? 'ask' : 'set';
+}

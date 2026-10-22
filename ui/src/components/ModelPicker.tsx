@@ -16,7 +16,7 @@ const optionId = (id: string) => `mp-opt-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
  * A search puts the highlight on the first real match, and the arrows and hover move it from there. The list is one scroller: the
  * Older models head is its last row, pinned to the bottom edge, and its rows follow the head when it is open.
  */
-export function ModelPicker({ model, agentName, onClose }: { model: string; agentName: string; onClose: () => void }) {
+export function ModelPicker({ model, agentName, pending, onClose }: { model: string; agentName: string; /** A Hermes pick made by the slash path: the picker opens on its first-use card. */ pending?: string | null; onClose: () => void }) {
   const catalog = useStore((s) => s.catalog);
   const loading = useStore((s) => s.catalogLoading);
   const view = useProviders((x) => x.view);
@@ -72,7 +72,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   const move = (d: 1 | -1) => { const id = nextHighlightId(nav, hlId, q, model, d); if (id !== undefined) { scrollOnKey.current = true; setHlId(id); } };
   // the first pick of Hermes shows its card; Use Hermes takes it, Not now leaves the agent as it was
   const firstUse = useFirstUse();
-  const [pendingHost, setPendingHost] = useState<string | null>(null);
+  const [pendingHost, setPendingHost] = useState<string | null>(pending ?? null);
   const pick = (v: string) => {
     if (needsFirstUse(v, firstUse.seen)) { setPendingHost(v); return; }
     setModelChoice(v); onClose();
