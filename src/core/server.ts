@@ -563,7 +563,14 @@ export function createServer(ctx: CoreContext): Server {
     if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'body {allow:boolean} required');
     // a web card's yes may say how far it reaches: for good, for this goal, or once
     if (body.site !== undefined && body.site !== 'always' && body.site !== 'goal' && body.site !== 'once') throw new HttpError(400, 'site must be always, goal or once');
-    try { return { ok: ctx.approvals.resolve(params[0], body.allow, body.site) }; }
+    // an agent host card (Hermes) is answered by naming one of its options; the core checks the name against the options the card shows
+    if (body.optionId !== undefined && (typeof body.optionId !== 'string' || body.optionId.length === 0 || body.optionId.length > 200)) throw new HttpError(400, 'optionId must be a short text');
+    try {
+      const ok = ctx.approvals.resolve(params[0], body.allow, body.site, body.optionId as string | undefined);
+      // a card that closed on its own (the agent stopped waiting): say why nothing happened, in the card's own words
+      const note = ok ? undefined : ctx.approvals.lateNote?.(params[0]);
+      return { ok, ...(note ? { note } : {}) };
+    }
     catch (e) { throw new HttpError(400, e instanceof Error ? e.message : 'That answer is not allowed on this card.'); }
   });
   // The app is about to send an answer in the last seconds of an ask's wait: delay the core's deny (once, a few seconds). It never answers the ask.

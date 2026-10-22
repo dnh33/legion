@@ -281,6 +281,12 @@ export interface Task {
   usedConnectors?: boolean;
   /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
   tainted?: boolean;
+  /** The agent host that ran the latest run, as a label ("Hermes"). Absent for a Claude or provider run. */
+  runtime?: string;
+  /** An agent host run whose cost Legion cannot tell: the host reports tokens but no price, and the owner entered none. */
+  costUnknown?: boolean;
+  /** The agent host session of this task (so a follow-up resumes it) and its last cumulative token counts (so only new tokens are counted). */
+  acp?: { entryId: string; sessionId: string; cumulative?: { input: number; output: number } };
   /** Final assistant text of the latest run. */
   result?: string;
   error?: string;
@@ -351,7 +357,7 @@ export type LegionEvent =
   | { type: 'task.deleted'; taskId: string }
   | { type: 'settings.updated'; settings: SettingsView }
   | { type: 'approval.requested'; approval: ApprovalRequest }
-  | { type: 'approval.resolved'; approvalId: string; allowed: boolean }
+  | { type: 'approval.resolved'; approvalId: string; allowed: boolean; /** Set when the card closed without an answer from the owner (an agent host stopped waiting): the words for the card. */ note?: string }
   | { type: 'question.requested'; question: PendingQuestion }
   | { type: 'question.resolved'; questionId: string; answered: boolean }
   | { type: 'mascot'; mood: MascotMood; note?: string }
@@ -456,6 +462,12 @@ export interface ApprovalRequest {
   projectId?: string;
   /** What saying yes would do, set by the core (src/shared/consequence.ts). Absent on a card from an older core. */
   consequence?: Consequence;
+  /** A card for a request an agent host (Hermes) made: the options shown, as the agent named them. The answer names one of these by `optionId`. */
+  acpOptions?: Array<{ optionId: string; name: string; kind: string }>;
+  /** An agent host card: the agent's own title for the request. */
+  acpTitle?: string;
+  /** ISO time at which the card closes itself because the agent stops waiting (an agent host card, or a card raised inside one of its tool calls). Absent: the normal wait. */
+  expiresAt?: string;
 }
 
 /** MCP server entry — same shape as Claude Code's .mcp.json entries. */

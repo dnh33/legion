@@ -205,10 +205,26 @@ export function describeWaited(elapsedMs: number, baseMs: number): string {
   return `${base} of waiting (quiet hours paused the countdown, so it stayed open for ${long})`;
 }
 
-interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer; alwaysRefusal?: string }
+interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer; alwaysRefusal?: string; /** Closes the card when the agent host stops waiting (a card raised inside one of its tool calls). */ deadline?: ReturnType<typeof setTimeout> }
+
+/** What an agent host card says when the agent stops waiting for it (Hermes denies a request nobody answers after 300 s). */
+export const ACP_CLOSED_NOTE = 'The agent stopped waiting';
+/** What a card says when it is answered after it closed: nothing was sent, nothing was run. */
+export const ACP_LATE_NOTE = 'Hermes had already stopped waiting, so nothing was run.';
+
+/** How an agent host card ended: an option of the card, a plain no, or closed with no answer (deadline, cancel, the turn ended). */
+export type AcpAnswer = { kind: 'option'; optionId: string } | { kind: 'denied' } | { kind: 'closed'; note: string };
+interface AcpPending { req: ApprovalRequest; shown: ReadonlySet<string>; resolve: (a: AcpAnswer) => void; timer: ReturnType<typeof setTimeout> }
+const CLOSED_KEPT = 200;
 
 export class ApprovalBroker {
   private readonly items = new Map<string, Pending>();
+  /** Cards for requests of an agent host: they carry the agent's own options and a hard wait the quiet-hours policy cannot lengthen. */
+  private readonly acp = new Map<string, AcpPending>();
+  /** Cards that closed with no answer from the owner, kept so a late answer can be told why nothing happened. */
+  private readonly closed = new Map<string, string>();
+  /** Per task: the times at which an agent host stops waiting for the tool calls it has open. Cards raised meanwhile close at the earliest. */
+  private readonly scopes = new Map<string, number[]>();
   private readonly timeoutMs: number;
   /** How long a card waits for an answer before it is denied, in words ("10 minutes"). For messages that explain a timeout. */
   get timeoutWait(): string { return describeWait(this.timeoutMs); }
@@ -245,6 +261,7 @@ export class ApprovalBroker {
     } = {},
   ): Promise<boolean> {
     const projectId = opts.projectId ?? this.policy?.projectOf?.(taskId);
+    const closeAt = this.deadlineOf(taskId);
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName,
       summary: opts.summary ?? summarizeToolInput(toolName, input), input, at: nowIso(),
@@ -253,6 +270,7 @@ export class ApprovalBroker {
       ...(opts.site ? { site: opts.site } : {}),
       ...(projectId ? { projectId } : {}),
       consequence: opts.consequence ?? classifySafe({ kind: 'approval', toolName, input }),
+      ...(closeAt !== undefined ? { expiresAt: new Date(closeAt).toISOString() } : {}),
     };
     const askedAt = (this.now ?? Date.now)();
     return new Promise<boolean>((resolvePromise) => {
@@ -262,7 +280,9 @@ export class ApprovalBroker {
         onDeny: () => { try { opts.onTimeout?.((this.now ?? Date.now)() - askedAt); } catch { /* advisory */ } this.settle(req.id, false); },
         ...(opts.parkable && opts.onPark ? { onPark: () => { try { opts.onPark!(); } catch { /* advisory */ } this.settle(req.id, false); } } : {}),
       });
-      this.items.set(req.id, { req, resolve: resolvePromise, timer, ...(opts.alwaysRefusal ? { alwaysRefusal: opts.alwaysRefusal } : {}) });
+      const deadline = closeAt !== undefined ? setTimeout(() => this.settle(req.id, false, ACP_CLOSED_NOTE), Math.max(0, closeAt - (this.now ?? Date.now)())) : undefined;
+      deadline?.unref?.();
+      this.items.set(req.id, { req, resolve: resolvePromise, timer, ...(deadline ? { deadline } : {}), ...(opts.alwaysRefusal ? { alwaysRefusal: opts.alwaysRefusal } : {}) });
       try { opts.onOpen?.(req); } catch { /* advisory */ }
       this.bus.emit({ type: 'approval.requested', approval: req });
     });
@@ -279,8 +299,19 @@ export class ApprovalBroker {
    * A site answer on a No means nothing and is dropped. Throws (the route turns it into a 400, and the card stays open) for a site answer that is not one
    * of the three, on a card that is not a web card, or `always` where the card does not offer it. An unknown or closed card answers false and changes nothing.
    */
-  resolve(id: string, allow: boolean, site?: SiteAnswer): boolean {
+  resolve(id: string, allow: boolean, site?: SiteAnswer, optionId?: string): boolean {
     if (site !== undefined && !SITE_ANSWERS.includes(site)) throw new Error('The site answer must be always, goal or once.');
+    const a = this.acp.get(id);
+    if (a) {
+      if (site !== undefined && allow) throw new Error('A site answer belongs on a web card.');
+      if (!allow) { this.settleAcp(id, { kind: 'denied' }); return true; }
+      // an allow that names no option is a single allow: never the option that lasts
+      const pick = optionId ?? a.req.acpOptions?.find((o) => o.kind === 'allow_once')?.optionId;
+      if (pick === undefined) throw new Error('Choose one of the options on this card.');
+      if (!a.shown.has(pick)) throw new Error('That option is not on this card.');
+      this.settleAcp(id, { kind: 'option', optionId: pick });
+      return true;
+    }
     const p = this.items.get(id);
     if (!p) return false;
     if (site !== undefined && allow) {
@@ -301,16 +332,79 @@ export class ApprovalBroker {
 
   cancelForTask(taskId: string): void {
     for (const [id, p] of [...this.items]) if (p.req.taskId === taskId) this.settle(id, false);
+    for (const [id, a] of [...this.acp]) if (a.req.taskId === taskId) this.settleAcp(id, { kind: 'closed', note: ACP_CLOSED_NOTE });
   }
 
-  pending(): ApprovalRequest[] { return [...this.items.values()].map((p) => p.req); }
+  pending(): ApprovalRequest[] { return [...[...this.items.values()].map((p) => p.req), ...[...this.acp.values()].map((a) => a.req)]; }
 
-  private settle(id: string, allow: boolean): boolean {
+  /** Why a card that has closed did not take an answer (an agent host stopped waiting), or undefined for a card that is open or unknown. */
+  lateNote(id: string): string | undefined { return this.closed.get(id); }
+
+  /**
+   * Run `fn` while an agent host waits for a tool call that must finish by `atMs`: a card this task raises meanwhile (by `request`) shows that
+   * time and closes itself at it, because the host cuts the whole call then, card time included. Calls that overlap take the earliest time.
+   */
+  async withDeadline<T>(taskId: string, atMs: number, fn: () => Promise<T>): Promise<T> {
+    const list = this.scopes.get(taskId) ?? [];
+    list.push(atMs);
+    this.scopes.set(taskId, list);
+    try { return await fn(); } finally {
+      const l = this.scopes.get(taskId);
+      if (l) { const i = l.indexOf(atMs); if (i >= 0) l.splice(i, 1); if (l.length === 0) this.scopes.delete(taskId); }
+    }
+  }
+  private deadlineOf(taskId: string): number | undefined {
+    const l = this.scopes.get(taskId);
+    return l?.length ? Math.min(...l) : undefined;
+  }
+
+  /**
+   * A card for a request an agent host made. The card shows the agent's own title and the options in `options` (the caller has already left out
+   * any it must not offer); the owner's answer names one of them. The wait is exactly `waitMs`: the host denies an unanswered request itself,
+   * so quiet hours and `hold` cannot lengthen it. There is no Remember. Closing with no answer (the wait ended, a cancel) says why on the card.
+   */
+  requestAcp(
+    taskId: string, agentId: string,
+    o: { toolName: string; title: string; summary: string; input: Record<string, unknown>; options: Array<{ optionId: string; name: string; kind: string }>; waitMs: number; origin?: ApprovalRequest['origin']; projectId?: string; consequence?: Consequence },
+  ): Promise<AcpAnswer> {
+    const req: ApprovalRequest = {
+      id: newId('apr'), taskId, agentId, toolName: o.toolName, summary: o.summary, input: o.input, at: nowIso(),
+      ...(o.origin ? { origin: o.origin } : {}), noRemember: true, ...(o.projectId ? { projectId: o.projectId } : {}),
+      consequence: o.consequence ?? classifySafe({ kind: 'approval', toolName: o.toolName, input: o.input }),
+      acpOptions: o.options.map((x) => ({ ...x })), acpTitle: o.title, expiresAt: new Date((this.now ?? Date.now)() + o.waitMs).toISOString(),
+    };
+    return new Promise<AcpAnswer>((resolve) => {
+      const timer = setTimeout(() => this.settleAcp(req.id, { kind: 'closed', note: ACP_CLOSED_NOTE }), o.waitMs);
+      timer.unref?.();
+      this.acp.set(req.id, { req, shown: new Set(o.options.map((x) => x.optionId)), resolve, timer });
+      this.bus.emit({ type: 'approval.requested', approval: req });
+    });
+  }
+
+  private settleAcp(id: string, answer: AcpAnswer): boolean {
+    const a = this.acp.get(id);
+    if (!a) return false;
+    this.acp.delete(id);
+    clearTimeout(a.timer);
+    if (answer.kind === 'closed') this.keepClosed(id);
+    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: answer.kind === 'option', ...(answer.kind === 'closed' ? { note: answer.note } : {}) });
+    a.resolve(answer);
+    return true;
+  }
+
+  private keepClosed(id: string): void {
+    this.closed.set(id, ACP_LATE_NOTE);
+    if (this.closed.size > CLOSED_KEPT) for (const k of this.closed.keys()) { this.closed.delete(k); if (this.closed.size <= CLOSED_KEPT) break; }
+  }
+
+  private settle(id: string, allow: boolean, note?: string): boolean {
     const p = this.items.get(id);
     if (!p) return false;
     this.items.delete(id);
     p.timer.cancel();
-    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: allow });
+    if (p.deadline) clearTimeout(p.deadline);
+    if (note) this.keepClosed(id);
+    this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: allow, ...(note ? { note } : {}) });
     p.resolve(allow);
     return true;
   }
