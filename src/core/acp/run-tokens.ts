@@ -25,7 +25,7 @@ export const RUN_ROUTE = '/mcp/run/legion';
 
 /** What a run hands over so its tools can be served: the in-process tool servers and the per-call callbacks of a provider run. */
 export type RunToolsHost = Pick<ProviderHost, 'servers' | 'authorize' | 'noteToolUse' | 'onToolCall' | 'onToolResult' | 'onNotice' | 'cancelled' | 'signal'> & {
-  /** Taken out of every result before it is stored or sent (the run's secrets). Absent: results pass as they are. */
+  /** Taken out of every result before it is stored or sent (the run's secrets). Absent: the log redactor (src/core/log/redact.js) is used, never nothing. */
   redact?(text: string): string;
 };
 

@@ -9,10 +9,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, CancelledNotificationSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { callWithEnforcement, clipText, connectTools, MAX_TOOL_RESULT_CHARS } from '../providers/tool-loop.js';
 import type { Offered, ToolSet } from '../providers/tool-loop.js';
+import { redact as logRedact } from '../log/redact.js';
 import type { RunGrant, RunToolsHost } from './run-tokens.js';
 
 /**
@@ -26,8 +27,36 @@ export const RUN_TOOL_ALLOW: Readonly<Record<string, readonly string[]>> = {
   legion_comms: ['bot_list', 'bot_send', 'room_post', 'room_read', 'room_list', 'handoff', 'room_create', 'room_add_member', 'room_remove_member'],
 };
 
+/**
+ * The longest a served tool may wait for a person or another agent, in seconds. The agent host ends an MCP tool call at 300 s by
+ * default (hermes-agent tools/mcp_tool_common.py:41, _DEFAULT_TOOL_TIMEOUT), so a wait that is allowed to run longer is cut on its
+ * side while it keeps running on ours. 270 leaves the call room to answer inside that limit.
+ */
+export const RUN_TOOL_WAIT_MAX_S = 270;
+
 /** Calls in flight on one key at once. An agent that runs tools in parallel stays well under it. */
 const MAX_IN_FLIGHT = 16;
+
+/** Tools that wait for the owner's answer and have no wait setting to clamp: the served description says the host cuts the wait. */
+const WAITS_FOR_A_PERSON: ReadonlySet<string> = new Set(['ask_user_question', 'room_create', 'room_add_member', 'room_remove_member']);
+const HOST_CUTS_NOTE = ' Your agent host cuts any tool call after about 5 minutes, so the answer has to come within that time.';
+const ASK_LONG_WORK_NOTE = ' For long work use tell, then task_result.';
+
+/** The wait an `ask` may have: the given number of seconds up to the ceiling, and the ceiling when none (or a bad value) is given. */
+const clampWait = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.min(v, RUN_TOOL_WAIT_MAX_S) : RUN_TOOL_WAIT_MAX_S);
+
+/** What this route shows an agent host for a tool: the tool's own text and schema, with the wait limits of this route added. */
+function shownTool(remote: string, description: string, schema: Tool['inputSchema']): { description: string; inputSchema: Tool['inputSchema'] } {
+  if (remote === 'ask') {
+    const props = { ...((schema.properties ?? {}) as Record<string, Record<string, unknown>>) };
+    props.timeoutSeconds = { ...(props.timeoutSeconds ?? { type: 'number' }), maximum: RUN_TOOL_WAIT_MAX_S, default: RUN_TOOL_WAIT_MAX_S, description: `Seconds to wait for the answer. Default and longest ${RUN_TOOL_WAIT_MAX_S}.` };
+    return { description: description + ASK_LONG_WORK_NOTE, inputSchema: { ...schema, properties: props } };
+  }
+  return { description: WAITS_FOR_A_PERSON.has(remote) ? description + HOST_CUTS_NOTE : description, inputSchema: schema };
+}
+
+/** Calls waiting on one key, by the request id the shim used, so a cancel from the host can reach the one it names. */
+const waiting = new WeakMap<RunGrant, Map<string, Set<AbortController>>>();
 
 interface Served { list: Tool[]; byName: Map<string, { full: string; entry: Offered }>; set: ToolSet }
 const served = new WeakMap<RunGrant, Promise<Served>>();
@@ -52,7 +81,7 @@ async function servedFor(grant: RunGrant, host: RunToolsHost): Promise<Served> {
       if (byName.has(entry.remote)) { host.onNotice(`The tool ${entry.remote} exists on two Legion tool servers; only the first is offered to this agent.`); continue; }
       byName.set(entry.remote, { full, entry });
       const spec = specs.get(full);
-      list.push({ name: entry.remote, description: spec?.description ?? '', inputSchema: (spec?.parameters as Tool['inputSchema'] | undefined) ?? { type: 'object', properties: {} } });
+      list.push({ name: entry.remote, ...shownTool(entry.remote, spec?.description ?? '', (spec?.parameters as Tool['inputSchema'] | undefined) ?? { type: 'object', properties: {} }) });
     }
     list.sort((a, b) => a.name.localeCompare(b.name));
     return { list, byName, set };
@@ -75,6 +104,11 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
     if (!host) return { tools: [] };
     return { tools: (await servedFor(grant, host)).list };
   });
+  // The shim sends one request per call and closes none of them when the host cancels; the cancel arrives as a notification on
+  // its own request, to a server that has never seen the call. So it is matched on the key's table, not on this server.
+  server.setNotificationHandler(CancelledNotificationSchema, (n) => {
+    for (const ac of waiting.get(grant)?.get(String(n.params.requestId)) ?? []) ac.abort();
+  });
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const host = grant.host();
     const bare = String(req.params.name ?? '');
@@ -82,10 +116,11 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
     const rt = await servedFor(grant, host);
     const found = rt.byName.get(bare);
     const id = `acp-${randomUUID()}`; // a fresh id per call: taint is noted once per id
-    const input = (req.params.arguments ?? {}) as Record<string, unknown>;
+    let input = (req.params.arguments ?? {}) as Record<string, unknown>;
+    if (bare === 'ask') input = { ...input, timeoutSeconds: clampWait(input.timeoutSeconds) }; // before the decision sees it
     const label = found?.full ?? `mcp__legion__${bare.slice(0, 64)}`;
     host.onToolCall(label, id, input);
-    const redact = host.redact ?? ((s: string) => s);
+    const redact = host.redact ?? logRedact; // never identity: a host that forgets still masks the registered secrets
     const finish = (r: { text: string; isError: boolean }) => {
       const shown = redact(clipText(r.text, MAX_TOOL_RESULT_CHARS));
       host.onToolResult(id, shown);
@@ -95,8 +130,13 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
     const busy = inFlight.get(grant) ?? 0;
     if (busy >= MAX_IN_FLIGHT) return finish({ text: `Error: too many tool calls at once (limit ${MAX_IN_FLIGHT}); this one was not run.`, isError: true });
     inFlight.set(grant, busy + 1);
+    const cancelled = new AbortController();
+    const table = waiting.get(grant) ?? new Map<string, Set<AbortController>>();
+    waiting.set(grant, table);
+    const rid = String(extra.requestId);
+    table.set(rid, (table.get(rid) ?? new Set()).add(cancelled));
     try {
-      const signal = AbortSignal.any([host.signal, grant.signal, requestGone, extra.signal]);
+      const signal = AbortSignal.any([host.signal, grant.signal, requestGone, extra.signal, cancelled.signal]);
       const call = {
         noteToolUse: (n: string, i: string, x: unknown) => host.noteToolUse(n, i, x), authorize: (n: string, x: Record<string, unknown>) => host.authorize(n, x), signal,
         cancelled: () => grant.signal.aborted || host.cancelled(),
@@ -107,6 +147,8 @@ export function serverForRun(grant: RunGrant, requestGone: AbortSignal): Server 
       if (done.cancelled) return finish({ text: 'This run has ended, so the call was cancelled.', isError: true });
       return finish(done);
     } finally {
+      table.get(rid)?.delete(cancelled);
+      if (table.get(rid)?.size === 0) table.delete(rid);
       inFlight.set(grant, (inFlight.get(grant) ?? 1) - 1);
     }
   });

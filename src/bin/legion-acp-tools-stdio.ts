@@ -14,7 +14,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const log = (text: string) => process.stderr.write(`[legion-tools] ${text}\n`);
-const RUN_URL = /^http:\/\/127\.0\.0\.1:[0-9]{1,5}\/mcp\/run\/legion$/;
+const RUN_URL = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/mcp\/run\/legion$/;
+/** True for an address of the right shape whose port is a real port (1 to 65535). */
+const runUrlOk = (url: string): boolean => { const m = RUN_URL.exec(url); return !!m && Number(m[1]) <= 65535; };
 /** An ask can wait a long time for its answer; the core ends the call when the run ends. */
 const CALL_TIMEOUT_MS = 3_700_000;
 
@@ -22,7 +24,7 @@ async function main(): Promise<void> {
   const url = process.env.LEGION_RUN_URL ?? '';
   const key = process.env.LEGION_RUN_TOKEN ?? '';
   delete process.env.LEGION_RUN_TOKEN; // nothing this process starts or loads should see it
-  if (!RUN_URL.test(url) || !key) {
+  if (!runUrlOk(url) || !key) {
     log('Legion tools are not started: the run address or the run key is missing or not for your computer.');
     process.exit(2);
   }
@@ -36,9 +38,10 @@ async function main(): Promise<void> {
 
   const server = new Server({ name: 'legion', version: '1' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: (await client.listTools()).tools }));
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     try {
-      return (await client.callTool({ name: req.params.name, arguments: req.params.arguments ?? {} }, undefined, { timeout: CALL_TIMEOUT_MS })) as never;
+      // extra.signal aborts when the host cancels the call; passing it on lets the core cut the call and free its slot
+      return (await client.callTool({ name: req.params.name, arguments: req.params.arguments ?? {} }, undefined, { timeout: CALL_TIMEOUT_MS, signal: extra.signal })) as never;
     } catch {
       return { content: [{ type: 'text', text: 'Legion tools are not available: this run has ended or Legion is not running.' }], isError: true };
     }
