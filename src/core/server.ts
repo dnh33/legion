@@ -15,6 +15,8 @@ import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isRunMcpPat
 import { findRunGrant, RUN_ROUTE } from './acp/run-tokens.js';
 import type { RunGrant } from './acp/run-tokens.js';
 import { serverForRun } from './acp/run-tools.js';
+import { containedStatus, setUpContained } from './acp/contained.js';
+import { acpEntry } from '../shared/acp-view.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { QuestionBroker } from './questions.js';
 import type { EventBus } from './bus.js';
@@ -333,6 +335,14 @@ export function createServer(ctx: CoreContext): Server {
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
   // Restores the shipped compaction defaults. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES), like every settings route.
   route('POST', '/api/settings/compaction/reset', () => ctx.settings.resetCompaction());
+  // The Contained Hermes profile (src/core/acp/contained.ts): 'check' only reads, 'setup' creates the profile and sets its two settings. Admin only like every unlisted route.
+  route('POST', '/api/acp/contained', ({ body }) => {
+    const action = isObj(body) ? body.action : undefined;
+    if (action !== 'check' && action !== 'setup') throw new HttpError(400, 'action must be "check" or "setup"');
+    const entry = acpEntry(ctx.config, 'hermes');
+    if (!entry) throw new HttpError(404, 'The Hermes entry is not in the config');
+    return action === 'check' ? containedStatus(entry) : setUpContained(entry);
+  });
 
   // ---- agents ----------------------------------------------------------
   route('GET', '/api/agents', () => ctx.store.listAgents().filter(visible));

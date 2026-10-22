@@ -75,6 +75,11 @@ export function acpEntry(config: { acp?: AcpConfig }, id: string): AcpEntry | un
   return !config.acp && id === BUILTIN_HERMES.id ? BUILTIN_HERMES : undefined;
 }
 
+/** What a check of the Contained Hermes profile (`legion`) found. `detail` is plain words for the window. */
+export interface AcpContainedStatus { exists: boolean; signedIn: boolean; policyOk: boolean; detail: string }
+/** The answer to "Set up": `signInCommand` is the one command the owner runs once, in a terminal. Legion never runs it. */
+export interface AcpContainedSetup { ok: boolean; detail: string; signInCommand: string }
+
 /** What the last check found for one entry. `unknown` until a check has run. */
 export interface AcpDetection { state: 'unknown' | 'found' | 'missing' | 'error'; version?: string; detail?: string }
 
