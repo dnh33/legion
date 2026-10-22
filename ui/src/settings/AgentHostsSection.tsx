@@ -32,6 +32,15 @@ export interface AgentHostsViewProps {
 /** Under the switch while Hermes is off: what off means, in plain words. */
 const OFFER_OFF_HINT = 'Off until you turn it on. While it is off, Legion does not start Hermes or run any check on it, and Hermes is not in the model list.';
 const CONTAINED_NEEDS_OFFER = 'Turn on Offer Hermes first.';
+/** Under the Watchdog field while its value is outside the range. */
+export const WATCHDOG_PROBLEM = `Use ${ACP_WATCHDOG_MIN_MINUTES} to ${ACP_WATCHDOG_MAX_MINUTES}.`;
+
+/** What a Set up or Check said: the core's words when it gave any, else one plain sentence. A failure is an alert with its own icon; a good result is a quiet status. */
+function ContainedLine({ r }: { r: ContainedResult }) {
+  const said = r.detail.trim();
+  if (r.ok) return <p className="set-test ok" role="status"><Icon name="check" size={13} /><span>{said || 'The Contained profile is ready.'}</span></p>;
+  return <p className="set-error" role="alert"><Icon name="warn" size={13} /><span>{said || (r.kind === 'setup' ? 'Set up did not finish.' : 'The check did not pass.')}</span></p>;
+}
 
 /** A web address (with or without https://) never breaks at its hyphens: it stays on one line, so it can be read and copied. */
 const ADDRESS = /((?:https?:\/\/)?[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\.[A-Za-z]{2,}(?:\/[^\s,;]*[^\s,;.])?)/;
@@ -87,7 +96,7 @@ export function AgentHostsView(p: AgentHostsViewProps) {
                 <button type="button" className="btn-ghost sm" onClick={() => p.onContained('check')} disabled={p.containedBusy}>Check</button>
                 {p.containedBusy && <span className="set-hint" role="status">Working{'…'}</span>}
               </div>
-              {p.contained && <p className="set-hint" role="status">{p.contained.detail}</p>}
+              {p.contained && <ContainedLine r={p.contained} />}
               {p.contained?.signInCommand && (
                 <div className="cmd fix"><code>{p.contained.signInCommand}</code><button type="button" className="btn-ghost sm" onClick={() => void copyText(p.contained!.signInCommand!)}><Icon name="copy" size={12} /> Copy</button></div>
               )}
@@ -104,11 +113,13 @@ export function AgentHostsView(p: AgentHostsViewProps) {
         ))}
         {p.switchPending === true && <p className="set-hint" role="status">{PENDING_TEXT}</p>}
         <div className="set-field"><label className="set-label" htmlFor="hosts-watchdog">Watchdog minutes</label>
-          <input id="hosts-watchdog" className="narrow" inputMode="numeric" value={mins} spellCheck={false} aria-invalid={!minsOk}
+          <input id="hosts-watchdog" className="narrow" inputMode="numeric" value={mins} spellCheck={false} aria-invalid={!minsOk} aria-describedby={minsOk ? undefined : 'hosts-watchdog-problem'}
             onChange={(e) => setMins(e.target.value.replace(/[^\d]/g, ''))}
-            onBlur={() => { if (!minsOk) setMins(String(p.acp.watchdogMinutes)); else if (Number(mins) !== p.acp.watchdogMinutes) p.onWatchdog(Number(mins)); }}
+            onBlur={() => { if (minsOk && Number(mins) !== p.acp.watchdogMinutes) p.onWatchdog(Number(mins)); }}
             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
-          <span className="set-hint">Legion stops a Hermes task that has been quiet this long. {ACP_WATCHDOG_MIN_MINUTES} to {ACP_WATCHDOG_MAX_MINUTES}.</span></div>
+          <span className="set-hint">Legion stops a Hermes task that has been quiet this long. {ACP_WATCHDOG_MIN_MINUTES} to {ACP_WATCHDOG_MAX_MINUTES}.</span>
+          {/* a value that cannot be saved stays as typed, with the reason under it; the saved value is untouched */}
+          {!minsOk && <p id="hosts-watchdog-problem" className="set-error" role="alert"><Icon name="warn" size={13} /><span>{WATCHDOG_PROBLEM}</span></p>}</div>
       </div>
       <div className="set-card">
         <div className="host-head"><h4>Other agent hosts</h4></div>

@@ -860,3 +860,42 @@ test('M7: while a Hermes task is still running, the usage line does not claim "t
   assert.match(hermesUsageLine({ status: 'running', tokenUsage: { inputTokens: 5, outputTokens: 2 } }), /^5 in \/ 2 out\./);
   assert.match(hermesUsageLine({}), /^tokens not reported\./, 'no status known: the old wording');
 });
+
+// ---------------------------------------------------------------- final wave W4: the last review minors
+
+const HOSTS_BASE = { acp: acp({ contained: true }), checking: false, containedBusy: false, onSwitch() {}, onWatchdog() {}, onContained() {}, onToggle() {}, onRecheck() {} };
+
+test('W4 M6: a failed Set up or Check reads as failed (an alert with its own icon and wording), a good one as done, and an empty detail never leaves an empty line', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const bad = unesc(r.hosts({ ...HOSTS_BASE, contained: { kind: 'setup', ok: false, detail: 'Hermes could not create the profile.' } }));
+    assert.match(bad, /<p class="set-error" role="alert">[\s\S]*Hermes could not create the profile\.<\/span><\/p>/, 'a failure is an alert with the core text');
+    assert.match(bad, /class="set-error"[^>]*><svg/, 'with an icon');
+    const emptyBad = unesc(r.hosts({ ...HOSTS_BASE, contained: { kind: 'check', ok: false, detail: '' } }));
+    assert.match(emptyBad, /role="alert"[\s\S]*The check did not pass\./, 'no empty paragraph: a fallback sentence');
+    const emptySetup = unesc(r.hosts({ ...HOSTS_BASE, contained: { kind: 'setup', ok: false, detail: '  ' } }));
+    assert.match(emptySetup, /Set up did not finish\./);
+    const good = unesc(r.hosts({ ...HOSTS_BASE, contained: { kind: 'check', ok: true, detail: 'The Contained profile is in place.' } }));
+    assert.match(good, /<p class="set-test ok" role="status">[\s\S]*The Contained profile is in place\./);
+    assert.doesNotMatch(good, /role="alert"/);
+    const goodEmpty = unesc(r.hosts({ ...HOSTS_BASE, contained: { kind: 'check', ok: true, detail: '' } }));
+    assert.match(goodEmpty, /class="set-test ok"[\s\S]*The Contained profile is ready\./);
+    for (const h of [bad, emptyBad, good]) assert.doesNotMatch(h, NO_DASH);
+  } finally { cleanup(); }
+});
+
+test('W4 M14: a watchdog value outside the range stays visible with "Use 1 to 120." under the field, and a blur never resets it or saves it', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const out = unesc(r.hosts({ ...HOSTS_BASE, acp: { ...acp(), watchdogMinutes: 500 } }));
+    const field = out.match(/<input id="hosts-watchdog"[^>]*>/)![0];
+    assert.ok(field.includes('value="500"') && field.includes('aria-invalid="true"') && field.includes('aria-describedby="hosts-watchdog-problem"'), 'the typed value stays in the field');
+    assert.match(out, /<p id="hosts-watchdog-problem" class="set-error" role="alert">[\s\S]*Use 1 to 120\.<\/span><\/p>/);
+    const fine = unesc(r.hosts(HOSTS_BASE));
+    assert.doesNotMatch(fine, /hosts-watchdog-problem/, 'a valid value shows no message');
+    assert.doesNotMatch(out, NO_DASH);
+  } finally { cleanup(); }
+  const page = src('ui/src/settings/AgentHostsSection.tsx');
+  assert.doesNotMatch(page, /if \(!minsOk\) setMins\(/, 'a blur no longer puts the saved value back over what was typed');
+  assert.match(page, /onBlur=\{\(\) => \{ if \(minsOk && Number\(mins\) !== p\.acp\.watchdogMinutes\) p\.onWatchdog/, 'saved only when valid');
+});
