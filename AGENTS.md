@@ -3,7 +3,7 @@
 **Read this first.** It is the entry point for *any* coding agent, whatever tool you are. `CLAUDE.md` holds the same
 rules in Claude's own format; where the two disagree, this file is the one that was updated, and that is the bug.
 
-Legion is a local, Claude-native multi-agent desktop app: an Electron shell around a Node/TypeScript core bound to
+Legion is a local, Claude-native multi-agent desktop app (an agent can also run on a provider, or on Hermes through the agent host in `src/core/acp/`; code under src/core/providers may not start programs, the agent host may): an Electron shell around a Node/TypeScript core bound to
 `127.0.0.1:4747`, and a React UI. It runs on the owner's own Windows machine, with the owner's Claude Code sign-in.
 
 ## Read order

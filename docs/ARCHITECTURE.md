@@ -204,7 +204,7 @@ Hermes runs as an agent host: a program Legion starts for a run and talks to ove
 - **What always applies.** A Hermes run is tainted from its start. A run a Hermes agent starts through `ask` or `tell` is held at `ask`. A capped or tainted caller gets a card before Hermes starts. The agent's folder may not be inside or above the data folder or inside Hermes's own home. The turn watchdog is on (default 10 minutes).
 - **Limits of the design.** Legion advertises no file or terminal access to Hermes, so Hermes uses its own tools. Legion sees the requests Hermes sends and the tool calls it reports. It cannot stop a read, a web fetch or a command Hermes does not ask about.
 - **Hermes's background service** is not started or stopped by Legion. Stopping a run closes stdin and kills the one `hermes acp` process.
-- **Detection.** The catalog only looks for `hermes` on PATH. The full check (`hermes acp --check`, a few `config get` reads and one `initialize` handshake) runs when the Doctor is opened or re-run, when Settings, Agent hosts opens, and at a Hermes run. `--version` is never used, because Hermes checks for updates on it.
+- **Detection.** The catalog only looks for `hermes` on PATH. The full check (`hermes acp --check`, a few `config get` reads and one `initialize` handshake) runs when the Doctor is opened or re-run, when Settings, Agent hosts opens, and at a Hermes run start when an agent uses Hermes (a start by anything else only reads Hermes's two waiting settings). The result is kept for 10 minutes. `--version` is never used, because Hermes checks for updates on it.
 
 ## Catalog
 
@@ -240,7 +240,7 @@ A prompt starting with `/<name>` where `<name>` is not a Legion command goes to 
 - Claude sign-in: an idle query plus `accountInfo()` with a 20 second timeout. It reports the account email and subscription type, and makes no model call. The fix text is "Run `claude` in a terminal and sign in with /login".
 - boat.dev: if a key is set, `BoatClient.me()`, then (first time) the key probe: the check fails with the refused action names and a fix when the key lacks a permission. A separate informational `boat-claude` check appears only while Claude is known not to be set up on boat.dev.
 - The workspace directory is writable.
-- Hermes rows (`src/core/acp/doctor-rows.ts`): found, starts, version against the oldest and the tested version, Hermes's approvals mode, whether it may borrow the Claude Code login, the Contained profile and, after a failed sign-in, a sign-in row. They are read from a fresh check only when the Doctor is opened or re-run; at other times they say "not checked yet". Hermes not installed is a neutral row.
+- Hermes rows (`src/core/acp/doctor-rows.ts`): found, starts, version against the oldest and the tested version, Hermes's approvals mode, whether it may borrow the Claude Code login, the Contained profile and, after a failed sign-in, a sign-in row. They come from a new check when the Doctor is opened or re-run; at other times they show a check up to 10 minutes old, or say "not checked yet". Until an agent uses Hermes (or Contained is on), they are plain information, not amber or red. Hermes not installed is a neutral row.
 
 ## Electron shell
 

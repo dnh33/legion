@@ -28,7 +28,7 @@ Legion does not start Hermes just because it is installed.
 
 - The model list only looks for `hermes` on your PATH. That is a file lookup, not a process.
 - At startup Legion checks Hermes only when one of your agents uses it.
-- A Hermes run starts Hermes. Legion reads Hermes's two waiting settings alongside it.
+- A Hermes run starts Hermes. When an agent uses Hermes, the run start runs the full check (kept for 10 minutes); otherwise Legion reads only Hermes's two waiting settings alongside it.
 - Opening the Doctor, pressing Re-run checks in it, or opening Settings, Agent hosts, runs the full check (a few short Hermes commands and one handshake).
 - Set up and Check for the Contained profile run Hermes commands too.
 
@@ -46,7 +46,7 @@ Legion cannot:
 
 - stop a read, a web fetch or a command that Hermes does not ask about;
 - see what Hermes does inside its own background service;
-- change what Hermes asks. Hermes's own `approvals.mode` setting decides that. Hermes ships with `smart`, where Hermes lets its own AI approve some commands before you see them. With `off` it asks about nothing. The Doctor shows the setting: amber for `smart`, red for `off`, with the command that sets it to `manual`.
+- change what Hermes asks. Hermes's own `approvals.mode` setting decides that. Hermes ships with `smart`, where Hermes lets its own AI approve some commands before you see them. With `off` it asks about nothing. The Doctor shows the setting: amber for `smart`, red for `off`, with the command that sets it to `manual`. Until an agent uses Hermes (or Contained is on), the Doctor shows its rows as plain information, not amber or red, and they are not counted in the Doctor footer or the title bar.
 
 This is the main limit for a solo builder. A Hermes agent acts on your computer with its own tools. Legion shows the questions Hermes asks and the calls it reports, and nothing more.
 
@@ -71,6 +71,14 @@ All four are in Settings, Agent hosts, under "In between". All are off until you
 
 A change that lets Hermes ask less needs the confirmation dialog of the Legion app: turning on Match Legion's mode, or turning one of the other three back off. A change to the stricter side saves at once. Without the app window (a plain browser tab), a loosening is refused by the core itself.
 
+### Block rules
+
+Your Block rules (Settings, Gates) apply to Hermes in every mode and whatever the four switches say. A Hermes request that a Block rule matches, as a command or as a path of an edit (every file of a multi-file patch counts), is answered with Hermes's reject option and no card, and the thread says so. Ask and Allow rules never answer for Hermes. If a rule cannot be checked, the request is refused.
+
+### If Legion restarts during a run
+
+Legion stops only its own `hermes acp` process. Hermes may keep working on the last turn in its own background service, and Legion cannot stop it. A task that was running when Legion restarted says so, and Continue explains plainly if Hermes is still busy.
+
 ### Bypass with Match Legion's mode on
 
 When Match Legion's mode is on, and the agent is in Bypass (Full mode, no outside limit, and the tool-cards check in the gates turned off), Legion answers "allow once" for a Hermes request without a card. Some requests still get a card:
@@ -78,6 +86,8 @@ When Match Legion's mode is on, and the agent is in Bypass (Full mode, no outsid
 - a request that names Legion's protected files or folders, or Hermes's own folder;
 - a request whose files Legion cannot read safely;
 - a command Legion cannot judge, when "Stop disaster commands" is also on.
+
+The path checks fold the Windows spellings of a path (trailing dots and spaces, long-path and device forms) before they compare it with the protected folders. `~` and a relative path are read the way Hermes reads them, and a home folder set by `HERMES_HOME` is expanded the way Hermes expands it (`~`, `$VAR`, `%VAR%`).
 
 An agent entry that is not tested with Legion never runs Full or Bypass.
 
@@ -93,13 +103,15 @@ Contained is an option in Settings, Agent hosts. When it is on, Legion starts He
 
 Set up creates the profile when it is missing. It makes a fresh profile (never a copy of yours, no `--clone`) and sets three things:
 
-- `approvals.mode` to `manual`, so Hermes asks before it runs a command;
+- `approvals.mode` to `manual`, so Hermes asks before commands it marks as dangerous (it runs the others without asking);
 - `platform_toolsets.acp` to the file tools, so the tool list for Legion runs is the file tools plus Legion's own tools (Hermes adds the tools a session brings);
 - `auth.adopt_external_logins` to `false`, so Hermes does not borrow your Claude Code login or one other coding tool's login.
 
-Then it reads all three back. Check reads them back without changing anything, and the Doctor has a row for the profile. If the profile already exists, Set up keeps it and only sets these three values.
+Then it reads all three back, and reads `command_allowlist` (the commands Hermes runs without asking), which must be empty or unset. Legion never clears that list; the text names the Hermes command that does. Check reads them back without changing anything, and the Doctor has a row for the profile. If the profile already exists, Set up keeps it and only sets these three values. Every Contained run reads the four again when it starts (one read a minute at most, shared with Check), and a run does not start if they differ.
 
 What Contained does not do:
+
+- It does not stop Hermes from reading any file your account can read, Legion's data folder included. Legion cannot see those reads and there is no card for them.
 
 - It is not a sandbox. Hermes still runs commands you approve, with your rights.
 - It may use your main Hermes sign-in. Hermes lets a named profile fall back on it. Contained isolates Hermes's settings, tools and approvals, not the provider account.
@@ -123,7 +135,7 @@ When Legion starts a Hermes run, it hands Hermes a small helper program (`src/bi
 - Every call goes through the same approval steps as a call by an agent on a model provider. A call that needs your answer, such as a room change, waits for it.
 - Hermes holds the key for the run. The key ends when the run ends, is cancelled, fails to start, or the core shuts down. After that it opens nothing, and calls that are still waiting are cut.
 - Only entries Legion has tested get these tools. A custom agent host entry (config file only) gets none and never runs Full.
-- Hermes cuts a tool call after 5 minutes by default (its `timeouts.mcp.tool_call`). Legion lets an `ask` wait 270 seconds at most and describes `tell` and `task_result` for longer work. A card raised inside a tool call closes at about the same deadline.
+- Hermes cuts a tool call after 5 minutes by default (its `timeouts.mcp.tool_call`; this comes from Hermes's source and has not been confirmed against a running Hermes). Legion lets an `ask` wait 270 seconds at most and describes `tell` and `task_result` for longer work. A card raised inside a tool call closes at about the same deadline.
 
 ## Runs that start other runs
 
@@ -148,8 +160,8 @@ Settings, Agent hosts, "Watchdog minutes" (1 to 120, default 10). If Hermes send
 
 - Hermes reports token counts but never a cost. The thread shows the tokens and says "Hermes does not report cost."
 - You can enter prices (US dollars per million input tokens and per million output tokens). Then Legion shows a cost, and counts it in its spend record. With no prices there is no cost, and nothing is counted in that record.
-- You can set two optional limits: `maxSteps` (a step is one tool call Hermes reports, 1 to 10000) and `maxTokensPerTask` (1000 to 100000000). A task over `maxSteps` is cancelled. The token limit is checked when a turn ends, so one turn can go past it. Either stop pauses the task with the work kept, and Continue picks it up.
-- There are no Settings fields for these yet. They go in `config.json` in the `hermes` entry, so edit the file, then restart Legion:
+- You can set two optional limits: `maxSteps` (a step is one tool call Hermes makes with its own tools, 1 to 10000; calls to Legion's own tools do not count) and `maxTokensPerTask` (1000 to 100000000). A task over `maxSteps` is cancelled. The token limit is checked when a turn ends, so one turn can go past it. Either stop pauses the task with the work kept, and Continue picks it up.
+- There are no Settings fields for these yet. Add these keys to your existing `hermes` entry in the `acp` block of `config.json` (do not paste over the whole block, which would reset the switches and Contained), then restart Legion:
 
 ```json
 "acp": { "entries": [ { "id": "hermes", "maxSteps": 100, "maxTokensPerTask": 500000 } ] }
@@ -162,7 +174,7 @@ The `acp` block of `config.json` also holds the four switches, `watchdogMinutes`
 ## What you see
 
 - The first time you pick Hermes for an agent, a card says what Hermes does and offers "Use Hermes" or "Not now". Not now leaves the agent as it was.
-- A Hermes thread carries a badge: "Hermes, acts on your computer".
+- A Hermes thread carries a badge: "Hermes · acts on your computer".
 - The Doctor lists Hermes: found, starts, its version, its approvals mode, whether it shares the Claude Code login, the Contained profile and, after a failed sign-in, a sign-in row. "Hermes is not installed" is a neutral row, not a failure.
 - Legion works with Hermes 0.22.3 or newer. The Doctor shows an older Hermes in red, and a newer one than Legion was tested with as an amber note. Legion never updates Hermes and never runs `hermes --version`, which checks for updates. It reads the version from Hermes's start message.
 - Windows first. macOS and Linux are experimental, like the rest of Legion.
