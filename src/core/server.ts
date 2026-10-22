@@ -11,7 +11,10 @@ import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
 import { normRepo } from '../shared/github-area.js';
 import { validRepoString } from './ci/repo.js';
 import { withholdEvent, withholdMessage, withholdTask } from './connector-withhold.js';
-import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
+import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isRunMcpPath, isSsePath, safeEqual } from './admin.js';
+import { findRunGrant, RUN_ROUTE } from './acp/run-tokens.js';
+import type { RunGrant } from './acp/run-tokens.js';
+import { serverForRun } from './acp/run-tools.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { QuestionBroker } from './questions.js';
 import type { EventBus } from './bus.js';
@@ -639,6 +642,19 @@ export function createServer(ctx: CoreContext): Server {
     await transport.handleRequest(req, res, body);
   };
 
+  /**
+   * The tools of one run of an agent host (Hermes), behind its run key (src/core/acp/run-tokens.ts). Stateless like /mcp: a fresh small MCP
+   * server per request in front of tool servers that were connected once for the run.
+   */
+  const handleRunMcp = async (req: IncomingMessage, res: ServerResponse, body: unknown, grant: RunGrant) => {
+    const gone = new AbortController();
+    const mcp = serverForRun(grant, gone.signal);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => { gone.abort(); void transport.close(); void mcp.close(); });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, body);
+  };
+
   // ---- dispatcher ------------------------------------------------------
   const server = createHttpServer((req, res) => {
     // Loopback guard (src/core/net-guard.ts): remote address, Host and Origin, before CORS, auth and every route (/health, /mcp, SSE included).
@@ -679,14 +695,16 @@ export function createServer(ctx: CoreContext): Server {
     sendJson(res, status, { error: message });
   }
 
+  /** The bearer value of the Authorization header, or ''. */
+  function bearerOf(req: IncomingMessage): string {
+    const h = req.headers.authorization;
+    const m = typeof h === 'string' ? /^Bearer\s+(.+)$/i.exec(h.trim()) : null;
+    return m ? m[1] : '';
+  }
+
   function authorized(req: IncomingMessage, url: URL, allowQuery: boolean): boolean {
     const expected = ctx.config.authToken;
-    let given = '';
-    const h = req.headers.authorization;
-    if (typeof h === 'string') {
-      const m = /^Bearer\s+(.+)$/i.exec(h.trim());
-      if (m) given = m[1];
-    }
+    let given = bearerOf(req);
     if (!given && allowQuery) given = url.searchParams.get('token') ?? '';
     if (!given || !expected) return false;
     return safeEqual(given, expected);
@@ -697,6 +715,12 @@ export function createServer(ctx: CoreContext): Server {
     const method = (req.method ?? 'GET').toUpperCase();
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const path = url.pathname;
+
+    // The run route is for the tool shim only, which is not a browser: any Origin or fetch-metadata header (even an allowed one) is refused, preflight included.
+    if (isRunMcpPath(path) && (req.headers.origin !== undefined || req.headers['sec-fetch-site'] !== undefined)) {
+      sendJson(res, 403, { error: 'browser_request_refused' });
+      return;
+    }
 
     if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -712,7 +736,9 @@ export function createServer(ctx: CoreContext): Server {
     // Default-deny gate, BEFORE routing: unknown and unclassified paths get the same 403 as admin routes.
     const isSse = isSsePath(method, path);
     const adminOk = isAdminSecret(req.headers[ADMIN_HEADER], ctx.adminSecret);
-    const decision = gate({ method, path, adminOk, bearerOk: adminOk || authorized(req, url, isSse), hasSecret: !!ctx.adminSecret });
+    // A run key is looked up for the run route only; on every other path it is never even read.
+    const runGrant = isRunMcpPath(path) ? findRunGrant(bearerOf(req)) : undefined;
+    const decision = gate({ method, path, adminOk, bearerOk: adminOk || authorized(req, url, isSse), hasSecret: !!ctx.adminSecret, runOk: runGrant !== undefined && runGrant.host() !== undefined });
     if (!decision.allow) {
       if (decision.status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
       sendJson(res, decision.status, { error: decision.error });
@@ -721,6 +747,15 @@ export function createServer(ctx: CoreContext): Server {
     (req as unknown as { legionAdmin?: boolean }).legionAdmin = decision.admin;
 
     if (isSse) { handleSse(req, res, decision.admin); return; }
+
+    if (isRunMcpPath(path)) {
+      // the gate already turned away a request without a live run key; this stays so that no future gate change lets one fall through to the router
+      if (!runGrant) throw new HttpError(401, 'Unauthorized: missing or invalid run key');
+      if (path !== RUN_ROUTE) throw new HttpError(404, `Not found: ${method} ${path}`);
+      if (method !== 'POST') { res.setHeader('Allow', 'POST'); throw new HttpError(405, 'Method not allowed'); }
+      await handleRunMcp(req, res, await readBody(req), runGrant);
+      return;
+    }
 
     let body: unknown;
     if (method === 'POST' || method === 'PATCH' || method === 'PUT') body = await readBody(req);

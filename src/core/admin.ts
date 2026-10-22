@@ -64,6 +64,11 @@ export function isClientRoute(method: string, path: string): boolean {
   return CLIENT_ROUTES.some(([m, re]) => m === method && re.test(path));
 }
 export const isMcpPath = (path: string): boolean => path === '/mcp';
+/**
+ * The per-run tool route of an agent host (src/core/acp/run-tokens.ts). Everything under /mcp/run is judged by the run key alone:
+ * neither the authToken nor the admin secret opens it, and a run key opens nothing else.
+ */
+export const isRunMcpPath = (path: string): boolean => path === '/mcp/run' || path.startsWith('/mcp/run/');
 export const isSsePath = (method: string, path: string): boolean => method === 'GET' && path === '/api/events';
 
 export type GateDecision =
@@ -72,9 +77,11 @@ export type GateDecision =
 
 /**
  * The whole gate, pure. `bearerOk` = a valid `authToken` was presented (header; `?token=` only for SSE, resolved by the caller).
- * Admin secret alone is enough (the UI sends both). Order: admin header, then bearer validity, then route class.
+ * Admin secret alone is enough (the UI sends both). Order: run route (the run key only), admin header, then bearer validity, then route class.
+ * `runOk` = the request carried a live run key (resolved by the caller; only a run path looks at it).
  */
-export function gate(input: { method: string; path: string; adminOk: boolean; bearerOk: boolean; hasSecret: boolean }): GateDecision {
+export function gate(input: { method: string; path: string; adminOk: boolean; bearerOk: boolean; hasSecret: boolean; runOk?: boolean }): GateDecision {
+  if (isRunMcpPath(input.path)) return input.runOk === true ? { allow: true, admin: false } : { allow: false, status: 401, error: 'Unauthorized: missing or invalid run key' };
   if (input.adminOk) return { allow: true, admin: true };
   if (!input.bearerOk) return { allow: false, status: 401, error: 'Unauthorized: missing or invalid bearer token' };
   if (isMcpPath(input.path) || isSsePath(input.method, input.path) || isClientRoute(input.method, input.path)) return { allow: true, admin: false };

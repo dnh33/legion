@@ -67,6 +67,7 @@ export const ALLOWLIST: Allow = {
   'src/electron/signals-logic.ts': { kinds: ['fetch'], reason: 'the testable follow loop behind signals.ts: calls an injected fetch only for http://127.0.0.1:<core port>/api/events and /api/attention' },
   'src/electron/main.ts': { kinds: ['fetch', 'child-process'], reason: 'probes the core it starts on 127.0.0.1 (/health) and spawns that core as a child process' },
   'src/bin/legion-mcp-stdio.ts': { kinds: ['fetch', 'child-process'], reason: 'the stdio MCP proxy: talks only to the local core on 127.0.0.1 and starts that core (node dist/src/bin/legion-core.js) when it is not running' },
+  'src/bin/legion-acp-tools-stdio.ts': { kinds: ['fetch'], reason: "the tool shim an agent host (Hermes) starts for one run: its MCP client reaches only http://127.0.0.1:<port>/mcp/run/legion (any other address is refused before the run key is sent), starts no process, reads no file and never loads Legion's config" },
   'ui/src/api.ts': { kinds: ['fetch'], reason: "the UI's client of the local core (fetch and EventSource on the core base URL)" },
   'ui/src/rooms/roomsStore.ts': { kinds: ['fetch'], reason: 'downloads a room export from the local core' },
   'src/core/blender/static-check.ts': { kinds: ['decode'], reason: 'the Blender script safety check decodes Python string escapes (\\x41, \\u0041) so it reads literal file paths and attribute names the way Python would' },
