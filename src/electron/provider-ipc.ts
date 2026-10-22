@@ -6,13 +6,19 @@
  */
 
 import { KEYS_BLOCKED_MESSAGE } from '../shared/providers-view.js';
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
+import type { ConfirmExtras } from './confirm-window-logic.js';
 
 export interface CoreReply { status: number; json: any }
+/** A question for the person: the words, the label of the confirm button, and how the Legion confirm card should draw it. */
+export type ConfirmRequest = { title: string; message: string; detail: string; confirmLabel: string } & ConfirmExtras;
+/** Where a confirm comes from, shown in the window as "asked by ...". The arrow is the single right-pointing angle quotation mark. */
+export const ASKED_BY = { providers: 'Settings › Providers', webSearch: 'Settings › Web search', gates: 'Settings › Gates', browser: 'Settings › Browser', connectors: 'Settings › Connectors' } as const;
 export interface ProviderIpcDeps {
   /** A request to our own core with the admin secret, and the native secret when `native` is true. undefined = no proven core. */
   call(method: 'GET' | 'PUT' | 'POST', route: string, body?: unknown, native?: boolean): Promise<CoreReply | undefined>;
-  /** A native dialog. Resolves true only for the confirm button. */
-  confirm(opts: { title: string; message: string; detail: string; confirmLabel: string }): Promise<boolean>;
+  /** The Legion confirm card (or the system dialog when it cannot be shown). Resolves true only for the confirm button. */
+  confirm(opts: ConfirmRequest): Promise<boolean>;
   /** "Start over with new keys": main's two steps. Absent (a test, a headless call): the request is refused. */
   startOver?: {
     /** Is the system key store up right now? When it is only unavailable (locked, not unlocked yet) a key.bin that "does not unwrap" may be fine, so nothing is set aside. */
@@ -57,7 +63,8 @@ const hostOf = (u: unknown): string => { try { return new URL(String(u)).host; }
 
 let open = false;
 
-export async function providerChange(raw: unknown, deps: ProviderIpcDeps): Promise<ProviderChangeResult> {
+export const providerChange = (raw: unknown, deps: ProviderIpcDeps): Promise<ProviderChangeResult> => orBusy(providerChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function providerChangeRun(raw: unknown, deps: ProviderIpcDeps): Promise<ProviderChangeResult> {
   const ch = parseProviderChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   const cur = await deps.call('GET', '/api/providers');
@@ -103,7 +110,7 @@ export async function providerChange(raw: unknown, deps: ProviderIpcDeps): Promi
   }
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
   open = true;
-  try { if (!(await deps.confirm({ title, message, detail, confirmLabel }))) return { ok: false, cancelled: true }; } finally { open = false; }
+  try { if (!(await deps.confirm({ title, message, detail, confirmLabel, who: ASKED_BY.providers }))) return { ok: false, cancelled: true }; } finally { open = false; }
   const res = await deps.call('PUT', route, body, true);
   if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
   if (res.status !== 200) return { ok: false, error: dialogLine(res.json?.error, 300) || `The core refused the change (${res.status}).` };
@@ -131,7 +138,7 @@ async function startOver(deps: ProviderIpcDeps, blocked: boolean): Promise<Provi
     const go = await deps.confirm({
       title: 'Start over with new keys?', message: 'Set aside the saved keys that Legion cannot open, and start with new keys?',
       detail: 'Legion cannot open the keys you saved for providers and web search. This renames the unreadable key files in your Legion data folder (they are set aside, not deleted), makes a new key, and restarts Legion Core. Tasks that are running now will be stopped. Afterwards the keys are not set, and you paste them again.',
-      confirmLabel: 'Start over',
+      confirmLabel: 'Start over', who: ASKED_BY.providers, tone: 'danger', toneTag: 'RESTARTS CORE',
     });
     if (!go) return { ok: false, cancelled: true };
   } finally { open = false; }
@@ -151,10 +158,11 @@ async function startOver(deps: ProviderIpcDeps, blocked: boolean): Promise<Provi
 
 interface DialogLike { showMessageBox(...args: any[]): Promise<{ response: number }> }
 interface WinLike { isDestroyed(): boolean; isVisible(): boolean }
-/** The native confirmation dialog: buttons are Cancel (default) and the confirm label. */
+/** The confirmation: buttons are Cancel (default) and the confirm label. `dialog` is the Legion confirm card (the system dialog in a test); every field a caller adds goes through. */
 export function makeConfirm(dialog: DialogLike, getWin: () => WinLike | null | undefined): ProviderIpcDeps['confirm'] {
   return async (o) => {
-    const opts = { type: 'question', title: o.title, message: o.message, detail: o.detail, buttons: ['Cancel', o.confirmLabel], defaultId: 0, cancelId: 0, noLink: true };
+    const { confirmLabel, ...rest } = o;
+    const opts = { ...rest, type: 'question', buttons: ['Cancel', confirmLabel], defaultId: 0, cancelId: 0, noLink: true };
     const w = getWin();
     const r = w && !w.isDestroyed() && w.isVisible() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
     return r.response === 1;

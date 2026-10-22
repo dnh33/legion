@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { parseWebSearchChange, webSearchChange } from '../src/electron/web-search-ipc.js';
 import type { WebSearchIpcDeps } from '../src/electron/web-search-ipc.js';
 
@@ -100,4 +101,12 @@ test('the hosts the key dialog names are the hosts the adapters send the key to'
   for (const id of ['treg', 'exa', 'tavily', 'brave'] as const) {
     assert.equal(new URL(ADAPTERS[id].origin({} as never)!).host, WEB_PROVIDER_HOSTS[id], id);
   }
+});
+
+test('busy: a question that lost to an open one is "already open", not Cancel, and nothing is written', async () => {
+  const lost = deps(); lost.d.confirm = async () => { throw new ConfirmBusyError(); };
+  const r = await webSearchChange({ kind: 'key', provider: 'exa', key: KEY }, lost.d);
+  assert.deepEqual(r, { ok: false, error: CONFIRM_BUSY });
+  assert.equal(lost.calls.some((c) => c.method === 'PUT' || c.method === 'POST'), false);
+  assert.equal((await webSearchChange({ kind: 'key', provider: 'exa', key: KEY }, deps().d)).ok, true);
 });

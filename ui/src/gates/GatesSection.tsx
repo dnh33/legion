@@ -10,6 +10,8 @@ import {
 } from './gatesLogic';
 import { GatesBanner, GatesPresets, EVERYTHING } from './GatesPresets';
 import { PermissionGates } from './PermissionGates';
+import { AllowRulesNote, ClaudeChecksCard } from './ClaudeChecks';
+import { claudeChecksOn } from './claudeChecksLogic';
 import { QaGates, RailsList } from './RailsList';
 import { ActivityView } from './ActivityView';
 import { useGatesAction, useGatesView } from './useGatesView';
@@ -297,7 +299,8 @@ export function GatesSection({ s }: { s: SettingsView }) {
   const [scope, setScope] = useState(EVERYTHING);
   const presetsAct = useGatesAction(apply);
   const fineAct = useGatesAction(apply);
-  const gatesBusy = presetsAct.pending || fineAct.pending;
+  const claudeAct = useGatesAction(apply);
+  const gatesBusy = presetsAct.pending || fineAct.pending || claudeAct.pending;
   // A project that was removed while it was chosen: back to the app default.
   const scopeNow = scope === EVERYTHING || projects.some((p) => p.id === scope) ? scope : EVERYTHING;
   const gates: GatesConfig = s.gates ?? { rules: [], presetsVersion: 0 };
@@ -366,6 +369,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
         <>
           <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={reload} />
           <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} modeMap={modeMap} />
+          {scopeNow === EVERYTHING && <ClaudeChecksCard view={view} busy={gatesBusy} note={claudeAct.note} run={claudeAct.run} />}
           <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
         </>
       )}
@@ -374,6 +378,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent's approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full; Ask rules never fire there.</div>
       <div className="set-card gate-list-card">
         <h3>Gates</h3>
+        {view && <AllowRulesNote on={claudeChecksOn(view)} />}
         {rules.length === 0 && !adding && !editing && <div className="set-empty"><b>No gates yet.</b><span>{GATES_EMPTY}</span></div>}
         {rules.length > 0 && (
           <ul className="gate-list">

@@ -26,6 +26,8 @@ export interface SecretLocation {
   reaches(path: string, cwd?: string): boolean;
   /** Could this file name pattern (the last part of a glob) match a key file? */
   globReaches(glob: string): boolean;
+  /** A Claude agent that follows Claude's own permission checks: only Legion's own key files count (other secret paths are Claude's to judge). */
+  legionOnly?: boolean;
 }
 
 /** A leading `~`, `$HOME`, `${HOME}`, `%HOME%`, `%USERPROFILE%`, `$env:HOME` or `$env:USERPROFILE` means the home folder; the rest of the word is kept. */
@@ -86,7 +88,7 @@ export function globMatchesAny(glob: string, names: readonly string[]): boolean 
 }
 
 /** Is this path secret by its name, or by where it is (Legion's own key files)? */
-const secretPath = (p: string, where?: SecretLocation, cwd?: string): boolean => isSecretPath(p) || where?.inside(expandHomeWord(p), cwd) === true;
+const secretPath = (p: string, where?: SecretLocation, cwd?: string): boolean => (where?.legionOnly !== true && isSecretPath(p)) || where?.inside(expandHomeWord(p), cwd) === true;
 
 /**
  * What a check found. `hit` is the word as written (what the card used to name), `path` the full path it means (resolved against the folder the
@@ -166,7 +168,7 @@ function segmentHit(words: string[], seg: string, piped: boolean, where: SecretL
     if (!f || f.startsWith('-')) continue;
     if (pattern) { pattern = false; if (!/[\\/]/.test(f) && !f.startsWith('.')) continue; }
     sawPath = true;
-    if (isSecretPath(f)) return { hit: f, path: shown(f, where, cwd), search: false };
+    if (where?.legionOnly !== true && isSecretPath(f)) return { hit: f, path: shown(f, where, cwd), search: false };
     const wild = wildcardPathHit(f, where, cwd);
     if (wild) return wild;
     if (recursive && where?.reaches(expandHomeWord(f), cwd)) return { hit: f, path: shown(f, where, cwd), search: true };

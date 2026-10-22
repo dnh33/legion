@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import { errText } from '../store';
+import { askApp } from './askStore';
 import { checkoutText, closeAndReopenText, depsNotifyText } from '../updatePanelText';
 import { journeyRows, journeyStarted, journeySummary, type JourneyViewLike } from '../updateJourneyView';
 import '../styles/update.css';
@@ -187,7 +188,7 @@ export function UpdatePanel() {
       {!closeAndReopenText(st.platform) && (
         <label className="set-check"><input type="checkbox" checked={st.settings.updateWindow} disabled={busy} onChange={(e) => void patch({ updateWindow: e.target.checked })} /> <span>{UPDATE_WINDOW_TEXT}</span></label>
       )}
-      <label className="set-check"><input type="checkbox" checked={st.settings.autoInstallWhenIdle} disabled={busy || st.mode !== 'apply'} onChange={(e) => { if (!e.target.checked || window.confirm(AUTO_INSTALL_TEXT)) void patch({ autoInstallWhenIdle: e.target.checked }); }} /> <span>{AUTO_INSTALL_TEXT}</span></label>
+      <label className="set-check"><input type="checkbox" checked={st.settings.autoInstallWhenIdle} disabled={busy || st.mode !== 'apply'} onChange={(e) => { const on = e.target.checked; void (async () => { if (!on || await askApp({ title: 'Install updates automatically?', message: AUTO_INSTALL_TEXT, yes: 'Turn it on', no: 'Not now' })) void patch({ autoInstallWhenIdle: on }); })(); }} /> <span>{AUTO_INSTALL_TEXT}</span></label>
     </div>
   );
 }

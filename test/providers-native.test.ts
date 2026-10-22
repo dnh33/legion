@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CONFIRM_BUSY, ConfirmBusyError } from '../src/electron/confirm-window-logic.js';
 import { dialogLine, parseProviderChange, providerChange } from '../src/electron/provider-ipc.js';
 import type { ProviderIpcDeps } from '../src/electron/provider-ipc.js';
 import { FAKE_KEY } from './providers-fakes.js';
@@ -101,4 +102,12 @@ test('only one confirmation is open at a time', async () => {
   assert.match(r2.error ?? '', /already open/);
   release(false);
   assert.equal((await p1).cancelled, true);
+});
+
+test('busy: a key question that lost to an open one is "already open", not Cancel; nothing is written and the next try works', async () => {
+  const lost = deps(); lost.d.confirm = async () => { throw new ConfirmBusyError(); };
+  const r = await providerChange({ kind: 'key', id: 'mine', key: FAKE_KEY }, lost.d);
+  assert.deepEqual(r, { ok: false, error: CONFIRM_BUSY });
+  assert.equal(lost.calls.some((c) => c.method === 'PUT'), false);
+  assert.equal((await providerChange({ kind: 'key', id: 'mine', key: FAKE_KEY }, deps().d)).ok, true);
 });

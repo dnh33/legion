@@ -280,7 +280,11 @@ test('render: the Gates page shows the presets, the notes, fine tuning, QA, rail
     assert.ok(html.includes('Legion has no sandbox for commands on your computer.'));
     assert.match(html, /Fine tuning/);
     assert.match(html, /class="gates-value">On, limit 4</, 'at the app default the gates read as plain values, not switches');
-    assert.ok(!/role="switch"/.test(html));
+    // the one switch on the page at the app default is the app-wide Claude one; the gate rows have none
+    assert.equal((html.match(/role="switch"/g) ?? []).length, 1);
+    assert.match(html, /class="set-card gates-claude"[^>]*>[\s\S]*?role="switch"/, 'and it sits in the Claude card');
+    assert.ok(html.includes("Claude agents follow Claude&#x27;s own permission checks"));
+    assert.ok(html.includes("Legion&#x27;s Allow rules do not answer Claude&#x27;s own prompts for Claude agents."), 'the Allow rules line sits with the rules');
     assert.match(html, /Check which websites agents read/, 'the new web gate has a row');
     assert.doesNotMatch(html, /These follow each goal.s care level|QA gates|Limit the size of a goal|A separate reviewer/, 'the goal and QA rows wait for goals');
     assert.match(html, />14 permission gates\./, 'the Fine tuning count is the rows shown');

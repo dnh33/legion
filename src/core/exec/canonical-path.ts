@@ -198,11 +198,11 @@ export function isHardlinkToProtected(p: string, set: readonly string[], cwd?: s
 
 /**
  * The files and folders no agent may change: the gates folder, the gates key, config, state, the project list, the connectors
- * folder (its key and tokens) and the providers folder (the provider API keys) inside the data folder (NOT the whole folder: agents' workspaces and other folders in it stay free).
+ * folder (its key and tokens) and the providers folder (the provider API keys) and app-settings.json (the desktop's own switches, which main reads with no core running) inside the data folder (NOT the whole folder: agents' workspaces and other folders in it stay free).
  * One list for the file tools and the shell guard.
  */
 export function dataFolderTargets(dataDir: string): string[] {
-  return ['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers', 'acp-pids.json'].map((n) => join(dataDir, n));
+  return ['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers', 'app-settings.json', 'acp-pids.json'].map((n) => join(dataDir, n));
 }
 
 /**

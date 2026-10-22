@@ -5,6 +5,7 @@
  * secret and the digest of what was shown. A change that keeps or tightens the mode needs no dialog and no secret. The window never has the
  * secret. Kept free of electron imports so it can be tested with fakes.
  */
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { dialogLine } from './provider-ipc.js';
 import type { CoreReply, ProviderIpcDeps } from './provider-ipc.js';
 import { DENY_LINE, GATES_DIGEST_HEADER, NO_SANDBOX_LINE, PRESETS } from '../shared/gates-registry.js';
@@ -54,7 +55,8 @@ let lastCancel: { key: string; at: number } | undefined;
 const CANCEL_PAUSE_MS = 3000;
 export function resetAgentModeCancelForTests(): void { lastCancel = undefined; open = false; }
 
-export async function agentModeChange(raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeResult> {
+export const agentModeChange = (raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeResult> => orBusy(agentModeChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function agentModeChangeRun(raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeResult> {
   const ch = parseAgentModeChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
@@ -92,6 +94,7 @@ async function run(ch: AgentModeChange, deps: AgentModeIpcDeps): Promise<AgentMo
     message: `Change how ${pv.agentName} asks?`,
     detail: pv.loosening.join('\n\n'),
     confirmLabel: 'Confirm change',
+    who: `Agents › ${pv.agentName}`, items: pv.loosening, windowDetail: '',
   });
   if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true }; }
 
@@ -146,7 +149,8 @@ function parseRequest(raw: unknown): AgentModeBatchRequest | undefined {
  * previewed again against the saved default and must read exactly as shown (else no agent is changed and the answer says the default is saved), then
  * each change goes out as an ordinary guarded PATCH with its own digest (the native secret only on a raise). There is no bulk route in the core.
  */
-export async function agentModeBatch(raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeBatchResult> {
+export const agentModeBatch = (raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeBatchResult> => orBusy(agentModeBatchRun(raw, deps), { ok: false, error: CONFIRM_BUSY, applied: [] });
+async function agentModeBatchRun(raw: unknown, deps: AgentModeIpcDeps): Promise<AgentModeBatchResult> {
   const req = parseRequest(raw);
   if (!req) return { ok: false, error: 'That request was not understood.', applied: [] };
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.', applied: [] };
@@ -190,7 +194,7 @@ async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Pro
   const { changes, preset } = req;
   // the app default (first-run screen): what it would do, as the core words it
   let presetPv: { loosens: boolean; digest: string; lines: string[] } | undefined;
-  const patch = preset !== undefined ? { preset, firstRunChoice: true } : undefined;
+  const patch = preset !== undefined ? { preset, firstRunChoice: true, claudeNoticeSeen: true } : undefined;
   if (patch) {
     const cur = await deps.call('GET', '/api/gates/settings');
     if (!cur || cur.status !== 200) return { ...noCore, applied: [] };
@@ -231,6 +235,7 @@ async function runBatch(req: AgentModeBatchRequest, deps: AgentModeIpcDeps): Pro
       message: preset !== undefined ? (n === 0 ? 'Change the default for how agents ask?' : `Change the default and how ${n === 1 ? label.get(raising[0]!.ch.agentId) : `${n} agents`} ask?`) : (n === 1 ? `Change how ${label.get(raising[0]!.ch.agentId)} asks?` : `Change how ${n} agents ask?`),
       detail: [...lines, ...closing].join(NL + NL),
       confirmLabel: 'Confirm change',
+      who: preset !== undefined ? 'Agents › first-run setup' : 'Agents', items: [...lines, ...closing], windowDetail: '',
     });
     if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true, presetSaved: false, applied: [] }; }
   }

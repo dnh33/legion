@@ -155,6 +155,7 @@ function dedupeModels(list: any[]): CatalogModel[] {
     out.push({
       value, displayName: String(m.displayName ?? value), description: String(m.description ?? ''),
       ...(m.resolvedModel ? { resolvedModel: String(m.resolvedModel) } : {}),
+      ...(typeof m.supportsAutoMode === 'boolean' ? { supportsAutoMode: m.supportsAutoMode } : {}),
     });
   }
   return out;

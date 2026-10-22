@@ -150,3 +150,18 @@ button.gate-chip:hover { color: var(--text); }
 .gates-trust-list li { align-items: flex-start; }
 .gates-trust-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gates-trust-main code { min-width: 0; overflow-wrap: anywhere; }
+
+/* Claude agents follow Claude's own permission checks: the switch card, its help, the per-preset line and the one-time notice. Full hairline borders and tints only. */
+.gates-claude { display: flex; flex-direction: column; gap: 10px; }
+.gates-claude-switch { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; margin: -6px -8px; cursor: pointer; }
+.gates-claude-switch input { flex: none; width: 15px; height: 15px; margin-top: 3px; accent-color: var(--accent-text); }
+.gates-claude-switch > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-wrap: pretty; }
+.gates-claude .gates-learn { align-self: flex-start; }
+.gates-claude-help { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); font-size: 13px; line-height: 1.5; color: var(--text-2); max-width: 74ch; }
+.gates-claude-help h4 { margin: 0 0 4px; font-size: 13px; color: var(--text); }
+.gates-claude-help ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.gates-claude-line { color: var(--text-2); }
+.claude-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 20px 0; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); }
+.claude-notice p { margin: 0; flex: 1 1 320px; max-width: 70ch; color: var(--text-2); font-size: 13px; line-height: 1.45; text-wrap: pretty; }
+.claude-notice-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.claude-notice .set-error { flex-basis: 100%; }

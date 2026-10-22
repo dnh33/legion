@@ -102,3 +102,29 @@ export function effectiveMode(a: ModeInputs): RunMode {
 export function baselineMode(a: { agentMode: ApprovalMode; source?: 'own' | 'project'; ceiling?: RunMode }): RunMode {
   return effectiveMode({ agentMode: a.agentMode, source: a.source ?? 'own', appPreset: 'ask', ...(a.ceiling ? { ceiling: a.ceiling } : {}) });
 }
+
+/** The modes Claude's own permission system runs in (the SDK's `permissionMode`). */
+export type ClaudeSdkMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions';
+
+/**
+ * Which Claude mode a Legion mode runs as, for a Claude agent that follows Claude's own permission checks. Ask is Claude's default mode, Accept edits is
+ * its acceptEdits, Smart is its auto mode (the engine falls back to default where auto is not available), Full is bypass. `smart-edits` (Smart held by
+ * Accept edits) is never looser than either, so it runs as default.
+ */
+export function claudePermissionMode(mode: RunMode): ClaudeSdkMode {
+  switch (mode) {
+    case 'auto-edits': return 'acceptEdits';
+    case 'smart': return 'auto';
+    case 'full': return 'bypassPermissions';
+    default: return 'default'; // ask, smart-edits, and an unknown value from disk fails closed
+  }
+}
+
+/**
+ * Claude's mode is fixed when the run starts. Whether the mode the run is judged by NOW is stricter than the Claude mode it started in (or sideways,
+ * which is never looser than either), so a hook has to ask for the calls Claude would otherwise wave through. A looser change waits for the next run.
+ */
+export function startIsStricter(started: ClaudeSdkMode, now: RunMode): boolean {
+  if (started === 'default' || started === 'bypassPermissions') return false;
+  return now !== 'full' && claudePermissionMode(now) !== started;
+}

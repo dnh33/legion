@@ -9,6 +9,7 @@ import { ASK_QUEUE_MS, fallsToOldest, queuedAskStep, resolveAsk } from './openAs
 import { askTarget, failBoardLoad, markBoardSettled, navigationCount, requestAsk, requestInbox, withoutNavigation } from './railRoute';
 import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
+import { askApp } from '../components/askStore';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 import { closeSheet, closeSheetKeepFocus } from './page/sheetState';
 import { currentProposals, ensureBoards, missingBoards, refreshBoard } from './board/boardStore';
@@ -146,7 +147,7 @@ export async function saveProject(id: string, patch: { name?: string; instructio
 
 /** Unarchive after a question that says what comes back (it changes what every member's next run gets). */
 export async function unarchiveProject(p: Project): Promise<boolean> {
-  if (!window.confirm(unarchiveQuestion(p.name))) return false;
+  if (!(await askApp({ title: 'Unarchive project?', message: unarchiveQuestion(p.name), yes: 'Unarchive' }))) return false;
   return saveProject(p.id, { status: 'active' });
 }
 
@@ -156,7 +157,7 @@ export async function archiveProject(p: Project): Promise<boolean> {
   try { for (const c of Object.values((await api.projectImpact(p.id)).agents)) { n.live += c.live; n.open += c.open; } } catch { /* asked without counts */ }
   try { n.rooms = (await api.roomsList()).filter((r) => r.projectId === p.id).length; } catch { /* asked without the room count */ }
   try { n.board = boardItemsAssigned((await api.boardView(p.id)).items); } catch { /* no board (or an older core): asked without the board count */ }
-  if (!window.confirm(archiveQuestion(p.name, n))) return false;
+  if (!(await askApp({ title: 'Archive project?', message: archiveQuestion(p.name, n), yes: 'Archive', danger: true }))) return false;
   return saveProject(p.id, { status: 'archived' });
 }
 

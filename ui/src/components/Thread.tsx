@@ -6,6 +6,7 @@ import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance }
 import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, CORE_NEXT_STEP, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
+import { useCoreRestart } from '../coreRestart/coreRestartStore';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
 import { PresetGate } from '../welcome/PresetChoice';
@@ -82,6 +83,7 @@ export function Thread() {
   const conn = useStore((s) => s.conn);
   const settings = useStore((s) => s.settings);
   const hermesApprovals = settings?.acp?.entries?.find((e) => e.id === 'hermes')?.detection.approvalsMode;
+  const coreStopped = useCoreRestart((c) => c.stopped !== null); // the stopped banner above the views already says it
   const loaded = useStore((s) => s.loaded);
   const agent = agents.find((a) => a.id === agentId);
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
@@ -282,7 +284,7 @@ export function Thread() {
       </div>
       <TaskSwitcher />
       {taskId && searchOpen && <ThreadSearch taskId={taskId} onJump={jumpTo} onClose={() => { setSearchOpen(false); setHitId(null); }} />}
-      {loaded && conn === 'offline' && agents.length > 0 && (
+      {loaded && conn === 'offline' && !coreStopped && agents.length > 0 && (
         <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not answering. Legion keeps retrying, and replies resume when it is back. {CORE_NEXT_STEP}</span></div>
       )}
       <ProposalCards agentId={agentId} taskId={taskId ?? null} />

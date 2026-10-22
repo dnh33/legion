@@ -22,7 +22,8 @@ test('a damaged file reads as Ask, is kept aside and is listed as unreadable', (
   writeFileSync(join(d, 'app.json'), JSON.stringify({ version: 1, preset: 'yolo', overrides: { 'no-such': false } }));
   const s = new GatesStore(d);
   assert.deepEqual(s.project(P1), { version: 1, preset: 'ask' });
-  assert.deepEqual(s.app(), { version: 1, preset: 'ask' });
+  // the app file's damaged record also holds Claude's own checks off (a blank record would read as on)
+  assert.deepEqual(s.app(), { version: 1, preset: 'ask', claudeOwnChecks: false });
   assert.ok(readdirSync(d).some((n) => n.startsWith(`${P1}.json.bad-`)), 'the damaged file is kept aside');
   assert.deepEqual(s.view([P1]).unreadable.sort(), ['app', P1]);
 });

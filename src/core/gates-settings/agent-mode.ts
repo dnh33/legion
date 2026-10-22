@@ -7,6 +7,7 @@
  * owner's word on "Full" is wanted whether or not a limit sits on top today.
  */
 import { createHash } from 'node:crypto';
+import { CLAUDE_PRESET_LINES } from '../../shared/claude-checks-copy.js';
 import { DENY_LINE, NO_SANDBOX_LINE } from '../../shared/gates-registry.js';
 import type { Preset } from '../../shared/gates-registry.js';
 import type { AgentProfile, ApprovalMode, RunMode } from '../../shared/types.js';
@@ -19,6 +20,8 @@ export interface AgentModeChange { approval?: ApprovalMode; approvalSource?: 'ow
 /** The presets that decide a followed mode: the app's, and one entry per project the agent is a member of. */
 export interface ModeWorld {
   appPreset: Preset | undefined;
+  /** Claude agents follow Claude's own permission checks (the app setting). Absent counts as off: the old wording. */
+  claudeChecks?: boolean;
   /** `limit` is the project's "Limit agents to this" switch; absent counts as on, like the run does. */
   projects: Array<{ id: string; name: string; preset: Preset | undefined; limit?: boolean }>;
 }
@@ -58,10 +61,20 @@ const DOES: Record<RunMode, string> = {
   full: 'never ask before it runs commands or changes files',
 };
 
+/** What each mode means for a Claude agent on Claude's own checks (Accept edits with Smart checks runs as Claude's default mode, which asks like Ask). */
+export const CLAUDE_LINE: Record<RunMode, string> = {
+  ask: CLAUDE_PRESET_LINES.ask, 'smart-edits': CLAUDE_PRESET_LINES.ask, 'auto-edits': CLAUDE_PRESET_LINES['accept-edits'], smart: CLAUDE_PRESET_LINES.smart, full: CLAUDE_PRESET_LINES.bypass,
+};
+
 /** What the change would do. `name` is the agent's name (the new name, for a rename in the same request). */
-export function previewAgentMode(o: { agentId: string | undefined; name: string; before: AgentModeFields; change: AgentModeChange; world: ModeWorld }): AgentModePreview {
+/**
+ * `claudeAgent` is true when the agent runs on a Claude model. With Claude's own checks on, such an agent is not asked by Legion's Smart rules: Claude decides,
+ * so the sentences say what Claude does for the mode (the same lines the Gates page shows), not what Legion's own rules would do.
+ */
+export function previewAgentMode(o: { agentId: string | undefined; name: string; before: AgentModeFields; change: AgentModeChange; world: ModeWorld; claudeAgent?: boolean }): AgentModePreview {
   const after = modeAfter(o.before, o.change);
   const { world } = o;
+  const claude = o.claudeAgent === true && world.claudeChecks === true;
   const places: Array<{ where: string; app: boolean; preset: Preset | undefined }> = [{ where: 'outside a project', app: true, preset: undefined }, ...world.projects.map((p) => ({ where: `in the project "${p.name}"`, app: false, preset: p.preset }))];
   const runsAs: AgentModePreview['runsAs'] = [];
   const lines: string[] = [];
@@ -73,8 +86,8 @@ export function previewAgentMode(o: { agentId: string | undefined; name: string;
     if (atLeastAsStrict(now, was)) continue;
     raises = true;
     // an agent with its own mode runs the same everywhere: one sentence, not one per project
-    if (after.approvalSource === 'own') { if (lines.length === 0) lines.push(`${o.name} will ${DOES[now]}.`); continue; }
-    lines.push(`${o.name} will follow the way agents ask ${p.where}. There it will ${DOES[now]}.`);
+    if (after.approvalSource === 'own') { if (lines.length === 0) lines.push(claude ? `${o.name} will use Claude's own checks. ${CLAUDE_LINE[now]}` : `${o.name} will ${DOES[now]}.`); continue; }
+    lines.push(`${o.name} will follow the way agents ask ${p.where}. ${claude ? `For a Claude agent: ${CLAUDE_LINE[now]}` : `There it will ${DOES[now]}.`}`);
   }
   // A project that limits its agents still holds this one back there. The dialog says so, so the owner does not think the change reaches a place it does not.
   // Every line starts with the agent's name, so the first-run dialog can group agents that share a sentence.
@@ -89,7 +102,7 @@ export function previewAgentMode(o: { agentId: string | undefined; name: string;
   }
   const loosening = raises ? [...lines, DENY_LINE, NO_SANDBOX_LINE] : [];
   // the digest binds the presets and each project's limit switch: a limit turned off while the question is open changes what the dialog said
-  const digest = createHash('sha256').update(JSON.stringify([o.agentId ?? 'new', o.before, after, world.appPreset ?? null, world.projects.map((p) => [p.id, p.preset ?? null, p.limit !== false])])).digest('hex');
+  const digest = createHash('sha256').update(JSON.stringify([o.agentId ?? 'new', o.before, after, world.appPreset ?? null, world.projects.map((p) => [p.id, p.preset ?? null, p.limit !== false]), claude])).digest('hex');
   return { raises, loosening, digest, runsAs: after.approvalSource === 'own' ? runsAs.slice(0, 1) : runsAs };
 }
 

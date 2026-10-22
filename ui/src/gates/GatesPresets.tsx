@@ -5,6 +5,8 @@ import type { Preset } from '../../../src/shared/gates-registry';
 import { Icon } from '../components/icons';
 import { PAGE_NOTES, disabledReason, presetChoices, scopeSummary, KEYSTORE_LINE, type GatesView } from './presetsLogic';
 import { limitWords } from './agentFollowLogic';
+import { claudeChecksOn } from './claudeChecksLogic';
+import { CLAUDE_PRESET_LINES } from '../../../src/shared/claude-checks-copy';
 import { PENDING_TEXT, reloadGatesFromDisk, type GatesChangeRequest, type GatesNote as Note } from './useGatesView';
 
 export const EVERYTHING = 'app';
@@ -86,6 +88,7 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
   const current: Preset | 'per-agent' = isApp ? (view.app.preset ?? 'ask') : sum.preset;
   const setPreset = (p: Preset | null) => void change({ preset: p }, p === null ? `Agents in ${project?.name ?? 'this project'} use their own settings again.` : `Preset set to ${choices.find((c) => c.id === p)?.label}.`);
   const groupName = `gates-preset-${scope}`;
+  const claudeOn = claudeChecksOn(view);
   return (
     <div className="set-card gates-presets" aria-label="How agents ask">
       <h3>How agents ask</h3>
@@ -110,7 +113,8 @@ export function GatesPresets({ view, scope, setScope, projects, agents, busy, no
           return (
             <label key={c.id} className={`gates-row gates-choice${why ? ' off' : ''}`}>
               <input type="radio" name={groupName} checked={current === c.id} disabled={!!why} onChange={() => setPreset(c.id)} />
-              <span><b>{c.label}</b><span className="field-note">{why ?? c.line}</span></span>
+              <span><b>{c.label}</b><span className="field-note">{why ?? (claudeOn && c.id !== 'bypass' ? `Other providers: ${c.line}` : c.line)}</span>
+                {claudeOn && <span className="field-note gates-claude-line">Claude agents: {CLAUDE_PRESET_LINES[c.id]}</span>}</span>
             </label>
           );
         })}

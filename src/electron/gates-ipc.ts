@@ -8,10 +8,11 @@
  */
 import { DENY_LINE, ENV_KEEP_MAX, ENV_KEEP_NAME_MAX, GATES, GATES_DIGEST_HEADER, LIMIT_GATE_IDS, NO_SANDBOX_LINE, PERMISSION_GATE_IDS, PRESETS, TRUSTED_FOLDER_PATH_MAX } from '../shared/gates-registry.js';
 import type { GateValue, Preset } from '../shared/gates-registry.js';
-import { dialogLine } from './provider-ipc.js';
-import type { CoreReply } from './provider-ipc.js';
+import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
+import { ASKED_BY, dialogLine } from './provider-ipc.js';
+import type { ConfirmRequest, CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; firstRunChoice?: true; noticeSeen?: true }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; claudeOwnChecks?: boolean; firstRunChoice?: true; noticeSeen?: true; claudeNoticeSeen?: true }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -21,8 +22,8 @@ export interface GatesChangeResult { ok: boolean; error?: string; cancelled?: bo
 export interface GatesIpcDeps {
   /** A request to our own core with the admin secret, the native secret when `native` is true, and `extraHeaders` (the digest). undefined = no proven core. */
   call(method: 'GET' | 'POST' | 'PATCH', route: string, body?: unknown, native?: boolean, extraHeaders?: Record<string, string>): Promise<CoreReply | undefined>;
-  /** A native dialog (Cancel is the default button). Resolves true only for the confirm button. */
-  confirm(opts: { title: string; message: string; detail: string; confirmLabel: string }): Promise<boolean>;
+  /** The Legion confirm card (Cancel is the default button). Resolves true only for the confirm button. */
+  confirm(opts: ConfirmRequest): Promise<boolean>;
   /** The clock, for the pause after Cancel. Defaults to Date.now. */
   now?(): number;
 }
@@ -62,7 +63,10 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
       // only a path: the core scans the folder itself and works the fingerprint out; the window never names one
       if (typeof x !== 'string' || !x.trim() || x.length > TRUSTED_FOLDER_PATH_MAX) return undefined;
       out[k] = x;
-    } else if ((k === 'firstRunChoice' || k === 'noticeSeen') && isApp) {
+    } else if (k === 'claudeOwnChecks' && isApp) {
+      if (typeof x !== 'boolean') return undefined;
+      out.claudeOwnChecks = x;
+    } else if ((k === 'firstRunChoice' || k === 'noticeSeen' || k === 'claudeNoticeSeen') && isApp) {
       if (x !== true) return undefined;
       out[k] = true;
     } else if (k === 'limit' && !isApp) {
@@ -114,13 +118,15 @@ function titleFor(ch: GatesChange, lines: string[]): string {
   if (keys.length !== 1) return GENERAL_TITLE;
   if (keys[0] === 'allowedHosts') return 'Allow these sites?';
   if (keys[0] === 'envKeep') return 'Keep these variables?';
+  if (keys[0] === 'claudeOwnChecks') return "Use Claude's own permission checks?";
   if (keys[0] === 'trustFolder') return 'Let this folder run its own commands?';
   const own = lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE);
   if (keys[0] === 'overrides' && own.length > 0 && own.every((l) => LIMIT_LABELS.some((lb) => l.startsWith(`${lb}:`)))) return 'Raise these limits?';
   return GENERAL_TITLE;
 }
 
-export async function gatesChange(raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> {
+export const gatesChange = (raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> => orBusy(gatesChangeRun(raw, deps), { ok: false, error: CONFIRM_BUSY });
+async function gatesChangeRun(raw: unknown, deps: GatesIpcDeps): Promise<GatesChangeResult> {
   const ch = parseGatesChange(raw);
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   if (open) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
@@ -180,12 +186,15 @@ async function run(ch: GatesChange, deps: GatesIpcDeps): Promise<GatesChangeResu
   const key = `${name}\n${pv.digest}`;
   if (lastCancel && lastCancel.key === key && clock() - lastCancel.at < CANCEL_PAUSE_MS) return { ok: false, error: 'You cancelled this change a moment ago. Wait a few seconds before you try it again.' };
   const trusting = ch.kind === 'app' && ch.patch.trustFolder !== undefined;
-  const detail = pv.loosening.length ? shortList(pv.loosening, trusting ? TRUST_MAX_LINES : MAX_LINES).join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  const lines = pv.loosening.length ? shortList(pv.loosening, trusting ? TRUST_MAX_LINES : MAX_LINES) : [];
+  const detail = lines.length ? lines.join('\n\n') : 'The file sets nothing looser than Legion holds now.';
+  // The core's lines are the list; the window draws one bullet per line and never reads structure out of the text itself.
+  const shown = { who: ASKED_BY.gates, ...(lines.length ? { items: lines, windowDetail: '' } : {}) };
   const title = titleFor(ch, pv.loosening);
   const ok = await deps.confirm(ch.kind === 'accept'
-    ? { title, message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings' }
-    : trusting ? { title, message: 'This folder carries settings or skills that can run commands on your computer, with your rights. Trust it?', detail, confirmLabel: 'Trust this folder' }
-    : { title, message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change' });
+    ? { title, message: `Another program changed the settings file for ${scope}. Use it?`, detail, confirmLabel: 'Use these settings', ...shown }
+    : trusting ? { title, message: 'This folder carries settings or skills that can run commands on your computer, with your rights. Trust it?', detail, confirmLabel: 'Trust this folder', ...shown }
+    : { title, message: `Change the settings for ${scope}?`, detail, confirmLabel: 'Confirm change', ...shown });
   if (!ok) { lastCancel = { key, at: clock() }; return { ok: false, cancelled: true }; }
 
   const res = await deps.call(method, route, body, true, digest);

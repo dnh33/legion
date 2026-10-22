@@ -66,6 +66,8 @@ test('Bypass (M3): a shell write or delete on the gate settings, the gates key, 
     ['Bash', `rm ${fwd}/acp-pids.json`],
     ['PowerShell', `Remove-Item ${DATA}\\config.json`],
     ['Bash', `echo {} > ${fwd}/state.json`],
+    ['Bash', `echo {} > ${fwd}/app-settings.json`],
+    ['PowerShell', `Remove-Item ${DATA}\\app-settings.json`],
     ['mcp__host__shell', `mv ${fwd}/projects.json x`],
     ['Monitor', `cp C:/work/projB/old.json ${fwd}/gates/app.json`],
   ]);

@@ -8,6 +8,7 @@ import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentProfile, ApprovalMode } from '../shared/types.js';
 import { stricterMode } from './approvals.js';
 import type { RunMode } from './permission-mode.js';
+import { CLAUDE_LINE } from './gates-settings/agent-mode.js';
 
 export const FACTS_HEADER = 'What you can do right now:';
 
@@ -42,6 +43,8 @@ export interface FactsContext {
   ceiling?: RunMode;
   /** The mode this run is judged by now (the resolver's answer: agent mode, project preset, ceiling). Absent: the agent's own mode under the ceiling. */
   runMode?: RunMode;
+  /** This is a Claude run and Claude's own permission checks are on: in Smart the agent is told what Claude does, not what Legion's own rules would do. */
+  claudeOwnChecks?: boolean;
   /** Whether this run's agent has VM tools registered is read from `servers`; this only explains a missing one. */
   vmEnabledForAgent: boolean;
 }
@@ -80,7 +83,7 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
       : `- Typing, clicking and scripts in a page need an approval card${m === 'full' ? ' in any mode but full — yours is full, so you will not be asked' : ' unless your mode is full'}. Notes you write after browsing wait in the owner\'s Inbox.`);
   }
   if (names.has('legion_bsv')) {
-    lines.push('- bsv_status contacts a wallet and counts as outside content, so it marks the run tainted. A spend request from a tainted run needs a second native dialog on the owner\'s card. You never choose the network; mainnet is off unless the owner switches it on and arms it.');
+    lines.push('- bsv_status contacts a wallet and counts as outside content, so it marks the run tainted. A spend request from a tainted run needs a second confirmation on the owner\'s card. You never choose the network; mainnet is off unless the owner switches it on and arms it.');
   }
   if (names.has('legion_kg') && (names.get('legion_kg') ?? []).includes('kg_supersede')) {
     // One line, and only when the tool is really registered. A stale note is retired with kg_supersede rather than
@@ -95,7 +98,8 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
     lines.push('- Scheduling: the supply watch runs only when the owner or another bot asks; scheduled runs are planned, not available yet.');
   }
   const mode: RunMode = ctx.runMode ?? (ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval);
-  const smartNote = mode === 'smart' ? " (asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify; tests and builds run without asking, and the code they run can reach the web)"
+  const smartNote = ctx.claudeOwnChecks && (mode === 'smart' || mode === 'smart-edits') ? ` (${CLAUDE_LINE[mode]})`
+    : mode === 'smart' ? " (asks before anything that reaches the web, deletes, can't be undone, or that Legion can't classify; tests and builds run without asking, and the code they run can reach the web)"
     : mode === 'smart-edits' ? " (file edits inside your project run; edits outside it, every command and every tool Legion can't classify ask)" : '';
   lines.push(`- Approvals: your mode is ${mode === 'smart-edits' ? 'Accept edits with Smart checks' : mode}${smartNote}${mode !== agent.approval && mode !== 'smart' ? (ctx.ceiling && stricterMode(agent.approval, ctx.ceiling) === mode ? ` (capped from ${agent.approval} by whoever woke you)` : ` (set by your project, not ${agent.approval})`) : ''}. A denied action stays denied; do not reroute it.`);
   return `${FACTS_HEADER}\n${lines.join('\n')}`;
