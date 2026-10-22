@@ -3239,7 +3239,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       act.reached = true;
       noteAgentVersion(entry.id, session.agentVersion); // the Doctor shows the version of the Hermes that ran, and a session means it signed in
       const sameSession = fresh ? undefined : stored;
-      this.patchTask(taskId, { acp: { entryId: entry.id, sessionId: session.sessionId, ...(sameSession?.cumulative ? { cumulative: sameSession.cumulative } : {}) } });
+      // R76: set as soon as the session is stored, like a Claude run: a pause at a limit, a stall or a crash after this point can be continued in the same Hermes conversation
+      this.patchTask(taskId, { resumable: true, acp: { entryId: entry.id, sessionId: session.sessionId, ...(sameSession?.cumulative ? { cumulative: sameSession.cumulative } : {}) } });
       if (act.cancelled) return { subtype: 'cancelled', isError: false };
 
       let said = '';

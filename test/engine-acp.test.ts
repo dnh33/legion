@@ -11,7 +11,7 @@ import { Engine } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
 import { Store } from '../src/core/store.js';
 import { defaultConfig } from '../src/shared/config.js';
-import { TURN_LIMIT_PREFIX, BUDGET_LIMIT_PREFIX, TOKEN_LIMIT_PREFIX, isLimitPause } from '../src/shared/continue.js';
+import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX, BUDGET_LIMIT_PREFIX, TOKEN_LIMIT_PREFIX, isLimitPause } from '../src/shared/continue.js';
 import type { AcpEntry, AcpSwitches } from '../src/shared/acp-view.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, ChatMessage, Task } from '../src/shared/types.js';
 import { registerSecret } from '../src/core/log/redact.js';
@@ -1216,4 +1216,31 @@ test('R75: an agent on Hermes while "Offer Hermes" is off is refused before any 
   assert.match(end.error ?? '', /Settings, Agent hosts/);
   assert.equal(existsSync(r.reportFile), false, 'the agent program was never started');
   assert.equal(r.claudeRuns.length, 0, 'and Claude did not run instead');
+});
+
+// ---------------------------------------------------------------- W3 / R76: a Hermes run paused at a limit can be continued
+
+test('R76: a Hermes run paused at the token limit is resumable once its session is stored, and Continue resumes that conversation with the continue words', async () => {
+  const r = rig({ entry: { maxTokensPerTask: 1000 }, steps: [{ op: 'text', text: 'half done' }, END({ inputTokens: 800, outputTokens: 400 })] });
+  const paused = await r.done(await r.run('build it'));
+  assert.equal(paused.status, 'error');
+  assert.ok(isLimitPause({ status: 'error', error: paused.error }));
+  assert.equal(paused.resumable, true, 'the Continue button needs this');
+  assert.equal(paused.acp?.sessionId, 'sess_fake_1');
+  r.config.acp!.entries[0]!.maxTokensPerTask = 100_000; // "Raise the limit", then Continue
+  r.setScript([{ op: 'text', text: 'finished' }, END({ inputTokens: 900, outputTokens: 420 })]);
+  const t2 = r.engine.startTask({ agentId: 'herm', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: paused.id } as any);
+  const end = await r.done(t2);
+  assert.ok(r.msgs().some((m) => m.method === 'session/resume' && m.params.sessionId === 'sess_fake_1'), 'the stored Hermes conversation is resumed, not a new one');
+  const prompts = r.msgs().filter((m) => m.method === 'session/prompt');
+  assert.match(JSON.stringify(prompts[prompts.length - 1]!.params.prompt), /Continue from where you stopped/);
+  assert.equal(end.status, 'done');
+  assert.equal(end.resumable, undefined, 'a finished run is no longer resumable');
+});
+
+test('R76: a Hermes run that never reached its session is not resumable (Retry sends the request again)', async () => {
+  const r = rig({ entry: { command: process.execPath, args: ['-e', 'process.exit(1)'] } });
+  const end = await r.done(await r.run());
+  assert.equal(end.status, 'error');
+  assert.notEqual(end.resumable, true);
 });
