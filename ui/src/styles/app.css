@@ -132,11 +132,14 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .th-cost { color: var(--muted); font-size: 12px; white-space: nowrap; }
 /* The two icons wrap as one group, never one by one onto a row of their own. */
 .th-icons { display: inline-flex; align-items: center; gap: 8px; flex: none; }
-/* A Hermes thread has more in its header (badge, mode chip, usage line, icons). In a wrapping row an item that is too wide wraps before it shrinks, so this row never wraps inside: the usage line takes what is left and is cut with an ellipsis (its tooltip has the whole line), the badge and the chip keep their words, and when the row does not fit beside the title it drops under it as one piece. */
-.th-right.is-hermes { flex-wrap: nowrap; justify-content: flex-start; }
-.th-right.is-hermes > .chip-pill:not(.project-pill) { flex: none; }
-.th-right.is-hermes .th-icons { margin-left: auto; }
-.th-right.is-hermes .hermes-usage { flex: 1 1 0; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* A Hermes thread has more in its header (badge, mode chip, usage line, icons). The chips may wrap, but the usage line and the icons are one tail that wraps as one piece, and the usage line is the one thing that shrinks: it is cut with an ellipsis (its tooltip has the whole line). The project chip keeps a width of its own. For other agents the tail changes nothing. */
+.th-tail { display: contents; }
+.th-right.is-hermes { justify-content: flex-start; }
+.th-right.is-hermes > .project-pill { max-width: 160px; }
+.th-right.is-hermes .th-tail { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; min-width: 0; }
+.th-right.is-hermes .th-tail > .th-cost { flex: none; }
+.th-right.is-hermes .th-tail > .hermes-usage { flex: 1 1 0; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.th-right.is-hermes .th-tail .th-icons { margin-left: auto; }
 .chip-pill { white-space: nowrap; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--muted); }
 .chip-pill.ap-full { color: var(--warn); border-color: rgba(255, 204, 102, .3); }
 .tasks-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--line); }

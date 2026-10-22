@@ -607,14 +607,15 @@ test('item 12, 11: the header icons wrap as one group, the usage line is cut not
   const css = src('ui/src/styles/app.css');
   assert.match(css, /\.th-icons \{[^}]*flex: none/);
   assert.match(css, /\.hermes-usage \{[^}]*white-space: nowrap/);
-  assert.match(css, /\.th-right\.is-hermes \.hermes-usage \{[^}]*text-overflow: ellipsis/);
-  // round 2: in a wrapping row an item that is too wide wraps before it shrinks. A Hermes header row never wraps inside: the usage line takes what is
-  // left and is cut, the badge and chip keep their words, and the whole row drops under the title as one piece when it does not fit beside it
-  assert.match(css, /\.th-right\.is-hermes \{[^}]*flex-wrap: nowrap/);
-  assert.match(css, /\.th-right\.is-hermes \.hermes-usage \{[^}]*flex: 1 1 0[^}]*min-width: 0/);
-  assert.match(css, /\.th-right\.is-hermes > \.chip-pill:not\(\.project-pill\) \{[^}]*flex: none/);
+  assert.match(css, /\.th-tail > \.hermes-usage \{[^}]*text-overflow: ellipsis/);
+  // round 2 (live check 2026-10-22): the chips may wrap, but the usage line and the icons are one tail that wraps as one piece, and the usage line is the
+  // one thing that shrinks (cut with an ellipsis). A nowrap row overflowed at 960 wide, and a shrinking usage line crushed the project chip.
+  assert.match(css, /\.th-tail \{[^}]*display: contents/, 'for other agents the tail changes nothing');
+  assert.match(css, /\.th-right\.is-hermes \.th-tail \{[^}]*display: flex[^}]*flex: 1 1 200px[^}]*min-width: 0/);
+  assert.match(css, /\.th-right\.is-hermes \.th-tail > \.hermes-usage \{[^}]*flex: 1 1 0[^}]*min-width: 0/);
+  assert.match(css, /\.th-right\.is-hermes > \.project-pill \{[^}]*max-width: 160px/);
   assert.match(css, /\.check p \{[^}]*text-wrap: pretty/);
-  assert.match(src('ui/src/components/Thread.tsx'), /<span className="th-icons">[\s\S]*Edit agent[\s\S]*<\/span>\s*<\/div>/);
+  assert.match(src('ui/src/components/Thread.tsx'), /<span className="th-tail">\s*<HermesUsage[\s\S]*<span className="th-icons">[\s\S]*Edit agent[\s\S]*<\/span>\s*<\/span>\s*<\/div>/);
 });
 
 test('I7: the card sends the option Hermes named, verbatim; the first-use flows keep the agent unchanged on Not now; Settings asks for the full check; the folder is in the save body', async () => {

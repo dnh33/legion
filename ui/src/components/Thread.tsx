@@ -269,11 +269,14 @@ export function Thread() {
           {/* a Hermes agent shows no Legion mode chip while Match Legion's mode is off (Legion did not set how Hermes asks), with a task open or not: the fixed line stands in */}
           {threadOnHermes(task, agent) && settings?.acp?.switches?.modeMap !== true ? <span className="chip-pill" title={hermesModeLine({ modeMap: false, ...(hermesApprovals ? { hermesMode: hermesApprovals } : {}) })}>{HERMES_MODE_CHIP}</span> : task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
           {task?.provider && !task.runtime && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
+          {/* the usage line and the icons are one piece: for a Hermes thread they wrap together and the usage line is the one thing that is cut */}
+          <span className="th-tail">
           <HermesUsage task={task} />
           {task && <span className="th-cost" title="Cumulative cost and turns for this task">{task.costUsd != null ? money(task.costUsd) : ''}{task.costUsd != null && task.turns != null ? ' · ' : ''}{task.turns != null ? `${task.turns} turn${task.turns === 1 ? '' : 's'}` : ''}</span>}
           <span className="th-icons">
           {taskId && <button className={`icon-btn${searchOpen ? ' on' : ''}`} onClick={() => setSearchOpen((v) => !v)} aria-pressed={searchOpen} aria-label="Search this conversation" title="Search this conversation"><Icon name="search" size={14} /></button>}
           {agent && <button className="icon-btn" onClick={() => openEditor(agent.id)} aria-label="Edit agent" title="Edit agent"><Icon name="edit" size={14} /></button>}
+          </span>
           </span>
         </div>
       </div>
