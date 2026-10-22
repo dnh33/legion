@@ -312,6 +312,8 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     assert.ok(h.includes('config file'), 'custom entries are not edited here');
     const missing = unesc(r.hosts({ ...base, acp: acp({ detection: { state: 'missing', checked: true, detail: 'Hermes is not on your PATH.' } }) }));
     assert.ok(missing.includes('Hermes is not installed'), 'not installed state');
+    const real = unesc(r.hosts({ ...base, acp: acp({ detection: { state: 'missing', checked: true, detail: 'Hermes is not installed. Install it from hermes-agent.nousresearch.com, then check again.' } }) }));
+    assert.equal((real.match(/Hermes is not installed/g) ?? []).length, 1, 'the core detail already starts with the state: say it once (live check 2026-10-22)');
     const withSignIn = unesc(r.hosts({ ...base, acp: acp({ contained: true }), contained: { kind: 'setup', ok: true, detail: 'The profile exists.', signInCommand: 'hermes -p legion setup model' } }));
     assert.ok(withSignIn.includes('hermes -p legion setup model') && withSignIn.includes('The profile exists.'), 'the core wording, as returned');
   } finally { cleanup(); }

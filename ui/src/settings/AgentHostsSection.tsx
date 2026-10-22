@@ -54,7 +54,7 @@ export function AgentHostsView(p: AgentHostsViewProps) {
             <span className={`host-dot ${dot}`} aria-hidden="true" />
             <div className="host-main">
               <b>Hermes</b>
-              <span className="set-hint" role="status">{state.title}.{state.detail ? ` ${state.detail}` : ''}</span>
+              <span className="set-hint" role="status">{state.detail?.startsWith(state.title) ? state.detail : `${state.title}.${state.detail ? ` ${state.detail}` : ''}`}</span>
             </div>
             <button type="button" className="btn sm" onClick={p.onRecheck} disabled={p.checking}>{p.checking ? 'Checking…' : 'Check again'}</button>
           </div>
