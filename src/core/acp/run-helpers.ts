@@ -61,9 +61,9 @@ export function commandNamesPath(command: string, target: string): boolean {
 export const MAX_CARD_WAIT_MS = MAX_TIMER_MS - 120_000;
 
 /** The card's wait for an agent's request, in ms: what the owner's setting gives (a number or a function read at each request), else the agent's default. Never above MAX_CARD_WAIT_MS. */
-export function permissionWaitOf(setting: number | (() => number | undefined) | undefined): number {
+export function permissionWaitOf(setting: number | ((entry: AcpEntry) => number | undefined) | undefined, entry?: AcpEntry): number {
   let ms: number | undefined;
-  try { ms = typeof setting === 'function' ? setting() : setting; } catch { ms = undefined; }
+  try { ms = typeof setting === 'function' ? (entry ? setting(entry) : undefined) : setting; } catch { ms = undefined; }
   return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_CARD_WAIT_MS) : HERMES_SELF_DENY_MS;
 }
 
@@ -71,9 +71,9 @@ export function permissionWaitOf(setting: number | (() => number | undefined) | 
  * How long a card raised inside an agent's tool call may stay open, in ms: what the setting gives (a number, or a function read at each run), else 270 s,
  * the margin below the 300 s the agent allows a tool call. Never above MAX_CARD_WAIT_MS.
  */
-export function toolWaitOf(setting: number | (() => number | undefined) | undefined): number {
+export function toolWaitOf(setting: number | ((entry: AcpEntry) => number | undefined) | undefined, entry?: AcpEntry): number {
   let ms: number | undefined;
-  try { ms = typeof setting === 'function' ? setting() : setting; } catch { ms = undefined; }
+  try { ms = typeof setting === 'function' ? (entry ? setting(entry) : undefined) : setting; } catch { ms = undefined; }
   return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_CARD_WAIT_MS) : RUN_TOOL_WAIT_MAX_S * 1000;
 }
 

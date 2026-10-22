@@ -169,9 +169,9 @@ export interface EngineDeps {
      * How long a card for an agent request stays open (ms), or a function that gives it, read at each request. Default 300 s: the agent denies
      * the request itself then. The agent's own setting for that wait (its approvals timeout) is read by the agent host detection and fed in here.
      */
-    permissionWaitMs?: number | (() => number | undefined);
+    permissionWaitMs?: number | ((entry: AcpEntry) => number | undefined);
     /** How long a card raised inside an agent's tool call may stay open (ms), counted from the call, or a function that gives it, read at each run. Default 270 s. The agent's own tool-call timeout is read by the agent host detection and fed in here. */
-    toolWaitMs?: number | (() => number | undefined);
+    toolWaitMs?: number | ((entry: AcpEntry) => number | undefined);
     cancelGraceMs?: number;
     /** Told when a run on an agent host starts, so the core can read the agent's own settings in the background. Never awaited; a throw is ignored. */
     onRunStart?: (entry: AcpEntry) => void;
@@ -3081,7 +3081,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const lead = [...(settings ? [`This touches ${settings}`] : []), ...(bypass && unreadable ? [`Legion cannot tell which files this touches: ${unreadable}. So it asks you, even in Bypass.`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : [])];
     const answer = await this.approvals.requestAcp(job.taskId, agent.id, {
       toolName: r.toolName, title: r.title, summary: cardSummary(r, lead), input: r.input, options: shown,
-      waitMs: permissionWaitOf(this.agentHost?.permissionWaitMs),
+      waitMs: permissionWaitOf(this.agentHost?.permissionWaitMs, entry),
       ...(o ? { origin: { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } } : {}), ...(projectId ? { projectId } : {}),
     });
     if (answer.kind === 'option') return { optionId: answer.optionId };
@@ -3089,12 +3089,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /** Legion's tools for one run, handed to the run key. A tool call waits at most as long as the agent host does, card time included. */
-  private acpRunHost(job: Job, agent: AgentProfile, act: Active): RunToolsHost {
+  private acpRunHost(job: Job, agent: AgentProfile, act: Active, entry: AcpEntry): RunToolsHost {
     const taskId = job.taskId;
     const servers: RunToolsHost['servers'] = {};
     for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act, 'acp'))) if (cfg.type === 'sdk') servers[name] = cfg;
     const decide = this.toolDecider(job, agent);
-    const waitMs = toolWaitOf(this.agentHost?.toolWaitMs);
+    const waitMs = toolWaitOf(this.agentHost?.toolWaitMs, entry);
     return {
       servers, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the deadline is this call's own; a card it raises closes at the deadline, or at once when the agent host cancels this one call
@@ -3190,7 +3190,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const mcpServers: AcpStdioServer[] = [];
       if (entryLimits(entry).legionTools) {
         token = host.issueRunToken ? host.issueRunToken(taskId, agent.id) : issueRunToken(taskId, agent.id);
-        token.bind(this.acpRunHost(job, agent, act));
+        token.bind(this.acpRunHost(job, agent, act, entry));
         mcpServers.push(shimServer(token.token, host.port));
       }
       const stored = this.store.getTask(taskId)?.acp;

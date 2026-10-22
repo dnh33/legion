@@ -147,9 +147,9 @@ export function agentWaits(entry: Pick<AcpEntry, 'id'>): { permissionWaitMs: num
   return w ? { permissionWaitMs: w.permissionWaitMs, toolWaitMs: w.toolWaitMs } : undefined;
 }
 
-/** Getters for the engine's two wait settings, read at each request or run. `undefined` means "the agent's default". */
-export function hostWaitSeams(entry: () => AcpEntry | undefined): { permissionWaitMs: () => number | undefined; toolWaitMs: () => number | undefined } {
-  const of = (pick: 'permissionWaitMs' | 'toolWaitMs') => (): number | undefined => { const e = entry(); return e ? agentWaits(e)?.[pick] : undefined; };
+/** Getters for the engine's two wait settings, read at each request or run for the entry that asks. `undefined` means "the agent's default": the values were read from Hermes's own settings, so they apply to Hermes and to no other agent host. */
+export function hostWaitSeams(): { permissionWaitMs: (entry: AcpEntry) => number | undefined; toolWaitMs: (entry: AcpEntry) => number | undefined } {
+  const of = (pick: 'permissionWaitMs' | 'toolWaitMs') => (e: AcpEntry): number | undefined => (isHermes(e) ? agentWaits(e)?.[pick] : undefined);
   return { permissionWaitMs: of('permissionWaitMs'), toolWaitMs: of('toolWaitMs') };
 }
 

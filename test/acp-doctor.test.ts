@@ -17,7 +17,7 @@ import {
   CHECK_TIMEOUT_MS, DETECT_TTL_MS, TESTED_HERMES, agentWaits, detectAgent, forgetDetections, hostWaitSeams, noteAgentVersion, noteAuthFailure, peekDetection, warmHermes,
 } from '../src/core/acp/detect.js';
 import { agentDoctorRows } from '../src/core/acp/doctor-rows.js';
-import { permissionWaitOf, toolWaitOf } from '../src/core/acp/run-helpers.js';
+import { MAX_CARD_WAIT_MS, permissionWaitOf, toolWaitOf } from '../src/core/acp/run-helpers.js';
 import { runDoctor } from '../src/core/doctor.js';
 import { getCatalog } from '../src/core/catalog.js';
 import { defaultConfig } from '../src/shared/config.js';
@@ -338,13 +338,32 @@ test('R38: a value that is not a positive number is ignored', async () => {
 });
 
 test('R38: the seams the engine reads give the cached values, and Hermes defaults before anything is known', async () => {
-  const seams = hostWaitSeams(() => BUILTIN_HERMES);
-  assert.equal(permissionWaitOf(seams.permissionWaitMs), 300_000, 'nothing known yet');
-  assert.equal(toolWaitOf(seams.toolWaitMs), 270_000);
+  const seams = hostWaitSeams();
+  assert.equal(permissionWaitOf(seams.permissionWaitMs, BUILTIN_HERMES), 300_000, 'nothing known yet');
+  assert.equal(toolWaitOf(seams.toolWaitMs, BUILTIN_HERMES), 270_000);
   ownConfig({ 'approvals.timeout': 45, 'timeouts.mcp.tool_call': 20 });
   await detectAgent(BUILTIN_HERMES, deps());
-  assert.equal(permissionWaitOf(seams.permissionWaitMs), 45_000);
-  assert.equal(toolWaitOf(seams.toolWaitMs), 10_000);
+  assert.equal(permissionWaitOf(seams.permissionWaitMs, BUILTIN_HERMES), 45_000);
+  assert.equal(toolWaitOf(seams.toolWaitMs, BUILTIN_HERMES), 10_000);
+});
+
+test('the waits read from Hermes apply to the Hermes entry only, never to another agent host', async () => {
+  const seams = hostWaitSeams();
+  ownConfig({ 'approvals.timeout': 45, 'timeouts.mcp.tool_call': 20 });
+  await detectAgent(BUILTIN_HERMES, deps());
+  const other = { ...BUILTIN_HERMES, id: 'acp-other', label: 'Other', command: 'other-agent' };
+  assert.equal(permissionWaitOf(seams.permissionWaitMs, BUILTIN_HERMES), 45_000);
+  assert.equal(permissionWaitOf(seams.permissionWaitMs, other), 300_000, 'another agent keeps the default card wait');
+  assert.equal(toolWaitOf(seams.toolWaitMs, other), 270_000);
+});
+
+test('the tool-call card wait is cut to the timer limit and a bad value falls back to 270 s', () => {
+  assert.equal(toolWaitOf(1e300), MAX_CARD_WAIT_MS);
+  assert.equal(toolWaitOf(3e9), MAX_CARD_WAIT_MS);
+  assert.equal(toolWaitOf(Number.NaN), 270_000);
+  assert.equal(toolWaitOf(-5), 270_000);
+  assert.equal(toolWaitOf(() => { throw new Error('seam failed'); }), 270_000);
+  assert.equal(toolWaitOf(45_000), 45_000);
 });
 
 // ------------------------------------------------------------------ Doctor rows: the rulings
