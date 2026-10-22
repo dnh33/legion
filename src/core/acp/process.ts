@@ -10,8 +10,9 @@
  *    the 2024 security fix), so it runs as `cmd.exe /d /v:off /s /c "<one quoted line>"`, the documented way:
  *    https://nodejs.org/api/child_process.html ("Spawning .bat and .cmd files on Windows": spawn cmd.exe with the file as an argument,
  *    quote a name with spaces). Nothing is escaped: a path or argument with a character cmd.exe could read as syntax is refused.
- *  - The child environment is the user's own (pass-through: the agent may read its provider keys), minus Legion's control variables and
- *    any value that holds a Legion secret.
+ *  - The child environment is cleaned exactly like a Claude agent's (`scrubSecretEnv`: key, token and password names and values stripped,
+ *    the owner's signed `envKeep` list passes named variables), and Legion's control variables (LEGION_*) and any value that holds a
+ *    Legion secret are always removed, also when the keep list names them. The HERMES_* skip flags follow `stripSkipFlags`.
  *  - Stopping closes stdin, waits, then kills the one PID. It never kills the tree: the agent's background service must outlive this client.
  *  - Every started PID is written to <dataDir>/acp-pids.json and swept at the next start, with an identity check against PID reuse.
  */
@@ -21,6 +22,7 @@ import { basename, delimiter, dirname, extname, isAbsolute, join } from 'node:pa
 import { type AcpEntry, containedArgs } from '../../shared/acp-view.js';
 import { scrubHostSessionEnv } from '../../shared/config.js';
 import { redact, registerSecret, unregisterSecret } from '../log/redact.js';
+import { scrubSecretEnv } from '../env-scrub.js';
 import { type RenameRetryDeps, renameWithRetry } from '../../shared/rename-retry.js';
 import { type RpcIo, lineSplitter } from './rpc.js';
 
@@ -91,13 +93,14 @@ function setEnv(out: Record<string, string>, name: string, value: string, platfo
 }
 
 /**
- * host env (without Claude host-session plumbing) -> drop LEGION_* and values holding a Legion secret -> entry env -> extra env ->
- * (switch on) drop the skip flags. Not the generic *_KEY / *_TOKEN scrub: the agent is the user's own program and reads its provider keys.
+ * host env (without Claude host-session plumbing) -> the same cleaning as a Claude agent's (`scrubSecretEnv`: key, token and password
+ * names and values, code-loading variables; the owner's signed `envKeep` list passes named variables) -> drop LEGION_* and values holding
+ * a Legion secret, also for a kept name -> entry env -> extra env -> (switch on) drop the skip flags.
  */
-export function buildAgentEnv(o: { entryEnv?: Record<string, string> | undefined; extraEnv?: Record<string, string> | undefined; stripSkipFlags: boolean; base?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): Record<string, string> {
+export function buildAgentEnv(o: { entryEnv?: Record<string, string> | undefined; extraEnv?: Record<string, string> | undefined; stripSkipFlags: boolean; envKeep?: readonly string[] | undefined; base?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): Record<string, string> {
   const platform = o.platform ?? process.platform;
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...(o.base ?? process.env) }))) {
+  for (const [k, v] of Object.entries(scrubSecretEnv(scrubHostSessionEnv({ ...(o.base ?? process.env) }), { keep: o.envKeep ?? [] }))) {
     if (v === undefined || /^LEGION_/i.test(k)) continue;
     const lower = v.toLowerCase();
     if (legionSecrets.some((s) => lower.includes(s))) continue;
@@ -416,11 +419,11 @@ type SpawnFn = (file: string, args: readonly string[], options: SpawnOptions) =>
 
 export function startAgentProcess(
   entry: AcpEntry,
-  opts: { cwd: string; extraEnv?: Record<string, string>; stripSkipFlags: boolean; dataDir: string },
+  opts: { cwd: string; extraEnv?: Record<string, string>; stripSkipFlags: boolean; dataDir: string; /** The owner's signed keep list (`envKeep`, as the Claude child gets it). The caller reads it; this file reads no config. */ envKeep?: readonly string[] },
   deps: { spawn?: SpawnFn } = {},
 ): AgentProcess {
   requireSecrets();
-  const env = buildAgentEnv({ entryEnv: entry.env, extraEnv: opts.extraEnv, stripSkipFlags: opts.stripSkipFlags });
+  const env = buildAgentEnv({ entryEnv: entry.env, extraEnv: opts.extraEnv, stripSkipFlags: opts.stripSkipFlags, envKeep: opts.envKeep });
   const spec = launchSpec(entry.command, containedArgs(entry), env);
   let child: ChildProcess;
   try {
@@ -517,14 +520,14 @@ export function startAgentProcess(
 export async function runAgentCli(
   command: string,
   args: string[],
-  opts: { timeoutMs: number; env?: NodeJS.ProcessEnv; cwd?: string },
+  opts: { timeoutMs: number; env?: NodeJS.ProcessEnv; cwd?: string; /** The owner's signed keep list, as for `startAgentProcess`. */ envKeep?: readonly string[] },
 ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   const failed = (message: string) => ({ code: null, stdout: '', stderr: redact(message), timedOut: false });
   let env: Record<string, string>;
   let spec: LaunchSpec;
   try {
     requireSecrets();
-    env = buildAgentEnv({ base: opts.env ?? process.env, stripSkipFlags: false }); // a caller's env passes the same filter as an agent's
+    env = buildAgentEnv({ base: opts.env ?? process.env, stripSkipFlags: false, envKeep: opts.envKeep }); // a caller's env passes the same filter as an agent's
     spec = launchSpec(command, args, env);
   } catch (e) { return failed(e instanceof Error ? e.message : String(e)); }
   return await new Promise((resolve) => {

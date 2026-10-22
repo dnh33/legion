@@ -34,8 +34,8 @@ async function waitFor(cond: () => boolean, ms = 8000): Promise<void> {
   const end = Date.now() + ms;
   while (!cond()) { if (Date.now() > end) throw new Error('waitFor timed out'); await sleep(25); }
 }
-function begin(e: AcpEntry, o: { stripSkipFlags?: boolean; extraEnv?: Record<string, string>; dataDir?: string; cwd?: string } = {}): AgentProcess {
-  const p = startAgentProcess(e, { cwd: o.cwd ?? tempDir('acp-cwd-'), stripSkipFlags: o.stripSkipFlags ?? false, dataDir: o.dataDir ?? tempDir('acp-data-'), ...(o.extraEnv ? { extraEnv: o.extraEnv } : {}) });
+function begin(e: AcpEntry, o: { stripSkipFlags?: boolean; extraEnv?: Record<string, string>; envKeep?: string[]; dataDir?: string; cwd?: string } = {}): AgentProcess {
+  const p = startAgentProcess(e, { cwd: o.cwd ?? tempDir('acp-cwd-'), stripSkipFlags: o.stripSkipFlags ?? false, dataDir: o.dataDir ?? tempDir('acp-data-'), ...(o.extraEnv ? { extraEnv: o.extraEnv } : {}), ...(o.envKeep ? { envKeep: o.envKeep } : {}) });
   started.push(p);
   return p;
 }
@@ -177,24 +177,55 @@ test('runAgentCli (Windows): a .cmd with spaces in its path runs with quoted arg
 
 // ---------------------------------------------------------------- environment
 
-test('env: pass-through of the user environment, minus Legion control variables and Legion secrets, plus entry and extra env', async () => {
+test('env: the user environment is cleaned like a Claude agent\'s, minus Legion control variables and Legion secrets, plus entry and extra env', async () => {
   const token = 'tok_0123456789abcdef0123456789abcdef';
   const admin = 'adm_fedcba9876543210fedcba9876543210';
   registerLegionSecrets([token, admin]);
-  await withEnv({ LEGION_PORT: '4747', LEGION_HOME: 'C:\\legion', HERMES_HOME: 'C:\\hh', OPENAI_API_KEY: 'sk-user-key-1234', CLAUDECODE: '1', HOLDS_TOKEN: `x-${token.toUpperCase()}-y`, HOLDS_ADMIN: `${admin}`, PLAIN_VAR: 'plain' }, async () => {
+  await withEnv({ LEGION_PORT: '4747', LEGION_HOME: 'C:\\legion', HERMES_HOME: 'C:\\hh', OPENAI_API_KEY: 'sk-user-key-1234', GITHUB_TOKEN: 'ghp_userToken1234', AWS_SECRET_ACCESS_KEY: 'aws-secret-1234', DATABASE_URL: 'postgres://u:pw@host/db', CLAUDECODE: '1', HOLDS_A: `x-${token.toUpperCase()}-y`, HOLDS_B: `${admin}`, PLAIN_VAR: 'plain' }, async () => {
     const report = join(tempDir('acp-rep-'), 'r.json');
     const p = begin({ ...entry('ok', ['--report', report]), env: { FROM_ENTRY: 'e', PLAIN_VAR: 'overridden' } }, { extraEnv: { FROM_EXTRA: 'x' } });
     await handshake(p);
     const env = reportOf(report).env as Record<string, string>;
     assert.equal(env.HERMES_HOME, 'C:\\hh');
-    assert.equal(env.OPENAI_API_KEY, 'sk-user-key-1234', 'the agent reads its own provider keys');
     assert.equal(env.FROM_ENTRY, 'e');
     assert.equal(env.FROM_EXTRA, 'x');
     assert.equal(env.PLAIN_VAR, 'overridden');
-    for (const k of ['LEGION_PORT', 'LEGION_HOME', 'CLAUDECODE', 'HOLDS_TOKEN', 'HOLDS_ADMIN']) assert.ok(!(k in env), `${k} is not passed`);
+    for (const k of ['LEGION_PORT', 'LEGION_HOME', 'CLAUDECODE', 'HOLDS_A', 'HOLDS_B', 'OPENAI_API_KEY', 'GITHUB_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'DATABASE_URL']) assert.ok(!(k in env), `${k} is not passed`);
     for (const v of Object.values(env)) assert.ok(!v.toLowerCase().includes(token.toLowerCase()) && !v.includes(admin), 'no value holds a Legion secret');
   });
   registerLegionSecrets([]);
+});
+
+test('env: a variable named in the keep list passes (exact name in any case, or a prefix ending in *); other secret-looking ones stay out', async () => {
+  await withEnv({ OPENAI_API_KEY: 'sk-user-key-1234', MYCO_API_KEY: 'myco-1', MYCO_OTHER_TOKEN: 'myco-2', GITHUB_TOKEN: 'ghp_userToken1234', PLAIN_VAR: 'plain' }, async () => {
+    const report = join(tempDir('acp-rep-'), 'r.json');
+    const p = begin(entry('ok', ['--report', report]), { envKeep: ['openai_api_key', 'MYCO_*'] });
+    await handshake(p);
+    const env = reportOf(report).env as Record<string, string>;
+    assert.equal(env.OPENAI_API_KEY, 'sk-user-key-1234');
+    assert.equal(env.MYCO_API_KEY, 'myco-1');
+    assert.equal(env.MYCO_OTHER_TOKEN, 'myco-2');
+    assert.equal(env.PLAIN_VAR, 'plain');
+    assert.ok(!('GITHUB_TOKEN' in env), 'a secret-looking name that is not listed stays out');
+  });
+});
+
+test('env: Legion\'s own secrets and LEGION_* are removed even when the keep list names them', async () => {
+  const token = 'tok_keepme_0123456789abcdef0123456789';
+  const perRun = 'run_keepme_0123456789abcdef01234567';
+  registerLegionSecrets([token]);
+  addLegionSecret(perRun);
+  try {
+    await withEnv({ LEGION_HOME: 'C:\\legion', LEGION_PORT: '4747', MY_KEPT_VAR: `a-${token}-b`, MY_RUN_VAR: perRun, ANOTHER_KEY: 'plain-key-value', PLAIN_VAR: 'plain' }, async () => {
+      const report = join(tempDir('acp-rep-'), 'r.json');
+      const p = begin(entry('ok', ['--report', report]), { envKeep: ['MY_KEPT_VAR', 'MY_RUN_VAR', 'LEGION_HOME', 'LEGION_*', 'ANOTHER_KEY'] });
+      await handshake(p);
+      const env = reportOf(report).env as Record<string, string>;
+      for (const k of ['MY_KEPT_VAR', 'MY_RUN_VAR', 'LEGION_HOME', 'LEGION_PORT']) assert.ok(!(k in env), `${k} is removed although the keep list names it`);
+      assert.equal(env.ANOTHER_KEY, 'plain-key-value', 'an ordinary kept variable still passes');
+      assert.equal(env.PLAIN_VAR, 'plain');
+    });
+  } finally { registerLegionSecrets([]); clearRegisteredSecrets(); }
 });
 
 test('env: stripSkipFlags false passes the skip flags, true removes all five', async () => {
@@ -217,6 +248,18 @@ test('env: stripSkipFlags false passes the skip flags, true removes all five', a
 test('buildAgentEnv: names match without regard to case on Windows', () => {
   const env = buildAgentEnv({ base: { Hermes_Yolo_Mode: '1', Path: 'p' }, extraEnv: { PATH: 'q' }, stripSkipFlags: true, platform: 'win32' });
   assert.deepEqual(env, { PATH: 'q' });
+});
+
+test('buildAgentEnv: HERMES_* skip flags follow stripSkipFlags, and the scrub leaves them alone', () => {
+  const base = { HERMES_YOLO_MODE: '1', HERMES_IGNORE_RULES: '1', HERMES_HOME: 'h', GITHUB_TOKEN: 't', PATH: 'p' } as NodeJS.ProcessEnv;
+  assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: false }), { HERMES_YOLO_MODE: '1', HERMES_IGNORE_RULES: '1', HERMES_HOME: 'h', PATH: 'p' });
+  assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: true }), { HERMES_HOME: 'h', PATH: 'p' });
+  assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: true, envKeep: ['GITHUB_TOKEN'] }), { HERMES_HOME: 'h', GITHUB_TOKEN: 't', PATH: 'p' });
+});
+
+test('buildAgentEnv: the same cleaning as the Claude child (scrubSecretEnv): code-loading variables go, PATH, HOME and the proxy stay', () => {
+  const base = { NODE_OPTIONS: '--require x', LD_PRELOAD: 'x.so', HTTP_PROXY: 'http://u:pw@proxy:8080', PATH: 'p', HOME: 'h', TOKENIZERS_PARALLELISM: 'false' } as NodeJS.ProcessEnv;
+  assert.deepEqual(buildAgentEnv({ base, stripSkipFlags: false }), { HTTP_PROXY: 'http://u:pw@proxy:8080', PATH: 'p', HOME: 'h', TOKENIZERS_PARALLELISM: 'false' });
 });
 
 // ---------------------------------------------------------------- stop and kill
@@ -518,6 +561,21 @@ test('runAgentCli: an env passed by the caller goes through the same filter (LEG
     const env = JSON.parse(r.stdout) as Record<string, string>;
     assert.equal(env.KEEP_ME, 'k');
     assert.ok(!('LEGION_PORT' in env) && !('HOLDS' in env));
+  } finally { registerLegionSecrets([]); }
+});
+
+test('runAgentCli: the caller\'s env is cleaned like a Claude agent\'s; the keep list passes a named variable; Legion secrets never pass', async () => {
+  const token = 'tok_cli2_0123456789abcdef0123456789ab';
+  registerLegionSecrets([token]);
+  try {
+    const env = { ...process.env, GITHUB_TOKEN: 'ghp_x1234567', OPENAI_API_KEY: 'sk-cli-1234', HOLDS: `a-${token}-b`, KEEP_ME: 'k' } as NodeJS.ProcessEnv;
+    const run = async (envKeep?: string[]) => JSON.parse((await runAgentCli(process.execPath, ['-e', 'console.log(JSON.stringify(process.env))'], { timeoutMs: 15_000, env, ...(envKeep ? { envKeep } : {}) })).stdout) as Record<string, string>;
+    const plain = await run();
+    assert.equal(plain.KEEP_ME, 'k');
+    for (const k of ['GITHUB_TOKEN', 'OPENAI_API_KEY', 'HOLDS']) assert.ok(!(k in plain), `${k} is not passed`);
+    const kept = await run(['OPENAI_API_KEY', 'HOLDS']);
+    assert.equal(kept.OPENAI_API_KEY, 'sk-cli-1234');
+    assert.ok(!('GITHUB_TOKEN' in kept) && !('HOLDS' in kept), 'a Legion secret is removed even when listed');
   } finally { registerLegionSecrets([]); }
 });
 
