@@ -614,14 +614,14 @@ test('item 9: Settings, Agent hosts with Hermes not installed offers no Containe
     const base = { checking: false, contained: null, containedBusy: false, onSwitch() {}, onWatchdog() {}, onContained() {}, onToggle() {}, onRecheck() {} };
     const detail = 'Hermes is not installed. Install it from hermes-agent.nousresearch.com, then check again.';
     // an old result and the Contained switch on from before Hermes went missing
-    const gone = unesc(r.hosts({ ...base, acp: acp({ contained: true, detection: { state: 'missing', checked: true, detail } }), contained: { kind: 'setup', ok: true, detail: 'The Legion profile is ready.', signInCommand: 'hermes -p legion setup model' } }));
+    const gone = unesc(r.hosts({ ...base, acp: acp({ contained: true, detection: { state: 'missing', checked: true, detail } }), contained: { kind: 'setup', ok: true, detail: 'The Contained profile is ready.', signInCommand: 'hermes -p legion setup model' } }));
     assert.doesNotMatch(gone, /profile is ready|>Set up<|>Check<|hermes -p legion/, 'no stale result, no actions');
     assert.ok(gone.includes(CONTAINED_NEEDS_HERMES), 'one plain line says why');
     assert.match(gone, /disabled=""[^>]*\/?><span><b>Contained/);
     assert.ok(gone.includes('<span class="nb">hermes-agent.nousresearch.com</span>'), 'the address stays on one line');
-    const found = unesc(r.hosts({ ...base, acp: acp({ contained: true }), contained: { kind: 'setup', ok: true, detail: 'The Legion profile is ready.' } }));
+    const found = unesc(r.hosts({ ...base, acp: acp({ contained: true }), contained: { kind: 'setup', ok: true, detail: 'The Contained profile is ready.' } }));
     assert.match(found, />Set up</);
-    assert.ok(found.includes('The Legion profile is ready.'));
+    assert.ok(found.includes('The Contained profile is ready.'));
     assert.ok(!found.includes(CONTAINED_NEEDS_HERMES));
   } finally { cleanup(); }
   assert.doesNotMatch(CONTAINED_NEEDS_HERMES, NO_DASH);
@@ -915,4 +915,13 @@ test('W4 M9: a long Hermes option name is cut to about 60 characters with the wh
     assert.doesNotMatch(html, /<button[^>]*title="Deny"/, 'a short name has no tooltip');
   } finally { cleanup(); }
   assert.match(src('ui/src/styles/app.css'), /\.acp-card \.approval-actions \.btn:not\(\.sm\) \{[^}]*height: auto;[^}]*min-height: 30px;[^}]*white-space: normal/);
+});
+
+test('W4 M4: the Contained profile has one name in user text and docs; `legion` is named where the owner types a command and once in the switch hint', () => {
+  for (const f of ['src/core/acp/contained.ts', 'src/core/acp/doctor-rows.ts', 'src/shared/acp-copy.ts', 'docs/design/agent-host.md', 'SECURITY.md', 'README.md', 'CHANGELOG.md']) {
+    assert.doesNotMatch(src(f), /Legion profile|the `legion` profile/, `${f} says "the Contained profile"`);
+  }
+  assert.ok(CONTAINED_SWITCH_HINT.includes('the Contained profile, a Hermes profile named legion'));
+  assert.ok(CONTAINED_OFF_HINT.includes('the Contained profile, a Hermes profile named legion'));
+  assert.ok(!CONTAINED_CHECKS.includes('named legion'), 'the name is stated once, in the switch hint');
 });

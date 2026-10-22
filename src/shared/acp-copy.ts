@@ -49,11 +49,11 @@ export function loosenedSwitches(current: AcpSwitches, patch: Partial<AcpSwitche
 }
 
 /** What the Contained read-back checks, said once: the core's check result and the Settings switch both use these words. */
-export const CONTAINED_CHECKS = "that the Legion profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login";
+export const CONTAINED_CHECKS = "that the Contained profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login";
 /** The Contained switch text in Settings. It says what is checked and that the main Hermes sign-in may be used (R53); it claims nothing more. */
-export const CONTAINED_SWITCH_HINT = `Runs Hermes in its own profile named legion. Set up and Check read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
+export const CONTAINED_SWITCH_HINT = `Runs Hermes in the Contained profile, a Hermes profile named legion. Set up and Check read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
 /** The same text while Contained is off: Set up and Check are not on the page yet, so it does not name them. */
-export const CONTAINED_OFF_HINT = `Runs Hermes in its own profile named legion. Once it is on, Legion can read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
+export const CONTAINED_OFF_HINT = `Runs Hermes in the Contained profile, a Hermes profile named legion. Once it is on, Legion can read back ${CONTAINED_CHECKS}. It may use your main Hermes sign-in.`;
 
 /**
  * Hermes's short title for a request next to the words the card already shows. The title is only worth a second line when it says something the

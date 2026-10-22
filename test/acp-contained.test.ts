@@ -227,7 +227,7 @@ test('the profile does not borrow the login of another program: the setting is w
 });
 
 test('the detail text claims only what the read-back proves, in these exact words', async () => {
-  const CLAIM = "Hermes reports that the Legion profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login. Tools you add to that profile yourself are not checked.";
+  const CLAIM = "Hermes reports that the Contained profile asks before commands it marks as dangerous, that its tool list for Legion runs is set to file tools, and that it does not borrow your Claude Code login or another coding tool's login. Tools you add to that profile yourself are not checked.";
   const up = await setUpContained(BUILTIN_HERMES);
   const st = await containedStatus(BUILTIN_HERMES);
   for (const t of [up.detail, st.detail]) {
@@ -442,7 +442,7 @@ test('the run-time gate: a Contained run is blocked until the profile passes, th
   let now = 1_000_000;
   const clock = () => now;
   const none = await containedRunBlock(C, undefined, clock);
-  assert.match(none ?? '', /Legion profile/, 'no profile yet');
+  assert.match(none ?? '', /Contained profile/, 'no profile yet');
   await setUpContained(BUILTIN_HERMES); // clears the cache
   writeFileSync(log, '');
   assert.equal(await containedRunBlock(C, undefined, clock), undefined, 'a passing profile starts');

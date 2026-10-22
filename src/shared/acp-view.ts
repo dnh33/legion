@@ -13,7 +13,7 @@ export interface AcpEntry {
   /** True only for entries Legion ships and has tested. A user-added entry is always false. */
   tested: boolean;
   enabled: boolean;
-  /** Hermes only: run it in a Legion profile named `legion` (`-p legion`) instead of the user's own Hermes home. */
+  /** Hermes only: run it in a Hermes profile named `legion` (`-p legion`) instead of the user's own Hermes home. */
   contained?: boolean;
   /** Optional limits, all absent (off) until set. A "step" is one tool call the agent makes. */
   maxSteps?: number;
@@ -48,7 +48,7 @@ export const ACP_WATCHDOG_DEFAULT_MINUTES = 10;
 export const ACP_WATCHDOG_MIN_MINUTES = 1;
 export const ACP_WATCHDOG_MAX_MINUTES = 120;
 
-/** The arguments to start an entry: its own, or the Legion profile form when it is contained. */
+/** The arguments to start an entry: its own, or the Contained profile form when it is contained. */
 export function containedArgs(e: AcpEntry): string[] {
   return e.contained ? ['-p', 'legion', 'acp'] : [...e.args];
 }

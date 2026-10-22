@@ -101,7 +101,7 @@ async function policyProblems(go: ReturnType<typeof runner>, entry: AcpEntry): P
     const r = await go(entry, ['-p', CONTAINED_PROFILE, 'config', 'get', p.key, '--json']);
     if (notStarted(r)) return { problems, startFailed: r };
     const j = r.code === 0 ? asJson(r.stdout) : { ok: false as const };
-    if (!j.ok) { problems.push(`Hermes did not report ${p.key} for the Legion profile (${why(r)}).`); continue; }
+    if (!j.ok) { problems.push(`Hermes did not report ${p.key} for the Contained profile (${why(r)}).`); continue; }
     if (JSON.stringify(j.value) !== JSON.stringify(p.want)) problems.push(`${p.key} is ${shown(j.value)}, not ${shown(p.want)}.`);
   }
   // A command on the profile's always-allow list runs without Hermes asking (tools/approval.py:1177-1178), so a kept profile with entries breaks the promise.
@@ -110,10 +110,10 @@ async function policyProblems(go: ReturnType<typeof runner>, entry: AcpEntry): P
   if (notStarted(allow)) return { problems, startFailed: allow };
   if (allow.code === 0) {
     const j = asJson(allow.stdout);
-    if (!j.ok) problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Legion profile (${why(allow)}).`);
-    else if (!emptyList(j.value)) problems.push(`${ALLOWLIST_KEY} is not empty for the Legion profile, so the commands on it run without asking you. Clear it with: ${signInCommand(entry).replace(/ setup model$/, '')} config unset ${ALLOWLIST_KEY}`);
+    if (!j.ok) problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Contained profile (${why(allow)}).`);
+    else if (!emptyList(j.value)) problems.push(`${ALLOWLIST_KEY} is not empty for the Contained profile, so the commands on it run without asking you. Clear it with: ${signInCommand(entry).replace(/ setup model$/, '')} config unset ${ALLOWLIST_KEY}`);
   } else if (!/not set/i.test(`${clean(allow.stderr)} ${clean(allow.stdout)}`)) {
-    problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Legion profile (${why(allow)}).`);
+    problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Contained profile (${why(allow)}).`);
   }
   return { problems };
 }
@@ -133,7 +133,7 @@ async function profileExists(go: ReturnType<typeof runner>, entry: AcpEntry): Pr
   if (/does not exist/i.test(clean(`${r.stderr}\n${r.stdout}`))) return { exists: false };
   return { exists: false, failed: r };
 }
-const readFailure = (r: Out) => `Hermes could not read the Legion profile: ${why(r)}.`;
+const readFailure = (r: Out) => `Hermes could not read the Contained profile: ${why(r)}.`;
 
 /** Read only: does the profile exist, is it signed in, and does it keep the Contained settings. */
 export function containedStatus(entry: AcpEntry, deps?: ContainedDeps): Promise<AcpContainedStatus> {
@@ -169,7 +169,7 @@ export async function containedRunBlock(entry: AcpEntry, deps?: ContainedDeps, n
     gate = { key, at: now(), status };
   }
   if (status.policyOk) return undefined;
-  return `${entry.label} is set to Contained, but its Legion profile does not match what Contained promises, so Legion did not start it. ${status.detail} Open Settings, Agent hosts, and use Set up or Check.`;
+  return `${entry.label} is set to Contained, but its Contained profile does not match what Contained promises, so Legion did not start it. ${status.detail} Open Settings, Agent hosts, and use Set up or Check.`;
 }
 
 let inflightCheck: Promise<AcpContainedStatus> | undefined;
@@ -180,7 +180,7 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   const found = await profileExists(go, entry);
   if (found.startFailed) return { exists: false, signedIn: false, policyOk: false, detail: startFailure(found.startFailed) };
   if (found.failed) return { exists: false, signedIn: false, policyOk: false, detail: readFailure(found.failed) };
-  if (!found.exists) return { exists: false, signedIn: false, policyOk: false, detail: 'The Legion profile has not been set up yet.' };
+  if (!found.exists) return { exists: false, signedIn: false, policyOk: false, detail: 'The Contained profile has not been set up yet.' };
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return { exists: true, signedIn: false, policyOk: false, detail: startFailure(policy.startFailed) };
   // Signed in = Hermes lists at least one credential it can use for the profile: its own sign-in, a key in its environment, or the main
@@ -192,7 +192,7 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   const parts = [
     policyOk ? POLICY_HOLDS : policy.problems.join(' '),
     signedIn
-      ? 'Hermes can use a credential for it. That may be your main Hermes sign-in, which a Legion profile can fall back on.'
+      ? 'Hermes can use a credential for it. That may be your main Hermes sign-in, which the Contained profile can fall back on.'
       : `Hermes lists no credential for it yet (a main Hermes sign-in would count too). Run ${signInCommand(entry)} in a terminal to sign in.`,
   ];
   return { exists: true, signedIn, policyOk, detail: parts.join(' ') };
@@ -223,7 +223,7 @@ async function doSetUp(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   if (found.failed) return fail(readFailure(found.failed));
   if (!found.exists) {
     const made = await go(entry, ['profile', 'create', CONTAINED_PROFILE, '--no-alias'], CONTAINED_CREATE_TIMEOUT_MS);
-    if (made.code !== 0) return fail(notStarted(made) ? startFailure(made) : `Hermes could not create the Legion profile: ${why(made)}.`);
+    if (made.code !== 0) return fail(notStarted(made) ? startFailure(made) : `Hermes could not create the Contained profile: ${why(made)}.`);
   }
   for (const p of POLICY) {
     const set = await go(entry, ['-p', CONTAINED_PROFILE, 'config', 'set', p.key, p.set]);
@@ -231,7 +231,7 @@ async function doSetUp(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   }
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return fail(startFailure(policy.startFailed));
-  if (policy.problems.length) return fail(`The Legion profile is not safe to use yet. ${policy.problems.join(' ')}`);
-  const kept = found.exists ? 'The Legion profile already existed, so Legion kept it and set its approval mode, tool list and login setting. ' : 'The Legion profile is ready. ';
+  if (policy.problems.length) return fail(`The Contained profile is not safe to use yet. ${policy.problems.join(' ')}`);
+  const kept = found.exists ? 'The Contained profile already existed, so Legion kept it and set its approval mode, tool list and login setting. ' : 'The Contained profile is ready. ';
   return { ok: true, detail: `${kept}${POLICY_HOLDS} Sign in once: run ${signIn} in a terminal.`, signInCommand: signIn };
 }

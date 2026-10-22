@@ -9,7 +9,7 @@ This note says what runs where, what Legion can and cannot see, which settings c
 - Hermes keeps its own tools, its own model, its own sign-in and its own approvals. By default Legion passes Hermes's questions to you as cards, with Hermes's own buttons, and passes your answer back unchanged.
 - Legion cannot stop a Hermes read, a web fetch or a command that Hermes does not ask about. Hermes's own approvals setting decides what it asks.
 - Four switches, all off, let Legion do more. Turning one to the looser side asks you to confirm first.
-- "Contained" runs Hermes in a Hermes profile named `legion` that Legion sets up and checks. It is not a sandbox.
+- "Contained" runs Hermes in the Contained profile, a Hermes profile named `legion`, that Legion sets up and checks. It is not a sandbox.
 - Legion's own tools reach Hermes through a key made for that one run. It works only on your computer and ends with the run.
 
 ## What runs where
@@ -99,7 +99,7 @@ The card shows the time left. When the time ends, the card stays in the thread, 
 
 ## Contained
 
-Contained is an option in Settings, Agent hosts. When it is on, Legion starts Hermes as `hermes -p legion acp`: a Hermes profile named `legion`, apart from your own Hermes home.
+Contained is an option in Settings, Agent hosts. When it is on, Legion starts Hermes as `hermes -p legion acp`: the Contained profile, a Hermes profile named `legion`, apart from your own Hermes home.
 
 Set up creates the profile when it is missing. It makes a fresh profile (never a copy of yours, no `--clone`) and sets three things:
 
@@ -116,7 +116,7 @@ What Contained does not do:
 - It is not a sandbox. Hermes still runs commands you approve, with your rights.
 - It may use your main Hermes sign-in. Hermes lets a named profile fall back on it. Contained isolates Hermes's settings, tools and approvals, not the provider account.
 - Some other sign-ins can still be picked up by Hermes. The setting covers the Claude Code login and one other coding tool's login, not every source.
-- Tools, servers or plugins you add to the `legion` profile yourself are not checked.
+- Tools, servers or plugins you add to the Contained profile yourself are not checked.
 - A new profile gets a copy of the model setting of the profile that was active when it was made. If your own Hermes model settings hold an API key written straight into the config file, that key can travel into the new profile. A key kept in an environment variable or an `.env` file does not.
 
 You sign the profile in once, in a terminal. Legion shows the command, `hermes -p legion setup model`, and never handles a provider key. Legion checks the profile with Set up, Check and the Doctor. Press Check after you change the profile yourself.
