@@ -1041,3 +1041,28 @@ test('F13: Bypass never answers for a run another agent or app started with a ca
   assert.equal((await owner.done(await owner.run())).status, 'done');
   assert.deepEqual(outcomeOf(owner.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'control: the owner\'s own Bypass run is answered without a card');
 });
+
+// ---------------------------------------------------------------- final wave W1
+
+test('R51: a Contained run does not start while the profile does not match; the agent process is never launched', async () => {
+  const asked: string[] = [];
+  const r = rig({ entry: { contained: true }, agentHost: { containedGate: async (e: AcpEntry) => { asked.push(e.id); return 'Hermes is set to Contained, but command_allowlist is not empty. Open Settings, Agent hosts, and use Set up or Check.'; } } });
+  const t = await r.run();
+  const end = await r.done(t);
+  assert.equal(end.status, 'error');
+  assert.match(end.error ?? '', /command_allowlist/);
+  assert.deepEqual(asked, ['hermes']);
+  assert.equal(existsSync(r.reportFile), false, 'the agent never started');
+  assert.equal(r.tokens.length, 0, 'no run key was issued');
+});
+
+test('R51: a Contained run that passes the gate runs, and an entry that is not Contained never asks the gate', async () => {
+  const asked: string[] = [];
+  const gate = async (e: AcpEntry) => { asked.push(e.id); return undefined; };
+  const a = rig({ entry: { contained: true }, agentHost: { containedGate: gate } });
+  const endA = await a.done(await a.run()); // the Contained launch form is `-p legion acp`, which the fake program is not: it gets past the gate and fails to start
+  assert.doesNotMatch(endA.error ?? '', /Contained|Set up/);
+  const b = rig({ agentHost: { containedGate: gate } });
+  assert.equal((await b.done(await b.run())).status, 'done');
+  assert.deepEqual(asked, ['hermes'], 'only the Contained run asked');
+});

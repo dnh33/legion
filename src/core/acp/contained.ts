@@ -80,7 +80,8 @@ export function signInCommand(entry: Pick<AcpEntry, 'command'>): string {
 function runner(deps: ContainedDeps | undefined) {
   const run = deps?.run ?? runAgentCli;
   // a neutral working folder: nothing of the owner's project or of Legion's own folder
-  return async (entry: AcpEntry, args: string[], timeoutMs = CONTAINED_TIMEOUT_MS): Promise<Out> => ({ ...(await run(entry.command, args, { timeoutMs, cwd: tmpdir() || homedir() })), limitMs: timeoutMs });
+  // the entry's own env goes along (as detect.ts passes it), so a Hermes home the entry sets is the one that is read and written
+  return async (entry: AcpEntry, args: string[], timeoutMs = CONTAINED_TIMEOUT_MS): Promise<Out> => ({ ...(await run(entry.command, args, { timeoutMs, cwd: tmpdir() || homedir(), ...(entry.env ? { entryEnv: entry.env } : {}) })), limitMs: timeoutMs });
 }
 
 /** `--json` prints the value on the last line; a notice Hermes prints before it is skipped. */
@@ -103,8 +104,24 @@ async function policyProblems(go: ReturnType<typeof runner>, entry: AcpEntry): P
     if (!j.ok) { problems.push(`Hermes did not report ${p.key} for the Legion profile (${why(r)}).`); continue; }
     if (JSON.stringify(j.value) !== JSON.stringify(p.want)) problems.push(`${p.key} is ${shown(j.value)}, not ${shown(p.want)}.`);
   }
+  // A command on the profile's always-allow list runs without Hermes asking (tools/approval.py:1177-1178), so a kept profile with entries breaks the promise.
+  // An unset list is the normal case: Hermes answers "Config key not set" and exits non-zero. Legion never clears the owner's entries; it names the fix.
+  const allow = await go(entry, ['-p', CONTAINED_PROFILE, 'config', 'get', ALLOWLIST_KEY, '--json']);
+  if (notStarted(allow)) return { problems, startFailed: allow };
+  if (allow.code === 0) {
+    const j = asJson(allow.stdout);
+    if (!j.ok) problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Legion profile (${why(allow)}).`);
+    else if (!emptyList(j.value)) problems.push(`${ALLOWLIST_KEY} is not empty for the Legion profile, so the commands on it run without asking you. Clear it with: ${signInCommand(entry).replace(/ setup model$/, '')} config unset ${ALLOWLIST_KEY}`);
+  } else if (!/not set/i.test(clean(`${allow.stderr}
+${allow.stdout}`))) {
+    problems.push(`Hermes did not report ${ALLOWLIST_KEY} for the Legion profile (${why(allow)}).`);
+  }
   return { problems };
 }
+
+/** Hermes's list of commands that run without asking. Empty, unset or null all mean none. */
+const ALLOWLIST_KEY = 'command_allowlist';
+const emptyList = (v: unknown): boolean => v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
 /**
  * Does the profile exist? `profile show` answers by exit code and changes nothing. A failure means "missing" only when Hermes says the
@@ -125,10 +142,35 @@ export function containedStatus(entry: AcpEntry, deps?: ContainedDeps): Promise<
   const p = (async () => {
     // a check that starts while a set up runs waits for it, so it never reads half-written settings
     if (inflightSetUp) await inflightSetUp.catch(() => undefined);
-    return doCheck(entry, deps);
+    const status = await doCheck(entry, deps);
+    gate = { key: gateKey(entry), at: Date.now(), status }; // what the owner just checked is what the next run start uses
+    return status;
   })().finally(() => { if (inflightCheck === p) inflightCheck = undefined; });
   inflightCheck = p;
   return p;
+}
+
+/** How long a run start trusts the last read of the profile, in ms. A Check or a Set up the owner runs replaces it at once. */
+export const CONTAINED_GATE_TTL_MS = 60_000;
+let gate: { key: string; at: number; status: AcpContainedStatus } | undefined;
+const gateKey = (e: AcpEntry): string => JSON.stringify([e.id, e.command, e.env ?? null]);
+export function resetContainedGate(): void { gate = undefined; }
+
+/**
+ * Why a Contained run may not start, in plain words, or undefined when it may. The promise "Hermes asks before it runs a command" must hold when the run
+ * starts, not only when the owner set the profile up: a profile that was edited since, or whose Hermes cannot be read, does not start. One read per
+ * minute at most (shared with the Doctor's Check); an entry that is not Contained is never read.
+ */
+export async function containedRunBlock(entry: AcpEntry, deps?: ContainedDeps, now: () => number = Date.now): Promise<string | undefined> {
+  if (!entry.contained) return undefined;
+  const key = gateKey(entry);
+  let status = gate && gate.key === key && now() - gate.at < CONTAINED_GATE_TTL_MS ? gate.status : undefined;
+  if (!status) {
+    status = await containedStatus(entry, deps);
+    gate = { key, at: now(), status };
+  }
+  if (status.policyOk) return undefined;
+  return `${entry.label} is set to Contained, but its Legion profile does not match what Contained promises, so Legion did not start it. ${status.detail} Open Settings, Agent hosts, and use Set up or Check.`;
 }
 
 let inflightCheck: Promise<AcpContainedStatus> | undefined;
@@ -166,7 +208,8 @@ export function setUpContained(entry: AcpEntry, deps?: ContainedDeps): Promise<A
   const p = (async () => {
     // a set up that starts while a check runs waits for it, so the check never reads half-written settings
     if (inflightCheck) await inflightCheck.catch(() => undefined);
-    return doSetUp(entry, deps);
+    gate = undefined; // the profile is about to change: the next run start reads it again
+    try { return await doSetUp(entry, deps); } finally { gate = undefined; }
   })().finally(() => { if (inflightSetUp === p) inflightSetUp = undefined; });
   inflightSetUp = p;
   return p;

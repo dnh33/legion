@@ -45,6 +45,7 @@ import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, collapsedText, criticalDeleteRead, longCatastrophic, recursiveDeleteSnippet, refuseCatastrophic, unjudgeableCommand, windowsShellTexts, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
+import { containedRunBlock } from './acp/contained.js';
 import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
@@ -175,6 +176,8 @@ export interface EngineDeps {
     /** Told when a run on an agent host starts, so the core can read the agent's own settings in the background. Never awaited; a throw is ignored. */
     onRunStart?: (entry: AcpEntry) => void;
     issueRunToken?: (taskId: string, agentId: string) => RunToken;
+    /** Why a Contained run may not start (plain words), or undefined. Default: the Contained profile read-back (acp/contained.ts, cached for a minute). Tests replace it. */
+    containedGate?: (entry: AcpEntry) => Promise<string | undefined>;
   };
 }
 
@@ -3142,6 +3145,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const plain = process.platform === 'win32' ? plainWindowsPath(folder) : folder;
       if (plain === undefined || isAdminShare(plain) || off.some((t) => pathInside(t, plain) || pathInside(plain, t))) return fail(say(HERMES_CWD_TEXT));
       mkdirSync(folder, { recursive: true });
+      // R51: the Contained promise must hold when the run starts, not only when the owner set the profile up
+      if (entry.contained) {
+        const block = await (host.containedGate ?? containedRunBlock)(entry);
+        if (act.cancelled) return { subtype: 'cancelled', isError: false };
+        if (block) return fail(this.redactText(block).slice(0, 700));
+      }
       // Another agent, a room or an outside app started this run and it is capped or tainted: the owner says yes before Hermes gets it
       const from = job.origin;
       if (from && (from.approvalCeiling !== 'full' || from.tainted)) {

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import { makeFakes, start, TOKEN, TEST_ADMIN } from './helpers-c.js';
 import { forgetLegionSecrets, registerLegionSecrets, startAgentProcess } from '../src/core/acp/process.js';
-import { CONTAINED_TIMEOUT_MS, containedStatus, setUpContained, signInCommand } from '../src/core/acp/contained.js';
+import { CONTAINED_TIMEOUT_MS, containedRunBlock, containedStatus, resetContainedGate, setUpContained, signInCommand } from '../src/core/acp/contained.js';
 import { BUILTIN_HERMES } from '../src/shared/acp-view.js';
 
 const WIN = process.platform === 'win32';
@@ -62,13 +62,14 @@ const SET_MODE = ['-p', 'legion', 'config', 'set', 'approvals.mode', 'manual'];
 const SET_TOOLS = ['-p', 'legion', 'config', 'set', 'platform_toolsets.acp', '[file]'];
 const SET_ADOPT = ['-p', 'legion', 'config', 'set', 'auth.adopt_external_logins', 'false'];
 const GET_ADOPT = ['-p', 'legion', 'config', 'get', 'auth.adopt_external_logins', '--json'];
+const GET_ALLOW = ['-p', 'legion', 'config', 'get', 'command_allowlist', '--json'];
 const GET_MODE = ['-p', 'legion', 'config', 'get', 'approvals.mode', '--json'];
 const GET_TOOLS = ['-p', 'legion', 'config', 'get', 'platform_toolsets.acp', '--json'];
 
 test('set up from nothing runs exactly these commands, in this order, and never a clone', async () => {
   const r = await setUpContained(BUILTIN_HERMES);
   assert.equal(r.ok, true, r.detail);
-  assert.deepEqual(calls(), [SHOW, CREATE, SET_MODE, SET_TOOLS, SET_ADOPT, GET_MODE, GET_TOOLS, GET_ADOPT]);
+  assert.deepEqual(calls(), [SHOW, CREATE, SET_MODE, SET_TOOLS, SET_ADOPT, GET_MODE, GET_TOOLS, GET_ADOPT, GET_ALLOW]);
   assert.ok(calls().every((c) => !c.some((a) => a.startsWith('--clone'))), 'no clone flag anywhere');
   assert.ok(existsSync(join(state, 'profiles', 'legion')), 'the profile now exists');
   assert.equal(r.signInCommand, 'hermes -p legion setup model', 'the sign-in step is shown, not run');
@@ -79,7 +80,7 @@ test('an existing legion profile is not created again, but still gets the three 
   makeProfile();
   const r = await setUpContained(BUILTIN_HERMES);
   assert.equal(r.ok, true, r.detail);
-  assert.deepEqual(calls(), [SHOW, SET_MODE, SET_TOOLS, SET_ADOPT, GET_MODE, GET_TOOLS, GET_ADOPT]);
+  assert.deepEqual(calls(), [SHOW, SET_MODE, SET_TOOLS, SET_ADOPT, GET_MODE, GET_TOOLS, GET_ADOPT, GET_ALLOW]);
   assert.match(r.detail, /already existed/);
 });
 
@@ -139,7 +140,7 @@ test('no command line carries a provider key or a Legion token, and every argume
   const st = await containedStatus(BUILTIN_HERMES);
   const text = JSON.stringify([calls(), up, st]);
   for (const secret of [KEY_A, KEY_B, LEGION_TOKEN]) assert.ok(!text.includes(secret), 'a secret reached a command line or an answer');
-  const fixed = new Set([SHOW, CREATE, SET_MODE, SET_TOOLS, SET_ADOPT, GET_MODE, GET_TOOLS, GET_ADOPT, ['-p', 'legion', 'auth', 'list']].map((c) => JSON.stringify(c)));
+  const fixed = new Set([SHOW, CREATE, SET_MODE, SET_TOOLS, SET_ADOPT, GET_MODE, GET_TOOLS, GET_ADOPT, GET_ALLOW, ['-p', 'legion', 'auth', 'list']].map((c) => JSON.stringify(c)));
   for (const c of calls()) assert.ok(fixed.has(JSON.stringify(c)), `unexpected command ${JSON.stringify(c)}`);
 });
 
@@ -147,12 +148,12 @@ test('every command goes through the agent launch path with the 60 second limit 
   const seen: Array<{ command: string; args: string[]; timeoutMs: number; cwd?: string }> = [];
   const run = async (command: string, args: string[], opts: { timeoutMs: number; cwd?: string }) => {
     seen.push({ command, args, timeoutMs: opts.timeoutMs, ...(opts.cwd ? { cwd: opts.cwd } : {}) });
-    return { code: 0, stdout: args.includes('--json') ? (args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : '["file"]') : '', stderr: '', timedOut: false };
+    return { code: 0, stdout: args.includes('--json') ? (args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : args.includes('command_allowlist') ? '[]' : '["file"]') : '', stderr: '', timedOut: false };
   };
   const r = await setUpContained(BUILTIN_HERMES, { run });
   assert.equal(r.ok, true, r.detail);
   assert.equal(CONTAINED_TIMEOUT_MS, 60_000);
-  assert.ok(seen.length === 7 && seen.every((s) => s.command === 'hermes' && s.timeoutMs === 60_000 && typeof s.cwd === 'string'));
+  assert.ok(seen.length === 8 && seen.every((s) => s.command === 'hermes' && s.timeoutMs === 60_000 && typeof s.cwd === 'string'));
 });
 
 test('a command that times out ends the set up with a plain sentence and no further command', async () => {
@@ -283,7 +284,7 @@ test('profile create gets a longer limit than the 60 second reads and writes, an
   const run = async (_c: string, args: string[], opts: { timeoutMs: number }) => {
     seen.push({ args, timeoutMs: opts.timeoutMs });
     if (args[0] === 'profile' && args[1] === 'show') return { code: 1, stdout: '', stderr: "Error: Profile 'legion' does not exist.", timedOut: false };
-    const json = args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : '["file"]';
+    const json = args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : args.includes('command_allowlist') ? '[]' : '["file"]';
     return { code: 0, stdout: args.includes('--json') ? json : '', stderr: '', timedOut: false };
   };
   const r = await setUpContained(BUILTIN_HERMES, { run });
@@ -328,7 +329,7 @@ test('a set up that starts while a check is running waits for the check', async 
   const run = async (_c: string, args: string[]) => {
     seen.push(args);
     if (seen.length === 1) await gate; // the check's first command is slow
-    const json = args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : '["file"]';
+    const json = args.includes('approvals.mode') ? '"manual"' : args.includes('auth.adopt_external_logins') ? 'false' : args.includes('command_allowlist') ? '[]' : '["file"]';
     return { code: 0, stdout: args.includes('--json') ? json : '', stderr: '', timedOut: false };
   };
   const check = containedStatus(BUILTIN_HERMES, { run });
@@ -373,4 +374,81 @@ test('POST /api/acp/contained: check and setup answer for the app window only', 
     assert.equal((await call(s.base, { action: 'nope' }, admin)).status, 400);
     assert.equal((await call(s.base, {}, admin)).status, 400);
   } finally { await s.close(); }
+});
+
+// ---------------------------------------------------------------- final wave: the always-allow list, the entry's own env, the run-time gate
+
+const setAllow = (v: unknown) => {
+  const file = join(state, 'profiles', 'legion', 'config.json');
+  const cfg = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  cfg.command_allowlist = v;
+  writeFileSync(file, JSON.stringify(cfg));
+};
+
+test('a command on the profile always-allow list breaks the Contained promise: policyOk false, the setting named, nothing cleared', async () => {
+  await setUpContained(BUILTIN_HERMES);
+  assert.equal((await containedStatus(BUILTIN_HERMES)).policyOk, true, 'an unset list is fine');
+  setAllow([]);
+  assert.equal((await containedStatus(BUILTIN_HERMES)).policyOk, true, 'an empty list is fine');
+  setAllow(['git status']);
+  writeFileSync(log, '');
+  const st = await containedStatus(BUILTIN_HERMES);
+  assert.equal(st.policyOk, false);
+  assert.match(st.detail, /command_allowlist/);
+  assert.match(st.detail, /without asking/);
+  assert.match(st.detail, /config unset command_allowlist/);
+  assert.ok(calls().every((c) => !c.includes('set') && !c.includes('unset')), 'a check never clears the list');
+  const again = await setUpContained(BUILTIN_HERMES); // set up keeps the owner's entries and says so
+  assert.equal(again.ok, false);
+  assert.match(again.detail, /command_allowlist/);
+  setAllow(['x']);
+  assert.equal((await containedStatus(BUILTIN_HERMES)).policyOk, false);
+  setAllow('git status'); // the older string form
+  assert.equal((await containedStatus(BUILTIN_HERMES)).policyOk, false);
+});
+
+test('every profile command carries the entry own env, so a custom Hermes home is read, not the default one', async () => {
+  const seen = join(state, 'seen.log');
+  writeFileSync(seen, '');
+  setEnv('FAKE_HERMES_SEEN', seen);
+  const entry = { ...BUILTIN_HERMES, env: { HERMES_HOME: join(state, 'custom-home') } };
+  await setUpContained(entry);
+  await containedStatus(entry);
+  const homes = readFileSync(seen, 'utf8').split('\n').filter(Boolean);
+  assert.ok(homes.length >= 8, `${homes.length} commands ran`);
+  assert.ok(homes.every((h) => h === entry.env.HERMES_HOME), `every command saw the entry home: ${[...new Set(homes)].join(', ')}`);
+  setEnv('FAKE_HERMES_SEEN', undefined);
+});
+
+test('the run-time gate: a Contained run is blocked until the profile passes, the answer is cached briefly, and Set up or Check clears it', async () => {
+  resetContainedGate();
+  const C = { ...BUILTIN_HERMES, contained: true };
+  let now = 1_000_000;
+  const clock = () => now;
+  const none = await containedRunBlock(C, undefined, clock);
+  assert.match(none ?? '', /Legion profile/, 'no profile yet');
+  await setUpContained(BUILTIN_HERMES); // clears the cache
+  writeFileSync(log, '');
+  assert.equal(await containedRunBlock(C, undefined, clock), undefined, 'a passing profile starts');
+  const n = calls().length;
+  assert.ok(n > 0);
+  assert.equal(await containedRunBlock(C, undefined, clock), undefined);
+  assert.equal(calls().length, n, 'the second start inside the TTL reads nothing');
+  setAllow(['rm']);
+  now += 5_000;
+  assert.equal(await containedRunBlock(C, undefined, clock), undefined, 'still inside the TTL');
+  now += 120_000;
+  const blocked = await containedRunBlock(C, undefined, clock);
+  assert.match(blocked ?? '', /command_allowlist/);
+  assert.match(blocked ?? '', /Settings/, 'it says where to fix it');
+  setAllow([]);
+  await containedStatus(BUILTIN_HERMES); // a Check the owner runs refreshes the answer
+  assert.equal(await containedRunBlock(C, undefined, clock), undefined);
+  resetContainedGate();
+});
+
+test('an entry that is not Contained is never gated', async () => {
+  resetContainedGate();
+  assert.equal(await containedRunBlock({ ...BUILTIN_HERMES, contained: false }), undefined);
+  assert.deepEqual(calls(), []);
 });
