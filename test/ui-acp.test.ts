@@ -899,3 +899,20 @@ test('W4 M14: a watchdog value outside the range stays visible with "Use 1 to 12
   assert.doesNotMatch(page, /if \(!minsOk\) setMins\(/, 'a blur no longer puts the saved value back over what was typed');
   assert.match(page, /onBlur=\{\(\) => \{ if \(minsOk && Number\(mins\) !== p\.acp\.watchdogMinutes\) p\.onWatchdog/, 'saved only when valid');
 });
+
+test('W4 M9: a long Hermes option name is cut to about 60 characters with the whole name in a tooltip, and the buttons wrap instead of overflowing', async () => {
+  const { r, cleanup } = await loadUi(st([]));
+  try {
+    const long = `Allow every command that starts with ${'verylongword'.repeat(10)} END`;
+    const a = { id: 'apr_9', taskId: 't', agentId: 'h', toolName: 'acp_execute', summary: 'ls', input: {}, at: '', noRemember: true, acpTitle: 'Run a command',
+      acpOptions: [{ optionId: 'o1', name: long, kind: 'allow_always' }, { optionId: 'o2', name: 'Deny', kind: 'reject_once' }] };
+    const html = unesc(r.card(a, 1_000_000));
+    const btn = html.match(/<button[^>]*title="[^"]*"[^>]*>[^<]*<\/button>/)![0];
+    assert.ok(btn.includes(`title="${long}"`), 'the whole name is the tooltip');
+    const label = btn.replace(/<[^>]+>/g, '');
+    assert.ok(label.length <= 60 && label.endsWith('…'), `cut label: ${label.length}`);
+    assert.match(html, /<button[^>]*>Deny<\/button>/);
+    assert.doesNotMatch(html, /<button[^>]*title="Deny"/, 'a short name has no tooltip');
+  } finally { cleanup(); }
+  assert.match(src('ui/src/styles/app.css'), /\.acp-card \.approval-actions \.btn:not\(\.sm\) \{[^}]*height: auto;[^}]*min-height: 30px;[^}]*white-space: normal/);
+});

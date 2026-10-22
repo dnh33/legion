@@ -860,6 +860,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .acp-first p { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; font-weight: 400; }
 .acp-first-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .form .acp-first { margin: 6px 0 0; }
+.acp-card .approval-actions .btn:not(.sm) { height: auto; min-height: 30px; padding-block: 4px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .acp-card .approval-sum { max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .acp-left { margin-left: auto; font-variant-numeric: tabular-nums; }
 .approval.is-closed { border-color: var(--line-strong); background: var(--surface); }

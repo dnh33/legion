@@ -94,3 +94,14 @@ test('plan entries become todo items (priority dropped); entries without text ar
     [{ content: 'read', status: 'completed' }, { content: 'fix', status: 'in_progress' }, { content: 'ship', status: 'pending' }, { content: 'odd', status: 'pending' }]);
   assert.deepEqual(mapPlan('nope'), []);
 });
+
+test('W4 M9: at most 8 options reach the card, and the allow once and reject once options are never the ones dropped', () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ optionId: `o${i}`, name: `Choice ${i}`, kind: i === 10 ? 'reject_once' : i === 11 ? 'allow_once' : 'allow_always' }));
+  const p = mapPermission({ toolCall: { toolCallId: 'm1', kind: 'execute', title: 't', rawInput: { command: 'ls' } }, options: many })!;
+  assert.equal(p.options.length, 8);
+  assert.ok(p.options.some((o) => o.kind === 'reject_once'), 'a way to say no is kept');
+  assert.ok(p.options.some((o) => o.kind === 'allow_once'), 'the allow once option is kept');
+  assert.deepEqual(p.options.slice(0, 6).map((o) => o.optionId), ['o0', 'o1', 'o2', 'o3', 'o4', 'o5'], 'the others keep the agent\'s order');
+  const few = mapPermission({ toolCall: { toolCallId: 'm2', kind: 'execute', title: 't', rawInput: { command: 'ls' } }, options: many.slice(0, 3) })!;
+  assert.equal(few.options.length, 3, 'a short list is untouched');
+});

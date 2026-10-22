@@ -153,3 +153,7 @@ export function slashModelStep(value: string, firstUseSeen: boolean, hasMessage:
   if (hasMessage) return 'send';
   return needsFirstUse(value, firstUseSeen) ? 'ask' : 'set';
 }
+
+/** The longest an agent's option name is on its button; the whole name stays in the button's tooltip. */
+export const OPTION_NAME_MAX = 60;
+export const clampOptionName = (name: string): string => (name.length > OPTION_NAME_MAX ? `${name.slice(0, OPTION_NAME_MAX - 1).trimEnd()}…` : name);

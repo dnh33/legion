@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApprovalRequest } from '../../../src/shared/types';
-import { HERMES_ASKS, cardCountdown, titleAddsInfo } from '../../../src/shared/acp-copy';
+import { HERMES_ASKS, cardCountdown, clampOptionName, titleAddsInfo } from '../../../src/shared/acp-copy';
 import { decideOption, dismissClosed, type ClosedCard } from '../store';
 import { useCardArm, useArmUi } from '../a11y/keyClock';
 import { liveReady } from '../a11y/keyClockCore';
@@ -58,7 +58,7 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
       <pre className="approval-sum">{a.summary}</pre>
       <div className="approval-actions">
         {!ended && (a.acpOptions ?? []).map((o) => (
-          <button key={o.optionId} type="button" className={o.kind === 'allow_once' ? 'btn primary' : 'btn'} onClick={answer(o.optionId, o.kind)}>{o.name}</button>
+          <button key={o.optionId} type="button" className={o.kind === 'allow_once' ? 'btn primary' : 'btn'} onClick={answer(o.optionId, o.kind)} {...(o.name.length > clampOptionName(o.name).length ? { title: o.name } : {})}>{clampOptionName(o.name)}</button>
         ))}
         {ignored && !armed && !ended && <span className="approval-note">Ready in a moment</span>}
         {!ended && <span className="sr-only" role="status" aria-live="polite">{liveReady(blocks)}</span>}

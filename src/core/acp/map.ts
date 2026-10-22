@@ -142,6 +142,16 @@ export function mapToolCall(update: unknown, prev?: MappedTool): MappedTool | un
   };
 }
 
+/** The most options a card shows. A request with more keeps the agent's order but never loses its first allow once or reject once option. */
+export const MAX_CARD_OPTIONS = 8;
+function limitOptions(all: MappedPermission['options']): MappedPermission['options'] {
+  if (all.length <= MAX_CARD_OPTIONS) return all;
+  const picked = new Set<number>();
+  for (const kind of ['allow_once', 'reject_once']) { const i = all.findIndex((o) => o.kind === kind); if (i >= 0) picked.add(i); }
+  for (let i = 0; i < all.length && picked.size < MAX_CARD_OPTIONS; i++) picked.add(i);
+  return all.filter((_, i) => picked.has(i));
+}
+
 /** A `session/request_permission` request's params. Undefined when it has no tool call id: a request Legion cannot tell apart is never invented. */
 export function mapPermission(params: unknown): MappedPermission | undefined {
   const p = rec(params);
@@ -158,7 +168,7 @@ export function mapPermission(params: unknown): MappedPermission | undefined {
   const diff = diffOf(call.content);
   const text = textOf(call.content);
   return {
-    requestId, toolName: d.toolName, input: d.input, title: str(call.title) ?? d.toolName, options,
+    requestId, toolName: d.toolName, input: d.input, title: str(call.title) ?? d.toolName, options: limitOptions(options),
     ...(diff ? { diff } : {}), ...(text !== undefined ? { text } : {}),
   };
 }
