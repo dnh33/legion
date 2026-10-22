@@ -322,6 +322,7 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     // the heading and its paragraph sit together, without the card gap between them
     assert.match(h, /<div class="host-head"><h4>In between<\/h4><p/);
     assert.match(src('ui/src/styles/app.css'), /\.host-head\s*\{[^}]*gap:\s*4px/);
+    assert.match(src('ui/src/styles/app.css'), /\.host-head > \* \{ margin: 0; \}/, 'the paragraph default margin made a 16 px gap under the heading (live check 2026-10-22)');
     assert.match(h, /Watchdog/i);
     assert.ok(h.includes('config file'), 'custom entries are not edited here');
     const missing = unesc(r.hosts({ ...base, acp: acp({ detection: { state: 'missing', checked: true, detail: 'Hermes is not on your PATH.' } }) }));
@@ -513,6 +514,7 @@ test('wiring: the thread, the card, the Doctor and Settings use the new parts', 
   assert.match(th, /task\?\.provider && !task\.runtime/, 'the provider tooltip is not for Hermes tasks');
   assert.match(src('ui/src/components/ApprovalCard.tsx'), /a\.acpOptions\?\.length[\s\S]*<AcpCard/);
   assert.match(th, /closedCards[\s\S]*<ClosedAcpCard/, 'R60: the thread renders the closed cards of its task');
+  assert.match(src('ui/src/components/AcpCard.tsx'), /hadFocus\.current = box\.current\.contains\(document\.activeElement\)/, 'R60 live check 2026-10-22: the card reads where focus is while rendering, because its buttons are gone by the time an effect runs and focus had dropped to the page');
   assert.match(src('ui/src/components/DoctorModal.tsx'), /checkKind/);
   assert.match(src('ui/src/components/Settings.tsx'), /section === 'hosts'/);
   assert.match(src('ui/src/components/ModelPicker.tsx'), /hosts/);

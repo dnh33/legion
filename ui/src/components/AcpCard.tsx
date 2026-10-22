@@ -29,9 +29,13 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
   const arm = useCardArm(`approval:${a.id}`);
   const { armed, refresh } = useArmUi(arm);
   const box = useRef<HTMLDivElement>(null);
-  // the focused button goes away at the end: keep focus on the card, not on the page
+  // The answer buttons go away at the end, and a focused button that leaves the page drops focus to the page. Whether focus was on the card is read
+  // while rendering (the page still shows the last render, buttons included); at the end the card takes focus itself, and the store then hands it to
+  // the closed card's Dismiss.
+  const hadFocus = useRef(false);
+  if (box.current) hadFocus.current = box.current.contains(document.activeElement);
   useEffect(() => {
-    if (ended && box.current?.contains(document.activeElement) && document.activeElement !== box.current) box.current.focus();
+    if (ended && hadFocus.current && document.activeElement !== box.current) box.current?.focus();
   }, [ended]);
   const answer = (optionId: string, kind: string) => (e: React.MouseEvent) => {
     if (!arm.click(e.detail, performance.now())) { refresh(); return; }

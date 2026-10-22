@@ -863,6 +863,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .host-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
 .host-main .set-hint { overflow-wrap: anywhere; }
 .host-head { display: flex; flex-direction: column; gap: 4px; }
+.host-head > * { margin: 0; }
 .host-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: transparent; border: 1px solid var(--line-strong); }
 .host-dot.ok { background: var(--accent-text); border-color: var(--accent-text); }
 .host-dot.bad { background: var(--danger); border-color: var(--danger); }
