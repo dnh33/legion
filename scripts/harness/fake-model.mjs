@@ -3,8 +3,9 @@
  *
  * The engine passes `query({prompt, options})`; this returns an async generator of SDK-shaped messages built from a SCRIPT, and it plays the
  * part the Claude Code process plays between messages, so Legion's own gates run for real:
- *   1. PreToolUse hook (options.hooks) is called first (this is where Legion marks a run as tainted),
- *   2. options.canUseTool is called when the engine set one (not in bypass mode), and a denial is returned to the script,
+ *   1. PreToolUse hook (options.hooks) is called first (this is where Legion marks a run as tainted); its deny, ask or allow answer is honoured,
+ *   2. Claude's own permission order decides next (see `decide` below); options.canUseTool is called ONLY for a call Claude itself would ask about,
+ *      and a denial is returned to the script,
  *   3. an in-process Legion tool (`mcp__<server>__<tool>`, e.g. mcp__legion_comms__room_create) is called through a real MCP client over an
  *      in-memory transport, so its input schema is validated like the real thing,
  *   4. any other tool (Bash, WebFetch, Write ...) is NOT executed: the script gets a fixed "simulated" text back.
@@ -19,6 +20,41 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { basename } from 'node:path';
+
+// Claude Code's tools that only read, and its tools that edit files (https://code.claude.com/docs/en/permissions "Permission system" table and
+// https://code.claude.com/docs/en/permission-modes). Claude Code's built-in read-only shell commands (ls, cat ...) are not modelled: the scripts
+// never rely on them.
+const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
+const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+
+/**
+ * What Claude Code decides about one tool call before canUseTool is asked, in the documented order. Returns {behavior:'allow'|'deny'|'ask', message?}.
+ * 'ask' is the only answer that reaches options.canUseTool.
+ * @param {{permissionMode?: string, allowedTools?: string[], disallowedTools?: string[]}} options
+ * @param {string} tool
+ * @param {{decision?: string, reason?: string}} hook the strongest PreToolUse answer for this call
+ */
+export function decide(options, tool, hook) {
+  const mode = options.permissionMode ?? 'default';
+  // 1. A PreToolUse hook that denies stops the call before any rule is read ("A hook that exits with code 2 stops the tool call before permission rules are evaluated").
+  if (hook.decision === 'deny') return { behavior: 'deny', message: hook.reason ?? 'denied by a hook' };
+  // 2. Deny rules block in every mode, bypassPermissions included (permission-modes: "Deny rules block in every mode"). A tool in disallowedTools is such a rule.
+  if ((options.disallowedTools ?? []).includes(tool)) return { behavior: 'deny', message: `${tool} is not available` };
+  // 3. A hook "ask" forces the prompt, and a hook "allow" skips it (permissions "Extend permissions with hooks"; plan mode is not modelled).
+  if (hook.decision === 'ask') return { behavior: 'ask' };
+  if (hook.decision === 'allow') return { behavior: 'allow' };
+  // 4. bypassPermissions: "Everything" is allowed without a prompt (permission-modes table).
+  if (mode === 'bypassPermissions') return { behavior: 'allow' };
+  // 5. allowedTools: "auto-allowed without prompting for permission" (sdk.d.ts Options.allowedTools).
+  if ((options.allowedTools ?? []).includes(tool)) return { behavior: 'allow' };
+  // 6. Reads need no approval in default, acceptEdits and the other modes ("Read-only: Approval required: No"; the default row of permission-modes is "Reads only").
+  if (READ_ONLY_TOOLS.has(tool)) return { behavior: 'allow' };
+  // 7. acceptEdits: "Reads, file edits, and common filesystem commands" are allowed.
+  if (mode === 'acceptEdits' && EDIT_TOOLS.has(tool)) return { behavior: 'allow' };
+  // 8. Everything left (Bash, web tools, MCP tools, edits in default mode) prompts, which is the canUseTool call. In auto mode a classifier would try first and
+  //    "prompt through canUseTool when it cannot decide"; the harness has no classifier, so it always cannot decide.
+  return { behavior: 'ask' };
+}
 
 const SIMULATED = '[harness] tool not executed (the scripted model only runs Legion\'s own in-process tools)';
 
@@ -64,16 +100,28 @@ export function createFakeModel() {
         const input = step.input ?? {};
         const entry = { tool: step.tool, input, decision: 'allow', text: '', isError: false };
         record.toolCalls.push(entry);
-        for (const h of options.hooks?.PreToolUse ?? []) for (const fn of h.hooks ?? []) await fn({ hook_event_name: 'PreToolUse', tool_name: step.tool, tool_use_id: id, tool_input: input }, id, { signal });
+        // every hook runs; deny beats ask beats allow (a hook allow never overrides a deny or ask from another hook)
+        const hook = { decision: undefined, reason: undefined };
+        const rank = { deny: 3, ask: 2, allow: 1 };
+        for (const h of options.hooks?.PreToolUse ?? []) for (const fn of h.hooks ?? []) {
+          const out = await fn({ hook_event_name: 'PreToolUse', tool_name: step.tool, tool_use_id: id, tool_input: input }, id, { signal });
+          const o = out?.hookSpecificOutput;
+          if (o?.hookEventName === 'PreToolUse' && rank[o.permissionDecision] > (rank[hook.decision] ?? 0)) { hook.decision = o.permissionDecision; hook.reason = o.permissionDecisionReason; }
+        }
         yield { type: 'assistant', message: { content: [{ type: 'tool_use', id, name: step.tool, input }] } };
         let text = SIMULATED;
         let isError = false;
-        if (typeof options.canUseTool === 'function') {
-          const d = await options.canUseTool(step.tool, input, { signal, toolUseID: id });
-          if (d?.behavior !== 'allow') { entry.decision = 'deny'; text = d?.message ?? 'denied'; isError = true; }
+        let verdict = decide(options, step.tool, hook);
+        if (verdict.behavior === 'ask') {
+          // no canUseTool and no prompt surface: Claude Code cannot ask, so (as before) the harness lets the call through
+          if (typeof options.canUseTool === 'function') {
+            const d = await options.canUseTool(step.tool, input, { signal, toolUseID: id });
+            verdict = d?.behavior === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: d?.message };
+          } else verdict = { behavior: 'allow' };
         }
+        if (verdict.behavior === 'deny') { entry.decision = 'deny'; text = verdict.message ?? 'denied'; isError = true; }
         const m = /^mcp__([^_].*?)__(.+)$/.exec(step.tool);
-        if (entry.decision === 'allow' && m && !(options.disallowedTools ?? []).includes(step.tool)) {
+        if (entry.decision === 'allow' && m) {
           const c = await clientFor(m[1]);
           if (c) {
             try {
