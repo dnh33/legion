@@ -182,7 +182,7 @@ test('ask without a brief is unchanged: the plain prompt, no scoring slice, no b
   })());
   await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
   assert.equal(empty.isError, true, 'a call with neither a message nor a brief is refused');
-  assert.match(empty.text, /message or a brief/);
+  assert.match(empty.text, /Pass message \(string\) or brief/);
   assert.equal(asked.json.result, 'builder says: build it');
   assert.equal(asked.json.verdict, 'none', 'a plain answer that does not start with a contract word is none');
   assert.equal(asked.json.costUsd, 0, 'the fake reported a zero cost; it is still carried');

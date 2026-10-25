@@ -49,6 +49,17 @@ function truncateHead(s: string, max = MAX_CHARS): string {
   return s.slice(0, max) + `\n[truncated: showing first ${max} of ${s.length} chars]`;
 }
 
+/**
+ * What ask/tell say when they get neither a message nor a brief. It names what arrived, so the caller can tell
+ * "I sent nothing" from "my fields never reached the tool" in one turn instead of repeating the call.
+ */
+export function missingTaskText(a: { agent?: unknown; message?: unknown; brief?: unknown }): string {
+  const seen = (v: unknown): string => v === undefined || v === null ? '<absent>' : typeof v === 'string' ? (v.trim() ? `<${v.length} chars>` : '<blank>') : '<present>';
+  const agent = typeof a.agent === 'string' ? a.agent.slice(0, 60) : '<absent>';
+  return `Received: agent=${agent}, message=${seen(a.message)}, brief=${seen(a.brief)}. Pass message (string) or brief {goal, done_when[1-4]}. `
+    + 'If you did send them, they did not reach this tool, so repeating the same call will fail the same way: say so in your reply instead.';
+}
+
 export interface AgentToolsCtx {
   agentId: string;
   /** The task this run belongs to (the caller for ask/tell). */
@@ -126,7 +137,7 @@ function bridgeTools(ctx: AgentToolsCtx) {
       model: modelParam,
     },
     (a, extra) => guard(async () => {
-      if (!a.message?.trim() && !a.brief) throw new BridgeError('Give a message or a brief.');
+      if (!a.message?.trim() && !a.brief) throw new BridgeError(missingTaskText(a));
       const signal = ctx.honourAbort ? (extra as { signal?: AbortSignal } | undefined)?.signal : undefined;
       return bridge.ask(taskId, a.agent, a.message ?? '', { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model), brief: a.brief, ...(signal ? { signal } : {}) });
     }),
@@ -142,7 +153,7 @@ function bridgeTools(ctx: AgentToolsCtx) {
       model: modelParam,
     },
     (a) => guard(async () => {
-      if (!a.message?.trim() && !a.brief) throw new BridgeError('Give a message or a brief.');
+      if (!a.message?.trim() && !a.brief) throw new BridgeError(missingTaskText(a));
       return bridge.tell(taskId, a.agent, a.message ?? '', { fresh: a.fresh, model: await bridge.resolveModel(a.model), brief: a.brief });
     }),
   );

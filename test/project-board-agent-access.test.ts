@@ -233,3 +233,17 @@ test('G10 Save what we learned cannot write a secret, seed phrase or key into th
   assert.ok(!body.includes('sk-ant-api03-zzzz'), 'a credential shape is redacted in the stored note');
   void agentActor;
 });
+
+test('G6b a refused assignee names the field and the way out; it is not presented as a limit on the whole run', async () => {
+  const s = setup();
+  s.board.setLeader(s.A, 'scout');
+  const item = s.board.create(s.A, { title: 'victim' });
+  const t = (await as(s, 'scout', s.A.id, { tainted: true }))!;
+  for (const r of [await t.call('create', { title: 'with assignee', assignee: 'zealot' }), await t.call('update', { id: item.id, assignee: 'zealot' })]) {
+    assert.equal(r.err, true);
+    assert.match(r.text, /The assignee field was refused/);
+    assert.match(r.text, /Leave assignee out/);
+    assert.doesNotMatch(r.text, /This run is limited/);
+  }
+  assert.equal((await t.call('create', { title: 'without assignee' })).err, false, 'the same run may create without the field');
+});

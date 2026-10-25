@@ -105,6 +105,18 @@ export const MAX_TOOL_RESULT_CHARS = 12_000;
 const FN_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const REPEAT_FAIL_LIMIT = 3;
 
+/** The fields a tool's schema marks required, so an arrival with no arguments at all can be refused before it is dispatched. */
+function requiredFields(specs: ChatToolSpec[], name: string): string[] {
+  const p = specs.find((x) => x.function.name === name)?.function.parameters as { required?: unknown } | undefined;
+  return Array.isArray(p?.required) ? p.required.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** What the task keeps when the repeat guard ends a run: the tool, its arguments with secrets removed, the count and the last three errors. */
+function repeatStopText(name: string, rawArgs: string, count: number, errors: string[], scrub: (s: string) => string): string {
+  const args = scrub(rawArgs.length > 300 ? rawArgs.slice(0, 299) + '…' : rawArgs);
+  return `The model kept repeating a failing tool call, so Legion stopped the run. Tool: ${name}. Arguments: ${args || '(none)'}. Repeated: ${count} times. Last errors: ${errors.slice(-3).map((e, i) => `(${i + 1}) ${scrub(e)}`).join(' ')}`;
+}
+
 /** Retry state per thread: the cooldown ladder and the anti-thrash breaker. Process-wide, keyed by task. */
 export const compactionGuard = new CompactionGuard();
 
@@ -846,7 +858,8 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
   };
   const tools = await connectTools(host.servers, host.onNotice, host.external);
   const used = new Set<string>();
-  const fails = new Map<string, number>();
+  // identical tool + identical arguments that already failed: how many times seen, and the error each time
+  const repeats = new Map<string, { n: number; errors: string[] }>();
   let noticedRefused = false;
   try {
     const window = opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
@@ -936,6 +949,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         const call = calls[i]!;
         const name = call.function.name;
         let out: { text: string; isError: boolean };
+        let advised = false;
         if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
         let input: Record<string, unknown> = {};
         let problem: string | undefined;
@@ -943,7 +957,21 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         if ('input' in parsedArgs) input = parsedArgs.input; else problem = parsedArgs.problem;
         host.onToolCall(name, call.id, input);
         const entry = tools.offered.get(name);
-        if (i >= opts.maxToolCallsPerTurn) out = { text: `Error: too many tool calls in one turn (limit ${opts.maxToolCallsPerTurn}); this one was not run.`, isError: true };
+        const key = `${name}
+${call.function.arguments}`;
+        const prior = repeats.get(key);
+        const required = requiredFields(tools.specs, name);
+        if (prior && prior.n + 1 >= REPEAT_FAIL_LIMIT) {
+          return { ...res, usage, isError: true, subtype: 'error_during_execution', errorText: repeatStopText(name, call.function.arguments, prior.n + 1, prior.errors, redact) };
+        }
+        if (prior && entry) {
+          // the second identical call: not run, not counted as a new failure, and told what to change
+          advised = true;
+          prior.n++;
+          out = { text: `Error: this is the same call again (${name}, the same arguments), and the last attempt failed with: ${prior.errors[prior.errors.length - 1] ?? 'an error'} It was not run again. Change the arguments before you call it. A third identical call ends the run.`, isError: true };
+          prior.errors.push(clipText(out.text, 200));
+        } else if (entry && !call.function.arguments.trim() && required.length) out = { text: `Error: the arguments for ${name} arrived empty: nothing was received, not even {}. Required: ${required.join(', ')}. The tool was not run. Send them as one JSON object. If you did send them, Legion did not receive them, so say so instead of repeating the call.`, isError: true };
+        else if (i >= opts.maxToolCallsPerTurn) out = { text: `Error: too many tool calls in one turn (limit ${opts.maxToolCallsPerTurn}); this one was not run.`, isError: true };
         else if (!entry) out = { text: `Error: ${name.slice(0, 80)} is not a tool you have. Your tools are: ${[...tools.offered.keys()].slice(0, 40).join(', ') || 'none'}.`, isError: true };
         else if (problem) out = { text: `Error: the arguments for ${name} were not a JSON object: ${problem}. Send it as one JSON object, for example {"path": "a.txt"}. The tool was not run.`, isError: true };
         else {
@@ -968,11 +996,9 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         spent += bounded.length;
         host.onToolResult(call.id, bounded);
         messages.push({ role: 'tool', content: bounded || '(no output)', tool_call_id: call.id });
-        const key = `${name}\n${call.function.arguments}`;
-        if (out.isError) {
-          const n = (fails.get(key) ?? 0) + 1; fails.set(key, n);
-          if (n >= REPEAT_FAIL_LIMIT) return { ...res, usage, isError: true, subtype: 'error_during_execution', errorText: 'The model kept repeating a failing tool call, so Legion stopped the run.' };
-        } else fails.delete(key);
+        if (!out.isError) repeats.delete(key);
+        else if (!prior) repeats.set(key, { n: 1, errors: [clipText(out.text, 200)] });
+        else if (!advised) { prior.n++; prior.errors.push(clipText(out.text, 200)); }
       }
       // The re-check, on the conversation as it now stands. Done here, after the results are in, because that is the
       // first moment the growth is real.
