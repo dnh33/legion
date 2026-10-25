@@ -74,7 +74,7 @@ test('W6 P4: a zoomed-narrow window gives the thread its room back, so the Herme
   // which is what brings the head back to one row (measured: 81 px). The rails hold no reading task, the thread does.
   const narrow = ALL.filter((r) => r.selectors.includes('.app') && r.decls.get('--rail-w') === '176px');
   assert.ok(narrow.length > 0, 'a narrow-window .app rule sets the narrower rail');
-  assert.equal(narrow.map((r) => r.decls.get('--ops-w')).find(Boolean), '236px', 'both rails give way together');
+  assert.equal(narrow.map((r) => r.decls.get('--ops-w')).find(Boolean), '252px', 'both rails give way together');
 
   // In that width the tail takes a zero basis: its own 200px basis is what pushed it onto a second row.
   const tailNarrow = ALL.filter((r) => r.selectors.includes('.th-right.is-hermes .th-tail') && r.decls.get('flex') === '1 1 0' && r.decls.get('min-width') === undefined);
@@ -88,20 +88,19 @@ test('W6 P4: a zoomed-narrow window gives the thread its room back, so the Herme
   assert.ok(mid.length > 0 && mid.some((r) => r.decls.get('--ops-w') === '288px'), 'the 1100 px step is unchanged');
 });
 
-test('W6 P4b: the 236px narrow-window ops rail is the bust budget, so a change to any of the three is caught', () => {
+test('W6 P4b: the narrow-window ops rail holds the bust plus the scrollbar gutter, so a change to any of them is caught', () => {
   // The arithmetic, so it cannot silently stop fitting:
-  //   --ops-w 236
+  //   --ops-w 252
   //   - ops-inner padding 12 left + 12 right      = 24
   //   - mascot-stage border 1 left + 1 right      =  2
-  //   = 210, which is exactly the bust width at a tall window (OpsPanel.tsx: width={short ? 124 : 210}).
-  // At 320px (the base rail) the content box was 294 and the 210 bust was centred with 86px of slack. At 236 the fit is
-  // exact: 0 slack. .ops is overflow-x hidden, so the worst case is flush edges, never a clipped bust or a scrollbar.
-  // A premise this test also pins: 'short' is a HEIGHT query (max-height: 700px), not a width one, so a narrow window that
-  // is tall still draws the 210 bust and the 236 rail is the binding case. If that ever became a width query the budget
-  // would change and this test says so rather than letting the rail waste space or clip.
-  const opsRule = ALL.filter((r) => r.selectors.includes('.app') && r.decls.get('--ops-w') === '236px');
-  assert.equal(opsRule.length, 1, 'exactly one narrow-window rule sets the 236px ops rail');
-  const OPS_W = 236;
+  //   - scrollbar gutter of .ops (overflow-y auto) = 15 (a classic Windows bar; overlay bars take none)
+  //   = 211 of room for a 210 bust. The first version of this rail was 236 and left 0: it forgot the scrollbar, and the bust
+  //   clipped 4px a side at 880x800 in a real render. An exact fit is a red flag, so the check below needs slack, not equality.
+  // A premise this test also pins: 'short' is a HEIGHT query (max-height: 700px), not a width one.
+  const opsRule = ALL.filter((r) => r.selectors.includes('.app') && r.decls.get('--ops-w') === '252px');
+  assert.equal(opsRule.length, 1, 'exactly one narrow-window rule sets the 252px ops rail');
+  const OPS_W = 252;
+  const SCROLLBAR = 15;
 
   const inner = ruleFor('.ops-inner').map((r) => r.decls.get('padding')).find(Boolean);
   assert.equal(inner, '12px', 'the ops inner padding the budget is built on');
@@ -119,9 +118,9 @@ test('W6 P4b: the 236px narrow-window ops rail is the bust budget, so a change t
   const shortBust = Math.min(...widths.map((w) => w[0]!));
   assert.equal(tall, 210, 'the tall bust width the budget is built on');
 
-  // the relationship itself: the rail's content box is exactly the tall bust
-  assert.equal(OPS_W - pad - border, tall, OPS_W + ' - ' + pad + ' padding - ' + border + ' border must equal the ' + tall + 'px bust');
-  assert.ok(shortBust <= OPS_W - pad - border, 'the short bust also fits');
+  // the relationship itself: the tall bust fits with the scrollbar present
+  assert.ok(OPS_W - pad - border - SCROLLBAR >= tall, OPS_W + ' - ' + pad + ' padding - ' + border + ' border - ' + SCROLLBAR + ' scrollbar must hold the ' + tall + 'px bust');
+  assert.ok(shortBust <= OPS_W - pad - border - SCROLLBAR, 'the short bust also fits');
 
   // and the premise: 'short' is a height query, so a narrow window still draws the tall bust
   assert.match(panel, /const q = '\(max-height: 700px\)'/, 'short is a height query, so a narrow tall window keeps the 210px bust');

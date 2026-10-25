@@ -480,7 +480,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @media (max-width: 1100px) { .tb-search { flex: none; width: 30px; padding: 0; justify-content: center; } .tb-search span, .tb-search kbd { display: none; } .tb-brand { flex: none; width: 140px; } .tb-ver { display: none; } .app { --rail-w: 208px; --ops-w: 288px; } .hint-long { display: none; } }
 /* A narrow window zooms too: at 1.5x a 1280 px window is 853 CSS px, and the two side rails left the thread 357. The rails give way first (they hold no reading task), so the thread head keeps one row and says what it said before. Below 900 px only: a 960x600 window at 1.5x is 640 px and narrower than any rail can fix. */
 @media (max-width: 900px) {
-  .app { --rail-w: 176px; --ops-w: 236px; }
+  .app { --rail-w: 176px; --ops-w: 252px; }
   /* In a window this narrow the tail's 200px basis is enough to put it on a row of its own beside the chips, which costs a
      whole header row (measured at 1280x820 and 1.5x: 109 px of header against 81). Zero basis keeps it on the chips' row: the
      usage line is cut either way at this width, and its tooltip has the whole line. Above 900 px the 200px basis stands, where

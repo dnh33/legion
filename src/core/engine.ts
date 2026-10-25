@@ -3226,8 +3226,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       };
       const resumeId = stored && stored.entryId === entry.id ? stored.sessionId : undefined;
       // Continue on a task whose token limit is still reached: another turn would stop at once, so none is started. The card says so, in the same
-      // words every time: no note per press, and nothing marked resumable that this run cannot honour (a stored session is already resumable, and
-      // that is what makes Continue work once the limit is higher).
+      // words every time, with no note per press.
       const used = this.store.getTask(taskId)?.tokenUsage;
       const spent = (used?.inputTokens ?? 0) + (used?.outputTokens ?? 0);
       if (entry.maxTokensPerTask !== undefined && spent >= entry.maxTokensPerTask) {
