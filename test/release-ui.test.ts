@@ -61,7 +61,8 @@ async function loadUi(): Promise<Record<string, (...a: any[]) => string>> {
           export const errText = (e) => String(e); export const toast = () => {};
           export const saveAgent = async () => {}; export const removeAgent = async () => {};
           export const closeOverlays = () => {}; export const openSettings = () => {}; export const loadCatalog = async () => {};
-          export const openEditor = () => {}; export const selectAgent = () => {};`);
+          export const openEditor = () => {}; export const selectAgent = () => {};
+          export const dismissClosed = () => {};`);
       },
     }],
   });

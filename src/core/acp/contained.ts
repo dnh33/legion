@@ -58,11 +58,13 @@ export interface Out { code: number | null; stdout: string; stderr: string; time
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 const clean = (s: string) => s.replace(ANSI, '');
 const timedOutText = (r: Out) => `Hermes did not answer within ${Math.round((r.limitMs ?? CONTAINED_TIMEOUT_MS) / 1000)} seconds`;
-/** The one line that says what went wrong, from Hermes's own words, redacted and short. */
+/** Hermes's own line that gives the fix when a part is missing (hermes_cli/main_agent_cmds.py, pm/extras.py). */
+const fixLine = (l: string): boolean => /^From the Hermes environment, run:/.test(l) || /\bpm install\b/.test(l);
+/** The one line that says what went wrong, from Hermes's own words, redacted and short. A line that gives the fix wins over the error above it. */
 export function why(r: Out): string {
   if (r.timedOut) return timedOutText(r);
   const lines = clean(`${r.stderr}\n${r.stdout}`).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const line = lines.find((l) => /error|✗|not set|does not exist|refus|cannot|could not|no such/i.test(l)) ?? lines[lines.length - 1] ?? `Hermes stopped with code ${r.code ?? 'unknown'}`;
+  const line = lines.find(fixLine) ?? lines.find((l) => /error|✗|not set|does not exist|refus|cannot|could not|no such/i.test(l)) ?? lines[lines.length - 1] ?? `Hermes stopped with code ${r.code ?? 'unknown'}`;
   return redact(line).slice(0, 200);
 }
 /** No exit code: Hermes did not start, or it was stopped at the limit. Either way nothing more is run. */
@@ -193,7 +195,7 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
     policyOk ? POLICY_HOLDS : policy.problems.join(' '),
     signedIn
       ? 'Hermes can use a credential for it. That may be your main Hermes sign-in, which the Contained profile can fall back on.'
-      : `Hermes lists no credential for it yet (a main Hermes sign-in would count too). Run ${signInCommand(entry)} in a terminal to sign in.`,
+      : `Hermes lists no credential for it yet (a main Hermes sign-in would count too). Run ${signInCommand(entry)} in a terminal to sign in, then press Check again.`,
   ];
   return { exists: true, signedIn, policyOk, detail: parts.join(' ') };
 }
@@ -233,5 +235,5 @@ async function doSetUp(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   if (policy.startFailed) return fail(startFailure(policy.startFailed));
   if (policy.problems.length) return fail(`The Contained profile is not safe to use yet. ${policy.problems.join(' ')}`);
   const kept = found.exists ? 'The Contained profile already existed, so Legion kept it and set its approval mode, tool list and login setting. ' : 'The Contained profile is ready. ';
-  return { ok: true, detail: `${kept}${POLICY_HOLDS} Sign in once: run ${signIn} in a terminal.`, signInCommand: signIn };
+  return { ok: true, detail: `${kept}${POLICY_HOLDS} Sign in once: run ${signIn} in a terminal, then press Check.`, signInCommand: signIn };
 }

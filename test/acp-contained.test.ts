@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 import { makeFakes, start, TOKEN, TEST_ADMIN } from './helpers-c.js';
 import { forgetLegionSecrets, registerLegionSecrets, startAgentProcess } from '../src/core/acp/process.js';
-import { CONTAINED_TIMEOUT_MS, containedRunBlock, containedStatus, resetContainedGate, setUpContained, signInCommand } from '../src/core/acp/contained.js';
+import { CONTAINED_TIMEOUT_MS, containedRunBlock, containedStatus, resetContainedGate, setUpContained, signInCommand, why } from '../src/core/acp/contained.js';
 import { BUILTIN_HERMES } from '../src/shared/acp-view.js';
 
 const WIN = process.platform === 'win32';
@@ -73,6 +73,7 @@ test('set up from nothing runs exactly these commands, in this order, and never 
   assert.ok(calls().every((c) => !c.some((a) => a.startsWith('--clone'))), 'no clone flag anywhere');
   assert.ok(existsSync(join(state, 'profiles', 'legion')), 'the profile now exists');
   assert.equal(r.signInCommand, 'hermes -p legion setup model', 'the sign-in step is shown, not run');
+  assert.match(r.detail, /Sign in once: run hermes -p legion setup model in a terminal, then press Check\./, 'the sentence ends with the next step');
   assert.ok(!calls().some((c) => c.includes('auth') || c.includes('setup')), 'Legion never runs the sign-in');
 });
 
@@ -124,6 +125,7 @@ test('status reads only: no profile, set up but not signed in, then signed in', 
   const ready = await containedStatus(BUILTIN_HERMES);
   assert.deepEqual({ exists: ready.exists, signedIn: ready.signedIn, policyOk: ready.policyOk }, { exists: true, signedIn: false, policyOk: true });
   assert.match(ready.detail, /hermes -p legion setup model/);
+  assert.match(ready.detail, /to sign in, then press Check again\./, 'a Check that finds no sign-in says what to do next');
   assert.ok(calls().every((c) => !c.includes('set') && !c.includes('create')), 'a check changes nothing');
 
   writeFileSync(join(state, 'profiles', 'legion', 'signed-in'), '');
@@ -189,6 +191,23 @@ test('two set ups at once run the commands once', async () => {
 test('the sign-in command follows the entry command and quotes a path with spaces', () => {
   assert.equal(signInCommand({ command: 'hermes' }), 'hermes -p legion setup model');
   assert.equal(signInCommand({ command: 'C:\\Program Files\\Hermes\\hermes.exe' }), '"C:\\Program Files\\Hermes\\hermes.exe" -p legion setup model');
+});
+
+test('why: a line that gives the fix wins over the error line above it', () => {
+  const missing = {
+    code: 1, timedOut: false, stdout: '',
+    stderr: [
+      "The ACP server can't start: its protocol packages are missing from this install.",
+      'Details: ModuleNotFoundError: No module named "acp_adapter"',
+      'From the Hermes environment, run: hermes pm install --extra acp',
+      'Then restart Hermes.',
+    ].join('\n'),
+  };
+  assert.equal(why(missing), 'From the Hermes environment, run: hermes pm install --extra acp');
+  // a lone fix command in another form is enough too
+  assert.equal(why({ code: 1, timedOut: false, stdout: 'hermes pm install', stderr: '' }), 'hermes pm install');
+  // no fix line: the error line is still the one chosen
+  assert.equal(why({ code: 1, timedOut: false, stdout: '', stderr: 'Error: profile does not exist' }), 'Error: profile does not exist');
 });
 
 test('the text Legion shows has no em or en dash', async () => {

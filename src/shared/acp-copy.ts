@@ -3,7 +3,7 @@
  * mode line, usage line). One file so the window, the core and the tests read the same text. Plain words, no dashes, "your computer".
  */
 import { parseAcpModel, runtimeOf } from './runtime.js';
-import type { AcpSwitches } from './acp-view.js';
+import { TESTED_HERMES, compareVersions, type AcpSwitches } from './acp-view.js';
 
 /** What an agent host card says when the agent stops waiting for it (Hermes denies a request nobody answers after 300 s). */
 export const ACP_CLOSED_NOTE = 'The agent stopped waiting';
@@ -94,6 +94,19 @@ export const hostNameOf = (m: string | undefined, hostLabel: (entryId: string) =
   return (id ? hostLabel(id) : undefined) ?? (id ? id[0]!.toUpperCase() + id.slice(1) : HERMES);
 };
 
+/** The note under the Folder field of a Hermes agent with no folder yet. Empty is allowed until the first run starts, so this is a note and not a block on Save. */
+export const folderNote = (model: string | undefined, cwd: string | undefined): string | undefined =>
+  isHermesModel(model) && !(cwd ?? '').trim() ? 'Hermes needs a folder of its own. Pick one before the first run.' : undefined;
+
+/**
+ * The Doctor's verdict on a Hermes version below the oldest Legion works with, in the words Settings uses too. Undefined when the version
+ * is fine or could not be read.
+ */
+export function tooOldVerdict(version: string | undefined): { detail: string; fix: string } | undefined {
+  if (!version || compareVersions(version, TESTED_HERMES.min) >= 0) return undefined;
+  return { detail: `Older than the oldest version Legion works with (${TESTED_HERMES.min}).`, fix: 'Update Hermes, then check again.' };
+}
+
 const MODE_WORDS: Record<string, string> = { manual: 'Manual', smart: 'Smart', off: 'Off' };
 
 /**
@@ -128,7 +141,7 @@ export function hermesUsageLine(t: { status?: string; tokenUsage?: { inputTokens
   const noCost = t.costUsd == null ? hostNoCost(t.name) : `Cost from your prices: $${t.costUsd.toFixed(4)}.`;
   // tokens arrive when a turn ends: until then a running task has nothing to report yet, which is not the same as "not reported"
   if (u?.inputTokens == null && (t.status === 'running' || t.status === 'queued')) return noCost;
-  const tokens = u?.inputTokens != null ? `${u.inputTokens} in / ${u.outputTokens ?? 0} out` : 'tokens not reported';
+  const tokens = u?.inputTokens != null ? `${u.inputTokens.toLocaleString('en-US')} in / ${(u.outputTokens ?? 0).toLocaleString('en-US')} out` : 'tokens not reported';
   const unknown = u?.unknown && u.inputTokens != null ? ' (not all counted)' : '';
   return `${tokens}${unknown}. ${noCost}`;
 }

@@ -478,6 +478,15 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @keyframes rise2 { from { opacity: 0; transform: translateY(8px); } }
 
 @media (max-width: 1100px) { .tb-search { flex: none; width: 30px; padding: 0; justify-content: center; } .tb-search span, .tb-search kbd { display: none; } .tb-brand { flex: none; width: 140px; } .tb-ver { display: none; } .app { --rail-w: 208px; --ops-w: 288px; } .hint-long { display: none; } }
+/* A narrow window zooms too: at 1.5x a 1280 px window is 853 CSS px, and the two side rails left the thread 357. The rails give way first (they hold no reading task), so the thread head keeps one row and says what it said before. Below 900 px only: a 960x600 window at 1.5x is 640 px and narrower than any rail can fix. */
+@media (max-width: 900px) {
+  .app { --rail-w: 176px; --ops-w: 236px; }
+  /* In a window this narrow the tail's 200px basis is enough to put it on a row of its own beside the chips, which costs a
+     whole header row (measured at 1280x820 and 1.5x: 109 px of header against 81). Zero basis keeps it on the chips' row: the
+     usage line is cut either way at this width, and its tooltip has the whole line. Above 900 px the 200px basis stands, where
+     it is what lets the line wrap whole and be read (960 at 1x). */
+  .th-right.is-hermes .th-tail { flex: 1 1 0; }
+}
 @media (max-height: 700px) { .screen { aspect-ratio: 16 / 7; } .computer-meta { display: none; } .recent-card { min-height: 84px; } .mascot-stage { padding: 8px 0 8px; } .ops-inner { gap: 8px; padding: 10px 12px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
@@ -861,7 +870,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .acp-first-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .form .acp-first { margin: 6px 0 0; }
 .acp-card .approval-actions .btn:not(.sm) { height: auto; min-height: 30px; padding-block: 4px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
-.acp-card .approval-sum { max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.acp-card .approval-sum { max-height: clamp(96px, 28vh, 328px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .acp-left { margin-left: auto; font-variant-numeric: tabular-nums; }
 .approval.is-closed { border-color: var(--line-strong); background: var(--surface); }
 .approval.is-closed .approval-head { color: var(--text-2); }

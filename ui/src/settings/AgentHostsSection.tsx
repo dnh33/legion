@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AcpEntryView, AcpSwitches, AcpView } from '../../../src/shared/acp-view';
-import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES } from '../../../src/shared/acp-view';
-import { CONTAINED_NEEDS_HERMES, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER, loosenedSwitches } from '../../../src/shared/acp-copy';
+import { ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, BUILTIN_HERMES } from '../../../src/shared/acp-view';
+import { CONTAINED_NEEDS_HERMES, CONTAINED_OFF_HINT, CONTAINED_SWITCH_HINT, CUSTOM_ENTRIES_NOTE, SWITCH_COPY, SWITCH_ORDER, loosenedSwitches, tooOldVerdict } from '../../../src/shared/acp-copy';
 import { PENDING_TEXT } from '../gates/useGatesView';
 import { api } from '../api';
 import { errText, loadCatalog, loadSettings, runDoctor, saveSettings, toast, useStore } from '../store';
@@ -56,7 +56,11 @@ export function hostState(e: AcpEntryView, checking: boolean): { title: string; 
   if (!e.enabled) return { title: d.state === 'found' ? `${name} found on your computer` : d.state === 'missing' ? `${name} not found on your computer` : `${name} is off` };
   if (d.state === 'missing') return { title: `${name} is not installed`, ...(d.detail ? { detail: d.detail } : {}) };
   if (d.state === 'error') return { title: `${name} is installed but does not start`, ...(d.detail ? { detail: d.detail } : {}) };
-  if (d.state === 'found' && d.checked) return { title: `${name} found${d.version ? `, version ${d.version}` : ''}` };
+  if (d.state === 'found' && d.checked) {
+    // the Doctor's verdict, in the Doctor's words: a version below the oldest Legion works with gets its fix under the line
+    const old = e.id === BUILTIN_HERMES.id ? tooOldVerdict(d.version) : undefined;
+    return { title: `${name} found${d.version ? `, version ${d.version}` : ''}`, ...(old ? { detail: `${old.detail} ${old.fix}` } : {}) };
+  }
   if (d.state === 'found') return { title: checking ? `${name} found, checking it` : `${name} found, not checked yet` };
   return { title: checking ? `Checking ${name}` : `${name} has not been checked` };
 }

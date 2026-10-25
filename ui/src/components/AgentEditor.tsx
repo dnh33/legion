@@ -17,7 +17,7 @@ import { GithubAccess } from '../github/GithubAccess';
 import { APPROVAL_CHOICES, CHOICE_HELP, SEED_TAG, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, seedWords, type ApprovalChoice } from '../gates/agentFollowLogic';
 import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
 import { runtimeOf } from '../../../src/shared/runtime';
-import { MATCH_MODE_LINK, agentHostNote, agentHostOwnTools, agentModeControl, firstUseOutcome, hostNameOf, hostPromptPlaceholder, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
+import { MATCH_MODE_LINK, agentHostNote, agentHostOwnTools, agentModeControl, firstUseOutcome, folderNote, hostNameOf, hostPromptPlaceholder, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
 import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
@@ -92,9 +92,11 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const hostName = hostNameOf(model, (eid) => settings?.acp.entries.find((e) => e.id === eid)?.label ?? hosts.find((h) => h.entryId === eid)?.label);
   const modeCtl = agentModeControl({ model, modeMap: settings?.acp.switches.modeMap === true, name: hostName, ...(hermesEntry?.detection.approvalsMode ? { hermesMode: hermesEntry.detection.approvalsMode } : {}) });
   const inProject = id !== null && projects.some((p) => p.status !== 'archived' && p.members.includes(id));
+  const folderEmptyNote = folderNote(model, cwd);
   const folderField = (
     <label>Folder<input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder={`The folder ${hostName} works in`} spellCheck={false} aria-describedby="hm-folder-note" />
-      <span className="field-note" id="hm-folder-note">{inProject ? 'This agent is in a project, so ' + hostName + ' works in the project folder. This folder is used outside it.' : hostName + ' works in this folder. Choose one outside Legion\'s data folder.'}</span></label>
+      <span className="field-note" id="hm-folder-note">{inProject ? 'This agent is in a project, so ' + hostName + ' works in the project folder. This folder is used outside it.' : hostName + ' works in this folder. Choose one outside Legion\'s data folder.'}</span>
+      {folderEmptyNote && <span className="field-note" role="status">{folderEmptyNote}</span>}</label>
   );
   const { models, fallback } = modelList(catalog);
   const grouped = groupModels(catalog);

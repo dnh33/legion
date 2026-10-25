@@ -115,7 +115,9 @@ test('R75: with Hermes off, the detection, the waits and the warm-ups start no p
   const deps = { dataDir };
   assert.equal(peekDetection(e).checked, false);
   assert.equal(peekDetection(e).found, false);
-  assert.equal((await detectAgent(e, deps)).checked, false);
+  const off = await detectAgent(e, deps);
+  assert.equal(off.checked, false);
+  assert.doesNotMatch(off.detail ?? '', /From the Hermes environment|pm install|Older than the oldest/, 'no start, so no start-failure or version wording');
   assert.equal((await detectAgent(e, { ...deps, force: true })).checked, false);
   await readAgentWaits(e, deps);
   await warmHermes(e, deps, { inUse: true, runStart: true });

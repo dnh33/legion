@@ -50,7 +50,25 @@ export function AcpCard({ a, now }: { a: ApprovalRequest; now?: number }) {
   };
   return (
     <div ref={box} className="approval acp-card" tabIndex={0} data-approval-id={a.id} data-armed={armed ? 'true' : 'false'} role="group" aria-label={asks}
-      onFocus={(e) => { arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); refresh(); }}>
+      onFocus={(e) => { arm.enterFrom(e.currentTarget, e.relatedTarget, performance.now()); refresh(); }}
+      onKeyUp={() => arm.released(performance.now())}
+      onKeyDown={(e) => {
+        // the card answers no key until it is armed (ARM_MS after it appeared or took focus from outside, and after the last key); a held key never answers
+        const ok = arm.key(e.nativeEvent, e.key, e.repeat, performance.now());
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // the answer buttons go away at the end, so there is nothing left to answer
+        if (ended) return;
+        const isA = e.key === 'a' || e.key === 'A';
+        const isD = e.key === 'd' || e.key === 'D';
+        if (!isA && !isD) return; // Enter and Space stay with the focused button
+        // A picks the one allow option, D the one reject option: with several of a kind there is no single answer, so the buttons decide
+        const options = a.acpOptions ?? [];
+        const pick = isA ? options.filter((o) => o.kind.startsWith('allow')) : options.filter((o) => o.kind.startsWith('reject'));
+        if (pick.length !== 1 || (isA && pick[0]!.kind !== 'allow_once')) return;
+        if (!ok) { if (!e.repeat) notReady(); return; }
+        e.preventDefault();
+        void decideOption(a.id, isA, pick[0]!.optionId);
+      }}>
       <div className="approval-head">
         <Icon name="shield" size={14} />
         <span>{asks}</span>

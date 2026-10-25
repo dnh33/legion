@@ -64,7 +64,7 @@ export function cardSummary(r: MappedPermission, lead: readonly string[] = []): 
   for (const p of cardParts(r)) lines.push(p.length > CARD_TEXT_MAX ? p.slice(0, CARD_TEXT_MAX) : p);
   if (lines.length === lead.length) lines.push(r.title);
   const hidden = cardHidden(r);
-  if (hidden > 0) lines.push(`(${hidden} more characters not shown)`);
+  if (hidden > 0) lines.push(`(${hidden.toLocaleString('en-US')} more characters not shown)`);
   return lines.join('\n');
 }
 

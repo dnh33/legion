@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -123,7 +123,7 @@ test('without an agent host setup the engine still fails in plain words and neve
   const t = bare.startTask({ agentId: 'herm', prompt: 'x', source: 'ui' } as any);
   const end = await bare.waitFor(t.id, 5000);
   assert.equal(end.status, 'error');
-  assert.match(end.error ?? '', /cannot run Hermes agents/);
+  assert.match(end.error ?? '', /no agent host to run this model on/);
 });
 
 test('pass-through: ONE card per request with Hermes\'s title and its own option names; the chosen optionId goes back verbatim (allow_always included); nothing is remembered', async () => {
@@ -399,7 +399,8 @@ test('maxSteps: the call after the limit cancels the turn and the task pauses on
   assert.equal(e2.status, 'error');
   assert.ok((e2.error ?? '').startsWith(TOKEN_LIMIT_PREFIX) && /1,?200 tokens|1000 tokens/.test(e2.error ?? ''), e2.error);
   assert.doesNotMatch(e2.error ?? '', /spend|dollar|\$/i, 'Hermes reports tokens, never money');
-  assert.match(e2.error ?? '', /raise the token limit/i);
+  assert.match(e2.error ?? '', /raise the token limit in the config file \(the Doctor shows where it is\)/i, 'the limits live in the config file, not on a Settings page');
+  assert.doesNotMatch(e2.error ?? '', /Settings, Agent hosts/);
   assert.ok(isLimitPause({ status: 'error', error: e2.error }), 'still a pause with the work kept, not a failure');
   assert.ok(!/[\u2013\u2014]/.test(e2.error ?? ''));
 });
@@ -1214,6 +1215,7 @@ test('R75: an agent on Hermes while "Offer Hermes" is off is refused before any 
   assert.equal(end.status, 'error');
   assert.match(end.error ?? '', /Offer Hermes/);
   assert.match(end.error ?? '', /Settings, Agent hosts/);
+  assert.doesNotMatch(end.error ?? '', /config file|token limit/i, 'no run started, so no limit wording while Hermes is off');
   assert.equal(existsSync(r.reportFile), false, 'the agent program was never started');
   assert.equal(r.claudeRuns.length, 0, 'and Claude did not run instead');
 });
@@ -1238,6 +1240,28 @@ test('R76: a Hermes run paused at the token limit is resumable once its session 
   assert.equal(end.resumable, undefined, 'a finished run is no longer resumable');
 });
 
+test('Continue on a task whose token limit is still reached starts no Hermes turn, says so, and stays resumable', async () => {
+  const r = rig({ entry: { maxTokensPerTask: 1000 }, steps: [{ op: 'text', text: 'half done' }, END({ inputTokens: 800, outputTokens: 400 })] });
+  const paused = await r.done(await r.run('build it'));
+  assert.ok(isLimitPause({ status: 'error', error: paused.error }));
+  assert.equal(paused.resumable, true);
+  const rowsBefore = r.rows(paused.id).filter((m) => m.role === 'system').length;
+  // the owner does not raise the limit, and presses Continue: no new process may start
+  rmSync(r.logFile, { force: true });
+  const t2 = r.engine.startTask({ agentId: 'herm', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: paused.id } as any);
+  const end = await r.done(t2);
+  assert.equal(end.status, 'error');
+  assert.ok(isLimitPause({ status: 'error', error: end.error }), 'still a pause the owner can continue');
+  assert.match(end.error ?? '', /1,200 tokens this task/);
+  assert.equal(end.resumable, true, 'the task stays resumable once the limit is raised');
+  assert.equal(existsSync(r.logFile), false, 'no Hermes process was started, so no turn ran');
+  // decision (a): the constant and its per-press note are gone, so a Continue adds exactly ONE history row for this stop
+  // (the short pause line endTask writes); it used to add two. Counted rather than matched: the limit text itself is the card's,
+  // and that row is redacted in some builds, so a text match on it would be unreliable.
+  const after = r.rows(paused.id).filter((m) => m.role === 'system').length;
+  assert.equal(after, rowsBefore + 1, 'one pause line for this stop; the per-press note is gone, so no third row can appear');
+});
+
 test('R76: a Hermes run that never reached its session is not resumable (Retry sends the request again)', async () => {
   const r = rig({ entry: { command: process.execPath, args: ['-e', 'process.exit(1)'] } });
   const end = await r.done(await r.run());
@@ -1256,7 +1280,8 @@ test('M10: a long command is shown whole with every option; a command past the c
   const c2 = await r.nextCard();
   assert.ok(!c2.summary.includes('CUT-TAIL'));
   assert.match(c2.summary, /too long to show in full, so you can only say no/);
-  assert.match(c2.summary, /\(\d+ more characters not shown\)$/);
+  // the count past a thousand carries its separator, as every other number in the window does
+  assert.match(c2.summary, /\(\d{1,3}(?:,\d{3})+ more characters not shown\)$/);
   assert.deepEqual(c2.acpOptions?.map((o) => o.name), ['Deny'], 'nothing that allows is offered for text the owner cannot read');
   r.broker.resolve(c2.id, false);
   const end = await r.done(t);

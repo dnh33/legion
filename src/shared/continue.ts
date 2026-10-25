@@ -7,6 +7,22 @@ export const BUDGET_LIMIT_PREFIX = 'Paused at the spend limit';
 /** How a Hermes token-limit stop's error text starts. Not the spend limit: Hermes reports tokens, never money, and the tokens already used stay counted, so Continue needs a higher limit first. */
 export const TOKEN_LIMIT_PREFIX = 'Paused at the token limit';
 
+/**
+ * A token count as Legion writes it. Every place that writes a token count, and every place that reads one back, takes
+ * its format from here, so the two can never disagree about the separator.
+ */
+export const tokenCount = (n: number): string => n.toLocaleString('en-US');
+
+/** How a run says it reached its token limit. The reader below builds its pattern from this same string, not from a copy of it. */
+export const TOKEN_STOP_PREFIX = 'Stopped after ';
+
+/** The error text of a run stopped at its token limit, e.g. `Stopped after 1,200 tokens`. Written and read through this one rule. */
+export const tokenStopText = (tokens: number): string => `${TOKEN_STOP_PREFIX}${tokenCount(tokens)} tokens`;
+
+/** The count a token-limit stop names, as written in that text, or undefined when the text is not one. */
+export const tokenStopFromError = (error: string | undefined): string | undefined =>
+  new RegExp(`^${TOKEN_STOP_PREFIX}([\\d,]+) tokens`).exec(error ?? '')?.[1];
+
 type TaskLike = { status: string; error?: string } | undefined;
 
 /** A task stopped at the turn limit: a pause with the work kept, shown amber rather than as a failure. */

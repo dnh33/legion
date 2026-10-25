@@ -25,7 +25,7 @@
  *  - auth.adopt_external_logins defaults to true (config_defaults.py:1775): Hermes borrows the Claude Code login.
  */
 import { tmpdir } from 'node:os';
-import { BUILTIN_HERMES, type AcpDetection, type AcpEntry } from '../../shared/acp-view.js';
+import { BUILTIN_HERMES, TESTED_HERMES, compareVersions, type AcpDetection, type AcpEntry } from '../../shared/acp-view.js';
 import { VERSION } from '../../shared/config.js';
 import { redact } from '../log/redact.js';
 import { asJson, CONTAINED_PROFILE, why, type Out } from './contained.js';
@@ -33,11 +33,8 @@ import { AgentLaunchError, resolveCommand, runAgentCli, startAgentProcess } from
 import { RpcPeer } from './rpc.js';
 import { PROTOCOL_VERSION } from './session.js';
 
-/**
- * `min`: a safe floor for the Hermes with the gateway ACP server this runtime talks to (see above; unconfirmed until the live walk). `testedWith`: the version the runtime was built and
- * checked against. It is the release that holds the source that was studied; update it after the live walk.
- */
-export const TESTED_HERMES = { min: '0.22.3', testedWith: '0.22.3' } as const;
+/** `min` and `testedWith` live in shared/acp-view.ts so Settings and the Doctor read the same numbers (the source notes above say why). */
+export { TESTED_HERMES, compareVersions };
 /** Where Hermes itself says to get it (its README and installation page). Shown without the scheme. */
 export const HERMES_INSTALL_HOST = 'hermes-agent.nousresearch.com';
 
@@ -107,14 +104,6 @@ export function parseVersion(raw: string | undefined): string | undefined {
   const v = `${Number(m[1])}.${Number(m[2])}.${Number(m[3])}`;
   return v === '0.0.0' ? undefined : v;
 }
-/** Negative when a is older than b. Both are `x.y.z`. */
-export function compareVersions(a: string, b: string): number {
-  const x = a.split('.').map(Number);
-  const y = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) { const d = (x[i] ?? 0) - (y[i] ?? 0); if (d !== 0) return d; }
-  return 0;
-}
-
 // ---------------------------------------------------------------- what the runs tell us
 
 const notes = new Map<string, { version?: string; authFailed?: boolean }>();

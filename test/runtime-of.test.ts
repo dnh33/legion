@@ -128,7 +128,7 @@ test('a token client cannot create an agent on an agent host model', async () =>
 
 // ---------------------------------------------------------------- the engine
 
-function rig(model: string) {
+function rig(model: string, noHost = false) {
   const dir = tempDir('legion-rt-eng-');
   const store = new Store(dir);
   const agent: AgentProfile = {
@@ -143,16 +143,26 @@ function rig(model: string) {
   const queryFn = ((p: unknown) => { calls.push(p); throw new Error('the Claude SDK must not be reached'); }) as unknown as QueryFn;
   const engine = new Engine({
     store, bus, vms: {} as never, approvals: new ApprovalBroker(bus), config, queryFn, boatConfigured: () => false, maxConcurrent: 1,
+    ...(noHost ? {} : { agentHost: { dataDir: join(dir, 'data'), port: 41999 } }),
   });
   return { store, engine, calls };
 }
 
-test('a run on the built-in agent host fails in plain words until the runtime lands, and never reaches Claude or a provider', async () => {
+test('a run on the built-in agent host while the switch is off points at the switch, and never reaches Claude or a provider', async () => {
   const r = rig('acp:hermes');
   const t = r.engine.startTask({ agentId: 'a1', prompt: 'hello', source: 'ui' });
   const done = await r.engine.waitFor(t.id, 5000);
   assert.equal(done.status, 'error');
-  assert.equal(done.error, 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.');
+  assert.equal(done.error, 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts, or choose another model for this agent.');
+  assert.equal(r.calls.length, 0);
+});
+
+test('a core built with no agent host says that, and does not blame the switch', async () => {
+  const r = rig('acp:hermes', true);
+  const t = r.engine.startTask({ agentId: 'a1', prompt: 'hello', source: 'ui' });
+  const done = await r.engine.waitFor(t.id, 5000);
+  assert.equal(done.error, 'This Legion has no agent host to run this model on. Update Legion, or choose another model for this agent.');
+  assert.doesNotMatch(done.error ?? '', /Offer Hermes/, 'the switch is not the cause, so it is not named');
   assert.equal(r.calls.length, 0);
 });
 

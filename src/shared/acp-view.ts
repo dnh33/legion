@@ -48,6 +48,20 @@ export const ACP_WATCHDOG_DEFAULT_MINUTES = 10;
 export const ACP_WATCHDOG_MIN_MINUTES = 1;
 export const ACP_WATCHDOG_MAX_MINUTES = 120;
 
+/**
+ * `min`: the oldest Hermes Legion works with, a safe floor for the Hermes with the gateway ACP server this runtime talks to (the source notes
+ * are in src/core/acp/detect.ts). `testedWith`: the version the runtime was built and checked against. The Doctor and Settings read these, so
+ * both say the same numbers.
+ */
+export const TESTED_HERMES = { min: '0.22.3', testedWith: '0.22.3' } as const;
+/** Negative when a is older than b. Both are `x.y.z`. */
+export function compareVersions(a: string, b: string): number {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) { const d = (x[i] ?? 0) - (y[i] ?? 0); if (d !== 0) return d; }
+  return 0;
+}
+
 /** The arguments to start an entry: its own, or the Contained profile form when it is contained. */
 export function containedArgs(e: AcpEntry): string[] {
   return e.contained ? ['-p', 'legion', 'acp'] : [...e.args];

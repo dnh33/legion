@@ -166,4 +166,8 @@ test('cardSummary: a command and a diff are shown whole up to a large limit; pas
   const text = cardSummary(huge);
   assert.ok(!text.includes('TAIL-HIDDEN'));
   assert.match(text, /\n\(12 more characters not shown\)$/, 'the cut is stated on its own line');
+  // a count over 999 is written with a thousands separator: a fossil of a hidden run reads as a number, not a digit wall
+  const over = mk({ input: { command: `${'x'.repeat(CARD_TEXT_MAX)}${'y'.repeat(1234)}` } });
+  assert.equal(cardHidden(over), 1234);
+  assert.match(cardSummary(over), /\n\(1,234 more characters not shown\)$/, 'a count past 999 carries the separator');
 });

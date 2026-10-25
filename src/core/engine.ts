@@ -18,7 +18,7 @@ import { AWAY_COPY } from '../shared/away-copy.js';
 import type { BuildSnapshot } from './gates-settings/build-edited.js';
 import { isBuildFile } from '../shared/build-files.js';
 import { liveSecrets } from './kg/index.js';
-import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TOKEN_LIMIT_PREFIX, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TOKEN_LIMIT_PREFIX, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit, tokenStopFromError, tokenStopText } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
@@ -1329,18 +1329,18 @@ export class Engine {
       // with that run's own limit; a Claude run's stop carries no text and its limit is claude.maxTurns.
       const providerStop = /^Stopped after (\d+) (model turns|Hermes steps)/.exec(outcome.errorText ?? '');
       const stopUnit = providerStop?.[2] === 'Hermes steps' ? 'steps' : 'turns';
-      const tokenStop = /^Stopped after ([\d,]+) tokens/.exec(outcome.errorText ?? '');
+      const tokenStop = tokenStopFromError(outcome.errorText);
       const turnLimit = outcome.subtype === 'error_max_turns' && (!outcome.errorText || !!providerStop);
       const limitTurns = providerStop ? Number(providerStop[1]) : this.config.claude.maxTurns;
       // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
       // A Hermes token-limit stop has its own words: Hermes reports tokens, never money, so the spend-limit wording would be false for it.
-      const tokenLimit = outcome.subtype === 'error_max_budget_usd' && !!tokenStop;
-      const budgetLimit = outcome.subtype === 'error_max_budget_usd' && !tokenStop;
+      const tokenLimit = outcome.subtype === 'error_max_budget_usd' && tokenStop !== undefined;
+      const budgetLimit = outcome.subtype === 'error_max_budget_usd' && tokenStop === undefined;
       // the cap this run really had: a brief's budget when it lowered the owner's (Fascia 3b)
       const cap = this.perRunBudget(job);
       const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
       const text = tokenLimit
-        ? `${TOKEN_LIMIT_PREFIX} (${tokenStop![1]} tokens this task) before finishing. The work so far is kept. To go on, raise the token limit in Settings, Agent hosts, then continue the task.`
+        ? `${TOKEN_LIMIT_PREFIX} (${tokenStop!} tokens this task) before finishing. The work so far is kept. To go on, raise the token limit in the config file (the Doctor shows where it is), then continue the task.`
         : turnLimit
         ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
         : budgetLimit
@@ -1351,7 +1351,7 @@ export class Engine {
       const shown = why ? `${why}\n\nClaude said: ${text}` : text;
       this.patchTask(job.taskId, { status: 'error', error: shown, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', tokenLimit ? `${TOKEN_LIMIT_PREFIX} (${tokenStop![1]} tokens this task).` : turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
+      this.addMessage(job.taskId, 'system', tokenLimit ? `${TOKEN_LIMIT_PREFIX} (${tokenStop!} tokens this task).` : turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
       // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
       else if (tokenLimit) this.mascot('idle', 'paused at the token limit');
@@ -2941,12 +2941,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    */
   private runAgentHost(model: string, entry?: AcpEntry): Outcome {
     const entryId = parseAcpModel(model)?.entryId;
+    // One sentence for "Hermes is off": the entry-missing case used to carry its own copy and drifted into a claim that is false after 0.3.8.
+    const hermesOff = 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts, or choose another model for this agent.';
     const text = !entry
       ? entryId === 'hermes'
-        ? 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.'
+        ? hermesOff
         : `The agent host "${entryId ?? model.slice('acp:'.length)}" is not set up. Choose another model for this agent in Settings.`
       : !entry.enabled
-        ? (entry.id === 'hermes' ? `${entry.label} is off. Turn on "Offer Hermes" in Settings, Agent hosts, or choose another model for this agent.` : `${entry.label} is switched off in Settings. Choose another model for this agent.`)
+        ? (entry.id === 'hermes' ? hermesOff : `${entry.label} is switched off in Settings. Choose another model for this agent.`)
         : 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.';
     return { subtype: 'error_during_execution', isError: true, errorText: text };
   }
@@ -3223,6 +3225,17 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         });
       };
       const resumeId = stored && stored.entryId === entry.id ? stored.sessionId : undefined;
+      // Continue on a task whose token limit is still reached: another turn would stop at once, so none is started. The card says so, in the same
+      // words every time: no note per press, and nothing marked resumable that this run cannot honour (a stored session is already resumable, and
+      // that is what makes Continue work once the limit is higher).
+      const used = this.store.getTask(taskId)?.tokenUsage;
+      const spent = (used?.inputTokens ?? 0) + (used?.outputTokens ?? 0);
+      if (entry.maxTokensPerTask !== undefined && spent >= entry.maxTokensPerTask) {
+        // runOnce cleared resumable when this run started, so the guard puts it back: the stored session is what makes
+        // Continue work once the limit is higher. Only the per-press note is gone.
+        this.patchTask(taskId, { resumable: true });
+        return { subtype: 'error_max_budget_usd', isError: true, errorText: tokenStopText(spent) };
+      }
       let session: AcpSession;
       let fresh = resumeId === undefined;
       try {
@@ -3304,7 +3317,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
       if (overSteps) return { subtype: 'error_max_turns', isError: true, errorText: `Stopped after ${entry.maxSteps} Hermes steps` };
       const total = (tokens.inputTokens ?? 0) + (tokens.outputTokens ?? 0);
-      if (entry.maxTokensPerTask !== undefined && total >= entry.maxTokensPerTask) return { subtype: 'error_max_budget_usd', isError: true, errorText: `Stopped after ${total.toLocaleString('en-US')} tokens` };
+      if (entry.maxTokensPerTask !== undefined && total >= entry.maxTokensPerTask) return { subtype: 'error_max_budget_usd', isError: true, errorText: tokenStopText(total) };
       switch (turn.stopReason) {
         case 'end_turn': return { subtype: 'success', isError: false };
         case 'max_turn_requests': return { subtype: 'error_max_turns', isError: true, errorText: `Stopped after ${Math.max(1, steps)} Hermes steps` };
@@ -3425,7 +3438,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (runtimeOf(model) === 'acp') {
       const parsed = parseAcpModel(model);
       const entry = parsed ? acpEntry(this.config, parsed.entryId) : undefined;
-      if (!this.agentHost || !parsed || !entry || !entry.enabled) return this.runAgentHost(model, entry);
+      // A core with no agent host cannot start one however the entry is set: name that cause, never the "Offer Hermes" switch (turning it on would not help).
+      if (!this.agentHost) return { subtype: 'error_during_execution', isError: true, errorText: 'This Legion has no agent host to run this model on. Update Legion, or choose another model for this agent.' };
+      if (!parsed || !entry || !entry.enabled) return this.runAgentHost(model, entry);
       return this.runAcp(job, agent, entry, prompt, act, parsed.modelId);
     }
     const pr = this.providers?.resolve(model);

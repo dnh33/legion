@@ -152,7 +152,7 @@ test('6: Settings that cannot load say so and name the next step, the same sente
   assert.match(s, /onClick=\{\(\) => void loadSettings\(\)\}>Try again/);
   const store = src('ui/src/store.ts');
   assert.match(store, /settingsFail: \{ kind: e instanceof ApiError && e\.status === 0 \? 'offline' : 'other'/);
-  assert.match(store, /if \(!getState\(\)\.settings && getState\(\)\.settingsOpen\) void loadSettings\(\)/, 'it loads by itself when the core is back');
+  assert.match(store, /if \(!getState\(\)\.settings\) void loadSettings\(!getState\(\)\.settingsOpen\)/, 'it loads by itself when the core is back: quietly unless Settings is open, so the widening that lets a closed panel retry must not be narrowed again');
 });
 
 // ---------------------------------------------------------------- 7: plural

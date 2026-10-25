@@ -21,7 +21,7 @@ import type { GateValue, Preset, TrustedFolderRecord } from '../../shared/gates-
 import { DOCS_HOSTS } from '../../shared/docs-hosts.js';
 import { createWebLastUsed } from '../web-hosts.js';
 import { plain } from '../folder-trust.js';
-import { providerPrefix } from '../providers/runtime.js';
+import { runtimeOf } from '../../shared/runtime.js';
 import type { WebLastUsed } from '../web-hosts.js';
 import { createBuildEdited } from './build-edited.js';
 import type { BuildEdited } from './build-edited.js';
@@ -178,7 +178,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
   });
   const agentMode: AgentModeGuard = {
     check(c, { cur, name, change }) {
-      const pv = previewAgentMode({ agentId: cur?.id, name, before: modeOf(cur), change, world: worldOf(cur?.id), claudeAgent: !providerPrefix(cur?.model) });
+      const pv = previewAgentMode({ agentId: cur?.id, name, before: modeOf(cur), change, world: worldOf(cur?.id), claudeAgent: runtimeOf(cur?.model) === 'claude' });
       if (pv.raises) requireNative(c, opts);
       requireDigest(c, () => pv.digest, pv.raises);
     },
@@ -243,7 +243,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
         if (b.agentId !== undefined && !cur) throw new HttpError(404, `Unknown agent "${String(b.agentId).slice(0, 40)}"`);
         const world = worldOf(cur?.id);
         if (b.assumeAppPreset !== undefined) world.appPreset = b.assumeAppPreset as Preset;
-        const pv = previewAgentMode({ agentId: cur?.id, name: cur?.name ?? 'This agent', before: modeOf(cur), change, world, claudeAgent: !providerPrefix(cur?.model) });
+        const pv = previewAgentMode({ agentId: cur?.id, name: cur?.name ?? 'This agent', before: modeOf(cur), change, world, claudeAgent: runtimeOf(cur?.model) === 'claude' });
         return { ...pv, agentName: cur?.name ?? '' };
       });
       add('POST', '/api/gates/reload', () => { wrap(() => store.reload()); emit(); return store.view(opts.projects.list().map((p) => p.id)); });

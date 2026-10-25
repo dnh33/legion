@@ -8,12 +8,12 @@
  * the in-process Hermes path (a shared bare server name) is not supported, so no row here says anything about it working.
  */
 import type { DoctorCheck } from '../../shared/types.js';
-import { BUILTIN_HERMES, type AcpEntry } from '../../shared/acp-view.js';
+import { BUILTIN_HERMES, TESTED_HERMES, compareVersions, type AcpEntry } from '../../shared/acp-view.js';
 import { ENV_KEEP_LABEL } from '../../shared/gates-registry.js';
-import { SWITCH_COPY } from '../../shared/acp-copy.js';
+import { SWITCH_COPY, tooOldVerdict } from '../../shared/acp-copy.js';
 import { containedStatus } from './contained.js';
 import { SKIP_FLAGS, buildAgentEnv } from './process.js';
-import { TESTED_HERMES, authFailureNoted, compareVersions, detectAgent, peekDetection, type AgentDetection, type AgentHostDeps } from './detect.js';
+import { authFailureNoted, detectAgent, peekDetection, type AgentDetection, type AgentHostDeps } from './detect.js';
 import { named } from './texts.js';
 
 const APPROVALS_SMART = 'Hermes lets its own AI approve some commands before you see them.';
@@ -30,9 +30,8 @@ function versionRow(entry: AcpEntry, base: string, d: AgentDetection): DoctorChe
   if (!v) return { id, label: `${entry.label} version`, ok: true, level: 'neutral', detail: 'Legion could not read the version.' };
   const label = `${entry.label} version ${v}`;
   if (entry.id !== BUILTIN_HERMES.id) return { id, label, ok: true, detail: 'Legion was not tested with this agent host.' };
-  if (compareVersions(v, TESTED_HERMES.min) < 0) {
-    return { id, label, ok: false, detail: `Older than the oldest version Legion works with (${TESTED_HERMES.min}).`, fix: 'Update Hermes, then check again.' };
-  }
+  const old = tooOldVerdict(v);
+  if (old) return { id, label, ok: false, ...old };
   if (compareVersions(v, TESTED_HERMES.testedWith) > 0) return { id, label, ok: true, level: 'warn', detail: NEWER };
   return { id, label, ok: true, detail: `Legion was tested with Hermes ${TESTED_HERMES.testedWith}.` };
 }
