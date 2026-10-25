@@ -650,7 +650,7 @@ export class BoardStore {
   }
   private botBy(agentId: string, run: BotRun): BoardActor { return { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) }; }
   private botAssignee(v: unknown, proj: ProjectRef, run: BotRun): BoardAssignee | null {
-    if (run.tainted || run.capped) throw new BoardError(403, LIMITED_RUN + ' It may not assign items. Ask the owner.');
+    if (run.tainted || run.capped) throw new BoardError(403, 'The assignee field was refused: a run that touched outside content, or that another bot or an MCP client started under "ask" approvals, may not assign items. Leave assignee out: the rest of the call is allowed, and the owner can assign the item.');
     if (isObj(v) && v.kind === 'owner') throw new BoardError(403, 'Only the owner can assign an item to themselves.');
     return cleanAssignee(v, proj);
   }
