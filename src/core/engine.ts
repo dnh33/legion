@@ -3199,7 +3199,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       // the Contained promise must hold when the run starts, not only when the owner set the profile up
       if (entry.contained) {
-        const block = await (host.containedGate ?? containedRunBlock)(entry);
+        const keepNames = this.scrubFor(job).keep ?? [];
+        const block = await (host.containedGate ?? ((e: AcpEntry) => containedRunBlock(e, { envKeep: () => keepNames })))(entry);
         if (act.cancelled) return { subtype: 'cancelled', isError: false };
         if (block) return fail(this.redactText(block).slice(0, 700));
       }

@@ -125,7 +125,7 @@ test('status reads only: no profile, set up but not signed in, then signed in', 
   const ready = await containedStatus(BUILTIN_HERMES);
   assert.deepEqual({ exists: ready.exists, signedIn: ready.signedIn, policyOk: ready.policyOk }, { exists: true, signedIn: false, policyOk: true });
   assert.match(ready.detail, /hermes -p legion setup model/);
-  assert.match(ready.detail, /to sign in, then press Check again\./, 'a Check that finds no sign-in says what to do next');
+  assert.match(ready.detail, /to sign in, or keep the variable that holds the key \(Settings, Gates\), then press Check again\./, 'a Check that finds no sign-in says what to do next');
   assert.ok(calls().every((c) => !c.includes('set') && !c.includes('create')), 'a check changes nothing');
 
   writeFileSync(join(state, 'profiles', 'legion', 'signed-in'), '');
@@ -267,6 +267,9 @@ test('a missing credential is said as what Hermes lists, not as a flat "not sign
   assert.equal(envOnly.signedIn, false, 'an env: credential is not a sign-in the profile can use');
   assert.match(envOnly.detail, /come from your environment or from another tool/);
   assert.match(envOnly.detail, /setup model/, 'it still gives the sign-in command');
+  // the owner's keep list passes that variable to Hermes, so the same credential now counts
+  const kept = await containedStatus(BUILTIN_HERMES, { envKeep: () => ['key'] });
+  assert.equal(kept.signedIn, true, 'a credential from a variable the owner keeps is usable');
   rmSync(join(state, 'profiles', 'legion', 'env-only'));
   writeFileSync(join(state, 'profiles', 'legion', 'signed-in'), '');
   const signed = await containedStatus(BUILTIN_HERMES);

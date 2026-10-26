@@ -62,6 +62,8 @@ export interface CoreContext {
   away?: { caps(): CoreCaps; parked(): ParkedAsk[] };
   /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
+  /** The owner's keep list for variables passed to an agent host (Hermes): a Contained check counts a sign-in that comes from one of them. */
+  acpEnvKeep?: () => readonly string[];
   /** Checks a change of an agent's mode (the gates module makes it). Absent: only a change that keeps or tightens the mode is accepted. */
   agentMode?: AgentModeGuard;
   /** The per-launch native secret (the app's main process only). Absent: a change that lets Hermes ask less is refused. */
@@ -359,7 +361,8 @@ export function createServer(ctx: CoreContext): Server {
     if (!entry) throw new HttpError(404, 'The Hermes entry is not in the config');
     // Hermes is off until the owner turns it on; setting up or checking its profile starts Hermes
     if (!entry.enabled) throw new HttpError(409, 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts first.');
-    return action === 'check' ? containedStatus(entry) : setUpContained(entry);
+    const deps = ctx.acpEnvKeep ? { envKeep: ctx.acpEnvKeep } : undefined;
+    return action === 'check' ? containedStatus(entry, deps) : setUpContained(entry, deps);
   });
 
   // ---- agents ----------------------------------------------------------

@@ -52,7 +52,7 @@ const POLICY = [
 const POLICY_HOLDS = `Hermes reports ${CONTAINED_CHECKS}. Tools you add to that profile yourself are not checked.`;
 
 type Run = typeof runAgentCli;
-export interface ContainedDeps { run?: Run }
+export interface ContainedDeps { run?: Run; /** The owner's signed keep list: a credential that comes from a variable named here is passed to Hermes, so it counts as a sign-in. */ envKeep?: () => readonly string[] }
 
 export interface Out { code: number | null; stdout: string; stderr: string; timedOut: boolean; /** the limit this command ran with, set by `runner` */ limitMs?: number }
 
@@ -191,10 +191,11 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   // external logins off, so Hermes cannot use it: it would read as signed in and then fail every run. Legion never sees the key.
   const auth = await go(entry, ['-p', CONTAINED_PROFILE, 'auth', 'list']);
   const creds = auth.code === 0 ? clean(auth.stdout).split(/\r?\n/).filter((l) => /^\s*#\d+\s/.test(l)) : [];
-  const own = creds.filter((l) => !/\benv:\S+/.test(l) && !/\bgh_cli\b/.test(l));
+  const keep = new Set((deps?.envKeep?.() ?? []).map((k) => k.toUpperCase()));
+  const own = creds.filter((l) => !/\bgh_cli\b/.test(l) && ![...l.matchAll(/\benv:([A-Za-z0-9_]+)/g)].some((m) => !keep.has(m[1]!.toUpperCase())));
   const signedIn = own.length > 0;
   const policyOk = policy.problems.length === 0;
-  const signInStep = `Run ${signInCommand(entry)} in a terminal to sign in, then press Check again.`;
+  const signInStep = `Run ${signInCommand(entry)} in a terminal to sign in, or keep the variable that holds the key (Settings, Gates), then press Check again.`;
   const parts = [
     policyOk ? POLICY_HOLDS : policy.problems.join(' '),
     signedIn

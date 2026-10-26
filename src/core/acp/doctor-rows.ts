@@ -69,7 +69,7 @@ function approvalsRow(entry: AcpEntry, base: string, d: AgentDetection, deps: Ag
 }
 
 async function containedRow(entry: AcpEntry, base: string, deps: AgentHostDeps): Promise<{ row: DoctorCheck; exists: boolean }> {
-  const s = await containedStatus(entry, deps.run ? { run: deps.run } : undefined);
+  const s = await containedStatus(entry, deps.run || deps.envKeep ? { ...(deps.run ? { run: deps.run } : {}), ...(deps.envKeep ? { envKeep: deps.envKeep } : {}) } : undefined);
   const id = `${base}-contained`;
   const row = (r: Omit<DoctorCheck, 'id'>): { row: DoctorCheck; exists: boolean } => ({ row: { id, ...r }, exists: s.exists });
   if (!s.exists) return row({ label: 'Contained profile: not set up', ok: false, detail: s.detail });
