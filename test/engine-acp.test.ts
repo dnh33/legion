@@ -1150,7 +1150,8 @@ test('W1b: ~ and a relative path in an edit request are expanded (home, the sess
   try {
     r.setScript([
       EDIT('edit-approval-1', '~/data/gates/rules.json'),
-      EDIT('edit-approval-2', `~${BS}hermes-home${BS}config.yaml`),
+      // the backslash spelling is a home path only on Windows; elsewhere it is an ordinary file name
+      EDIT('edit-approval-2', process.platform === 'win32' ? `~${BS}hermes-home${BS}config.yaml` : '~/hermes-home/config.yaml'),
       EDIT('edit-approval-3', relative(r.work, join(r.dataDir, 'gates', 'x'))),
       EDIT('edit-approval-4', 'notes.txt'),
       END(),

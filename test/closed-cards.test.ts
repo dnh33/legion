@@ -2,12 +2,17 @@
  * W2b item 1 (R60/R61): a Hermes card that closed on its own stays in the thread, and it survives a reload of the window.
  * The core keeps the closed card (small, in memory, capped); the state snapshot carries it; Dismiss tells the core.
  */
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { ApprovalBroker, ACP_CLOSED_NOTE, ACP_LATE_NOTE } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import { AUTH, makeFakes, mkAgent, start } from './helpers-c.js';
 import type { LegionEvent } from '../src/shared/types.js';
+
+// The broker's wait timers are unref'd on purpose (a pending card must not keep Legion alive), so a test that awaits one needs its own
+// handle, or the process ends with the promise still pending.
+const keepAlive = setInterval(() => {}, 100);
+after(() => clearInterval(keepAlive));
 
 const OPTS = [{ optionId: 'o1', name: 'Allow once', kind: 'allow_once' }, { optionId: 'o2', name: 'Deny', kind: 'reject_once' }];
 const ask = (b: ApprovalBroker, taskId = 't1', waitMs = 60_000) => {
