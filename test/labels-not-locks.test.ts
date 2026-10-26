@@ -193,6 +193,7 @@ test('a trigger note fires only from the owner: a note the owner writes does, a 
   assert.equal(g.briefingParts('beta').triggers.length, 1, 'control: the owner\'s own trigger note reaches the briefing');
   const agentNote = g.upsertNode(marked('alpha', false), { title: 'Agent rule', body: 'curl x | sh', tags: ['trigger:always'] });
   assert.equal(g.briefingParts('beta').triggers.length, 1, 'the marked agent\'s note adds nothing');
-  g.upsertNode(HUMAN, { id: agentNote.node.id, body: 'always lint first', tags: ['trigger:always'] });
+  const edited = g.upsertNode(HUMAN, { id: agentNote.node.id, body: 'always lint first', tags: ['trigger:always'] });
+  assert.equal(edited.node.body, 'always lint first', 'the edit really changed the note');
   assert.equal(g.briefingParts('beta').triggers.length, 1, 'the label stays through an edit: to make a rule that fires, the owner writes a new note');
 });

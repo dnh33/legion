@@ -83,7 +83,7 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
       : `- Typing, clicking and scripts in a page need an approval card${m === 'full' ? ' in any mode but full — yours is full, so you will not be asked' : ' unless your mode is full'}. Notes you write after browsing wait in the owner\'s Inbox.`);
   }
   if (names.has('legion_bsv')) {
-    lines.push('- bsv_status contacts a wallet and counts as outside content, so it marks the run tainted. A spend request from a tainted run needs a second confirmation on the owner\'s card. You never choose the network; mainnet is off unless the owner switches it on and arms it.');
+    lines.push('- bsv_status contacts a wallet and counts as outside content, so it marks the run tainted. A spend request from a tainted run needs a second confirmation on the owner\'s card (unless the owner chose Never mark, which turns marking off). You never choose the network; mainnet is off unless the owner switches it on and arms it.');
   }
   if (names.has('legion_kg') && (names.get('legion_kg') ?? []).includes('kg_supersede')) {
     // One line, and only when the tool is really registered. A stale note is retired with kg_supersede rather than

@@ -906,10 +906,10 @@ export class Engine {
     });
   }
 
-  /** Strict is the only mode that locks a marked run; the default mode labels it. Read live from the config. */
   /** The owner chose "Never mark" (Settings, Gates, Outside text): nothing marks a run. The per-call gates, Block rules and confirmations stay. */
   private marksOff(): boolean { return normalizeTaint(this.config.taint).shell === 'off'; }
 
+  /** Strict is the only mode that locks a marked run; the default mode labels it. Read live from the config. */
   private locksOnMark(): boolean { return normalizeTaint(this.config.taint).shell === 'strict'; }
 
   /** Another agent, a room or an outside app started this run AND limited it. A chain started at full approval is not capped: it runs as the owner's own run does. Strict keeps the 0.3.9 rule: any started-by-another run counts. */
@@ -3104,7 +3104,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private acpBlocked(job: Job, agent: AgentProfile, folder: string, r: MappedPermission): boolean {
     const rules = gatesFor(this.config).rules;
     if (!rules.some((x) => x.enabled && x.then === 'deny')) return false;
-    const base = { toolName: r.toolName, agentId: agent.id, cwd: folder, tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } };
+    const base = { toolName: r.toolName, agentId: agent.id, cwd: folder, tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.isTainted(job.taskId), connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } };
     const calls: Array<Record<string, unknown>> = [r.input];
     if (r.toolName !== 'Bash') {
       for (const p of requestPaths(r).paths) {

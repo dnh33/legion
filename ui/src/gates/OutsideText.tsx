@@ -40,7 +40,7 @@ export function OutsideText({ s }: { s: SettingsView }) {
       </div>
       <div className="gates-outside-row">
         <div><b>{C.filesName}</b><span className="muted-s">{C.filesHelp}</span></div>
-        <label className="set-check"><input type="checkbox" checked={t.outsideFiles} disabled={busy || t.shell === 'off'} aria-label={C.filesName} onChange={(e) => void save({ outsideFiles: e.target.checked })} /><span>{t.outsideFiles ? 'On' : 'Off'}</span></label>
+        <label className="set-check"><input type="checkbox" checked={t.outsideFiles} disabled={busy || t.shell === 'off'} aria-label={C.filesName} onChange={(e) => void save({ outsideFiles: e.target.checked })} /><span>{t.shell === 'off' ? 'Not used' : t.outsideFiles ? 'On' : 'Off'}</span></label>
       </div>
       <p className="muted-s">{C.limits}</p>
       {error && <p className="gates-err" role="alert">{error}</p>}
