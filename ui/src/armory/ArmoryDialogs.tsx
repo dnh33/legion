@@ -60,7 +60,7 @@ export function ReadDialog() {
         <div className="arm-readbody">
           {skill ? <p className="house-readmeta"><code>{commandOf(skill)}</code> · {sourceLabel(skill)}</p> : null}
           {doc.description || doc.whenToUse ? <p className="house-readdesc">{showHidden(doc.description)}{doc.whenToUse ? ` Use when: ${showHidden(doc.whenToUse)}` : ''}</p> : null}
-          {r.thirdParty ? <p className="set-hint">Not written by you. A run that opens it is treated as having read outside text, so Legion keeps its limits on.</p> : null}
+          {r.thirdParty ? <p className="set-hint">Not written by you. A run that opens it is labelled as having read outside text.</p> : null}
           {doc.extraKeys.length ? <p className="set-hint">Header settings in this file: {doc.extraKeys.join(', ')}.</p> : null}
           <div ref={readEl} className="house-read house-readmd" tabIndex={0} data-autofocus role="region" aria-label={`Text of ${r.title}`}>
             <Markdown text={showHidden(doc.body || text)} headingOffset={2} quietCode />

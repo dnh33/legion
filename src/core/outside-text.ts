@@ -1,10 +1,10 @@
 /**
  * When does a tool call bring text in that somebody else wrote? Two kinds of call decide it:
  *
- *  - a shell command: it brings outside text in when it reaches the network, when Legion cannot read it with certainty, or when it
- *    reads a file outside the project. A local command in the project (git status, a search, a test run) does not. The command is
- *    judged by the same classifier the approval cards use (`classifySafe`), which fails closed: a compound, wrapped or
- *    unparseable command is unknown, and unknown counts as outside. Strict mode keeps the older rule: every shell command counts.
+ *  - a shell command: it brings outside text in only when it fetches text (`curl`, `wget`, a `gh` read of an issue, a pull request, a run log or the
+ *    API), or when its words name a place outside the project (a file outside it, third-party code, a cloned repository). Running a program does
+ *    not: a test, a build, `node -e`, `make` or an unknown tool is judged by what it reads, never by what it is. Strict mode keeps the older rule:
+ *    every shell command counts.
  *  - a file read (Read, Grep, Glob, LS, the host read tool): it brings outside text in when the path is outside the project,
  *    inside third-party code (node_modules, vendor, ...), or inside another repository that sits in the project folder (a clone).
  *    The path is resolved through shortcuts (symlinks and junctions) and real file names before it is compared, so a link inside
@@ -212,10 +212,12 @@ function searchesEverything(command: string): boolean {
  * logs or the API. Running any other program never brings outside text in by itself: it is not judged by what it is, only by what it reads.
  * `gh pr create`, `checks`, `run watch` and `run rerun` print an address or a status we chose, so they are not here.
  */
-const FETCHERS = new Set(['curl', 'wget', 'iwr', 'irm', 'invoke-webrequest', 'invoke-restmethod', 'http', 'https', 'xh', 'aria2c', 'lynx', 'w3m', 'start-bitstransfer']);
-const GH_READS = /(?:^|[ 	;&|(])gh[ 	]+(?:(?:issue|pr|release|discussion|gist)[ 	]+(?:view|list|diff)|api|search|run[ 	]+view[^;&|]*--log)(?:[ 	]|$)/i;
+const FETCHERS = new Set(['curl', 'wget', 'iwr', 'irm', 'invoke-webrequest', 'invoke-restmethod', 'aria2c', 'start-bitstransfer', 'nc', 'ncat', 'ssh', 'scp', 'sftp', 'telnet']);
+/** A fetch spelled inside a one-liner, or `certutil -urlcache`: the words give it away even though the program is not a fetcher by name. */
+const FETCH_WORDS = /DownloadString|DownloadFile|Net\.WebClient|-urlcache/i;
+const GH_READS = /(?:^|[ \t;&|(])gh[ \t]+(?:(?:issue|pr|release|discussion|gist)[ \t]+(?:view|list|diff)|api|search)(?:[ \t]|$)|(?:^|[ \t;&|(])gh[ \t]+run[ \t]+view[^;&|]*--log/i;
 function readsOutsideText(command: string): boolean {
-  if (GH_READS.test(command)) return true;
+  if (GH_READS.test(command) || FETCH_WORDS.test(command)) return true;
   const bare = (w: string): string => w.replace(/^["'`]+|["'`]+$/g, '').split('\\').join('/').split('/').pop()!.toLowerCase().replace(/\.(exe|cmd|ps1)$/, '');
   return command.split(/[\s;&|()`$<>]+/).some((w) => FETCHERS.has(bare(w)));
 }

@@ -1096,8 +1096,11 @@ export class Graph {
     if (existingId) {
       const e = this.edges.get(existingId)!;
       const fields: Record<string, unknown> = {};
-      if (input.weight !== undefined && input.weight !== e.weight) fields.weight = input.weight;
-      if (note !== undefined && note !== e.note) fields.note = note;
+      // a labelled run may add links, but not rewrite what somebody else put on one that exists (the note is shown to later runs as the link's own)
+      const theirs = actor.kind === 'agent' && isTainted(actor) && e.createdBy !== actorName(actor);
+      if (theirs && (input.weight !== undefined || note !== undefined)) notes.push('This link already exists and is not yours: its note and weight were left as they are, because this run read outside content.');
+      if (!theirs && input.weight !== undefined && input.weight !== e.weight) fields.weight = input.weight;
+      if (!theirs && note !== undefined && note !== e.note) fields.note = note;
       this.chargeEdge(actor, Buffer.byteLength(note ?? ''));
       if (Object.keys(fields).length) {
         const undo = this.inverseOf([{ op: 'patch', id: e.id, fields }]);
@@ -1505,7 +1508,7 @@ export class Graph {
     if (archive.length === 1 && archive[0]!.length > WM_ARCHIVE_MAX) { archive = [archive[0]!.slice(-WM_ARCHIVE_MAX)]; trimmed = true; }
     const body = renderWorkingMemory(active, archive);
     const bytes = Buffer.byteLength(body);
-    const origin: KgOrigin | undefined = actor.taskId ? { taskId: actor.taskId, tainted: isTainted(actor), ...(actor.origin?.fromAgentId ? { via: actor.origin.fromAgentId } : {}) } : undefined;
+    const origin: KgOrigin | undefined = actor.taskId ? { taskId: actor.taskId, tainted: isTainted(actor) || existing?.origin?.tainted === true, ...(actor.origin?.fromAgentId ? { via: actor.origin.fromAgentId } : {}) } : undefined;
     this.chargeNode(actor, bytes);
     const extra = g.count ? { redacted: g.count } : {};
     if (existing) {

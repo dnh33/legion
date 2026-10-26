@@ -10,7 +10,7 @@ export function actionState(o: { archived: boolean; busy: boolean }): { disabled
 }
 
 export function proposalNote(by: string, tainted: boolean): string {
-  return `Suggested by ${by}. Not reviewed.${tainted ? ' Its run had read outside content (web, shell or other tools), so treat the text with extra care.' : ''}`;
+  return `Suggested by ${by}. Not reviewed.${tainted ? ' Its run had read outside content (the web, GitHub text, other tools or files from outside the project), so treat the text with extra care.' : ''}`;
 }
 
 /** Whether the description is longer than the three lines the card shows before its More toggle. */

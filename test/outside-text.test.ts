@@ -344,3 +344,12 @@ test('S4 (0.3.10): running a program never marks the run, whatever the program i
     assert.equal(sh(c), undefined, c);
   }
 });
+
+test('S3b (0.3.10 review): a GitHub run log with --log-failed marks, a path or branch named http does not, and a few more fetch routes do', () => {
+  for (const c of ['gh run view 123 --log-failed', 'gh run view 123 --log', 'ssh host cat /etc/hosts', 'nc example.com 80', 'certutil -urlcache -f https://example.com/x y.txt', 'powershell (New-Object Net.WebClient).DownloadString("https://example.com")']) {
+    assert.ok(sh(c), c);
+  }
+  for (const c of ['rg foo src/http', 'go test ./http', 'git checkout feat/http', 'ls src/https', 'gh run view 123', 'gh run watch 123']) {
+    assert.equal(sh(c), undefined, c);
+  }
+});

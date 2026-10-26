@@ -593,7 +593,7 @@ export class CommsHub {
       `${who} asks to create a room. The name below is the bot's text, not Legion's: ${cardText(plan.name, 60)}`,
       `Members: ${plan.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}. Lead: ${cardText(this.nameOf(plan.lead), 40)}.`,
       `${plan.budgetUsd === null ? 'No spend limit: the room never pauses on cost, so it can spend without bound until you pause it or set a budget in room settings.' : `Budget: $${plan.budgetUsd.toFixed(2)} (the room pauses when it is spent).`} ${DEFAULT_GUARDS.maxHops} bot-to-bot hops at most.`,
-      ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
+      ...(ctx.tainted ? ['This run has read outside content (the web, GitHub text, an external tool or a file from outside the project); check the request carefully.'] : []),
       'Only you can delete the room later. Deny to stop it.',
     ];
     await this.askUser(sender, 'room_create', lines.join('\n'), { name: plan.name, members: plan.members, lead: plan.lead, budgetUsd: plan.budgetUsd }, ctx);
@@ -615,7 +615,7 @@ export class CommsHub {
     const shown = this.roomSnapshot(room);
     const lines = [
       `${cardText(sender.name, 40)} asks to add ${cardText(target.name, 40)} to a room named: ${cardText(room.name, 60)}\nNow in it: ${room.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}.`,
-      ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
+      ...(ctx.tainted ? ['This run has read outside content (the web, GitHub text, an external tool or a file from outside the project); check the request carefully.'] : []),
       `${cardText(target.name, 40)} will see the room's messages from now on.`,
     ];
     await this.askUser(sender, 'room_add_member', lines.join('\n'), { room: room.id, member: target.id }, ctx);
@@ -637,7 +637,7 @@ export class CommsHub {
     const shown = this.roomSnapshot(room);
     const lines = [
       `${cardText(sender.name, 40)} asks to remove ${cardText(target.name, 40)} from a room named: ${cardText(room.name, 60)}\nNow in it: ${room.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}.`,
-      ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
+      ...(ctx.tainted ? ['This run has read outside content (the web, GitHub text, an external tool or a file from outside the project); check the request carefully.'] : []),
       `${cardText(target.name, 40)}'s running work in this room will be cancelled.`,
     ];
     await this.askUser(sender, 'room_remove_member', lines.join('\n'), { room: room.id, member: target.id }, ctx);
