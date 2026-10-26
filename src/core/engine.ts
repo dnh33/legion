@@ -1464,7 +1464,7 @@ export class Engine {
       });
     }
     const moduleJob: ModuleJob = {
-      taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
+      taskId, ...(job.origin ? { origin: job.origin, ...(this.cappedOrigin(job) ? { ceiling: job.origin.approvalCeiling } : {}) } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       taintedBy: () => act.taintedBy ?? (job.origin?.tainted ? 'a run that read outside text started this one' : undefined),
       locks: () => this.locksOnMark(),

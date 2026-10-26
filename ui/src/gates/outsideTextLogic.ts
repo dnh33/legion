@@ -9,7 +9,7 @@ export const OUTSIDE_TEXT_COPY = {
   shell: {
     local: { name: 'By source (recommended)', help: 'Only text that comes in from outside marks a run: the web, GitHub text, and files outside your project or in node_modules. A marked run is labelled, not locked.' },
     strict: { name: 'Strict', help: 'Every shell command marks the run, and a marked run is locked: it cannot assign or delete board items, write working memory or links, or write shared notes directly (they wait in your Inbox). Web access after a run read GitHub data asks first, and a run another agent started keeps its cards. Use it in a repository you do not trust: a test or build script there can fetch a web page, and Legion judges the command you typed, not what the script does inside.' },
-    off: { name: 'Never mark', help: 'Nothing marks a run, so there are no labels and none of the extras that depend on a mark: the extra confirmation on payments and the warning on GitHub write cards. Each call is still judged by your approval setting, your Block rules, the stop for disastrous commands and the confirmation on payments. Runs that were labelled before you switched keep their label. Use it when you trust your sources and want no labels at all.' },
+    off: { name: 'Never mark', help: 'Nothing marks a run, so there are no labels, no extra confirmation on payments and no warning on GitHub write cards. Your approval setting, Block rules, the stop for disastrous commands and the normal payment confirmation still apply. Runs labelled before you switched keep their label.' },
   },
   filesName: 'Files outside the project count',
   filesHelp: 'Reading a file outside your project, in node_modules or vendor, or inside a cloned repository marks the run. Not used when you choose Never mark.',

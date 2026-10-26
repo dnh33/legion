@@ -25,6 +25,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - **Text that a program fetches by itself is not labelled.** A test script that downloads a page reads outside text without a label. In a repository you do not trust, choose Strict.
 - **A labelled run can write working memory and notes that a later run reads.** That is the point of this change. Both carry a label and a note, so the next run can check them. Strict still holds them back.
+- **A helper follows the switches of the project it starts in.** A chain started at full approval is not limited further, so a helper in a project with cards off asks less than a caller in a project with cards on. Its approval mode is still never looser than the caller's, and a run limited to Ask stays at Ask.
 - **Legion does not guard against sending data out in Full.** Full shows no cards, by your own rule. A command that repoints a git remote is one Legion cannot classify, so Smart and Ask ask for it (for Claude agents, Claude's own checker decides).
 
 ## [0.3.9] - 2026-10-26

@@ -374,3 +374,13 @@ test('the catalog is asked only for a Smart run on Claude\'s own checks', async 
   }
   assert.equal(asked, 0);
 });
+
+test('a chain another agent started at full approval is judged like the owner\'s own run (Claude\'s checks first); Ask keeps Legion\'s guards, and so does Strict', async () => {
+  const call: Call = (r) => ({ tool: 'Write', input: { file_path: `${r.projectDir()}/.git/hooks/pre-commit`, content: 'x' } });
+  const full = await pair(call, { ceiling: 'full', originAtStart: true });
+  assert.deepEqual(full, [[1, 'deny'], [0, undefined]], 'full ceiling: off = Legion card, on = Claude decides (as for an owner-started run)');
+  const ask = await pair(call, { ceiling: 'ask', originAtStart: true });
+  assert.deepEqual(ask, [[1, 'deny'], [1, 'deny']], 'ask ceiling: Legion\'s guard cards with the switch off and on');
+  const strict = await pair(call, { ceiling: 'full', originAtStart: true }, (r) => { (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true }; });
+  assert.deepEqual(strict, [[1, 'deny'], [1, 'deny']], 'Strict: any started-by-another run keeps its guards (0.3.9)');
+});

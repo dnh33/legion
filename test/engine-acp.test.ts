@@ -1337,3 +1337,14 @@ test('a run that fails with "Internal error" because Hermes has no sign-in says 
   assert.doesNotMatch(text, /Internal error/);
   assert.match(fail(new Error('Internal error'), { stderrTail: () => 'something else' }), /^Hermes failed\. Internal error/, 'any other failure keeps the plain error');
 });
+
+test('E16: a Block rule scoped to "tainted" reaches a Hermes run in the default mode, and not when Never mark is on', async () => {
+  const taintedBlock = { id: 'gr_t', enabled: true, then: 'deny', when: { contexts: ['tainted'], tools: ['Bash'] }, label: 'Block shell in a labelled run', source: 'user' };
+  for (const [neverMark, want] of [[false, 'deny'], [true, 'allow_once']] as const) {
+    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()], neverMark });
+    (r.config as any).gates = { rules: [taintedBlock], presetsVersion: 1 };
+    const t = await r.run();
+    await r.done(t);
+    assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: want }, `neverMark=${neverMark}`);
+  }
+});
