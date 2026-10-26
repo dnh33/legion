@@ -144,6 +144,7 @@ test('a card the owner never answers is logged as "Waited for you on <host>"', (
 
 test('the web card keeps the egress card separate: after connector data a web call raises the egress card first', () => smart(async (r) => {
   r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
   const p = r.call('WebFetch', url('https://docs.python.org/3/')); await r.tick();
   assert.equal(r.pending().length, 1); assert.match(r.pending()[0]!.summary, /connector/i); assert.equal(r.pending()[0]!.site, undefined);

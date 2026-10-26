@@ -10,7 +10,7 @@ The board works the way you build
 An item an agent wrote is routed by the Marshal like any other, and your Run button runs it as you set the agent up.
 
 You stay in control
-Settings, Gates, Outside text, Strict keeps every lock from 0.3.9 and marks every shell command. Nothing needs migrating.
+Settings, Gates, Outside text, Strict keeps every lock from 0.3.9, marks every shell command and keeps the approval card for web access after a run read GitHub data. Nothing needs migrating.
 
 Smaller fixes
 After a good update, Settings, About shows one line with a Show steps button instead of the whole list. The GitHub area now says that each agent needs its own write access, and the refusal an agent gets says where to give it.

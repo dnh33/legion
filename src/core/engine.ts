@@ -1809,8 +1809,8 @@ export class Engine {
   }
 
   /**
-   * Maintainer decision 2026-10-07: in a run that read connector data AND is tainted, WebFetch and WebSearch need an approval card even in
-   * full mode: web access could carry that data out. Like the connector gateway's writes this raises its own card (never through guardAsk).
+   * In a run that read connector data AND is marked, WebFetch and WebSearch need an approval card even in full mode: web access could carry
+   * that data out. Strict mode only (maintainer ruling 2026-10-27: web access is frictionless otherwise). Like the connector gateway's writes this raises its own card (never through guardAsk).
    * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
    * canUseTool does not exist, by a PreToolUse hook.
    */
@@ -1819,7 +1819,7 @@ export class Engine {
     if (!kind) return undefined;
     const used = this.store.getTask(job.taskId)?.usedConnectors === true;
     const tainted = this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true;
-    if (!used || !tainted) return undefined;
+    if (!used || !tainted || !this.locksOnMark()) return undefined;
     const wi = webInput(toolName, input);
     const target = String(kind === 'WebFetch' ? wi.url ?? '' : wi.query ?? '').slice(0, 1000);
     const o = job.origin;

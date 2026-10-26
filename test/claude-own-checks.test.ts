@@ -83,6 +83,7 @@ const KEPT: Array<[string, Call, Parameters<typeof gatesRig>[0], ((r: GatesRig) 
   ['an outside-run ceiling still cards', () => ({ tool: 'Bash', input: { command: 'echo hi' } }), { ceiling: 'ask', originAtStart: true }],
   ['the web card after connector data still cards', () => ({ tool: 'WebFetch', input: { url: 'https://docs.python.org/3/' } }), {}, (r) => {
     r.store.tasks.get(r.task.id)!.usedConnectors = true;
+    (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
     (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
   }],
 ];

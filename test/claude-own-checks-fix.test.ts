@@ -77,6 +77,7 @@ test('F2: a demoted Full run after connector data raises one web card, not two',
     await using({ preset: 'bypass', follow: true, ownChecks }, async (r) => {
       r.core.store.patchProject(r.project.id, { preset: 'ask' });
       r.store.tasks.get(r.task.id)!.usedConnectors = true;
+      (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
       (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
       const h = await r.hookAll('WebFetch', { url: 'https://example.org/a' }, { allow: true });
       assert.ok(h.cards >= 1 && h.cards <= 2, `ownChecks=${ownChecks}: ${h.cards}`);
@@ -92,6 +93,7 @@ async function using2(o: Parameters<typeof gatesRig>[0]): Promise<number> {
   try {
     r.core.store.patchProject(r.project.id, { preset: 'ask' });
     r.store.tasks.get(r.task.id)!.usedConnectors = true;
+    (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
     (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
     return (await r.hookAll('WebFetch', { url: 'https://example.org/a' }, { allow: true })).cards;
   } finally { r.stop(); }

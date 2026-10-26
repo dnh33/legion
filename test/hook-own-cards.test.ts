@@ -58,6 +58,7 @@ test('(b) "Your ask rules" switched off: the gate ask rule is skipped on the hoo
 test('(c) a run that read connector data: WebFetch of a built-in docs site raises the egress card from the hook, with no guard card before it', async () => {
   await using({}, async (r) => {
     r.store.tasks.get(r.task.id)!.usedConnectors = true;
+    (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
     (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
     const h = await r.hookAll('WebFetch', { url: 'https://docs.python.org/3/' });
     assert.deepEqual([h.cards, h.decision], [1, 'deny']);

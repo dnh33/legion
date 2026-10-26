@@ -54,6 +54,7 @@ test('Bypass project: no card for Bash or Write; a Gates deny rule still denies;
     assert.match(d.message ?? '', /gate rule/i);
     // the run read connector data and outside text: web access asks, in Bypass too (the Claude path raises it from a PreToolUse hook)
     r.store.tasks.get(r.task.id)!.usedConnectors = true;
+    (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
     (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
     const web = await r.hook('WebFetch', { url: 'https://example.com/' });
     assert.equal(web.card, true, 'the web-egress card still shows');
