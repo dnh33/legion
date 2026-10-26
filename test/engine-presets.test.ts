@@ -172,3 +172,22 @@ test('gate-rules-ask off does not skip an ask rule on a run that carries an outs
     assert.equal((await r.run('Read', { file_path: inside(r) })).card, true);
   });
 });
+
+test('tool-cards off: a run another agent started at full approval is not limited (no card), a run limited to Ask still is, and Strict keeps the old rule', async () => {
+  await using({ preset: 'ask', overrides: { 'tool-cards': false }, ceiling: 'full' }, async (r) => {
+    assert.equal((await r.run('Bash', { command: 'echo hi' })).card, false, 'default mode: a full-approval chain runs like the owner\'s own run');
+  });
+  await using({ preset: 'ask', overrides: { 'tool-cards': false }, ceiling: 'full' }, async (r) => {
+    (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
+    assert.equal((await r.run('Bash', { command: 'echo hi' })).card, true, 'Strict: any started-by-another run keeps its cards (0.3.9)');
+  });
+});
+
+test('gate-rules-ask off: an ask rule is skipped for a full-approval chain, but not for one limited to Ask', async () => {
+  for (const [ceiling, wantCard] of [['full', false], ['ask', true]] as const) {
+    await using({ preset: 'accept-edits', follow: true, overrides: { 'gate-rules-ask': false }, ceiling }, async (r) => {
+      r.setRules([rule('gr_ask', 'ask', { tools: ['Write'] })]);
+      assert.equal((await r.run('Write', { file_path: inside(r), content: 'x' })).card, wantCard, `ceiling ${ceiling}`);
+    });
+  }
+});

@@ -1,14 +1,14 @@
 /** The words on Settings, Gates, Outside text. Plain, no em dashes; the doc in docs/ and SECURITY.md say the same things. */
 export const OUTSIDE_TEXT_COPY = {
   title: 'Outside text',
-  lead: 'Legion labels a run that read text someone else wrote: the web, GitHub issues and comments, other tools, or files from outside your project. A labelled run works as normal. What it creates carries the label, and the next run is told when its working memory came from a labelled run. Money confirmations, GitHub write cards and trigger tags (which fire only from a note you wrote or edited yourself) still apply.',
+  lead: 'Legion labels a run that read text someone else wrote: the web, GitHub issues and comments, other tools, or files from outside your project. A labelled run works as normal. What it creates carries the label, and the next run is told when its working memory came from a labelled run. Money confirmations, GitHub write cards and trigger tags (which fire only from a note you wrote yourself) still apply.',
   notice: 'New in this update: a run that read outside text is labelled, not locked. It can use the board, write memory and share notes as usual, and running a program no longer marks a run at all. In a repository you do not trust, choose Strict.',
   keep: 'Keep this',
   useStrict: 'Use strict',
   shellLabel: 'Shell commands',
   shell: {
     local: { name: 'By source (recommended)', help: 'Only text that comes in from outside marks a run: the web, GitHub text, and files outside your project or in node_modules. A marked run is labelled, not locked.' },
-    strict: { name: 'Strict', help: 'Every shell command marks the run, and a marked run is locked: it cannot assign or delete board items, write working memory or links, or write shared notes directly (they wait in your Inbox). Web access after a run read GitHub data asks first. Use it in a repository you do not trust: a test or build script there can fetch a web page, and Legion judges the command you typed, not what the script does inside.' },
+    strict: { name: 'Strict', help: 'Every shell command marks the run, and a marked run is locked: it cannot assign or delete board items, write working memory or links, or write shared notes directly (they wait in your Inbox). Web access after a run read GitHub data asks first, and a run another agent started keeps its cards. Use it in a repository you do not trust: a test or build script there can fetch a web page, and Legion judges the command you typed, not what the script does inside.' },
     off: { name: 'Never mark', help: 'Nothing marks a run, so there are no labels and none of the extras that depend on a mark: the extra confirmation on payments and the warning on GitHub write cards. Each call is still judged by your approval setting, your Block rules, the stop for disastrous commands and the confirmation on payments. Use it when you trust your sources and want no labels at all.' },
   },
   filesName: 'Files outside the project count',

@@ -46,6 +46,8 @@ const END = (usage?: { inputTokens: number; outputTokens: number }, stopReason =
 interface RigOpts {
   /** Strict outside-text mode: a tainted caller still gets the hand-off card (the 0.3.9 rule). The default mode labels it. */
   strict?: boolean;
+  /** Never mark: nothing labels a run (the ceilings stay). */
+  neverMark?: boolean;
   steps?: Step[];
   switches?: Partial<AcpSwitches>;
   approval?: ApprovalMode;
@@ -78,6 +80,7 @@ function rig(o: RigOpts = {}) {
   const config = defaultConfig();
   config.workspaceDir = join(root, 'workspaces');
   if (o.strict) config.taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
+  if (o.neverMark) config.taint = { shell: 'off', outsideFiles: true, noticeSeen: true };
   const entry: AcpEntry = { id: 'hermes', label: 'Hermes', command: process.execPath, args: [FAKE, '--mode', 'script', '--script', scriptFile, '--log', logFile, '--report', reportFile, ...(o.fakeArgs ?? [])], tested: true, enabled: true, ...o.entry };
   config.acp = { ...config.acp, entries: [entry], switches: { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false, ...o.switches } };
   const hermes: AgentProfile = {
@@ -601,6 +604,24 @@ test('confused deputy: a Claude task started by a Hermes agent\'s tell gets appr
   assert.equal(stored.origin?.approvalCeiling, 'ask');
   assert.equal(stored.origin?.tainted, true);
   await r.engine.waitFor(child.id, 5000);
+});
+
+test('E15: Never mark leaves no label anywhere in a chain: a Hermes run, the task it starts and a board-routed run stay unlabelled, and the ceilings do not move', async () => {
+  const r = rig({ approval: 'full', steps: [END()], neverMark: true });
+  const caller = await r.done(await r.run());
+  assert.equal(caller.tainted, undefined, 'a Hermes run is not marked from its start');
+  const child = r.engine.startTask({ agentId: 'clau', prompt: 'from hermes', source: 'agent', bridge: { fromAgentId: 'herm', parentTaskId: caller.id, hop: 1 } } as any);
+  const stored = r.store.getTask(child.id)!;
+  assert.equal(stored.origin?.approvalCeiling, 'ask', 'a task a Hermes agent starts is still held at ask');
+  assert.equal(stored.origin?.tainted, undefined);
+  assert.equal(stored.tainted, undefined);
+  await r.engine.waitFor(child.id, 5000);
+  const routed = r.engine.startTask({ agentId: 'clau', prompt: 'board item', source: 'ui', tainted: true, origin: { roomId: 'board', fromAgentId: 'board', hop: 0, approvalCeiling: 'ask', tainted: true } } as any);
+  const rs = r.store.getTask(routed.id)!;
+  assert.equal(rs.tainted, undefined, 'a board-routed run is not labelled');
+  assert.equal(rs.origin?.approvalCeiling, 'ask', 'its ceiling stays');
+  assert.equal(rs.origin?.tainted, undefined);
+  await r.engine.waitFor(routed.id, 5000);
 });
 
 test('confused deputy: a capped or tainted caller that tells a Hermes agent raises a card first; denying it means the agent is never started', async () => {

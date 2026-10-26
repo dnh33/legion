@@ -616,9 +616,11 @@ export class Engine {
 
     // Confused-deputy rule: a run another agent starts through the bridge never gets looser
     // approvals than its caller (rooms set their own origin and take precedence).
-    const origin = p.origin ?? this.bridgeOrigin(p) ?? this.mcpOrigin(p, p.continueTaskId ? this.store.getTask(p.continueTaskId) : undefined);
+    const origin0 = p.origin ?? this.bridgeOrigin(p) ?? this.mcpOrigin(p, p.continueTaskId ? this.store.getTask(p.continueTaskId) : undefined);
+    // Never mark: no label travels down a chain either (the ceiling stays; only the label goes)
+    const origin = origin0?.tainted && this.marksOff() ? ((({ tainted: _label, ...rest }) => rest)(origin0)) as typeof origin0 : origin0;
     // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
-    const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
+    const tainted = !this.marksOff() && (!!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId)));
 
     // A token client (MCP, curl) never moves a run between Claude and a provider, or between providers: that decides where the owner's data goes.
     if (p.source === 'mcp' && p.model && (runtimeOf(p.model) !== 'claude' || runtimeOf(agent.model) !== 'claude') && p.model !== agent.model) {
@@ -1890,7 +1892,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const hit = this.guardMemo.get(key);
     if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
     if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
-    // a run woken by an outside app or another bot keeps Legion's full guards: the confused-deputy guard is Legion's own, Claude cannot know about it
+    // a run woken by an outside app or by a bot that limited it keeps Legion's full guards (the confused-deputy guard is Legion's own, Claude cannot know about it); a chain started at full approval does not, except in Strict
     native = native && !this.cappedOrigin(job);
     // a Claude agent on Claude's own checks: the new-site check for Claude's own WebFetch and WebSearch and the protected-path card are Claude's to judge, and of the
     // secret files only Legion's own stay guarded. Legion's own web tools (web_read, web_search) are not Claude's: they keep the new-site check.
