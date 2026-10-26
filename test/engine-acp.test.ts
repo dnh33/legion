@@ -1348,3 +1348,10 @@ test('E16: a Block rule scoped to "tainted" reaches a Hermes run in the default 
     assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: want }, `neverMark=${neverMark}`);
   }
 });
+
+test('E17: a helper whose caller task is gone is held at Ask, not handed the agent\'s own mode', async () => {
+  const r = rig({ approval: 'full', steps: [END()] });
+  const child = r.engine.startTask({ agentId: 'clau', prompt: 'orphan', source: 'agent', bridge: { fromAgentId: 'clau', parentTaskId: 'task_gone', hop: 1 } } as any);
+  assert.equal(r.store.getTask(child.id)?.origin?.approvalCeiling, 'ask');
+  await r.engine.waitFor(child.id, 5000);
+});

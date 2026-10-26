@@ -850,6 +850,8 @@ export class Engine {
     // the caller's RESOLVED mode for that task (agent mode, preset, project cap), never its stored mode: a caller the resolver holds at Ask hands out Ask
     let ceiling: RunMode = this.runModeOf(p.bridge.fromAgentId, p.bridge.parentTaskId) ?? 'ask';
     if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
+    // a caller task that is gone cannot vouch for its own ceiling (it may have been limited): hold the helper at Ask
+    if (p.bridge.parentTaskId && !callerTask) ceiling = stricterMode(ceiling, 'ask');
     // An agent host agent acts where Legion cannot see, so what it starts is held at Ask and counts as touched by outside content, whatever mode the agent is set to
     const fromHost = runtimeOf(callerTask?.model) === 'acp' || runtimeOf(this.store.getAgent(p.bridge.fromAgentId)?.model) === 'acp';
     if (fromHost) ceiling = stricterMode(ceiling, 'ask');
