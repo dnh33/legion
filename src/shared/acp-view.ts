@@ -53,7 +53,7 @@ export const ACP_WATCHDOG_MAX_MINUTES = 120;
  * are in src/core/acp/detect.ts). `testedWith`: the version the runtime was built and checked against. The Doctor and Settings read these, so
  * both say the same numbers.
  */
-export const TESTED_HERMES = { min: '0.22.3', testedWith: '0.22.3' } as const;
+export const TESTED_HERMES = { min: '0.22.3', testedWith: '0.22.5' } as const;
 /** Negative when a is older than b. Both are `x.y.z`. */
 export function compareVersions(a: string, b: string): number {
   const x = a.split('.').map(Number);

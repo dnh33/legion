@@ -218,7 +218,7 @@ test('version rows: equal to the tested one is plain, newer is amber, older than
   const cases: Array<[string, { ok: boolean; level?: string; label: string }]> = [
     [TESTED_HERMES.testedWith, { ok: true, label: `Hermes version ${TESTED_HERMES.testedWith}` }],
     ['v0.22.3+canary.20261020T065957Z', { ok: true, label: 'Hermes version 0.22.3' }],
-    ['0.22.4', { ok: true, level: 'warn', label: 'Hermes version 0.22.4' }],
+    ['0.22.6', { ok: true, level: 'warn', label: 'Hermes version 0.22.6' }],
     ['1.0.0', { ok: true, level: 'warn', label: 'Hermes version 1.0.0' }],
     ['0.22.2', { ok: false, label: 'Hermes version 0.22.2' }],
     ['0.0.0', { ok: true, level: 'neutral', label: 'Hermes version' }],
@@ -232,7 +232,7 @@ test('version rows: equal to the tested one is plain, newer is amber, older than
     assert.equal(r.label, want.label, `version ${JSON.stringify(v)}`);
     assert.equal(r.ok, want.ok, `version ${JSON.stringify(v)}`);
     assert.equal(r.level, want.level, `version ${JSON.stringify(v)}`);
-    if (v === '0.22.4') assert.match(r.detail, /^Newer than the version Legion was tested with\. It should work; tell us if it does not\./);
+    if (v === '0.22.6') assert.match(r.detail, /^Newer than the version Legion was tested with\. It should work; tell us if it does not\./);
     if (v === '0.22.2') assert.match(r.detail, /0\.22\.3/);
   }
 });
