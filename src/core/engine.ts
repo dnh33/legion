@@ -3185,6 +3185,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const plain = process.platform === 'win32' ? plainWindowsPath(folder) : folder;
       if (plain === undefined || isAdminShare(plain) || off.some((t) => pathInside(t, plain) || pathInside(plain, t))) return fail(say(HERMES_CWD_TEXT));
       mkdirSync(folder, { recursive: true });
+      // Continue on a task whose token limit is still reached: another turn would stop at once, so none is started. The card says so, in the same
+      // words every time, with no note per press. It runs before anything that asks the owner or starts a process, so a run that cannot start never shows a card.
+      const used = this.store.getTask(taskId)?.tokenUsage;
+      const spent = (used?.inputTokens ?? 0) + (used?.outputTokens ?? 0);
+      if (entry.maxTokensPerTask !== undefined && spent >= entry.maxTokensPerTask) {
+        // runOnce cleared resumable when this run started, so the guard puts it back: the stored session is what makes
+        // Continue work once the limit is higher. Only the per-press note is gone.
+        this.patchTask(taskId, { resumable: true });
+        return { subtype: 'error_max_budget_usd', isError: true, errorText: tokenStopText(spent) };
+      }
       // the Contained promise must hold when the run starts, not only when the owner set the profile up
       if (entry.contained) {
         const block = await (host.containedGate ?? containedRunBlock)(entry);
@@ -3225,16 +3235,6 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         });
       };
       const resumeId = stored && stored.entryId === entry.id ? stored.sessionId : undefined;
-      // Continue on a task whose token limit is still reached: another turn would stop at once, so none is started. The card says so, in the same
-      // words every time, with no note per press.
-      const used = this.store.getTask(taskId)?.tokenUsage;
-      const spent = (used?.inputTokens ?? 0) + (used?.outputTokens ?? 0);
-      if (entry.maxTokensPerTask !== undefined && spent >= entry.maxTokensPerTask) {
-        // runOnce cleared resumable when this run started, so the guard puts it back: the stored session is what makes
-        // Continue work once the limit is higher. Only the per-press note is gone.
-        this.patchTask(taskId, { resumable: true });
-        return { subtype: 'error_max_budget_usd', isError: true, errorText: tokenStopText(spent) };
-      }
       let session: AcpSession;
       let fresh = resumeId === undefined;
       try {
