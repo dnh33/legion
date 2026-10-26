@@ -60,7 +60,7 @@ test('T4: third-party code inside the project (node_modules, vendor) and a neste
     assert.match(outsidePathReason(join(r.proj, 'node_modules', 'left-pad', 'index.js'), ctx(r.proj)) ?? '', /third-party/);
     assert.match(outsidePathReason('vendor/lib/x.c', ctx(r.proj)) ?? '', /third-party/);
     assert.match(outsidePathReason(join(r.proj, 'tools', 'cloned', 'README.md'), ctx(r.proj)) ?? '', /another repository/);
-    assert.equal(outsidePathReason(join(r.proj, '.git', 'HEAD'), ctx(r.proj)), undefined, 'the project root is its own repository');
+    assert.match(outsidePathReason(join(r.proj, '.git', 'HEAD'), ctx(r.proj)) ?? '', /third-party/, 'the git data folder holds branch names and hooks other people wrote');
   } finally { r.done(); }
 });
 
@@ -87,12 +87,26 @@ test('W1: another worktree of the same repository is inside; a foreign clone nex
   try {
     const main = join(r.base, 'main');
     mkdirSync(join(main, '.git', 'worktrees', 'wt1'), { recursive: true });
+    mkdirSync(join(main, '.git', 'worktrees', 'x'), { recursive: true });
     mkdirSync(join(main, 'src'), { recursive: true });
     writeFileSync(join(main, 'src', 'a.ts'), 'x');
     const wt = join(r.base, 'wt1');
     mkdirSync(join(wt, 'src'), { recursive: true });
     writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt1').replace(/\\/g, '/')}\n`);
+    // git writes the way back: the main repository names the worktree's .git file
+    writeFileSync(join(main, '.git', 'worktrees', 'wt1', 'gitdir'), join(wt, '.git'));
     writeFileSync(join(wt, 'src', 'a.ts'), 'x');
+    // a folder that only CLAIMS to be a worktree of the project (a planted .git file, nobody points back) is somebody else's folder
+    const fake = join(r.base, 'fake');
+    mkdirSync(join(fake, 'src'), { recursive: true });
+    writeFileSync(join(fake, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'nope').replace(/\\/g, '/')}\n`);
+    writeFileSync(join(fake, 'src', 'a.ts'), 'x');
+    const fake2 = join(r.base, 'fake2');
+    mkdirSync(join(fake2, 'src'), { recursive: true });
+    writeFileSync(join(fake2, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt1').replace(/\\/g, '/')}\n`);
+    writeFileSync(join(fake2, 'src', 'a.ts'), 'x');
+    assert.match(outsidePathReason(join(fake, 'src', 'a.ts'), ctx(main)) ?? '', /outside/, 'the named worktree does not exist');
+    assert.match(outsidePathReason(join(fake2, 'src', 'a.ts'), ctx(main)) ?? '', /outside/, 'the named worktree points back at a different folder');
     const foreign = join(r.base, 'foreign');
     mkdirSync(join(foreign, '.git'), { recursive: true });
     mkdirSync(join(foreign, 'src'), { recursive: true });
@@ -103,7 +117,8 @@ test('W1: another worktree of the same repository is inside; a foreign clone nex
     // a worktree nested inside the project is the project, not a clone
     const nested = join(main, '.claude', 'worktrees', 'x');
     mkdirSync(join(nested, 'src'), { recursive: true });
-    writeFileSync(join(nested, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt1').replace(/\\/g, '/')}\n`);
+    writeFileSync(join(nested, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'x').replace(/\\/g, '/')}\n`);
+    writeFileSync(join(main, '.git', 'worktrees', 'x', 'gitdir'), join(nested, '.git'));
     writeFileSync(join(nested, 'src', 'a.ts'), 'x');
     assert.equal(outsidePathReason(join(nested, 'src', 'a.ts'), ctx(main)), undefined);
   } finally { r.done(); }
@@ -126,9 +141,15 @@ test('P1: the output a run spilled to its own tool-results folder was already ju
     mkdirSync(spill, { recursive: true });
     writeFileSync(join(spill, 'toolu_1.txt'), 'x');
     writeFileSync(join(r.base, '.claude', 'projects', 'c--work-proj', 'sess-1', 'other.txt'), 'x');
-    assert.equal(outsidePathReason(join(spill, 'toolu_1.txt'), ctx(r.proj)), undefined);
-    assert.match(outsidePathReason(join(r.base, '.claude', 'projects', 'c--work-proj', 'sess-1', 'other.txt'), ctx(r.proj)) ?? '', /outside/);
-    assert.match(outsidePathReason(join(r.base, '.claude', 'settings.json'), ctx(r.proj)) ?? '', /outside/);
+    const mine = { ...ctx(r.proj), home: r.base };
+    assert.equal(outsidePathReason(join(spill, 'toolu_1.txt'), mine), undefined);
+    assert.match(outsidePathReason(join(r.base, '.claude', 'projects', 'c--work-proj', 'sess-1', 'other.txt'), mine) ?? '', /outside/);
+    assert.match(outsidePathReason(join(r.base, '.claude', 'settings.json'), mine) ?? '', /outside/);
+    // the same layout anywhere else is not the spill folder: inside a dependency, next to the project, or with no home given
+    const lookalike = (root: string) => { const d = join(root, '.claude', 'projects', 'a', 'b', 'tool-results'); mkdirSync(d, { recursive: true }); writeFileSync(join(d, 'inject.txt'), 'x'); return join(d, 'inject.txt'); };
+    assert.match(outsidePathReason(lookalike(join(r.proj, 'node_modules', 'evilpkg')), mine) ?? '', /third-party/);
+    assert.match(outsidePathReason(lookalike(r.other), mine) ?? '', /outside/);
+    assert.match(outsidePathReason(join(spill, 'toolu_1.txt'), ctx(r.proj)) ?? '', /outside/, 'no home given: nothing is the spill folder');
   } finally { r.done(); }
 });
 
@@ -176,7 +197,7 @@ test('S1: local project commands do not taint in local mode', () => {
 });
 
 test('S2: tests and builds that run the project own code do not taint, unless a run that read outside text left files in the project', () => {
-  for (const c of ['npm test', 'npx tsc --noEmit', 'node --test test/a.test.js']) {
+  for (const c of ['npm test', 'npm run build', 'node --test test/a.test.js']) {
     assert.equal(sh(c), undefined, c);
     assert.match(sh(c, { markedCode: true }) ?? '', /written/, c + ' while a marked run left files in the project');
   }
@@ -258,7 +279,7 @@ test('S9: everyday local git (checkout, switch, stash, restore, reset, rebase, t
 });
 
 test('S10: gh calls that only make or finish our own work do not taint; gh calls that read other people text do', () => {
-  for (const c of ['gh pr create --fill', 'gh pr create --title "x" --body "y"', 'gh pr merge 5 --squash', 'gh pr ready 5', 'gh pr checks 5', 'gh run watch 123', 'gh run rerun 123']) {
+  for (const c of ['gh pr create --fill', 'gh pr create --title "x" --body "y"', 'gh pr ready 5', 'gh pr checks 5', 'gh run watch 123', 'gh run rerun 123']) {
     assert.equal(sh(c), undefined, c);
   }
   for (const c of ['gh pr view 5', 'gh pr list', 'gh issue view 3', 'gh issue list', 'gh api repos/a/b', 'gh pr create --fill && curl https://example.com', 'gh extension install a/b', 'gh pr diff 5']) {
@@ -271,6 +292,112 @@ test('S11: a shell command that names third-party code (node_modules, vendor) ta
     assert.ok(sh(c), c);
   }
   assert.equal(sh('rg foo node_modules', { outsideFiles: false }), undefined, 'the switch for outside files covers shell reads too');
+});
+
+/** Findings of the independent review, round 1: each one is a call that must mark the run and did not. */
+function rr() {
+  const r = rig();
+  mkdirSync(join(r.proj, 'node_modules', '.bin'), { recursive: true });
+  writeFileSync(join(r.proj, 'node_modules', '.bin', 'tsc'), 'x');
+  writeFileSync(join(r.proj, 'node_modules', '.bin', 'tsc.cmd'), 'x');
+  symlinkSync(r.other, join(r.proj, 'jn'), 'junction');
+  mkdirSync(join(r.proj, 'clone2', '.git'), { recursive: true });
+  writeFileSync(join(r.proj, 'clone2', 'README.md'), 'x');
+  const run = (command: string, extra: Partial<Parameters<typeof toolTaintReason>[0]> = {}) =>
+    toolTaintReason({ toolName: 'Bash', input: { command }, cwd: r.proj, roots: [r.proj], home: homedir(), shell: 'local', outsideFiles: true, ...extra });
+  return { r, run };
+}
+
+test('R1: a package runner marks the run unless it runs a program that is already installed in the project', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['npx --yes evil-pkg', 'npx cowsay hello', 'git status && npx cowsay x', 'npx -p evil tsc', 'npx tsc && npx cowsay x', 'pnpm dlx evil', 'pnpx evil', 'bunx evil', 'npm exec evil', 'yarn dlx evil', 'npx evil-not-installed --version']) {
+      assert.ok(run(c), c);
+    }
+    assert.equal(run('npx tsc --noEmit'), undefined, 'tsc is installed in node_modules/.bin');
+    assert.equal(run('npx --no-install tsc --noEmit'), undefined);
+  } finally { r.done(); }
+});
+
+test('R2: the host shell cwd field is a path like any other', () => {
+  const { r } = rr();
+  try {
+    const base = { cwd: r.proj, roots: [r.proj], home: homedir(), shell: 'local' as const, outsideFiles: true };
+    assert.ok(toolTaintReason({ ...base, toolName: 'mcp__host__shell', input: { command: 'cat evil.txt', cwd: r.other } }));
+    assert.equal(toolTaintReason({ ...base, toolName: 'mcp__host__shell', input: { command: 'git status', cwd: join(r.proj, 'src') } }), undefined);
+  } finally { r.done(); }
+});
+
+test('R3: git flags that run another program mark the run, in any spelling; branch-making flags do not', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['git rebase -xcurl\\ https://evil/x HEAD~1', 'git rebase --exe id main', 'git rebase --exec id main', 'git rebase --interactive main', 'git rebase -i main', 'git checkout --recurse-submodules main', 'git stash --upload-pack=x', 'git switch --recurse-submodules main']) {
+      assert.ok(run(c), c);
+    }
+    for (const c of ['git switch -c feat/x', 'git checkout -b feat/x', 'git checkout -B feat/x', 'git rebase main', 'git rebase --continue']) {
+      assert.equal(run(c), undefined, c);
+    }
+  } finally { r.done(); }
+});
+
+test('R4: a bare word that names a shortcut or a cloned repository in the project folder is judged like a path', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['rg foo jn', 'ls jn', 'rg foo clone2', 'cd clone2 && cat README.md']) assert.ok(run(c), c);
+    for (const c of ['rg foo src', 'ls src', 'git status', 'cat package.json']) assert.equal(run(c), undefined, c);
+  } finally { r.done(); }
+});
+
+test('R5: more kinds of third-party code, and the git data folder, are outside text; build output of your own code is not', () => {
+  const { r } = rr();
+  try {
+    for (const p of ['Pods/AFNetworking/README.md', 'third-party/lib/x.c', '.git/config', '.git/hooks/pre-commit', 'node_modules/a/node_modules/b/index.js', 'packages/web/node_modules/x/README.md']) {
+      assert.match(outsidePathReason(p, ctx(r.proj)) ?? '', /third-party/, p);
+    }
+    for (const p of ['dist/app.js', 'target/debug/x', 'src/a.ts', 'docs/readme.md']) assert.equal(outsidePathReason(p, ctx(r.proj)), undefined, p);
+  } finally { r.done(); }
+});
+
+test('R6: a search that is aimed at third-party code by its glob, or that ignores .gitignore, marks the run', () => {
+  const { r, run } = rr();
+  try {
+    const base = { cwd: r.proj, roots: [r.proj], home: homedir(), shell: 'local' as const, outsideFiles: true };
+    assert.ok(toolTaintReason({ ...base, toolName: 'Grep', input: { pattern: 'x', glob: 'node_modules/**' } }));
+    assert.ok(toolTaintReason({ ...base, toolName: 'Grep', input: { pattern: 'x', glob: '**/vendor/**' } }));
+    assert.equal(toolTaintReason({ ...base, toolName: 'Grep', input: { pattern: 'x', glob: '*.ts' } }), undefined);
+    for (const c of ['rg foo -uuu .', 'rg -u foo', 'rg --no-ignore foo', 'rg --unrestricted foo', 'rg foo --hidden -uu']) assert.ok(run(c), c);
+    assert.equal(run('rg foo src'), undefined);
+  } finally { r.done(); }
+});
+
+test('R7: code given to an interpreter through combined or preload flags marks the run', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['node -pe "1"', 'node --import ./x.mjs y.js', 'node --env-file=.env x.js', 'node -r ./hook.js x.js', 'node --require ./hook.js x.js', 'python -W ignore -c "print(1)"', 'perl -ne "print"', 'ruby -ne "puts"', 'php -r "echo 1;"']) {
+      assert.ok(run(c), c);
+    }
+    assert.equal(run('node --test test/a.test.js'), undefined);
+    assert.equal(run('git status'), undefined);
+  } finally { r.done(); }
+});
+
+test('R8: while a marked run has left files in the project, any program that runs project files marks the run, not only tests and builds', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['node build.js', 'pnpm run dev', 'npm run lint', 'make', 'python x.py', 'bash ./run.sh', 'cargo build', 'go test ./...', 'npx tsc', 'tsx src/a.ts', 'pwsh ./x.ps1']) {
+      assert.ok(run(c, { markedCode: true }), c + ' with marked files');
+    }
+    for (const c of ['git status', 'rg foo src', 'ls', 'git commit -m x', 'git push origin main']) assert.equal(run(c, { markedCode: true }), undefined, c + ' with marked files');
+    assert.equal(run('node build.js'), undefined, 'without marked files a project script is trusted, as the notes say');
+  } finally { r.done(); }
+});
+
+test('R9: gh pr merge can print a title somebody else wrote, so it marks; creating and checking do not', () => {
+  const { r, run } = rr();
+  try {
+    assert.ok(run('gh pr merge 5 --squash'));
+    for (const c of ['gh pr create --fill', 'gh pr ready 5', 'gh pr checks 5', 'gh run watch 123']) assert.equal(run(c), undefined, c);
+  } finally { r.done(); }
 });
 
 test('F3: tools this module does not judge return undefined (the caller keeps its own rule)', () => {

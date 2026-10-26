@@ -20,7 +20,7 @@ import { classifySafe } from '../shared/consequence.js';
 export type TaintShellMode = 'local' | 'strict';
 
 /** Folders that hold other people's code, whatever the project says. */
-const THIRD_PARTY = new Set(['node_modules', 'vendor', 'third_party', 'bower_components', 'site-packages']);
+const THIRD_PARTY = new Set(['node_modules', 'vendor', 'third_party', 'third-party', 'bower_components', 'site-packages', 'pods', '.git']);
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Monitor', 'mcp__host__shell']);
 const FILE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   Read: ['file_path'], Grep: ['path'], Glob: ['path'], LS: ['path'], mcp__host__read_file: ['path'],
@@ -62,10 +62,24 @@ export interface PathCtx {
   cwd: string;
   /** The folders that count as this project (its folder, else the agent's working folder). Empty: nothing is inside. */
   roots: readonly string[];
+  /** The owner's home folder: Claude Code's own spill folder is looked for under it (and under CLAUDE_CONFIG_DIR). Absent: there is no spill folder. */
+  home?: string;
 }
 
-/** The tool-results folder Claude Code spills long output into. What is in it was judged when the tool ran, so reading it back brings nothing new in. */
-const SPILL = /[\\/]\.claude[\\/]projects[\\/][^\\/]+[\\/][^\\/]+[\\/]tool-results[\\/][^\\/]+$/i;
+/**
+ * The tool-results folder Claude Code spills long output into: `<home>/.claude/projects/<project>/<session>/tool-results/<file>`. What is in it was judged
+ * when the tool ran, so reading it back brings nothing new in. Only that exact place counts, never the same layout somewhere else.
+ */
+function isSpill(real: string, home: string | undefined): boolean {
+  const bases = [home ? join(home, '.claude', 'projects') : '', process.env.CLAUDE_CONFIG_DIR ? join(process.env.CLAUDE_CONFIG_DIR, 'projects') : ''].filter(Boolean);
+  for (const b of bases) {
+    const rel = below(realOf(b), real);
+    if (!rel) continue;
+    const parts = rel.split(sep).filter(Boolean);
+    if (parts.length === 4 && parts[2]!.toLowerCase() === 'tool-results') return true;
+  }
+  return false;
+}
 
 const isDir = (p: string): boolean => { try { return statSync(p).isDirectory(); } catch { return false; } };
 
@@ -87,7 +101,11 @@ function repoOf(real: string): { top: string; common: string } | undefined {
         if (m) {
           const gd = resolve(dir, m[1]!.trim());
           const w = /^(.*)[\\/]worktrees[\\/][^\\/]+$/.exec(gd);
-          return { top: dir, common: norm(realOf(w ? w[1]! : gd)) };
+          if (!w) return { top: dir, common: norm(realOf(gd)) };
+          // a worktree only when the main repository points back at this very .git file; a planted file that merely names one is its own repository
+          let back = false;
+          try { back = norm(realOf(resolve(gd, readFileSync(join(gd, 'gitdir'), 'utf8').trim()))) === norm(realOf(g)); } catch { /* nobody points back */ }
+          return { top: dir, common: back ? norm(realOf(w[1]!)) : norm(g) };
         }
       } catch { /* an unreadable .git file: treated as its own repository below */ }
       return { top: dir, common: norm(g) };
@@ -103,7 +121,6 @@ function repoOf(real: string): { top: string; common: string } | undefined {
 function insideReason(root: string, real: string, rel: string): string | undefined {
   const parts = rel.split(sep).filter(Boolean).map((s) => s.toLowerCase());
   if (parts.some((s) => THIRD_PARTY.has(s))) return R_THIRD;
-  for (let i = 0; i + 1 < parts.length; i++) if (parts[i] === '.git' && parts[i + 1] === 'modules') return R_THIRD;
   // a folder below the root that has its own .git is somebody else's repository (a clone, a submodule), unless it is a worktree of this one
   const mine = repoOf(root);
   let dir = isDir(real) ? real : dirname(real);
@@ -125,7 +142,7 @@ export function outsidePathReason(raw: string, ctx: PathCtx): string | undefined
     if (typeof raw !== 'string' || !raw.trim()) return R_OUTSIDE;
     if (raw.startsWith('~')) return R_OUTSIDE;
     const real = realOf(isAbsolute(raw) ? raw : resolve(ctx.cwd, raw));
-    if (SPILL.test(real)) return undefined;
+    if (isSpill(real, ctx.home)) return undefined;
     const roots = ctx.roots.filter(Boolean).map(realOf);
     for (const root of roots) {
       const rel = below(root, real);
@@ -165,13 +182,18 @@ export function judgesTool(name: string): boolean {
   return SHELL_TOOLS.has(name) || BACKGROUND_SHELL_TOOLS.has(name) || Object.prototype.hasOwnProperty.call(FILE_TOOLS, name);
 }
 
-/** Path words in a command (a `/` or `\` in them), resolved like a file path would be: a shortcut that leads out, a clone, third-party code. */
+/**
+ * Words in a command that name a place, resolved like a file path would be: a shortcut that leads out, a clone, third-party code. A word with a
+ * `/` or `\` in it is a path; a bare word counts when something of that name exists in the working folder (`rg foo jn`, `cd clone2`).
+ */
 function pathWordReason(command: string, ctx: PathCtx): string | undefined {
+  let checked = 0;
   for (const raw of command.split(/\s+/)) {
-    let w = raw.replace(/^["'`]+|["'`;]+$/g, '').replace(/^\d*[<>]+&?/, '');
+    const w = raw.replace(/^["'`]+|["'`;]+$/g, '').replace(/^\d*[<>]+&?/, '');
     if (!w || w.startsWith('-') || w.includes('://') || w.includes('$') || /[*?[{]/.test(w)) continue;
-    if (!/[\\/]/.test(w)) continue;
     if (/^\/dev\/(null|stdin|stdout|stderr)$/.test(w)) continue;
+    if (!/[\\/]/.test(w) && !existsSync(resolve(ctx.cwd, w))) continue;
+    if (++checked > 80) return 'a command with more paths than Legion checks';
     const r = outsidePathReason(w, ctx);
     if (r) return r;
   }
@@ -181,33 +203,76 @@ function pathWordReason(command: string, ctx: PathCtx): string | undefined {
 /** Programs that run code given on their own command line (or in a flag): they can do anything, so Legion cannot call the call local. */
 const INTERPRETERS = new Set(['node', 'nodejs', 'bun', 'deno', 'python', 'python2', 'python3', 'py', 'perl', 'ruby', 'php', 'lua', 'pwsh', 'powershell', 'cmd', 'sh', 'bash', 'zsh', 'fish', 'dash', 'ksh']);
 const CODE_FLAGS = new Set(['-e', '--eval', '-p', '--print', '-c', '-r', '-command', '-encodedcommand', '-ec', '/c', '/k', 'eval']);
+/** Short flags clustered with e, c, p or r (-pe, -ne, -ce), and the long flags that run or preload code. */
+const CODE_CLUSTER = /^-(?!-)[A-Za-z]*[ecpr][A-Za-z]*$/i;
+const CODE_LONG = /^--(eval|print|import|require|env-file|loader|experimental-loader|input-type)\b/i;
 function runsInlineCode(command: string): boolean {
   const words = command.split(/\s+/).filter(Boolean).map((w) => w.replace(/^["'`]+|["'`]+$/g, ''));
   for (let i = 0; i < words.length; i++) {
     const base = words[i]!.replace(/\\/g, '/').split('/').pop()!.toLowerCase().replace(/\.exe$/, '');
     if (!INTERPRETERS.has(base) && !INTERPRETERS.has(base.replace(/[\d.]+$/, ''))) continue;
-    if (words.slice(i + 1).some((w) => CODE_FLAGS.has(w.toLowerCase()) || /^-(e|c|p|r)[^\w-]/i.test(w))) return true;
+    if (words.slice(i + 1).some((w) => CODE_FLAGS.has(w.toLowerCase()) || CODE_CLUSTER.test(w) || CODE_LONG.test(w))) return true;
   }
   return false;
 }
 
 /** A single plain command with nothing that chains, redirects or substitutes. */
 const PLAIN = /^[^;&|<>`$()\n\r]+$/;
-/** Flags that make a git call run another command or another program. */
-const GIT_RUNS_OTHERS = /^(-c|-x|--exec(=.*)?|--upload-pack.*|--receive-pack.*|--config.*)$/;
+/** Flags (any spelling, including shortened ones) that make a git call run another program or reach another place. */
+const GIT_RUNS_OTHERS = /^--(exe|int|upload|receive|config|recurse)/i;
+/** Short flags of `git rebase` that run a command (-x) or open an editor (-i), also clustered or with the value attached. */
+const REBASE_RUNS = /^-(?!-)[A-Za-z]*[xi]/;
 /** Git calls that work on this repository only and bring no text in (no fetch, pull, clone, submodule update, remote reads). */
 const LOCAL_GIT = /^git\s+(checkout|switch|stash|restore|reset|rebase|cherry-pick|tag|worktree|rev-parse|ls-files|merge-base|show-ref|describe|reflog)(\s|$)/;
 /** gh calls that make or finish our own work: what they print is an address, a status or names we chose, not text another person wrote. */
-const LOCAL_GH = /^gh\s+(pr\s+(create|merge|ready|checks)|run\s+(watch|rerun))(\s|$)/;
+const LOCAL_GH = /^gh\s+(pr\s+(create|ready|checks)|run\s+(watch|rerun))(\s|$)/;
 function knownLocal(command: string): boolean {
   const c = command.trim();
   if (!PLAIN.test(c)) return false;
-  if (c.split(/\s+/).some((w) => GIT_RUNS_OTHERS.test(w))) return false;
+  const words = c.split(/\s+/);
+  if (words.some((w) => GIT_RUNS_OTHERS.test(w))) return false;
+  if (/^git\s+rebase(\s|$)/.test(c) && words.slice(2).some((w) => REBASE_RUNS.test(w))) return false;
   return LOCAL_GIT.test(c) || LOCAL_GH.test(c);
 }
 
+/**
+ * Package runners fetch and run a program from the registry unless it is already installed in the project. Only `npx <program>` (and the
+ * exec forms) of a program that sits in a `node_modules/.bin` of the project, with no flag that asks for another package, is local.
+ */
+function packageRunnerReason(command: string, roots: readonly string[]): string | undefined {
+  const words = command.trim().split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!.toLowerCase();
+    const viaManager = (w === 'npm' || w === 'pnpm' || w === 'yarn') && ['exec', 'dlx', 'x'].includes((words[i + 1] ?? '').toLowerCase());
+    if (!(w === 'npx' || w === 'pnpx' || w === 'bunx' || viaManager)) continue;
+    const may = 'a package runner that may download code';
+    if (!PLAIN.test(command)) return may;
+    if (viaManager && (words[i + 1] ?? '').toLowerCase() !== 'exec') return may;
+    const rest = words.slice(i + (viaManager ? 2 : 1));
+    if (rest.some((x) => /^(--yes|-y|-p|--package(=.*)?|--call(=.*)?|-c|--node-options.*)$/i.test(x))) return may;
+    const bin = rest.find((x) => !x.startsWith('-'));
+    if (!bin || !/^[\w.@-]+$/.test(bin)) return may;
+    const local = roots.some((r) => ['', '.cmd', '.ps1'].some((ext) => existsSync(join(r, 'node_modules', '.bin', bin + ext))));
+    if (!local) return may;
+  }
+  return undefined;
+}
+
 /** A command that names code somebody else wrote (a dependency folder, a submodule's git data). */
-const NAMES_THIRD_PARTY = /(^|[\s"'=/\\])(node_modules|vendor|third_party|bower_components|site-packages)([\s"'/\\]|$)|\.git[\\/]modules/i;
+const NAMES_THIRD_PARTY = /(^|[\s"'=/\\])(node_modules|vendor|third_party|third-party|bower_components|site-packages|pods)([\s"'/\\]|$)|\.git[\\/]/i;
+
+/** ripgrep with its ignore rules off searches the dependency folders too. */
+function searchesEverything(command: string): boolean {
+  const words = command.split(/\s+/);
+  const i = words.findIndex((w) => /^rg(\.exe)?$/i.test(w));
+  return i >= 0 && words.slice(i + 1).some((w) => /^-(?!-)[A-Za-z]*u/.test(w) || /^--(no-ignore|unrestricted|hidden)/i.test(w));
+}
+
+/** Programs that run a project's files: while a marked run has left files in the project they are not trusted. */
+const RUNNERS = new Set(['node', 'nodejs', 'bun', 'deno', 'python', 'python2', 'python3', 'py', 'perl', 'ruby', 'php', 'lua', 'pwsh', 'powershell', 'bash', 'sh', 'zsh', 'fish', 'cmd', 'npm', 'pnpm', 'yarn', 'npx', 'pnpx', 'bunx', 'make', 'cargo', 'go', 'mvn', 'gradle', 'dotnet', 'tsx', 'ts-node', 'tsc', 'pytest', 'jest', 'vitest', 'mocha', 'java', 'javac', 'rustc', 'gcc', 'cc']);
+function runsProjectFiles(command: string): boolean {
+  return command.split(/[\s;&|()]+/).some((w) => RUNNERS.has(w.replace(/\\/g, '/').split('/').pop()!.toLowerCase().replace(/\.(exe|cmd|ps1)$/, '').replace(/^["'`]+|["'`]+$/g, '')));
+}
 
 /** The text of the first of these fields that holds a string. */
 function firstString(o: Record<string, unknown>, keys: readonly string[]): string | undefined {
@@ -233,13 +298,20 @@ export function toolTaintReason(c: ToolTaintCall): string | undefined {
       const input = c.input && typeof c.input === 'object' && !Array.isArray(c.input) ? c.input as Record<string, unknown> : undefined;
       if (!input || typeof input.command !== 'string' || !input.command.trim()) return 'a command Legion could not read';
       if (runsInlineCode(input.command)) return 'a command that runs code given on its command line';
-      if (c.outsideFiles && NAMES_THIRD_PARTY.test(input.command)) return R_THIRD;
+      const runner = packageRunnerReason(input.command, c.roots);
+      if (runner) return runner;
+      const pc: PathCtx = { cwd: c.cwd, roots: c.roots, home: c.home };
+      if (c.outsideFiles) {
+        if (NAMES_THIRD_PARTY.test(input.command) || searchesEverything(input.command)) return R_THIRD;
+        // the host shell can be pointed at another folder with its own cwd field
+        if (typeof input.cwd === 'string' && input.cwd) { const r = outsidePathReason(input.cwd, pc); if (r) return r; }
+      }
+      if (c.markedCode && runsProjectFiles(input.command)) return 'a program run while files written by a run that read outside text are in the project';
       if (knownLocal(input.command)) return undefined;
-      if (c.outsideFiles) { const r = pathWordReason(input.command, { cwd: c.cwd, roots: c.roots }); if (r) return r; }
+      if (c.outsideFiles) { const r = pathWordReason(input.command, pc); if (r) return r; }
       const k = classifySafe({ kind: 'approval', toolName: name, input, projectFolders: [...c.roots], home: c.home });
       if (k.tags.includes('net')) return 'a command that reaches the network';
       if (!k.certain || k.tags.includes('unknown')) return 'a command Legion cannot check';
-      if (c.markedCode && k.tags.includes('runs-code')) return 'a test or build run while files written by a run that read outside text are in the project';
       return undefined;
     }
     const fields = Object.prototype.hasOwnProperty.call(FILE_TOOLS, name) ? FILE_TOOLS[name] : undefined;
@@ -247,7 +319,8 @@ export function toolTaintReason(c: ToolTaintCall): string | undefined {
     if (!c.outsideFiles) return undefined;
     const input = c.input && typeof c.input === 'object' && !Array.isArray(c.input) ? c.input as Record<string, unknown> : undefined;
     if (!input) return R_OUTSIDE;
-    const ctx: PathCtx = { cwd: c.cwd, roots: c.roots };
+    const ctx: PathCtx = { cwd: c.cwd, roots: c.roots, home: c.home };
+    if (name === 'Grep' && typeof input.glob === 'string' && NAMES_THIRD_PARTY.test(input.glob)) return R_THIRD;
     if (name === 'Read' || name === 'mcp__host__read_file') {
       const p = firstString(input, fields);
       return p === undefined ? R_OUTSIDE : outsidePathReason(p, ctx);
