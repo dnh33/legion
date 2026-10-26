@@ -165,3 +165,14 @@ button.gate-chip:hover { color: var(--text); }
 .claude-notice p { margin: 0; flex: 1 1 320px; max-width: 70ch; color: var(--text-2); font-size: 13px; line-height: 1.45; text-wrap: pretty; }
 .claude-notice-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .claude-notice .set-error { flex-basis: 100%; }
+
+/* Outside text: a block under the gate rows, same weight as the trusted-folders block */
+.gates-outside { display: flex; flex-direction: column; gap: 8px; margin: 20px 0 6px; padding: 16px 0 0; border-top: 1px solid var(--line-strong); }
+.gates-outside p { margin: 0; }
+.gates-outside-notice { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2, transparent); }
+.gates-outside-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.gates-outside-opts { display: flex; flex-direction: column; gap: 8px; }
+.gates-outside-opt { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.gates-outside-opt > span { display: flex; flex-direction: column; gap: 2px; }
+.gates-outside-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.gates-outside-row > div { display: flex; flex-direction: column; gap: 2px; max-width: 70ch; }

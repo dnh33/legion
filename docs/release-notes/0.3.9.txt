@@ -1,0 +1,16 @@
+This update installs from inside Legion.
+
+Working in your project no longer limits your agents
+Before, an agent that ran any shell command, even git status, was treated as having read outside text. After that it could not assign or delete board items, write working memory or write shared notes directly. Now commands that only work inside your project (git, search, tests, builds) leave the agent free. The web, GitHub text you read, other tools, commands that reach the network and commands Legion cannot read with certainty still limit it.
+
+Files from outside your project count
+Reading a file outside your project, in node_modules or vendor, or in a repository cloned into your project folder now limits the agent the same way. Another worktree of your own repository counts as your project.
+
+You stay in control
+Settings, Gates, Outside text has the two choices. Strict gives you the old rule for every shell command. A note after the update explains the change and lets you switch back at once. Money confirmations, web and GitHub cards, the stop for disastrous commands and your Block rules work as before.
+
+Fixes
+A refused write now says what limited the agent. A limit that was set during a run is kept if Legion stops in the middle of it. A run the Marshal stopped for stalling keeps its limit.
+
+One thing to know
+Legion judges the command you typed, not what a project script does inside. A test script that fetches a web page does not limit the agent. In a repository you do not trust, choose Strict.

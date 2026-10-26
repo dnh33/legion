@@ -111,15 +111,15 @@ test('tainted paths: mark, read back, a clean rewrite takes the mark off, restar
   assert.equal(aging.has(p), false, 'marks expire after 30 days');
 });
 
-test('tainted paths in the engine: Grep over a tree holding a tainted file taints; a clean Write of the same file clears it', async () => {
+test('tainted paths in the engine: a Grep that shows contents over a tree holding a tainted file taints (a listing of names does not, see engine-outside-text); a clean Write of the same file clears it', async () => {
   const states: boolean[] = [];
   let step = 0;
   const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () {
     yield init('s' + step);
     if (step === 0) { yield toolUse('WebFetch'); yield toolUse('Write', 'w1', { file_path: 'a.txt', content: 'web' }); }
-    else if (step === 1) { yield toolUse('Grep', 'g1', { pattern: 'x' }); }
+    else if (step === 1) { yield toolUse('Grep', 'g1', { pattern: 'x', output_mode: 'content' }); }
     else if (step === 2) { yield toolUse('Write', 'w2', { file_path: 'a.txt', content: 'mine' }); }
-    else { yield toolUse('Grep', 'g3', { pattern: 'x' }); }
+    else { yield toolUse('Grep', 'g3', { pattern: 'x', output_mode: 'content' }); }
     yield ok('done', 's' + step);
   })());
   for (step = 0; step < 4; step++) {

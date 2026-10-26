@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { ACP_MAX_STEPS_MAX, ACP_MAX_STEPS_MIN, ACP_MAX_TOKENS_MAX, ACP_MAX_TOKENS_MIN, ACP_PRICE_MAX, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MIN_MINUTES, buildAcpView } from '../shared/acp-view.js';
 import type { AcpEntryPatch, AcpPatch, AcpSwitches } from '../shared/acp-view.js';
 import { lookupAgent, peekDetection, toAcpDetection } from './acp/detect.js';
-import { applyAcpPatch, COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeAcp, normalizeGates, writeConfigFile } from '../shared/config.js';
+import { applyAcpPatch, COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeAcp, normalizeGates, normalizeTaint, writeConfigFile } from '../shared/config.js';
 import { ENTRY_ID_RE } from '../shared/runtime.js';
 import { budgetCap } from '../shared/continue.js';
 import type { CompactionSettings, GateRule, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
@@ -254,6 +254,20 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
     if (c.smallWindowTokens !== undefined) o.smallWindowTokens = compactionNum(c.smallWindowTokens, 'compaction.smallWindowTokens', L.smallWindowTokens.min, L.smallWindowTokens.max, true);
     out.compaction = o;
   }
+  if (raw.taint !== undefined) {
+    if (!isObj(raw.taint)) throw new SettingsError('taint must be an object');
+    const t = raw.taint, o: NonNullable<SettingsPatch['taint']> = {};
+    if (t.shell !== undefined) {
+      if (t.shell !== 'local' && t.shell !== 'strict') throw new SettingsError('taint.shell must be "local" or "strict"');
+      o.shell = t.shell;
+    }
+    for (const k of ['outsideFiles', 'noticeSeen'] as const) {
+      if (t[k] === undefined) continue;
+      if (typeof t[k] !== 'boolean') throw new SettingsError(`taint.${k} must be a boolean`);
+      o[k] = t[k] as boolean;
+    }
+    out.taint = o;
+  }
   if (raw.gates !== undefined) {
     // Strict on write, tolerant on read: a malformed rule is a 400 naming the rule, so a bad rule can never
     // reach a matcher at run time (normalizeGates drops it on load instead).
@@ -283,6 +297,7 @@ export class SettingsService {
       },
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
       compaction: { ...(c.compaction ?? DEFAULT_COMPACTION), contextWindowOverride: c.compaction?.contextWindowOverride ?? null },
+      taint: normalizeTaint(c.taint),
       gates: normalizeGates(c.gates ?? DEFAULT_GATES),
       acp: buildAcpView(normalizeAcp(c.acp), (e) => toAcpDetection(e.enabled ? peekDetection(e) : lookupAgent(e))),
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
@@ -310,7 +325,7 @@ export class SettingsService {
     const apply = (target: any) => {
       // THE PERSISTENCE LIST. A section not named here is written to the in-memory config only and is gone on restart.
       // Adding a top-level settings section means adding it here; test/settings.test.ts reads config.json back from disk to prove it.
-      for (const sec of ['claude', 'boat', 'compaction', 'gates'] as const) {
+      for (const sec of ['claude', 'boat', 'compaction', 'taint', 'gates'] as const) {
         const src = p[sec] as Record<string, unknown> | undefined;
         if (!src) continue;
         target[sec] = isObj(target[sec]) ? target[sec] : {};

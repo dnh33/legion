@@ -121,7 +121,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
     mcpServers: (agent, job) => {
       const run: RunContext = job
         ? {
-          taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId), ...(job.projectId ? { projectId: job.projectId } : {}),
+          taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, ...(job.taintedBy ? { taintedBy: job.taintedBy } : {}), quota: quotaFor(job.taskId), ...(job.projectId ? { projectId: job.projectId } : {}),
           // the text of another run's task comes into this one: a tainted source taints the reader, as an ask answer or task_result does
           taskResult: (id: string) => {
             const t = deps.store.getTask(id);

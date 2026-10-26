@@ -8,7 +8,8 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { API_BILLING_BLOCKED, PLAN_CHECK_FAILED, PLAN_CHECK_FAILED_TEXT, apiBillingBlockedText, explainClaudeError } from '../shared/claude-errors.js';
-import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { gatesFor, normalizeTaint, scrubHostSessionEnv } from '../shared/config.js';
+import { judgesTool, toolTaintReason } from './outside-text.js';
 import { heldBackNames, scrubSecretEnv, type ScrubOpts } from './env-scrub.js';
 import { TRUSTED_FOLDERS_LABEL } from '../shared/gates-registry.js';
 import { assessRun, plain as trustPlain, readInstructions } from './folder-trust.js';
@@ -257,7 +258,6 @@ const CLEAN_BUILTINS = new Set([
 /** Legion's own file tool also counts for the build-file flag (it is not in WRITE_FILE_TOOLS, which the taint checks share). */
 const BUILD_EDIT_EXTRA_FILE_TOOLS = OWN_WRITE_FILE_TOOLS;
 const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
-const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 /** Legion's own in-process tools that still return outside content: a VM's output. */
 const TAINTING_LEGION_TOOLS = new Set([
   'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop',
@@ -471,6 +471,8 @@ interface Active {
   web: WebSession;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
+  /** Why the run was marked (the first cause). Set only together with `tainted`, by taintRun. */
+  taintedBy?: string;
   /** A build or script file was changed in this run. Used only when the run has no project (with a project the flag lives in the gates core, per project). */
   buildEdited?: boolean;
   /** This run follows Claude's own permission checks (fixed when the run starts), and the Claude mode it asked for / was given. */
@@ -865,10 +867,40 @@ export class Engine {
 
   /** Marks a task tainted: live runs flip at once, stored tasks keep it for later runs. */
   markTainted(taskId: string): void {
+    const why = 'a helper or room that read outside text';
     const a = this.active.get(taskId);
-    if (a) a.tainted = true;
+    if (a) this.taintRun(taskId, a, why);
     const t = this.store.getTask(taskId);
-    if (t && !t.tainted) this.patchTask(taskId, { tainted: true });
+    if (t && !t.tainted) this.patchTask(taskId, { tainted: true, taintedBy: why });
+  }
+
+  /**
+   * The one way a live run is marked as having read outside text. Sticky, and saved on the task at once: a crash in the middle of the run must
+   * not turn it back into a clean one. Keeps the first cause, as a fixed short phrase for the owner (never command text, which can hold a secret).
+   */
+  private taintRun(taskId: string, act: Active, why: string): void {
+    if (act.tainted) return;
+    act.tainted = true;
+    act.taintedBy = why;
+    this.patchTask(taskId, { tainted: true, taintedBy: why });
+  }
+
+  /** Why this tool call brings in text somebody else may have written (a short phrase), or undefined when it does not. */
+  private outsideTextReason(job: Job, toolName: string, input: unknown): string | undefined {
+    if (!judgesTool(toolName)) {
+      if (!taintsRun(toolName)) return undefined;
+      if (toolName === 'WebFetch' || toolName === 'WebSearch' || toolName.startsWith('mcp__legion__web_')) return 'the web';
+      return toolName.startsWith('mcp__') ? 'an outside tool' : 'a tool that brings in outside text';
+    }
+    const t = normalizeTaint(this.config.taint);
+    const agent = this.store.getAgent(job.agentId);
+    const hostRoot = toolName.startsWith('mcp__host__') && agent ? this.hostRootOf(agent) : undefined;
+    const cwd = hostRoot ?? this.agentCwd(job.agentId);
+    const roots = [...new Set([this.projectOf(job.taskId, job.agentId)?.folder, this.agentCwd(job.agentId), hostRoot].filter((r): r is string => !!r))];
+    return toolTaintReason({
+      toolName, input, cwd, roots, home: homedir(), shell: t.shell, outsideFiles: t.outsideFiles,
+      markedCode: roots.some((r) => this.taintedPaths.touches(r)),
+    });
   }
 
   cancel(taskId: string): boolean {
@@ -1087,6 +1119,7 @@ export class Engine {
     if (this.isHiddenAgent(job.agentId)) { this.dropHiddenJob(job); return; }
     const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set(), web: new WebSession() };
     act.tainted = !!(job.origin?.tainted || this.store.getTask(job.taskId)?.tainted);
+    if (act.tainted) act.taintedBy = this.store.getTask(job.taskId)?.taintedBy ?? 'started by a run that read outside text';
     // one value for the start project: the one the job was queued with, the same one modeNow reads (membership at start time could differ)
     if (job.projectAtStart) act.projectAtStart = job.projectAtStart;
     if (job.outsideOf) act.outsideOf = job.outsideOf;
@@ -1418,7 +1451,8 @@ export class Engine {
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
-      markTainted: () => { act.tainted = true; },
+      taintedBy: () => act.taintedBy ?? (job.origin?.tainted ? 'a run that read outside text started this one' : undefined),
+      markTainted: () => this.taintRun(taskId, act, 'a tool that read outside text'),
       markConnectorData: () => { this.patchTask(taskId, { usedConnectors: true }); },
       runtime,
       ...(pid ? { projectId: pid } : {}),
@@ -1527,8 +1561,10 @@ export class Engine {
       if (act.toolUses.has(toolUseId)) return;
       act.toolUses.add(toolUseId);
     }
-    if (toolName === 'Skill') { if (this.skillLoadTaints(input)) act.tainted = true; }
-    else if (taintsRun(toolName)) act.tainted = true;
+    if (!act.tainted) {
+      if (toolName === 'Skill') { if (this.skillLoadTaints(input)) this.taintRun(job.taskId, act, 'a skill from outside'); }
+      else { const why = this.outsideTextReason(job, toolName, input); if (why) this.taintRun(job.taskId, act, why); }
+    }
     // a read of a password or key file makes every web call in this run ask; set when the call is seen, whatever the owner answers
     const agent = this.store.getAgent(job.agentId);
     const tin = input && typeof input === 'object' ? input as Record<string, unknown> : {};
@@ -1705,10 +1741,11 @@ export class Engine {
     }
     if (act.tainted) return;
     const r = arg(READ_FILE_TOOLS[toolName]);
-    if (r) { if (this.taintedPaths.has(r)) act.tainted = true; return; }
-    if (SEARCH_TOOLS.has(toolName)) {
+    if (r) { if (this.taintedPaths.has(r)) this.taintRun(job.taskId, act, 'a file written by a run that read outside text'); return; }
+    // only a search that hands back file contents brings a marked file's text in; Glob and LS list names, and a Grep that lists files does the same
+    if (toolName === 'Grep' && o.output_mode === 'content') {
       const root = typeof o.path === 'string' && o.path ? TaintedPaths.resolvePath(cwd, o.path) : TaintedPaths.resolvePath(cwd, '.');
-      if (this.taintedPaths.touches(root)) act.tainted = true;
+      if (this.taintedPaths.touches(root)) this.taintRun(job.taskId, act, 'a file written by a run that read outside text');
     }
   }
 
@@ -3173,8 +3210,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const fail = (errorText: string): Outcome => ({ subtype: 'error_during_execution', isError: true, errorText });
     const say = (text: string): string => named(text, entry.label); // the fixed texts name Hermes; another agent host is named by its entry
     const sw = this.config.acp?.switches;
-    act.tainted = true;
-    this.patchTask(taskId, { runtime: entry.label, tainted: true });
+    this.taintRun(taskId, act, `a run on ${entry.label}`);
+    this.patchTask(taskId, { runtime: entry.label });
     act.progress = { startedAt: nowIso(), turn: 0, maxTurns: 0, tool: null, turnIds: new Set(), thinking: false };
     this.emitProgress(taskId, act);
     let token: RunToken | undefined;

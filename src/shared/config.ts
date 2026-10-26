@@ -11,7 +11,7 @@ import { ACP_WATCHDOG_DEFAULT_MINUTES, ACP_WATCHDOG_MAX_MINUTES, ACP_WATCHDOG_MI
 import { ACP_MAX_STEPS_MAX, ACP_MAX_STEPS_MIN, ACP_MAX_TOKENS_MAX, ACP_MAX_TOKENS_MIN, ACP_PRICE_MAX } from './acp-view.js';
 import type { AcpConfig, AcpEntry, AcpPatch } from './acp-view.js';
 import { ENTRY_ID_RE } from './runtime.js';
-import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, GatesConfig, LegionConfig } from './types.js';
+import type { CompactionSettings, GateContext, GateRule, GateVerdict, GateWhen, GatesConfig, LegionConfig, TaintConfig } from './types.js';
 import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
 import type { ProvidersConfig } from '../core/providers/types.js';
 import { canonicalHost } from './web-verdict.js';
@@ -21,7 +21,7 @@ export { MAX_ROOM_BUDGET_USD };
 export type { AcpConfig, AcpEntry, AcpSwitches } from './acp-view.js';
 export { BUILTIN_HERMES } from './acp-view.js';
 
-export const VERSION = '0.3.8';
+export const VERSION = '0.3.9';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
@@ -63,6 +63,12 @@ export interface FeaturesConfig { projectBoard: boolean; providers: boolean }
 export function normalizeFeatures(v: unknown): FeaturesConfig {
   const o = (v && typeof v === 'object' ? v : {}) as { projectBoard?: unknown; providers?: unknown };
   return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
+}
+
+/** The outside-text settings: "local" and outside files on, notice not yet shown, for a config with no `taint` key. Only the literal "strict" turns strict on; only `false` turns outside files off. */
+export function normalizeTaint(v: unknown): TaintConfig {
+  const o = (v && typeof v === 'object' ? v : {}) as { shell?: unknown; outsideFiles?: unknown; noticeSeen?: unknown };
+  return { shell: o.shell === 'strict' ? 'strict' : 'local', outsideFiles: o.outsideFiles !== false, noticeSeen: o.noticeSeen === true };
 }
 
 /* ---------------- agent hosts (ACP) ---------------- */
@@ -427,6 +433,7 @@ export function defaultConfig(): CoreConfig {
     acp: defaultAcp(),
     experimental: {},
     features: { projectBoard: true, providers: true },
+    taint: { shell: 'local', outsideFiles: true, noticeSeen: false },
     webSearch: defaultWebSearch(),
     // No gate rules: until the owner writes one, needsApproval alone decides, exactly as before.
     gates: { rules: [], presetsVersion: DEFAULT_GATES.presetsVersion },
@@ -521,6 +528,7 @@ export function loadConfig(opts: { log?: (line: string) => void } = {}): CoreCon
   cfg.compaction = normalizeCompaction(cfg.compaction);
   cfg.experimental = normalizeExperimental(cfg.experimental);
   cfg.features = normalizeFeatures(cfg.features);
+  cfg.taint = normalizeTaint(cfg.taint);
   cfg.webSearch = normalizeWebSearch(cfg.webSearch);
   // Tolerant: a rule the file cannot parse is dropped on load, never handed to a matcher at run time.
   cfg.gates = normalizeGates(cfg.gates, opts.log ? { onDropped: opts.log } : {});

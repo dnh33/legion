@@ -22,10 +22,10 @@ export interface RankedBoardView extends BoardView { /** One entry per board ite
 /** The part of a project the store needs; the caller reads it from the ProjectStore at the moment of the call. */
 export type ProjectRef = Pick<Project, 'id' | 'members' | 'status'>;
 /** What the store knows about the run an agent write comes from. `tainted`: it touched outside content. `capped`: another bot or an MCP client started it under `ask` approvals. Either one limits what it may do. */
-export interface BotRun { tainted: boolean; capped?: boolean }
+export interface BotRun { tainted: boolean; capped?: boolean; /** Why the run was marked (a fixed short phrase). */ taintedBy?: string }
 /** What the task store says about an item's run: still queued or running, whose, and whether it touched outside content. */
 export interface RunLookup { live: boolean; agentId?: string; tainted?: boolean }
-const LIMITED_RUN = 'This run is limited: it touched outside content (web, shell or external tools), or another bot or an MCP client started it under "ask" approvals.';
+const LIMITED_RUN = 'This run is limited: it touched outside content, or another bot or an MCP client started it under "ask" approvals.';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 /** Longest serialized per-item sidecar. State, not content: a ledger and a few checks fit in a few hundred characters. */
@@ -650,7 +650,7 @@ export class BoardStore {
   }
   private botBy(agentId: string, run: BotRun): BoardActor { return { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) }; }
   private botAssignee(v: unknown, proj: ProjectRef, run: BotRun): BoardAssignee | null {
-    if (run.tainted || run.capped) throw new BoardError(403, 'The assignee field was refused: a run that touched outside content, or that another bot or an MCP client started under "ask" approvals, may not assign items. Leave assignee out: the rest of the call is allowed, and the owner can assign the item.');
+    if (run.tainted || run.capped) throw new BoardError(403, 'The assignee field was refused' + (run.tainted && run.taintedBy ? ' (this run was marked by: ' + run.taintedBy + ')' : '') + ': a run that touched outside content, or that another bot or an MCP client started under "ask" approvals, may not assign items. Leave assignee out: the rest of the call is allowed, and the owner can assign the item.');
     if (isObj(v) && v.kind === 'owner') throw new BoardError(403, 'Only the owner can assign an item to themselves.');
     return cleanAssignee(v, proj);
   }
@@ -752,7 +752,7 @@ export class BoardStore {
   checkBotDelete(proj: ProjectRef, agentId: string, id: string, run: BotRun, count = false): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId) || this.leaderOf(proj) !== agentId) throw new BoardError(403, 'Only the project\'s board leader can ask to delete an item, and the owner approves each one. You can set the status to blocked and leave a note instead.');
-    if (run.tainted || run.capped) throw new BoardError(403, LIMITED_RUN + ' It may not delete items. Ask the owner.');
+    if (run.tainted || run.capped) throw new BoardError(403, LIMITED_RUN + (run.tainted && run.taintedBy ? ' (This run was marked by: ' + run.taintedBy + '.)' : '') + ' It may not delete items. Ask the owner.');
     const i = b.items.get(id);
     if (!i || i.proposal) throw new BoardError(404, `No item "${clip(String(id), 40)}" on this project's board.`);
     if (i.status === 'done') throw new BoardError(403, 'Done items are the owner\'s record. Only the owner deletes them.');
