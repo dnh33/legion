@@ -29,3 +29,8 @@ export function journeyStarted(v: JourneyViewLike): boolean {
   if (v.result !== 'running') return true;
   return v.steps.some((s) => s.id !== 'checking' && (s.state === 'active' || s.state === 'done' || s.state === 'failed'));
 }
+
+/** A journey that ended well is one quiet line with its steps behind a toggle. A failed, rolled-back or running one shows its steps: that is when they help. */
+export function journeyCollapsed(v: JourneyViewLike): boolean {
+  return v.result === 'ok';
+}

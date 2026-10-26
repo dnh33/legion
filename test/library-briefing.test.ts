@@ -8,7 +8,9 @@ import { KG_PREAMBLE } from '../src/core/kg/index.js';
 import { agentActor, wmId } from '../src/core/kg/types.js';
 import { DATA_LINE } from '../src/core/kg/text.js';
 import { HUMAN } from '../src/core/kg/types.js';
-import { init, kg, mkAgent, ok, setup, toolUse, waitDone } from './library-fakes.js';
+import { init, kg, mkAgent, ok, setup as baseSetup, toolUse, waitDone } from './library-fakes.js';
+// These tests are about the locks of a marked run, which only Strict applies since 0.3.10 (the default mode labels).
+const setup: typeof baseSetup = (script, opts = {}) => baseSetup(script, { strict: true, ...opts });
 
 const block = (append: string): string => /<kg-briefing>[\s\S]*<\/kg-briefing>/.exec(append)?.[0] ?? '';
 const tainted = () => true;

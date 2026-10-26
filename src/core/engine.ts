@@ -899,7 +899,6 @@ export class Engine {
     const roots = [...new Set([this.projectOf(job.taskId, job.agentId)?.folder, this.agentCwd(job.agentId), hostRoot].filter((r): r is string => !!r))];
     return toolTaintReason({
       toolName, input, cwd, roots, home: homedir(), shell: t.shell, outsideFiles: t.outsideFiles,
-      markedCode: roots.some((r) => this.taintedPaths.touches(r)),
     });
   }
 
@@ -1452,6 +1451,7 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       taintedBy: () => act.taintedBy ?? (job.origin?.tainted ? 'a run that read outside text started this one' : undefined),
+      locks: () => normalizeTaint(this.config.taint).shell === 'strict',
       markTainted: () => this.taintRun(taskId, act, 'a tool that read outside text'),
       markConnectorData: () => { this.patchTask(taskId, { usedConnectors: true }); },
       runtime,

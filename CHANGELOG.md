@@ -4,6 +4,27 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-10-27
+
+### Changed
+
+- **A run that read outside text is labelled, not locked.** Before, once an agent had read the web, a GitHub comment or a file from outside your project, it could not assign or delete board items, write working memory, or share notes directly. Now it carries on as normal. What it creates carries a label, its working memory is shown to the next run with a note, and its shared notes are saved as usual. By default, your agents are no longer stopped by what they read. Money confirmations, GitHub write cards, the stop for disastrous commands and your Block rules work as before. Trigger tags from a labelled run still wait for your OK, because they steer other runs on their own.
+- **Running a program no longer marks a run.** `node -e`, `python -c`, `make`, `go test`, `npx`, `npm install`, `git pull`, `git fetch`, `git clone` and any program Legion does not know leave the run clean. What marks a run is text that comes in from outside: the web, GitHub text you read (`gh pr view`, `gh issue view`, `gh api`, run logs), other tools, and files outside your project, in `node_modules` or `vendor`, or in a cloned repository.
+- **Agent-written board items run like any other.** Before, an item an agent wrote was never routed by the Marshal, and your Run button ran it under the `ask` ceiling. Now both run it as you set the agent up, and the run is labelled. Strict keeps the old behavior.
+- **Strict keeps every lock.** Settings, Gates, Outside text, Strict marks every shell command and locks a marked run exactly as in 0.3.9. The stored settings are unchanged, so nothing needs migrating.
+- **The update list in Settings, About is one quiet line after a good update.** A finished update shows "Updated from X to Y" with a Show steps button. The steps still open at once for an update that failed, rolled back or is running.
+- **The GitHub area explains who can write.** The repo Write box now says that each agent also needs write access (the project page's "let agents write" button, or the agent's settings, Connectors), and the refusal an agent gets says the same.
+
+### Fixed
+
+- **Working memory a run saved after reading outside text was always filed as clean.** It now carries its label, and the next run is told where it came from.
+
+### Known limits
+
+- **Text that a program fetches by itself is not labelled.** A test script that downloads a page reads outside text without a label. In a repository you do not trust, choose Strict.
+- **A labelled run can write working memory and notes that a later run reads.** That is the point of this change. Both carry a label and a note, so the next run can check them. Strict still holds them back.
+- **Legion does not guard against sending data out in Full.** Full shows no cards, by your own rule. Repointing a git remote asks in Smart and Ask.
+
 ## [0.3.9] - 2026-10-26
 
 ### Changed

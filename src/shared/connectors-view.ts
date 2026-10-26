@@ -50,7 +50,7 @@ export function storageLine(s: GithubStatusView['storage']): string {
 /** Refusals the gateway gives an agent (plain words, shared with the UI tests). */
 export const GITHUB_UNTICKED_TEXT = 'That repo is not turned on in Legion. Turn it on in the GitHub area.';
 export const GITHUB_AGENTS_OFF_TEXT = 'GitHub is switched off for agents in Legion. The owner turns it on in the GitHub area.';
-export const GITHUB_WRITE_NOT_GRANTED_TEXT = 'This agent may not write to that repo. The owner allows it in the agent\'s settings (Connectors).';
+export const GITHUB_WRITE_NOT_GRANTED_TEXT = 'This agent may not write to that repo. The owner allows it with the project page\'s "let agents write" button, or in the agent\'s settings (Connectors). Turning on Write for the repo in the GitHub area is not enough on its own.';
 export const GITHUB_NOT_SIGNED_FOR_WRITE_TEXT = 'Legion (write) is not signed in to GitHub, so nothing can be written. The owner signs in from the GitHub area.';
 export const GITHUB_WRITE_NEEDS_ACCESS_TEXT = 'Legion (write) does not have write access for that on GitHub. The owner checks the install in the GitHub area.';
 

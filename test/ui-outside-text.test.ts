@@ -16,5 +16,7 @@ test('U1: the Outside text words have no em dash and never say "taint" to the ow
 
 test('U2: the limits are stated in the Settings text, not only in the docs', () => {
   assert.match(OUTSIDE_TEXT_COPY.shell.strict.help, /script/);
-  assert.match(OUTSIDE_TEXT_COPY.limits, /shell command/);
+  assert.match(OUTSIDE_TEXT_COPY.limits, /program fetches by itself/);
+  assert.match(OUTSIDE_TEXT_COPY.shell.local.help, /labelled, not locked/);
+  assert.match(OUTSIDE_TEXT_COPY.shell.strict.help, /locked/);
 });

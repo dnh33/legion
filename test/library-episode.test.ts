@@ -8,7 +8,9 @@ import { join } from 'node:path';
 import { EPISODE_DAYS, Graph, staleDaysFor } from '../src/core/kg/graph.js';
 import { msUntilNightly } from '../src/core/kg/index.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
-import { init, kg, ok, setup, toolUse, waitDone } from './library-fakes.js';
+import { init, kg, ok, setup as baseSetup, toolUse, waitDone } from './library-fakes.js';
+// These tests are about the locks of a marked run, which only Strict applies since 0.3.10 (the default mode labels).
+const setup: typeof baseSetup = (script, opts = {}) => baseSetup(script, { strict: true, ...opts });
 import { tmpDir } from './kg-helpers.js';
 
 const SECRET = 'sk-ant-api03-abcdefghijklmnop1234';

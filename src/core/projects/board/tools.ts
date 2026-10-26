@@ -25,7 +25,7 @@ const fail = (e: unknown): ToolResult => ({ content: [{ type: 'text', text: `Err
 /** `askOwner` shows the owner an approval card and resolves with the answer (false: declined or no answer). */
 export type AskOwner = (r: { taskId: string; agentId: string; tool: string; summary: string; input: Record<string, unknown>; origin?: ModuleJob['origin'] }) => Promise<boolean>;
 
-export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The run's LIVE mode from the engine's resolver, so promoting the agent or changing a preset mid-task applies on the next call. */ modeOf?: ModeOf; /** Whether one permission gate is off for this run (the engine's gate, read with the run's start project); also writes the would-have-asked line. Absent: every gate is on. */ gateOff?: GateOff }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'taintedBy' | 'origin' | 'ceiling'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
+export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The run's LIVE mode from the engine's resolver, so promoting the agent or changing a preset mid-task applies on the next call. */ modeOf?: ModeOf; /** Whether one permission gate is off for this run (the engine's gate, read with the run's start project); also writes the would-have-asked line. Absent: every gate is on. */ gateOff?: GateOff }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'taintedBy' | 'origin' | 'ceiling' | 'locks'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
   /** The run's project, looked up again at every call (archive and membership changes apply at once). */
   const scope = () => {
     const p = deps.projects.forRun(job.projectId, agentId);
@@ -54,7 +54,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
       ...(job.origin ? { origin: job.origin } : {}),
     });
   };
-  const run = () => ({ tainted: job.taint(), capped: capped(), ...(job.taint() && job.taintedBy?.() ? { taintedBy: job.taintedBy() } : {}) });
+  const run = () => ({ tainted: job.taint(), locked: job.taint() && (job.locks?.() ?? true), capped: capped(), ...(job.taint() && job.taintedBy?.() ? { taintedBy: job.taintedBy() } : {}) });
   const runInfo = () => ({ taskId: job.taskId, ...run(), ...(job.origin?.roomId ? { roomId: job.origin.roomId } : {}) });
 
   const list = tool('list', 'List the work items of this project\'s board (id, title, status, priority, assignee, due, labels). Items assigned to you are marked.',

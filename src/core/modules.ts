@@ -21,6 +21,8 @@ export interface ModuleJob {
   taint(): boolean;
   /** Why the run was marked, as a fixed short phrase (never command text). Present once taint() is true. */
   taintedBy?(): string | undefined;
+  /** Whether a marked run is locked out of board assignment, memory, links and shared notes (the owner's Strict choice). Absent means locked. In the default mode a marked run is only labelled. */
+  locks?(): boolean;
   /** Flags the run as tainted from now on (a tool just handed it text a tainted bot wrote, e.g. room_read). Sticky. */
   markTainted?(): void;
   /** Marks the task as having read connector data (sticky): withheld from MCP-client readers. Called by the connector gateway. */

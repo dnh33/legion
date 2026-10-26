@@ -44,6 +44,7 @@ function setup(script: Script, opts: { modules?: CoreModule[]; agents?: AgentPro
   for (const a of opts.agents ?? [mkAgent('alpha', 'Alpha'), mkAgent('beta', 'Beta'), mkAgent('zealot', 'Zealot'), mkAgent('builder', 'Builder')]) store.upsertAgent(a);
   const bus = new EventBus();
   const config = defaultConfig();
+  config.taint = { shell: 'strict', outsideFiles: true, noticeSeen: true }; // the locks under test are Strict's since 0.3.10
   config.workspaceDir = join(dir, 'ws');
   const calls: Call[] = [];
   const queryFn = ((p: any) => {

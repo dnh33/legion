@@ -85,6 +85,7 @@ export function PickerView({ view }: { view: GithubAreaData }) {
       {p.loading && !read && !write && !p.loadError && <div className="gh-skel" role="status" aria-label="Loading your repos">{[0, 1, 2, 3].map((i) => <i key={i} />)}</div>}
       {(read || write) && (
         <>
+          {write && <p className="gh-help">Write here lets Legion write to a repo. Each agent also needs it: use the project page's "let agents write" button, or the agent's settings (Connectors).</p>}
           <div className={`gh-pk-cols${apps.length === 2 ? ' two' : ''}`} aria-hidden="true"><span /> {apps.map((a) => <span key={a}>{a === 'read' ? 'Read' : 'Write'}</span>)}</div>
           {rows.length === 0
             ? <p className="gh-help">{p.query ? `No repo matches “${p.query}”.` : 'GitHub shows no repos for this account.'}</p>

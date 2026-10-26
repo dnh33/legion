@@ -82,3 +82,14 @@ test('H2 panel: the step list stays hidden until a step after Checking has begun
   assert.equal(journeyStarted(mk(['done', 'skipped', 'pending'], 'ok')), true, 'an ended journey is always shown');
   assert.match(read('ui/src/components/UpdatePanel.tsx'), /st\.journey && journeyStarted\(st\.journey\)/);
 });
+
+import { journeyCollapsed } from '../ui/src/updateJourneyView.js';
+
+test('0.3.10: a finished update shows one quiet line with the steps behind a toggle; a failed or running one shows the steps', () => {
+  const base = { id: 'a1', from: '0.3.7', to: '0.3.9', kind: 'code' as const, steps: [], startedAt: '2026-10-26T19:49:00Z' };
+  assert.equal(journeyCollapsed({ ...base, result: 'ok' }), true);
+  for (const result of ['failed', 'rolled-back', 'running'] as const) assert.equal(journeyCollapsed({ ...base, result }), false, result);
+  const src = read('ui/src/components/UpdatePanel.tsx');
+  assert.match(src, /Show steps/);
+  assert.match(src, /Hide steps/);
+});

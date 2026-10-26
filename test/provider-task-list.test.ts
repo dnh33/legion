@@ -108,7 +108,7 @@ test('end to end: a provider run\'s mcp__host__shell call really runs on this ho
     assert.match(out, /exit code: 0/);
     assert.ok(out.toLowerCase().includes(root.toLowerCase()), `ran in its root: ${out}`);
     assert.match(out, /KEY=absent/);
-    assert.ok(t.tainted, 'a host call taints the run');
+    assert.equal(t.tainted, undefined, 'running a program on the host reads no outside text');
   } finally {
     await f.close();
     if (prev === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev;

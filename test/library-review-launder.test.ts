@@ -11,7 +11,9 @@ import { taintsRun } from '../src/core/engine.js';
 import { HUMAN } from '../src/core/kg/types.js';
 import { renderBriefing } from '../src/core/kg/briefing.js';
 import type { KgNode } from '../src/shared/kg.js';
-import { idOf, init, kg, mkAgent, ok, setup, toolUse, waitDone } from './library-fakes.js';
+import { idOf, init, kg, mkAgent, ok, setup as baseSetup, toolUse, waitDone } from './library-fakes.js';
+// These tests are about the locks of a marked run, which only Strict applies since 0.3.10 (the default mode labels).
+const setup: typeof baseSetup = (script, opts = {}) => baseSetup(script, { strict: true, ...opts });
 
 const BOT_ASK = { roomId: 'r1', fromAgentId: 'zealot', hop: 1, approvalCeiling: 'ask' as const };
 
