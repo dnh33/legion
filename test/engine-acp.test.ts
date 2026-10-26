@@ -1288,3 +1288,14 @@ test('M10: a long command is shown whole with every option; a command past the c
   const end = await r.done(t);
   assert.equal(end.status, 'done');
 });
+
+test('a run that fails with "Internal error" because Hermes has no sign-in says so in words, not the bare error', () => {
+  const r = rig();
+  const fail = (e: unknown, proc?: unknown): string => (r.engine as any).acpFailText(e, proc, r.config.acp!.entries[0]);
+  const stderr = 'External CLI logins are not adopted: auth.adopt_external_logins is false. Hermes uses only its own logins; run `hermes auth add <provider>` to add one.';
+  const text = fail(new Error('Internal error'), { stderrTail: () => stderr });
+  assert.match(text, /^Hermes has no sign-in it can use\./);
+  assert.match(text, /Settings, Agent hosts/);
+  assert.doesNotMatch(text, /Internal error/);
+  assert.match(fail(new Error('Internal error'), { stderrTail: () => 'something else' }), /^Hermes failed\. Internal error/, 'any other failure keeps the plain error');
+});

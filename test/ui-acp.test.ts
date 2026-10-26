@@ -337,14 +337,14 @@ test('render: first-use card, thread badge, usage line, Agent hosts section', as
     assert.ok(old.includes('Update Hermes, then check again.'), 'the fix');
     assert.doesNotMatch(h, /Older than the oldest/, 'the tested version is fine');
     assert.match(h, /Contained/);
-    // R53 / live check 2026-10-22: the switch says what the read-back checks, and that the main Hermes sign-in may be used. It never over-claims.
+    // R53 / live check 2026-10-22: the switch says what the read-back checks, and that the profile needs a Hermes sign-in of its own. It never over-claims.
     assert.doesNotMatch(h, /none of your other Hermes settings|only file tools/);
     assert.ok(h.includes(CONTAINED_OFF_HINT), 'the switch text is the shared wording (Contained is off here)');
     assert.ok(CONTAINED_SWITCH_HINT.includes(CONTAINED_CHECKS), 'it reuses the core wording of what is checked');
     assert.match(CONTAINED_SWITCH_HINT, /asks before commands it marks as dangerous/);
     assert.match(CONTAINED_SWITCH_HINT, /tool list for Legion runs is set to file tools/);
     assert.match(CONTAINED_SWITCH_HINT, /does not borrow your Claude Code login or another coding tool's login/);
-    assert.match(CONTAINED_SWITCH_HINT, /may use your main Hermes sign-in/);
+    assert.match(CONTAINED_SWITCH_HINT, /needs a Hermes sign-in of its own/);
     assert.doesNotMatch(CONTAINED_SWITCH_HINT, NO_DASH);
     assert.match(src('src/core/acp/contained.ts'), /CONTAINED_CHECKS/, 'the core builds its read-back sentence from the same words');
     // the heading and its paragraph sit together, without the card gap between them

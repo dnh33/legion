@@ -23,8 +23,9 @@
  *  - By default Hermes borrows the Claude Code login (agent/credential_sources.py:32-45), and the two then share one rotating token family.
  *    `auth.adopt_external_logins false` stops that for the Claude Code login and one other coding CLI's login only (agent/credential_sources.py:24-45).
  *    A GitHub token from `gh auth token` or the environment and another coding tool's login are still seeded (agent/credential_pool.py:2657-2725), and
- *    a named profile with no credential of its own for a provider falls back on the main Hermes sign-in (hermes_cli/auth.py:948-972), which
- *    the owner accepts. So "signed in" means Hermes can use a credential for the profile, not that it is the profile's own.
+ *    a named profile with no credential of its own for a provider may fall back on the main Hermes sign-in (hermes_cli/auth.py:948-972), but that
+ *    was not seen to work for a key held in the owner's environment, which a run does not pass on. So "signed in" counts only credentials
+ *    that are not `env:` or `gh_cli` sourced: those are listed but cannot be used by a Contained run.
  *    The key is a boolean in the
  *    defaults (hermes_cli/config_defaults.py:1775), so `config set` turns the word `false` into a real false (hermes_cli/config.py:3198-3228)
  *    and `config get --json` prints `false`.
@@ -185,17 +186,22 @@ async function doCheck(entry: AcpEntry, deps: ContainedDeps | undefined): Promis
   if (!found.exists) return { exists: false, signedIn: false, policyOk: false, detail: 'The Contained profile has not been set up yet.' };
   const policy = await policyProblems(go, entry);
   if (policy.startFailed) return { exists: true, signedIn: false, policyOk: false, detail: startFailure(policy.startFailed) };
-  // Signed in = Hermes lists at least one credential it can use for the profile: its own sign-in, a key in its environment, or the main
-  // Hermes sign-in it falls back on. With auth.adopt_external_logins false the Claude Code login and another coding CLI's login are not in the list.
-  // Legion never sees the key.
+  // Signed in = Hermes lists at least one credential of its own for the profile. A credential that comes from an environment variable or from
+  // another tool's login (`env:NAME`, `gh_cli`) is listed too, but a Contained run is started without the owner's key variables and with
+  // external logins off, so Hermes cannot use it: it would read as signed in and then fail every run. Legion never sees the key.
   const auth = await go(entry, ['-p', CONTAINED_PROFILE, 'auth', 'list']);
-  const signedIn = auth.code === 0 && /\(\d+ credentials?\)/.test(clean(auth.stdout));
+  const creds = auth.code === 0 ? clean(auth.stdout).split(/\r?\n/).filter((l) => /^\s*#\d+\s/.test(l)) : [];
+  const own = creds.filter((l) => !/\benv:\S+/.test(l) && !/\bgh_cli\b/.test(l));
+  const signedIn = own.length > 0;
   const policyOk = policy.problems.length === 0;
+  const signInStep = `Run ${signInCommand(entry)} in a terminal to sign in, then press Check again.`;
   const parts = [
     policyOk ? POLICY_HOLDS : policy.problems.join(' '),
     signedIn
-      ? 'Hermes can use a credential for it. That may be your main Hermes sign-in, which the Contained profile can fall back on.'
-      : `Hermes lists no credential for it yet (a main Hermes sign-in would count too). Run ${signInCommand(entry)} in a terminal to sign in, then press Check again.`,
+      ? 'Hermes has a sign-in of its own for it.'
+      : creds.length > 0
+        ? `Hermes lists credentials for it, but they come from your environment or from another tool, which Legion does not pass to a Contained Hermes. ${signInStep}`
+        : `Hermes lists no credential for it yet. ${signInStep}`,
   ];
   return { exists: true, signedIn, policyOk, detail: parts.join(' ') };
 }

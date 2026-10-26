@@ -116,7 +116,7 @@ What Contained does not do:
 - It does not stop Hermes from reading any file your account can read, Legion's data folder included. Legion cannot see those reads and there is no card for them.
 
 - It is not a sandbox. Hermes still runs commands you approve, with your rights.
-- It may use your main Hermes sign-in. Hermes lets a named profile fall back on it. Contained isolates Hermes's settings, tools and approvals, not the provider account.
+- It needs a Hermes sign-in of its own. A run starts without your key variables and with other tools' logins off, so a credential that Hermes lists from them does not count, and Check says when the profile has none. Contained isolates Hermes's settings, tools and approvals, not the provider account.
 - Some other sign-ins can still be picked up by Hermes. The setting covers the Claude Code login and one other coding tool's login, not every source.
 - Tools, servers or plugins you add to the Contained profile yourself are not checked.
 - A new profile gets a copy of the model setting of the profile that was active when it was made. If your own Hermes model settings hold an API key written straight into the config file, that key can travel into the new profile. A key kept in an environment variable or an `.env` file does not.

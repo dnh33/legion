@@ -98,7 +98,9 @@ if (argv.includes('--version')) {
 } else if (a[0] === 'auth' && a[1] === 'list' && profile) {
   const cfg = JSON.parse(readFileSync(cfgFile(profile), 'utf8')) as Record<string, unknown>;
   const borrows = existsSync(join(dir(profile), 'borrowed')) && cfg['auth.adopt_external_logins'] !== false;
-  if (existsSync(join(dir(profile), 'signed-in')) || borrows) process.stdout.write('provider-one (1 credentials):\n  #1  default  api_key  id=abc priority=0 env:KEY ←\n\n');
+  if (existsSync(join(dir(profile), 'signed-in')) || borrows) process.stdout.write('provider-one (1 credentials):\n  #1  default  api_key  id=abc priority=0 manual ←\n\n');
+  // a credential Hermes lists from an environment variable or another tool: listed, but a Contained run does not get it
+  else if (existsSync(join(dir(profile), 'env-only'))) process.stdout.write('provider-one (1 credentials):\n  #1  KEY  api_key  id=abc priority=0 env:KEY ←\n\n');
 } else if (a[0] === 'acp' && profile) {
   // the agent itself: nothing to say here
 } else {

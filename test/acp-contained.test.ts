@@ -4,7 +4,7 @@
  */
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
@@ -261,12 +261,17 @@ test('a missing credential is said as what Hermes lists, not as a flat "not sign
   assert.equal(st.signedIn, false);
   assert.match(st.detail, /lists no credential/i);
   assert.doesNotMatch(st.detail, /not signed in/i);
-  assert.match(st.detail, /main Hermes sign-in/, 'it says a main Hermes sign-in would count too');
+  // credentials that come from the environment or another tool are listed but do not count: a run does not get them
+  writeFileSync(join(state, 'profiles', 'legion', 'env-only'), '');
+  const envOnly = await containedStatus(BUILTIN_HERMES);
+  assert.equal(envOnly.signedIn, false, 'an env: credential is not a sign-in the profile can use');
+  assert.match(envOnly.detail, /come from your environment or from another tool/);
+  assert.match(envOnly.detail, /setup model/, 'it still gives the sign-in command');
+  rmSync(join(state, 'profiles', 'legion', 'env-only'));
   writeFileSync(join(state, 'profiles', 'legion', 'signed-in'), '');
   const signed = await containedStatus(BUILTIN_HERMES);
   assert.equal(signed.signedIn, true);
-  assert.match(signed.detail, /Hermes can use a credential for it/);
-  assert.match(signed.detail, /may be your main Hermes sign-in/, 'the profile may be using the main Hermes sign-in');
+  assert.match(signed.detail, /Hermes has a sign-in of its own for it/);
 });
 
 test('a profile show that fails for another reason is reported as a Hermes failure, not as "not set up"', async () => {

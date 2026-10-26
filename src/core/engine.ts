@@ -3158,6 +3158,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const last = (proc?.stderrTail() ?? '').trim().split('\n').pop()?.trim();
       return `${N('Hermes stopped before it finished.')}${last ? ` It said: ${shown(last).slice(0, 200)}` : ''}`;
     }
+    // Hermes answers "Internal error" and says the real reason only on stderr: with external logins off it has no credential to use
+    if (/\bauth add\b|ProviderNotConfigured/i.test(proc?.stderrTail() ?? '')) return N('Hermes has no sign-in it can use. Sign in once in a terminal (Settings, Agent hosts shows the command), then try again.');
     return `${N('Hermes failed.')} ${shown(raw).slice(0, 300)}`;
   }
 
