@@ -63,7 +63,7 @@ So: 50 % more test runs, a third operating system, and 65 s less wall-clock. The
 - The workflow token can only read the repository (`permissions: contents: read`, also the repository default).
 - It runs on `pull_request`, never `pull_request_target`, so a pull request from a fork gets no secrets and no write access. The workflow uses no secrets at all.
 - `actions/checkout` runs with `persist-credentials: false`: the token is not left in the checkout's git config.
-- Every action is pinned to a full commit SHA (checkout v7.0.1, setup-node v7.0.0), with the version in a comment. Dependabot keeps the pins current.
+- Every action is pinned to a full commit SHA (checkout v7.0.1, setup-node v7.0.0), with the version in a comment. The pins are updated by hand, together with the package update that each release plans for; there is no bot that opens update pull requests.
 - Every job has a time limit, and every test has a 3-minute limit (`--test-timeout=180000`). A test that hangs fails with its name, and so does a test file that stays open after its tests (seen on macOS: `browser-chromium-launch.test.js` "timed out after 180000ms"), instead of stalling a job until GitHub cancels it.
 
 ## What the runners taught us
