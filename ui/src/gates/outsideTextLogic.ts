@@ -2,7 +2,7 @@
 export const OUTSIDE_TEXT_COPY = {
   title: 'Outside text',
   lead: 'Legion marks a run when it may have read text that someone else wrote. A marked run cannot assign or delete board items, write working memory, or write shared notes directly (they wait in your Inbox). The mark passes on to helpers the run starts.',
-  notice: 'New in this update: commands that only work inside your project (git status, search, tests and builds) no longer mark a run. The web, GitHub text, other tools, commands Legion cannot check and files from outside your project still do.',
+  notice: 'New in this update: commands that only work inside your project (git status, search, tests and builds) no longer mark a run. The web, GitHub text, other tools, commands Legion cannot check and files from outside your project still do. In a repository you do not trust, choose Strict.',
   keep: 'Keep this',
   useStrict: 'Use strict',
   shellLabel: 'Shell commands',
