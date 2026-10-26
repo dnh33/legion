@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-10-26
+
 ### Added
 
 - **Run Hermes as an agent (optional).** Hermes is off until you turn on Offer Hermes in Settings, Agent hosts. While it is off, Legion does not start Hermes or run any check on it, the Doctor has no Hermes rows, Hermes is not in the model list, and an agent set to Hermes does not run (it tells you where to turn it on). Settings, Agent hosts still says whether Hermes is on your computer. Once you turn it on, you can pick Hermes as the model of an agent, and Legion starts it only when one of your agents uses it or you open the Doctor or Settings, Agent hosts. If an agent already used Hermes, or Contained was on, Offer Hermes stays on for you. Claude agents work as before. Hermes keeps its own tools, model and sign-in, and works on your computer with them. Legion shows what Hermes asks you as a card with Hermes's own buttons, and passes your answer back unchanged. Legion cannot stop a Hermes read, web fetch or command that Hermes does not ask about; Hermes's own approvals setting decides what it asks, and the Doctor shows it. A Hermes task that stopped at a limit shows Continue and picks up the same Hermes conversation. A card that closed because Hermes stopped waiting is still in the thread after you reload the window, until you dismiss it. Your Block rules (Settings, Gates) do apply to what Hermes asks: a blocked request is refused with no card, in every mode. Hermes does not report cost, so Legion shows tokens; optional limits and prices go in `config.json` (see [the design note](docs/design/agent-host.md)). The limits are under Known limits below.
@@ -28,9 +30,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Gates Allow rules do not answer Claude's own questions for Claude agents.** An Allow rule would make Claude skip its checker. Block rules and Ask rules still apply, and the Gates page says so in one line.
 - **The checker can miss things.** Claude's checker is not a security boundary and does not give the same answer every time. Legion's stop for disastrous commands, your Block rules and the guards on Legion's own files still hold when it misses something.
 
+### Fixed
+
+- **A tool call with nothing in it no longer ends a run on a non-Claude model.** Before, asking another agent with no message or brief answered only "Give a message or a brief.", the model repeated the call, and Legion stopped the run. Now the answer says what Legion received and what the tool needs, a call whose arguments arrive empty is refused before it runs, the second identical failing call is corrected instead of run, and only the third ends the run. The stopped task keeps the tool, its arguments with secrets removed, the count and the last three errors.
+- **A refused board assignee names the field.** An agent whose run touched outside content could not assign an item, and the answer said the whole run was limited. It now says the assignee field was refused and that leaving it out works.
+- **A test that failed on a busy computer is steadier.** The timing check for very long commands takes the best of three runs.
+
 ### Known limits
 
-- **Hermes has been tried against a stand-in agent, not yet against a running Hermes.**
+- **Hermes was checked by hand with version 0.22.5; its command cards were not.** Legion was run against a real Hermes for file-edit cards, quitting and killing Legion in the middle of a run, a Hermes that is not installed, and the stop after a tool that hangs. The cards for commands, and the stop for disaster commands, were checked only with a stand-in Hermes and tests: the Contained profile has no shell tool, and a Hermes with approvals off asks about nothing.
 - **Hermes can read any file your account can**, Legion's data folder included, without a card, and Legion cannot stop a read, web fetch or command that Hermes does not ask about.
 - **If Legion restarts while a Hermes task runs**, Hermes may keep working and Legion cannot stop it; the task says so.
 - **A Hermes agent needs a folder of its own** outside Legion's data folder, and Hermes 0.22.3 or newer.
