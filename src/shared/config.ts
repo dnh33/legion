@@ -65,10 +65,10 @@ export function normalizeFeatures(v: unknown): FeaturesConfig {
   return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
 }
 
-/** The outside-text settings: "local" and outside files on, notice not yet shown, for a config with no `taint` key. Only the literal "strict" turns strict on; only `false` turns outside files off. */
+/** The outside-text settings: "local" and outside files on, notice not yet shown, for a config with no `taint` key. Only the literal "strict" turns strict on and only "off" turns marking off; only `false` turns outside files off. */
 export function normalizeTaint(v: unknown): TaintConfig {
   const o = (v && typeof v === 'object' ? v : {}) as { shell?: unknown; outsideFiles?: unknown; noticeSeen?: unknown };
-  return { shell: o.shell === 'strict' ? 'strict' : 'local', outsideFiles: o.outsideFiles !== false, noticeSeen: o.noticeSeen === true };
+  return { shell: o.shell === 'strict' ? 'strict' : o.shell === 'off' ? 'off' : 'local', outsideFiles: o.outsideFiles !== false, noticeSeen: o.noticeSeen === true };
 }
 
 /* ---------------- agent hosts (ACP) ---------------- */

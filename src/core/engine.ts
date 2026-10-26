@@ -867,6 +867,7 @@ export class Engine {
 
   /** Marks a task tainted: live runs flip at once, stored tasks keep it for later runs. */
   markTainted(taskId: string): void {
+    if (this.marksOff()) return;
     const why = 'a helper or room that read outside text';
     const a = this.active.get(taskId);
     if (a) this.taintRun(taskId, a, why);
@@ -879,7 +880,7 @@ export class Engine {
    * not turn it back into a clean one. Keeps the first cause, as a fixed short phrase for the owner (never command text, which can hold a secret).
    */
   private taintRun(taskId: string, act: Active, why: string): void {
-    if (act.tainted) return;
+    if (act.tainted || this.marksOff()) return;
     act.tainted = true;
     act.taintedBy = why;
     this.patchTask(taskId, { tainted: true, taintedBy: why });
@@ -887,6 +888,7 @@ export class Engine {
 
   /** Why this tool call brings in text somebody else may have written (a short phrase), or undefined when it does not. */
   private outsideTextReason(job: Job, toolName: string, input: unknown): string | undefined {
+    if (this.marksOff()) return undefined;
     if (!judgesTool(toolName)) {
       if (!taintsRun(toolName)) return undefined;
       if (toolName === 'WebFetch' || toolName === 'WebSearch' || toolName.startsWith('mcp__legion__web_')) return 'the web';
@@ -898,12 +900,21 @@ export class Engine {
     const cwd = hostRoot ?? this.agentCwd(job.agentId);
     const roots = [...new Set([this.projectOf(job.taskId, job.agentId)?.folder, this.agentCwd(job.agentId), hostRoot].filter((r): r is string => !!r))];
     return toolTaintReason({
-      toolName, input, cwd, roots, home: homedir(), shell: t.shell, outsideFiles: t.outsideFiles,
+      toolName, input, cwd, roots, home: homedir(), shell: t.shell === 'strict' ? 'strict' : 'local', outsideFiles: t.outsideFiles,
     });
   }
 
   /** Strict is the only mode that locks a marked run; the default mode labels it. Read live from the config. */
+  /** The owner chose "Never mark" (Settings, Gates, Outside text): nothing marks a run. The per-call gates, Block rules and confirmations stay. */
+  private marksOff(): boolean { return normalizeTaint(this.config.taint).shell === 'off'; }
+
   private locksOnMark(): boolean { return normalizeTaint(this.config.taint).shell === 'strict'; }
+
+  /** Another agent, a room or an outside app started this run AND limited it. A chain started at full approval is not capped: it runs as the owner's own run does. Strict keeps the 0.3.9 rule: any started-by-another run counts. */
+  private cappedOrigin(job: Job): boolean {
+    const c = job.origin?.approvalCeiling;
+    return c !== undefined && (c !== 'full' || this.locksOnMark());
+  }
 
   cancel(taskId: string): boolean {
     const qi = this.queue.findIndex((j) => j.taskId === taskId);
@@ -1880,7 +1891,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < GUARD_MEMO_MS)) return hit.p;
     if (this.guardMemo.size > 200) for (const [k, e] of this.guardMemo) if (e.doneAt !== undefined && Date.now() - e.doneAt >= GUARD_MEMO_MS) this.guardMemo.delete(k);
     // a run woken by an outside app or another bot keeps Legion's full guards: the confused-deputy guard is Legion's own, Claude cannot know about it
-    native = native && !job.origin?.approvalCeiling;
+    native = native && !this.cappedOrigin(job);
     // a Claude agent on Claude's own checks: the new-site check for Claude's own WebFetch and WebSearch and the protected-path card are Claude's to judge, and of the
     // secret files only Legion's own stay guarded. Legion's own web tools (web_read, web_search) are not Claude's: they keep the new-site check.
     const claudeWeb = native && !isLegionTool(toolName);
@@ -2189,7 +2200,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const kind = shellKindOf(toolName);
     let why: string | undefined;
     // a run woken by an outside app or another bot keeps Legion's whole floor: the confused-deputy guard is Legion's own
-    const native = opts.native === true && !job.origin?.approvalCeiling;
+    const native = opts.native === true && !this.cappedOrigin(job);
     try {
       // a command too long to read is not read (that would hold up the core): it goes straight to the owner's card
       if (command.length <= MAX_READABLE) {
@@ -2426,7 +2437,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /** The owner switched "Your ask rules" off (an explicit override only: a preset alone never does), and the run carries no outside ceiling. */
   private asksSkipped(job: Job): boolean {
-    return !job.origin?.approvalCeiling && this.gates?.switchedOff('gate-rules-ask', startProjectOf(job)) === true;
+    return !this.cappedOrigin(job) && this.gates?.switchedOff('gate-rules-ask', startProjectOf(job)) === true;
   }
 
   /** The mode a tool call of this run is judged by right now: re-read on every call (a promotion or a preset change applies on the next call). */
@@ -2510,7 +2521,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    */
   private claudeAsk(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, o?: { decisionReason?: string; title?: string; toolUseID?: string }): Promise<Decision> {
     const brake = /consecutive actions were blocked/i.test(`${o?.decisionReason ?? ''} ${o?.title ?? ''}`);
-    if (!brake && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) {
+    if (!brake && !this.cappedOrigin(job) && this.gates?.switchedOff('tool-cards', startProjectOf(job))) {
       this.noteWouldAsk(job, agent, 'tool-cards', toolName, input);
       return Promise.resolve({ allow: true });
     }
@@ -2589,7 +2600,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const pass = (): Decision | undefined => { if (opts.ownOnly) return undefined; this.noteWouldAsk(job, agent, 'tool-cards', toolName, input); return { allow: true }; };
       // "Ask before tools run" switched off by the owner: no tool card from here on (deny rules and the floor above already applied). A run that
       // carries a ceiling from an outside app or another bot keeps its cards: no project setting lifts a ceiling (rail-ceiling).
-      if (gate.verdict !== 'ask' && !job.origin?.approvalCeiling && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return pass();
+      if (gate.verdict !== 'ask' && !this.cappedOrigin(job) && this.gates?.switchedOff('tool-cards', startProjectOf(job))) return pass();
       if (gate.verdict === 'allow') return opts.ownOnly ? undefined : { allow: true };
       // a GitHub write raises its own, fuller card (gateway.ts), so a gate `ask` must not stack a second one on top; a gate `deny` was handled above
       if (gate.verdict === 'ask' && CARDED_CONNECTOR_WRITES.has(toolName)) return opts.ownOnly ? undefined : { allow: true };
@@ -3081,7 +3092,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /** Bypass: the owner's preset turned the tool cards off and nothing caps the run. Full alone is not enough; its commands still card. */
   private acpBypass(job: Job, agent: AgentProfile, entry: AcpEntry): boolean {
-    return this.acpModeNow(job, agent, entry) === 'full' && !job.origin?.approvalCeiling && this.gates?.gate('tool-cards', startProjectOf(job)) === false;
+    return this.acpModeNow(job, agent, entry) === 'full' && !this.cappedOrigin(job) && this.gates?.gate('tool-cards', startProjectOf(job)) === false;
   }
 
   /**

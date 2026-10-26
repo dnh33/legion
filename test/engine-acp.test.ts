@@ -1051,14 +1051,12 @@ test('F13: in Strict, Bypass never answers for a run another agent or app starte
   assert.deepEqual(outcomeOf(owner.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'control: the owner\'s own Bypass run is answered without a card');
 });
 
-test('F13b (0.3.10): in the default mode a tainted caller alone gets no hand-off card, but a capped caller still does', async () => {
+test('F13b (0.3.10): in the default mode a run another agent started is answered like an owner-started run (a labelled caller at full: no hand-off card, Bypass answers), but a capped caller still gets the card and every command asks', async () => {
   const tainted = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
   const t = await tainted.run('hi', { origin: { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'full', tainted: true } });
-  const first = await tainted.nextCard();
-  assert.doesNotMatch(first.summary, /Another agent or app asked Hermes/, 'a labelled caller at full gets no hand-off card; the first card is the command itself (a run another agent started is never auto-answered)');
-  assert.match(first.summary, /ls/);
-  tainted.broker.resolve(first.id, true);
-  assert.equal((await tainted.done(t)).status, 'done');
+  assert.equal((await tainted.done(t)).status, 'done', 'no card was needed');
+  assert.deepEqual(outcomeOf(tainted.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'Bypass answered the command, as for a run the owner started');
+
   const capped = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
   const ct = await capped.run('hi', { origin: { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true } });
   const hand = await capped.nextCard();

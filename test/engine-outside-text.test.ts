@@ -146,3 +146,23 @@ function session() {
     go: async (next: Step[]) => { steps = next; return waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' })); },
   };
 }
+
+describe('Never mark', () => {
+  it('E13: with shell set to off, the web, a fetching command and an outside file leave the run clean; the other modes still mark', async () => {
+    const prep = (ws: string) => { mkdirSync(join(ws, 'src'), { recursive: true }); };
+    const outside = (dir: string) => join(dir, 'elsewhere.txt');
+    for (const [name, step] of [['a fetching command', { tool: 'Bash', input: { command: 'curl https://example.com' } }], ['the web', { tool: 'WebFetch', input: { url: 'https://example.com' } }]] as const) {
+      assert.equal((await run([step], { shell: 'off' }, prep)).t.tainted, undefined, `${name}: not marked when off`);
+      assert.equal((await run([step], { shell: 'local' }, prep)).t.tainted, true, `${name}: marked by default`);
+    }
+    const seed = await run([{ tool: 'Bash', input: { command: 'git status' } }], undefined, prep);
+    const file = await run([{ tool: 'Read', input: { file_path: outside(seed.s.dir) } }], { shell: 'off' }, prep);
+    assert.equal(file.t.tainted, undefined, 'an outside file is not marked when off');
+  });
+
+  it('E14: when off, a helper or room that read outside text does not mark a stored task either', async () => {
+    const r = await run([{ tool: 'Bash', input: { command: 'git status' } }], { shell: 'off' });
+    r.s.engine.markTainted(r.t.id);
+    assert.equal(r.s.store.getTask(r.t.id)?.tainted, undefined);
+  });
+});

@@ -497,7 +497,7 @@ export type McpServerEntry =
  * every shell command, as 0.3.8 did. `outsideFiles`: a file read outside the project, in third-party code or in a cloned repository marks the run.
  * `noticeSeen`: the one-time notice about the new default was shown.
  */
-export interface TaintConfig { shell: 'local' | 'strict'; outsideFiles: boolean; noticeSeen: boolean }
+export interface TaintConfig { shell: 'local' | 'strict' | 'off'; outsideFiles: boolean; noticeSeen: boolean }
 
 export interface CompactionSettings {
   /**

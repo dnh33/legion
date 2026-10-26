@@ -722,11 +722,11 @@ export class Graph {
    * the input: a tainted run writes untrusted notes whatever the bot passes, and a shared note from a tainted run,
    * or from a run woken by a bot under "ask" approvals, waits for the human.
    */
-  private writeCtx(actor: Actor, scope: KgScope, untrustedFlag: boolean, triggerTags = false) {
+  private writeCtx(actor: Actor, scope: KgScope, untrustedFlag: boolean) {
     const agent = actor.kind === 'agent' ? actor : undefined;
     const tainted = !!agent && isTainted(agent);
-    // Strict locks a marked run; the default mode only labels it, except for a trigger tag, which fires in other runs on its own
-    const risky = !!agent && isTainted(agent) && (isLocked(agent) || triggerTags);
+    // Strict locks a marked run; the default mode only labels it. (A trigger tag steers other runs only when the owner wrote it: the briefing checks that.)
+    const risky = !!agent && isLocked(agent);
     const askWoken = isAskCapped(agent);
     // A run capped at "ask" (started by an MCP client, or woken by one) may be carrying text somebody else planted. Its shared notes wait in
     // the Inbox for you; its private notes (no human sees them first) are stored untrusted, which keeps them out of the next run's briefing.
@@ -849,7 +849,7 @@ export class Graph {
     }
     const now = nowIso();
     const who = actorName(actor);
-    const w0 = this.writeCtx(actor, scope, f.untrusted === true, !!f.tags?.some((t) => t.startsWith('trigger:')));
+    const w0 = this.writeCtx(actor, scope, f.untrusted === true);
     const w = opts.held ? { ...w0, trust: 'untrusted' as KgTrust, hold: true } : w0;
     const bytes = Buffer.byteLength(JSON.stringify([f.title, f.body, f.tags, f.props, f.sources]));
     const extra = (r: UpsertResult): UpsertResult => ({
@@ -1423,7 +1423,7 @@ export class Graph {
       const similar = this.similarTitles(actor, f.title!);
       if (similar.length) return { saved: false, similar, edges: 0, notes: [] };
     }
-    let w = this.writeCtx(actor, scope, false, !!f.tags?.some((t) => t.startsWith('trigger:')));
+    let w = this.writeCtx(actor, scope, false);
     const notes = [...w.notes];
     let target: KgNode | undefined;
     let direct = false;

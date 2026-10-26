@@ -258,7 +258,7 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
     if (!isObj(raw.taint)) throw new SettingsError('taint must be an object');
     const t = raw.taint, o: NonNullable<SettingsPatch['taint']> = {};
     if (t.shell !== undefined) {
-      if (t.shell !== 'local' && t.shell !== 'strict') throw new SettingsError('taint.shell must be "local" or "strict"');
+      if (t.shell !== 'local' && t.shell !== 'strict' && t.shell !== 'off') throw new SettingsError('taint.shell must be "local", "strict" or "off"');
       o.shell = t.shell;
     }
     for (const k of ['outsideFiles', 'noticeSeen'] as const) {
