@@ -278,6 +278,9 @@ test('render: the Gates page shows the presets, the notes, fine tuning, QA, rail
     for (const label of ['Ask', 'Accept edits', 'Smart', 'Bypass']) assert.ok(html.includes(`<b>${label}</b>`), label);
     assert.match(html, /<input type="radio"[^>]*checked=""[^>]*\/><span><b>Smart<\/b>/, 'Smart is the chosen preset');
     assert.ok(html.includes('Legion has no sandbox for commands on your computer.'));
+    assert.match(html, /Outside text/, 'the block that says what marks a run is on the page');
+    assert.match(html, /By source \(recommended\)/);
+    assert.match(html, /New in this update: commands that only work inside your project/, 'a config that never saw the notice shows it once');
     assert.match(html, /Fine tuning/);
     assert.match(html, /class="gates-value">On, limit 4</, 'at the app default the gates read as plain values, not switches');
     // the one switch on the page at the app default is the app-wide Claude one; the gate rows have none

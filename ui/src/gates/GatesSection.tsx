@@ -13,6 +13,7 @@ import { PermissionGates } from './PermissionGates';
 import { AllowRulesNote, ClaudeChecksCard } from './ClaudeChecks';
 import { claudeChecksOn } from './claudeChecksLogic';
 import { QaGates, RailsList } from './RailsList';
+import { OutsideText } from './OutsideText';
 import { ActivityView } from './ActivityView';
 import { useGatesAction, useGatesView } from './useGatesView';
 import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from './presetsLogic';
@@ -374,6 +375,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
           <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
         </>
       )}
+      <OutsideText s={s} />
       <QaGates />
       <RailsList />
       <div className="gate-head-note" role="note"><b>Mode first, gates on top.</b> Each agent's approval mode (agent editor) decides the default. Gates adjust it here for one agent, one command or one project. Block rules apply even to Full; Ask rules never fire there.</div>

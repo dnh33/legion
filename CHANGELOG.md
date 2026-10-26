@@ -4,6 +4,29 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-10-26
+
+### Changed
+
+- **Working inside your project no longer marks a run as having read outside text.** Before, any shell command did, so an agent that ran `git status` once could no longer assign or delete board items, write working memory, or write shared notes directly, and every helper it started was marked too. Now a command that only works inside your project (git status, diff, log, commit and push, switching branches, search, tests and builds, `gh pr create`) leaves the run clean. The web, GitHub text you read (`gh pr view`, `gh issue view`), other tools, a command that reaches the network (`curl`, `git pull`, `npm install`), code run from the command line (`node -e`) and any command Legion cannot read with certainty still mark the run.
+- **Settings, Gates, Outside text.** Two choices, both on by default: shell commands are judged one by one ("By source"), or every shell command marks the run as before ("Strict"); and files from outside your project count. A one-time notice after the update explains the change and has a Use strict button. Everything the mark guarded is unchanged: money confirmations, web and GitHub write cards, the stop for disastrous commands, your Block rules and the protected paths.
+- **Files from outside your project mark a run.** Reading a file outside your project folder (also through a shortcut that leads out), in `node_modules` or `vendor`, or inside a repository cloned into your project folder marks the run. Another worktree of the same repository counts as your project. You can turn this off in the same place.
+- **A refused write says why.** A board assignee, delete, working-memory or trigger-tag refusal now names what marked the run, for example "marked by: a command that reaches the network". The Library badge reads "Read outside text" instead of "Tainted run".
+- **A test or build run marks the run only while a marked run has left files in the project.** That keeps a run from executing code that a run which read the web wrote.
+- **Old marks on files bother fewer runs.** A Glob, a listing or a Grep that only lists file names no longer marks a run because some file in the tree was written by a marked run. A Grep that shows file contents, or a Read of that file, still does.
+- **Output of a background command read back with BashOutput no longer marks a run** in By source mode; the command was judged when it started.
+
+### Fixed
+
+- **A run that read outside text stays marked if Legion stops in the middle of it.** Before, the mark was saved only when the run ended, so a crash turned it back into a clean run.
+- **A run the Marshal stopped for stalling no longer clears its mark** on the board item.
+
+### Known limits
+
+- **Project scripts are trusted.** Legion judges the command you typed, not what a script does inside. A test or `npm run` script that fetches a web page does not mark the run. In a repository you do not trust, choose Strict.
+- **A file that a marked run wrote with a shell command is not tracked.** Only files written with the file tools are. This was already true.
+- **`gh` commands that read what other people wrote mark the run, and so does any command Legion does not know**, for example `make` or `sed -i`.
+
 ## [0.3.8] - 2026-10-26
 
 ### Added
