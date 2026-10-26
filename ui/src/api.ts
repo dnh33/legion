@@ -1,4 +1,5 @@
 import type { Project } from '../../src/shared/projects';
+import type { AcpContainedSetup, AcpContainedStatus } from '../../src/shared/acp-view';
 import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
@@ -37,6 +38,8 @@ declare global {
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       /** Gate settings that loosen anything: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
       gatesChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      /** Hermes switches that let Hermes ask less: main shows the native confirmation and calls the core with a secret this window never holds. A tightening goes through the same call without a dialog. */
+      acpSwitchChange?(change: { switches: Record<string, boolean> }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       /** Raising how little an agent asks (Accept edits, Full, a looser followed preset): main shows the native confirmation and calls the core with a secret this window never holds. Keeping or tightening goes through the same call without a dialog. */
       agentModeChange?(change: { agentId: string; approval?: string; approvalSource?: string }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       agentModeBatch?(batch: { preset?: string; changes: Array<{ agentId: string; approval?: string; approvalSource?: string }> }): Promise<{ ok: boolean; error?: string; cancelled?: boolean; presetSaved?: boolean; applied: string[]; failed?: Array<{ agentId: string; error: string }> }>;
@@ -172,7 +175,8 @@ export const api = {
   deleteTask: (id: string) => request<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
   config: () => request<Partial<LegionConfig>>('GET', '/api/config'),
   catalog: (refresh = false) => request<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
-  doctor: () => request<DoctorCheck[]>('GET', '/api/doctor'),
+  /** probe: also run the agent hosts (Hermes). Only the Doctor modal asks for it; the quiet refreshes never do. */
+  doctor: (probe = false) => request<DoctorCheck[]>('GET', `/api/doctor${probe ? '?probe=agents' : ''}`),
   mcpStatus: () => request<McpStatusView>('GET', '/api/mcp/status'),
   /** POST /api/blender/config with just baseDir: the one folder Blender keeps its local scene files and copied-back exports under. Empty restores Legion's defaults. */
   setBlenderBaseDir: (baseDir: string) => request<BlenderStatusView>('POST', '/api/blender/config', { baseDir }),
@@ -230,7 +234,10 @@ export const api = {
   desktop: (agentId: string) => request<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),
   screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
   approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
-  decide: (id: string, allow: boolean, site?: 'always' | 'goal' | 'once') => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, site ? { allow, site } : { allow }),
+  decide: (id: string, allow: boolean, site?: 'always' | 'goal' | 'once') => request<{ ok: boolean; note?: string }>('POST', `/api/approvals/${encodeURIComponent(id)}`, site ? { allow, site } : { allow }),
+  /** An agent host card (Hermes): the answer names one of the options the card shows. `allow` is only the card's own reading of that option. */
+  decideOption: (id: string, allow: boolean, optionId: string) => request<{ ok: boolean; note?: string }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow, optionId }),
+  acpContained: (action: 'check' | 'setup') => request<AcpContainedStatus & Partial<AcpContainedSetup>>('POST', '/api/acp/contained', { action }),
   /** The away settings (0.3.0): per-project wait, pause, budget, notification level, the app's quiet hours and when each project was last looked at. */
   away: () => request<AwayView>('GET', '/api/away'),
   patchAwayProject: (id: string, b: Record<string, unknown>) => request<unknown>('PATCH', `/api/away/projects/${encodeURIComponent(id)}`, b),
@@ -239,6 +246,7 @@ export const api = {
   /** This week's spend of one project, what was spent since `since`, and whether its budget is reached. */
   projectSpend: (id: string, since?: string) => request<ProjectSpend>('GET', `/api/spend?scope=project&project=${encodeURIComponent(id)}${since ? `&since=${encodeURIComponent(since)}` : ''}`),
   /** The app is about to send an Allow in the last seconds of an ask's wait: delay the core's deny. It never answers the ask. */
+  dismissClosed: (id: string) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}/dismiss`, {}),
   holdApproval: (id: string, ms: number) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}/hold`, { ms }),
   questions: () => request<PendingQuestion[]>('GET', '/api/questions'),
   /** One pick per question, in the order they were asked. Admin only (the POST refuses an MCP-class token). */

@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { latestFinished } from '../ui/src/mascot/finished.js';
-import { BUDGET_LIMIT_PREFIX, TURN_LIMIT_PREFIX, budgetCap, budgetLimitFromError, formatUsdLimit, isBudgetPause, isLimitPause, isTurnLimitPause, statusDot } from '../src/shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, TOKEN_LIMIT_PREFIX, TURN_LIMIT_PREFIX, budgetCap, budgetLimitFromError, formatUsdLimit, isBudgetPause, isLimitPause, isTokenPause, isTurnLimitPause, statusDot, tokenStopFromError, tokenStopText } from '../src/shared/continue.js';
 
 const paused = { agentId: 'a1', status: 'error', error: `${TURN_LIMIT_PREFIX} (200 turns this run) before finishing.`, updatedAt: '2026-10-05T20:00:02Z' };
 
@@ -53,4 +53,29 @@ test('the Paused card reads the amount from the error text, and shows no amount 
   assert.equal(budgetCap(0), undefined);
   assert.equal(budgetCap('x'), undefined);
   assert.equal(budgetCap(2), 2);
+});
+
+test('the token-limit stop is written and read by one rule: the text the engine writes carries a count the app reads back, separator and all', () => {
+  // the engine builds the stop's error text with tokenStopText; the app's Paused card reads the count with tokenStopFromError.
+  // Both take the prefix and the number format from the same place, so a change to either cannot leave the card without its count.
+  const written = tokenStopText(1_200);
+  assert.equal(written, 'Stopped after 1,200 tokens', 'the written stop names the count with a separator');
+  assert.equal(tokenStopFromError(written), '1,200', 'the reader finds the same count the writer wrote');
+  assert.equal(tokenStopFromError(tokenStopText(999)), '999', 'a count under a thousand has no separator, and is still read');
+  assert.equal(tokenStopFromError(tokenStopText(1_234_567)), '1,234,567', 'every group is separated, and read back');
+  // a stop that is not this one is not a token stop
+  assert.equal(tokenStopFromError(undefined), undefined);
+  assert.equal(tokenStopFromError(`Paused at the turn limit (200 turns this run)`), undefined);
+  assert.equal(tokenStopFromError('Stopped after 12 model turns without a final answer.'), undefined, 'a turn stop names turns, never tokens');
+  assert.equal(tokenStopFromError('Stopped after at the token limit, with no count'), undefined);
+});
+
+test('a task stopped at its token limit is a limit pause, and its words never read as the spend limit', () => {
+  const token = { status: 'error', error: `${TOKEN_LIMIT_PREFIX} (1,200 tokens this task) before finishing.` };
+  assert.equal(isTokenPause(token), true);
+  assert.equal(isLimitPause(token), true, 'the work is kept and Continue picks it up');
+  assert.equal(statusDot(token), 'paused', 'shown as a pause, not as a failure');
+  assert.equal(isBudgetPause(token), false, 'a token stop is never the spend limit');
+  // the count the card shows comes from the same text, so the heading and the number cannot disagree
+  assert.equal(tokenStopFromError(`Stopped after 1,200 tokens`), '1,200');
 });

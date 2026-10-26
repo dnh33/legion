@@ -4,6 +4,8 @@ import { AUTO_INFO, groupModels, modelLabel, providerCreatorGroups } from '../mo
 import { loadProviders, refreshStaleModels, retryModels, useProviders } from '../providers/providersStore';
 import { buildPickerLayout, nextHighlightId, resolveHighlight, sameQuery, type PickerHead, type PickerItem } from '../../../src/shared/model-picker-rows';
 import { Icon } from './icons';
+import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
+import { firstUseOutcome, needsFirstUse } from '../../../src/shared/acp-copy';
 
 /** A DOM id for a row: option ids must be unique and free of spaces, slashes and colons. */
 const optionId = (id: string) => `mp-opt-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
@@ -14,7 +16,7 @@ const optionId = (id: string) => `mp-opt-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
  * A search puts the highlight on the first real match, and the arrows and hover move it from there. The list is one scroller: the
  * Older models head is its last row, pinned to the bottom edge, and its rows follow the head when it is open.
  */
-export function ModelPicker({ model, agentName, onClose }: { model: string; agentName: string; onClose: () => void }) {
+export function ModelPicker({ model, agentName, pending, onClose }: { model: string; agentName: string; /** A Hermes pick made by the slash path: the picker opens on its first-use card. */ pending?: string | null; onClose: () => void }) {
   const catalog = useStore((s) => s.catalog);
   const loading = useStore((s) => s.catalogLoading);
   const view = useProviders((x) => x.view);
@@ -23,6 +25,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   const { current, older, fallback } = groupModels(catalog);
   const providers = (view?.providers ?? []).filter((p) => p.enabled && p.models.length > 0);
   const groups = providerCreatorGroups(providers.map((p) => ({ id: p.id, label: p.label, models: p.models })));
+  const hosts = catalog?.hosts ?? [];
   const configured = providers.flatMap((p) => p.configuredModels.map((m) => `${p.id}:${m}`));
   const [olderOpen, setOlderOpen] = useState(() => older.some((m) => m.value === model));
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
@@ -43,7 +46,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   /** Set by a key (arrows, typing) and on mount: only then does the highlight scroll into view. A hover never scrolls the list. */
   const scrollOnKey = useRef(true);
 
-  const layout = buildPickerLayout({ query: q, selected: model, autoDescription: AUTO_INFO, current, older, groups, configured, olderOpen, groupOpen, queryOpen });
+  const layout = buildPickerLayout({ query: q, selected: model, autoDescription: AUTO_INFO, current, older, groups, configured, olderOpen, groupOpen, queryOpen, hosts });
   const { nav } = layout;
   const hl = resolveHighlight(nav, hlId, q, model);
   const cur = hl >= 0 ? nav[hl] : undefined;
@@ -67,7 +70,22 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
     scrollOnKey.current = true; setQ(v); setHlId(undefined); setQueryOpen({});
   };
   const move = (d: 1 | -1) => { const id = nextHighlightId(nav, hlId, q, model, d); if (id !== undefined) { scrollOnKey.current = true; setHlId(id); } };
-  const pick = (v: string) => { setModelChoice(v); onClose(); };
+  // the first pick of Hermes shows its card; Use Hermes takes it, Not now leaves the agent as it was
+  const firstUse = useFirstUse();
+  const [pendingHost, setPendingHost] = useState<string | null>(pending ?? null);
+  // `/model acp:hermes` can fire while the picker is already open: it then shows the card too
+  useEffect(() => { if (pending) setPendingHost(pending); }, [pending]);
+  const pick = (v: string) => {
+    if (needsFirstUse(v, firstUse.seen)) { setPendingHost(v); return; }
+    setModelChoice(v); onClose();
+  };
+  const answerFirstUse = (choice: 'use' | 'notNow') => {
+    const o = firstUseOutcome(choice, model, pendingHost ?? model);
+    void firstUse.markSeen();
+    setPendingHost(null);
+    if (o.model !== model) setModelChoice(o.model);
+    onClose();
+  };
 
   useEffect(() => {
     if (!catalog && !loading) void loadCatalog();
@@ -120,6 +138,8 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   return (
     <div className="popover model-pop" ref={box} tabIndex={-1}
       onKeyDown={(e) => {
+        // while the Hermes card is open its own buttons take the keys; Escape is Not now
+        if (pendingHost) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); answerFirstUse('notNow'); } return; }
         if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
         else if (e.key === 'Enter') { e.preventDefault(); if (cur?.kind === 'head') toggleHead(cur); else if (cur?.kind === 'item') pick(cur.value); }
@@ -127,24 +147,27 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
         else if (e.key === 'Tab') { e.preventDefault(); onClose(); }
       }}>
       <div className="pop-head"><span>Model</span><span className="muted-s">for {agentName}</span></div>
-      <div className="pop-search">
+      {/* the Hermes card takes the place of the search and the list while it is open: it never covers a row, and its note shows once (the list's own note is under it) */}
+      {!pendingHost && <div className="pop-search">
         <input className="mp-search" role="combobox" aria-expanded="true" value={q} onChange={(e) => changeQuery(e.target.value)}
           placeholder="Search models" aria-label="Search models" aria-controls="mp-listbox" aria-activedescendant={cur ? optionId(cur.id) : undefined} spellCheck={false} />
-      </div>
-      <div className="pop-body" role="listbox" id="mp-listbox" aria-label="Model">
+      </div>}
+      {!pendingHost && <div className="pop-body" role="listbox" id="mp-listbox" aria-label="Model">
         {(layout.rows.length > 0 || layout.older || noMatch) && (
           // four rows or more get a floor, so the list never shrinks to a sliver; a shorter list is just its own height
           <div className={`pop-listwrap${layout.rows.length >= 4 ? ' is-tall' : ''}${edge.top ? ' sh-top' : ''}${edge.bottom ? ' sh-bot' : ''}`}>
             <div className="pop-list" ref={list} onScroll={syncEdge}>
               {layout.rows.map((r, k) => r.kind === 'label'
                 ? <div key={`label-${k}`} className="mp-group mp-label" role="presentation">{r.text}</div>
+                : r.kind === 'note' ? <div key={`note-${k}`} className="mp-note" role="presentation">{r.text}</div>
                 : r.kind === 'head' ? headRow(r) : itemRow(r))}
               {layout.older && <>{headRow(layout.older.head)}{layout.older.rows.map(itemRow)}</>}
             </div>
           </div>
         )}
-      </div>
-      {noMatch && <div className="mp-empty" role="status">No models match “{q.trim()}”.</div>}
+      </div>}
+      {pendingHost && <AcpFirstUseView onUse={() => answerFirstUse('use')} onNotNow={() => answerFirstUse('notNow')} />}
+      {!pendingHost && noMatch && <div className="mp-empty" role="status">No models match “{q.trim()}”.</div>}
       <div className="pop-foot">
         {loading && !catalog ? <span>Loading models{'…'}</span>
           : fallback ? <><span>{catalog?.error ? 'Couldn’t load models from Claude Code.' : 'Showing default models.'}</span><button type="button" className="link-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => void loadCatalog(true)}>Retry</button></>

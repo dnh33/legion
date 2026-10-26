@@ -16,6 +16,7 @@ import { HouseSection } from '../house/HouseSection';
 import { ArmorySection } from '../armory/ArmorySection';
 import { GithubSection } from '../connectors/GithubSection';
 import { LogsSection } from '../logs/LogsSection';
+import { AgentHostsSection } from '../settings/AgentHostsSection';
 import { GatesSection } from '../gates/GatesSection';
 import { NotificationsSection } from '../away/NotificationsSection';
 import { SoundsSection } from '../sound/SoundsSection';
@@ -89,6 +90,7 @@ export function SettingsPanel() {
               : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
+                  : section === 'hosts' ? <AgentHostsSection />
                   : section === 'blender' ? <BlenderSection />
                   : section === 'compaction' ? <CompactionSection s={settings} />
                     : section === 'house' ? <HouseSection />

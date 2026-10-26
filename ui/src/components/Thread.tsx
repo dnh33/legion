@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
-import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
+import { CONTINUE_PROMPT, TOKEN_LIMIT_PREFIX, budgetLimitFromError, isBudgetPause, isLimitPause, isTokenPause, tokenStopFromError } from '../../../src/shared/continue';
 import { isArmed, threadKey } from '../../../src/shared/approval-keys';
 import { appearedAt, notices, pruneAppearances, quietBefore, restartAppearance } from '../a11y/keyClock';
 import { shortcutRefused } from '../a11y/keyClockCore';
 import { base, CORE_NEXT_STEP, token } from '../api';
+import { useModeMap } from '../acp/useModeMap';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { useCoreRestart } from '../coreRestart/coreRestartStore';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot, signinCheck } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
 import { PresetGate } from '../welcome/PresetChoice';
 import { RunChipsLive } from '../gates/RunChips';
+import { HermesBadge, HermesUsage } from '../acp/HermesBadge';
+import { hermesModeLine, hostModeChip, hostNameOf, threadOnHost } from '../../../src/shared/acp-copy';
 import { legacyModeChip } from '../gates/agentFollowLogic';
 import { dropErrorEcho } from '../chat/errorEcho';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
+import { ClosedAcpCard } from './AcpCard';
 import { QuestionCard } from './QuestionCard';
 import { Icon } from './icons';
 import { ThreadRuns } from '../projects/page/ThreadRuns';
@@ -75,18 +79,27 @@ export function Thread() {
   const messages = useStore((s) => (taskId ? s.messages[taskId] ?? EMPTY : EMPTY));
   const stream = useStore((s) => (taskId ? s.streaming[taskId] ?? '' : ''));
   const approvals = useStore((s) => s.approvals);
+  const closedCards = useStore((s) => s.closedCards);
   const questions = useStore((s) => s.questions);
   const conn = useStore((s) => s.conn);
+  const settings = useStore((s) => s.settings);
+  const modeMap = useModeMap(); // undefined until the settings are read
+  const hermesApprovals = settings?.acp?.entries?.find((e) => e.id === 'hermes')?.detection.approvalsMode;
   const coreStopped = useCoreRestart((c) => c.stopped !== null); // the stopped banner above the views already says it
   const loaded = useStore((s) => s.loaded);
   const agent = agents.find((a) => a.id === agentId);
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
+  // the words about the host name it: the run's own label, else the entry the model points at (another agent host never reads as Hermes)
+  const hostName = task?.runtime ?? hostNameOf(task?.model ?? agent?.model, (id) => settings?.acp?.entries?.find((e) => e.id === id)?.label);
   const projects = useStore((s) => s.projects);
   const hasProjects = projects.length > 0;
   const running = task?.status === 'running' || task?.status === 'queued';
   // a turn-limit or spend-limit stop is a pause with the work kept, not a failure: it gets its own card
   const paused = isLimitPause(task);
   const budgetPaused = isBudgetPause(task);
+  const tokenPaused = isTokenPause(task);
+  // the count the pause names, read back by the same rule the engine wrote it with, so the separator is the engine's own
+  const pausedTokens = tokenPaused ? tokenStopFromError(task?.error) : undefined;
   const pausedBudget = budgetPaused ? budgetLimitFromError(task?.error) : undefined;
   const pausedTurns = paused ? /\((\d+) turns this run\)/.exec(task?.error ?? '')?.[1] : undefined;
   // the history already ends with the engine's own "Cancelled" line: the thread must not say it twice
@@ -151,6 +164,7 @@ export function Thread() {
   }, []);
   // follow content while stuck to bottom
   const taskApprovals = approvals.filter((a) => a.taskId === taskId);
+  const taskClosed = closedCards.filter((c) => c.card.taskId === taskId);
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
   const taskQuestions = questions.filter((q) => q.taskId === taskId);
   const otherQuestions = questions.filter((q) => q.agentId === agentId && q.taskId !== taskId);
@@ -170,7 +184,7 @@ export function Thread() {
     }
     clearAskRequest();
   });
-  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskQuestions.length, running, toBottom, tick, meta]);
+  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskClosed.length, taskQuestions.length, running, toBottom, tick, meta]);
 
   // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card, and
   // never a question card: a keypress inside one of those is skipped by the closest() guard below).
@@ -257,14 +271,22 @@ export function Thread() {
             <span>{agent?.description || 'General-purpose agent'}</span>
           </div>
         </div>
-        <div className="th-right">
+        <div className={`th-right${threadOnHost(task, agent) ? ' is-hermes' : ''}`}>
           {agent && <ThreadRuns agentId={agent.id} />}
           {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
-          {task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
-          {task?.provider && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
+          <HermesBadge task={task} />
+          {/* a Hermes agent shows no Legion mode chip while Match Legion's mode is off (Legion did not set how Hermes asks), with a task open or not: the fixed line stands in */}
+          {threadOnHost(task, agent) && modeMap === undefined ? null : threadOnHost(task, agent) && modeMap !== true ? <span className="chip-pill" title={hermesModeLine({ modeMap: false, name: hostName, ...(hermesApprovals ? { hermesMode: hermesApprovals } : {}) })}>{hostModeChip(hostName)}</span> : task?.runsAs ? <RunChipsLive task={task} agent={agent} /> : agent && <span className={`chip-pill ap-${agent.approval}`} title="This agent's approval setting">{legacyModeChip(agent)}</span>}
+          {task?.provider && !task.runtime && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
+          {/* the usage line and the icons are one piece: for a Hermes thread they wrap together and the usage line is the one thing that is cut */}
+          <span className="th-tail">
+          <HermesUsage task={task} />
           {task && <span className="th-cost" title="Cumulative cost and turns for this task">{task.costUsd != null ? money(task.costUsd) : ''}{task.costUsd != null && task.turns != null ? ' · ' : ''}{task.turns != null ? `${task.turns} turn${task.turns === 1 ? '' : 's'}` : ''}</span>}
+          <span className="th-icons">
           {taskId && <button className={`icon-btn${searchOpen ? ' on' : ''}`} onClick={() => setSearchOpen((v) => !v)} aria-pressed={searchOpen} aria-label="Search this conversation" title="Search this conversation"><Icon name="search" size={14} /></button>}
           {agent && <button className="icon-btn" onClick={() => openEditor(agent.id)} aria-label="Edit agent" title="Edit agent"><Icon name="edit" size={14} /></button>}
+          </span>
+          </span>
         </div>
       </div>
       <TaskSwitcher />
@@ -308,14 +330,18 @@ export function Thread() {
               {running && task && task.status !== 'queued' && <TodoList taskId={task.id} />}
               {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0 || taskQuestions.length > 0} />}
               {taskApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
+              {taskClosed.map((c) => <ClosedAcpCard key={c.card.id} c={c} />)}
               {taskQuestions.map((q) => <QuestionCard key={q.id} q={q} />)}
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">
                   <Icon name="pause" size={14} />
-                  <div className="err-body">{budgetPaused ? <><b>Paused at the spend limit</b><p>{pausedBudget ? `This run reached its spend limit of ${pausedBudget}` : 'This run reached its spend limit'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></> : <><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></>}</div>
+                  <div className="err-body">{tokenPaused ? <><b>{TOKEN_LIMIT_PREFIX}</b><p>This task {pausedTokens ? `stopped at its agent host's token limit after ${pausedTokens} tokens` : 'used the token limit set for its agent host'} before finishing. The work so far is kept. Raise the limit in the config file (the Doctor shows where it is), restart Legion, then Continue picks up where it stopped.</p></> : budgetPaused ? <><b>Paused at the spend limit</b><p>{pausedBudget ? `This run reached its spend limit of ${pausedBudget}` : 'This run reached its spend limit'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></> : <><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></>}</div>
                   <div className="err-actions">
                     {task.resumable && <button className="btn sm primary" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button>}
-                    <button className="link-btn" onClick={() => openSettings('claude')}>Raise the limit</button>
+                    {/* the token limit has no control in Settings, it is set in the config file: send the owner where it is, not to Agent hosts */}
+                    {tokenPaused
+                      ? <button className="link-btn" onClick={openDoctor}>Where the limit is set</button>
+                      : <button className="link-btn" onClick={() => openSettings('claude')}>Raise the limit</button>}
                   </div>
                 </div>
               ) : (

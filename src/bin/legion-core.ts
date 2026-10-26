@@ -13,8 +13,13 @@ import { WebSearchService } from '../core/web-search/index.js';
 import { createWebSearchModule } from '../core/web-search/routes.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
+import { configPath, dataDir, loadConfig, migrateHermesOptIn, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { ADMIN_STDIN_FLAG, readLaunchSecrets } from '../core/admin.js';
+import { killAllAgentsSync, registerLegionSecrets, sweepStaleAgents } from '../core/acp/process.js';
+import { revokeAllRunTokens } from '../core/acp/run-tokens.js';
+import { hostWaitSeams, warmHermes as hermesWarmUp, type AgentHostDeps } from '../core/acp/detect.js';
+import { BUILTIN_HERMES, type AcpEntry } from '../shared/acp-view.js';
+import { usesAgentHost } from '../shared/runtime.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
@@ -89,6 +94,9 @@ async function main() {
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
   const config = loadConfig({ log: (l) => log(l) });
+  // an agent host child never gets these two values in its environment; agents a crashed earlier core left behind are cleaned up
+  registerLegionSecrets([config.authToken, adminSecret, nativeSecret]);
+  try { sweepStaleAgents(dataDir()); } catch (e) { log('agent sweep failed', e); }
   const store = new Store(dataDir());
   // The one GitHub client (no network until something asks). Everyone else reaches it through getGitHubClient().
   createGitHubClient({ tokens: new TokenStore(join(dataDir(), 'connectors'), connectorKeyring), log: (l) => log(l) });
@@ -127,7 +135,17 @@ async function main() {
   const gatesCore = createGatesCore({ dataDir: dataDir(), projects, keyring: gatesKeyring, inheritMcp: () => config.claude.inheritMcp === true });
   // the activity log is made before the engine: the engine writes its would-have-asked lines, the gates module its gate changes, the module its card and run lines
   const activity = createActivityLog({ dataDir: dataDir() });
-  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  // Hermes is off until the owner turns it on. Someone who already used it (an agent on Hermes, or the Contained switch) keeps it on, once, before anything looks for it.
+  try { migrateHermesOptIn({ configPath: configPath(), config, agentsUseHermes: usesAgentHost(store.listAgents(), BUILTIN_HERMES.id) }); } catch (err) { log('hermes opt-in step failed', err); }
+  // Hermes detection: the Doctor and the model list read it, and the two waits below come from what it read in Hermes's own settings (cached, so a card never waits on a probe)
+  const agentHost: AgentHostDeps = { dataDir: dataDir(), entries: () => config.acp.entries, envKeep: () => gatesCore.envKeep(), inUse: (id) => usesAgentHost(store.listAgents(), id) };
+  const seams = hostWaitSeams();
+  // the model list and the Doctor at app start or after a settings save never start Hermes. The full check runs when the window opens or re-runs the Doctor,
+  // at core start only when an agent uses Hermes (answering the first-use card starts nothing), and at a Hermes run start (which at least reads Hermes's own two waits). A switched-off Hermes is never warmed.
+  const warmHermes = (e: AcpEntry | undefined, runStart: boolean): void => {
+    if (e) void hermesWarmUp(e, agentHost, { inUse: usesAgentHost(store.listAgents(), e.id), runStart }).catch((err) => log('hermes detection failed', err));
+  };
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, agentHost: { dataDir: dataDir(), port: config.port, permissionWaitMs: seams.permissionWaitMs, toolWaitMs: seams.toolWaitMs, onRunStart: (e) => warmHermes(e, true) }, away: awayCore.service, modes: gatesCore.resolver, gates: gatesCore, activity, webSearch, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() });
   let stopReaper: () => void = () => {};
@@ -178,9 +196,9 @@ async function main() {
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
-    doctor: () => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys }),
-    catalog: (force) => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders() }, { force }),
-    settings, adminSecret, projects, agentMode: gates.agentMode, away: awayCore.service, ...(board ? { board } : {}),
+    doctor: (probeAgents) => runDoctor({ config, getBoat, health: vms.health, keys: providerKeys, agentHost, probeAgents: probeAgents === true }),
+    catalog: (force) => getCatalog({ config, trustedFolders: () => gatesCore.trustedFolders(), hosts: agentHost }, { force }),
+    settings, adminSecret, ...(nativeSecret ? { nativeSecret } : {}), projects, agentMode: gates.agentMode, acpEnvKeep: () => gatesCore.envKeep(), away: awayCore.service, ...(board ? { board } : {}),
   });
 
   restartReaper();
@@ -198,6 +216,8 @@ async function main() {
 `); // the one ready line in core.log (nothing parses it)
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
+    // a roster with an agent on Hermes gets its own waits read now, in the background, so the first card already closes when Hermes denies it
+    warmHermes(config.acp.entries.find((e) => e.id === BUILTIN_HERMES.id), false);
   }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
 
   const shutdown = async (sig: string) => {
@@ -205,6 +225,8 @@ async function main() {
     stopReaper();
     for (const m of modules) { try { await m.dispose?.(); } catch { /* ignore */ } }
     for (const id of engine.running()) engine.cancel(id);
+    revokeAllRunTokens(); // no agent host run key outlives the core
+    killAllAgentsSync();
     server.close();
     await store.flush();
     await projects.flush();

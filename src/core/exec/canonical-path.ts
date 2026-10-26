@@ -202,7 +202,7 @@ export function isHardlinkToProtected(p: string, set: readonly string[], cwd?: s
  * One list for the file tools and the shell guard.
  */
 export function dataFolderTargets(dataDir: string): string[] {
-  return ['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers', 'app-settings.json'].map((n) => join(dataDir, n));
+  return ['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'connectors', 'providers', 'app-settings.json', 'acp-pids.json'].map((n) => join(dataDir, n));
 }
 
 /**

@@ -9,6 +9,7 @@ import { PROJECT_NOTICE, limitWords, shouldShowProjectNotice } from '../../gates
 import { disabledReason, presetChoices, scopeSummary, type GatesView } from '../../gates/presetsLogic';
 import { useGatesAction, useGatesView, type GatesChangeRequest, type GatesNote } from '../../gates/useGatesView';
 import { useStore } from '../../store';
+import { useModeMap } from '../../acp/useModeMap';
 import { announce } from './announce';
 
 type Run = (c: GatesChangeRequest, done: string) => Promise<boolean>;
@@ -21,9 +22,10 @@ function ResultLine({ note, pending }: { note: GatesNote | null; pending: boolea
 }
 
 /** The drawn section. State comes in as props so a test can render every state. */
-export function AskSectionView({ project, agents, view, busy, note, run }: { project: Project; agents: readonly AgentProfile[]; view: GatesView; busy: boolean; note: GatesNote | null; run: Run }) {
+/** `modeMap`: Settings, Agent hosts, "Match Legion's mode". Off (the shipped default), an agent host agent's row says the limit is not applied to it. */
+export function AskSectionView({ project, agents, view, busy, note, run, modeMap = false }: { project: Project; agents: readonly AgentProfile[]; view: GatesView; busy: boolean; note: GatesNote | null; run: Run; modeMap?: boolean }) {
   const sum = scopeSummary(view, project.id);
-  const words = limitWords(agents, project, view);
+  const words = limitWords(agents, project, view, { modeMap });
   const choices = presetChoices();
   const name = `ask-preset-${project.id}`;
   const change = (patch: Record<string, unknown>, done: string): void => { void run({ kind: 'project', id: project.id, patch }, done).then((ok) => { if (ok) announce(done); }); };
@@ -71,10 +73,11 @@ export function AskSectionView({ project, agents, view, busy, note, run }: { pro
 
 export function AskSection({ project }: { project: Project }) {
   const agents = useStore((s) => s.agents);
+  const modeMap = useModeMap(); // undefined until the settings are read: nothing is said about Hermes on a guess
   const { view, apply } = useGatesView();
   const { pending, note, run } = useGatesAction(apply);
-  if (!view) return null;
-  return <AskSectionView project={project} agents={agents} view={view} busy={pending} note={note} run={run} />;
+  if (!view || modeMap === undefined) return null;
+  return <AskSectionView project={project} agents={agents} view={view} busy={pending} note={note} run={run} modeMap={modeMap} />;
 }
 
 /** The notice at the top of the page: once, for an install that had projects before this version. */

@@ -6,7 +6,7 @@ import type { ProviderEntry, ProviderPrice, ProvidersConfig } from './types.js';
 /** Turns one provider run may take; 200 is also the top of the accepted range. Was 40 before 0.2.5-c. */
 export const DEFAULT_PROVIDERS: ProvidersConfig = { version: 1, entries: {}, maxTurns: 200, maxToolCallsPerTurn: 16 };
 export const PROVIDER_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
-const RESERVED_IDS = new Set(['claude', 'legion', 'auto', 'sonnet', 'opus', 'haiku', 'arn']);
+const RESERVED_IDS = new Set(['claude', 'legion', 'auto', 'sonnet', 'opus', 'haiku', 'arn', 'acp']);
 const MAX_ENTRIES = 24;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);

@@ -11,7 +11,14 @@ import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
 import { normRepo } from '../shared/github-area.js';
 import { validRepoString } from './ci/repo.js';
 import { withholdEvent, withholdMessage, withholdTask } from './connector-withhold.js';
-import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
+import { ADMIN_HEADER, NATIVE_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isRunMcpPath, isSsePath, safeEqual } from './admin.js';
+import { findRunGrant, RUN_ROUTE } from './acp/run-tokens.js';
+import type { RunGrant } from './acp/run-tokens.js';
+import { serverForRun } from './acp/run-tools.js';
+import { containedStatus, setUpContained } from './acp/contained.js';
+import { acpEntry } from '../shared/acp-view.js';
+import type { AcpSwitches } from '../shared/acp-view.js';
+import { loosenedSwitches } from '../shared/acp-copy.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { QuestionBroker } from './questions.js';
 import type { EventBus } from './bus.js';
@@ -39,7 +46,7 @@ export interface CoreContext {
   /** Structured questions (the question card). Absent: /api/questions answers empty and nothing can be answered. */
   questions?: QuestionBroker;
   boatConfigured: () => boolean;
-  doctor: () => Promise<DoctorCheck[]>;
+  doctor: (probeAgents?: boolean) => Promise<DoctorCheck[]>;
   /** Claude Code commands + models (cached; force = re-probe). */
   catalog: (force?: boolean) => Promise<Catalog>;
   settings: SettingsService;
@@ -55,8 +62,12 @@ export interface CoreContext {
   away?: { caps(): CoreCaps; parked(): ParkedAsk[] };
   /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
+  /** The owner's keep list for variables passed to an agent host (Hermes): a Contained check counts a sign-in that comes from one of them. */
+  acpEnvKeep?: () => readonly string[];
   /** Checks a change of an agent's mode (the gates module makes it). Absent: only a change that keeps or tightens the mode is accepted. */
   agentMode?: AgentModeGuard;
+  /** The per-launch native secret (the app's main process only). Absent: a change that lets Hermes ask less is refused. */
+  nativeSecret?: string;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -277,6 +288,8 @@ export function createServer(ctx: CoreContext): Server {
       : ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown)).map(withoutResult),
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
+    // closed cards that stay in the thread: the window that was reloaded draws them again (admin only, like the open cards' answers)
+    ...(isAdminReq(req) && ctx.approvals.closedCards ? { closedCards: ctx.approvals.closedCards().filter((c) => agentIdVisible(ctx, c.card.agentId)) } : {}),
     // Structured questions are admin-only: a token-only client never gets them (the same class as room text). Absent for a token client.
     ...(isAdminReq(req) ? { questions: (ctx.questions?.pending() ?? []).filter((q) => agentIdVisible(ctx, q.agentId)) } : {}),
     boatConfigured: ctx.boatConfigured(),
@@ -315,7 +328,8 @@ export function createServer(ctx: CoreContext): Server {
     }
   });
   route('GET', '/api/config', () => redactConfig(ctx.config));
-  route('GET', '/api/doctor', () => ctx.doctor());
+  // ?probe=agents: the window opened the Doctor or pressed Re-run checks, so Hermes may be started. Boot, a settings save and Remember ask without it.
+  route('GET', '/api/doctor', ({ url }) => ctx.doctor(url.searchParams.get('probe') === 'agents'));
   // Claude usage for the title-bar panel: summed from stored tasks (archived included), only those the caller may see.
   route('GET', '/api/usage', () => summariseUsage(ctx.store.listTasks(100000, undefined, true).filter(taskShown), Date.now()));
   // Admin only by default-deny (not in the client route list): server names and error text are the owner's business.
@@ -324,12 +338,32 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- settings --------------------------------------------------------
   route('GET', '/api/settings', () => ctx.settings.view());
-  route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
+  // a Hermes switch change that lets Hermes ask less comes only from the app, after its native confirmation. A tightening or an unchanged value needs nothing.
+  route('PATCH', '/api/settings', (c) => {
+    const sw = isObj(c.body) && isObj(c.body.acp) && isObj(c.body.acp.switches) ? c.body.acp.switches : undefined;
+    if (sw && loosenedSwitches(ctx.settings.view().acp.switches, sw as Partial<AcpSwitches>).length > 0) {
+      if (!ctx.nativeSecret) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
+      const given = (c.req.headers as Record<string, string | string[] | undefined>)[NATIVE_HEADER];
+      if (typeof given !== 'string' || !safeEqual(given, ctx.nativeSecret)) throw new HttpError(403, 'native_confirmation_required: a change that lets Hermes ask less comes only from the app after its confirmation dialog');
+    }
+    return ctx.settings.patch(c.body);
+  });
   // Add/remove single gate rules in one synchronous step (no lost update). Admin-only by default-deny, like every settings route.
   route('POST', '/api/settings/gates/rules', ({ body }) => ctx.settings.editGateRules(body));
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
   // Restores the shipped compaction defaults. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES), like every settings route.
   route('POST', '/api/settings/compaction/reset', () => ctx.settings.resetCompaction());
+  // The Contained Hermes profile (src/core/acp/contained.ts): 'check' only reads, 'setup' creates the profile and sets its two settings. Admin only like every unlisted route.
+  route('POST', '/api/acp/contained', ({ body }) => {
+    const action = isObj(body) ? body.action : undefined;
+    if (action !== 'check' && action !== 'setup') throw new HttpError(400, 'action must be "check" or "setup"');
+    const entry = acpEntry(ctx.config, 'hermes');
+    if (!entry) throw new HttpError(404, 'The Hermes entry is not in the config');
+    // Hermes is off until the owner turns it on; setting up or checking its profile starts Hermes
+    if (!entry.enabled) throw new HttpError(409, 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts first.');
+    const deps = ctx.acpEnvKeep ? { envKeep: ctx.acpEnvKeep } : undefined;
+    return action === 'check' ? containedStatus(entry, deps) : setUpContained(entry, deps);
+  });
 
   // ---- agents ----------------------------------------------------------
   route('GET', '/api/agents', () => ctx.store.listAgents().filter(visible));
@@ -560,9 +594,18 @@ export function createServer(ctx: CoreContext): Server {
     if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'body {allow:boolean} required');
     // a web card's yes may say how far it reaches: for good, for this goal, or once
     if (body.site !== undefined && body.site !== 'always' && body.site !== 'goal' && body.site !== 'once') throw new HttpError(400, 'site must be always, goal or once');
-    try { return { ok: ctx.approvals.resolve(params[0], body.allow, body.site) }; }
+    // an agent host card (Hermes) is answered by naming one of its options; the core checks the name against the options the card shows
+    if (body.optionId !== undefined && (typeof body.optionId !== 'string' || body.optionId.length === 0 || body.optionId.length > 200)) throw new HttpError(400, 'optionId must be a short text');
+    try {
+      const ok = ctx.approvals.resolve(params[0], body.allow, body.site, body.optionId as string | undefined);
+      // a card that closed on its own (the agent stopped waiting): say why nothing happened, in the card's own words
+      const note = ok ? undefined : ctx.approvals.lateNote?.(params[0]);
+      return { ok, ...(note ? { note } : {}) };
+    }
     catch (e) { throw new HttpError(400, e instanceof Error ? e.message : 'That answer is not allowed on this card.'); }
   });
+  // The owner dismissed a closed card in the thread: the core stops keeping it (admin only by default-deny; the window's call)
+  route('POST', '/api/approvals/:id/dismiss', ({ params }) => ({ ok: ctx.approvals.dismissClosed?.(params[0]) ?? false }));
   // The app is about to send an answer in the last seconds of an ask's wait: delay the core's deny (once, a few seconds). It never answers the ask.
   route('POST', '/api/approvals/:id/hold', ({ params, body }) => {
     if (!isObj(body) || typeof body.ms !== 'number' || !Number.isFinite(body.ms) || body.ms <= 0) throw new HttpError(400, 'body {ms:number above 0} required');
@@ -639,6 +682,22 @@ export function createServer(ctx: CoreContext): Server {
     await transport.handleRequest(req, res, body);
   };
 
+  /**
+   * The tools of one run of an agent host (Hermes), behind its run key (src/core/acp/run-tokens.ts). Stateless like /mcp: a fresh small MCP
+   * server per request in front of tool servers that were connected once for the run.
+   */
+  const handleRunMcp = async (req: IncomingMessage, res: ServerResponse, body: unknown, grant: RunGrant) => {
+    const gone = new AbortController();
+    // each stdio shim names its own connection, so a cancel from one shim cannot reach a call of another on the same key
+    const sent = req.headers['x-legion-shim'];
+    const connection = typeof sent === 'string' && /^[0-9a-f-]{8,64}$/.test(sent) ? sent : '';
+    const mcp = serverForRun(grant, gone.signal, connection);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => { gone.abort(); void transport.close(); void mcp.close(); });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, body);
+  };
+
   // ---- dispatcher ------------------------------------------------------
   const server = createHttpServer((req, res) => {
     // Loopback guard (src/core/net-guard.ts): remote address, Host and Origin, before CORS, auth and every route (/health, /mcp, SSE included).
@@ -679,14 +738,16 @@ export function createServer(ctx: CoreContext): Server {
     sendJson(res, status, { error: message });
   }
 
+  /** The bearer value of the Authorization header, or ''. */
+  function bearerOf(req: IncomingMessage): string {
+    const h = req.headers.authorization;
+    const m = typeof h === 'string' ? /^Bearer\s+(.+)$/i.exec(h.trim()) : null;
+    return m ? m[1] : '';
+  }
+
   function authorized(req: IncomingMessage, url: URL, allowQuery: boolean): boolean {
     const expected = ctx.config.authToken;
-    let given = '';
-    const h = req.headers.authorization;
-    if (typeof h === 'string') {
-      const m = /^Bearer\s+(.+)$/i.exec(h.trim());
-      if (m) given = m[1];
-    }
+    let given = bearerOf(req);
     if (!given && allowQuery) given = url.searchParams.get('token') ?? '';
     if (!given || !expected) return false;
     return safeEqual(given, expected);
@@ -697,6 +758,12 @@ export function createServer(ctx: CoreContext): Server {
     const method = (req.method ?? 'GET').toUpperCase();
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const path = url.pathname;
+
+    // The run route is for the tool shim only, which is not a browser: any Origin or fetch-metadata header (even an allowed one) is refused, preflight included.
+    if (isRunMcpPath(path) && (req.headers.origin !== undefined || req.headers['sec-fetch-site'] !== undefined)) {
+      sendJson(res, 403, { error: 'browser_request_refused' });
+      return;
+    }
 
     if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -712,7 +779,9 @@ export function createServer(ctx: CoreContext): Server {
     // Default-deny gate, BEFORE routing: unknown and unclassified paths get the same 403 as admin routes.
     const isSse = isSsePath(method, path);
     const adminOk = isAdminSecret(req.headers[ADMIN_HEADER], ctx.adminSecret);
-    const decision = gate({ method, path, adminOk, bearerOk: adminOk || authorized(req, url, isSse), hasSecret: !!ctx.adminSecret });
+    // A run key is looked up for the run route only; on every other path it is never even read.
+    const runGrant = isRunMcpPath(path) ? findRunGrant(bearerOf(req)) : undefined;
+    const decision = gate({ method, path, adminOk, bearerOk: adminOk || authorized(req, url, isSse), hasSecret: !!ctx.adminSecret, runOk: runGrant !== undefined && runGrant.host() !== undefined });
     if (!decision.allow) {
       if (decision.status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
       sendJson(res, decision.status, { error: decision.error });
@@ -721,6 +790,15 @@ export function createServer(ctx: CoreContext): Server {
     (req as unknown as { legionAdmin?: boolean }).legionAdmin = decision.admin;
 
     if (isSse) { handleSse(req, res, decision.admin); return; }
+
+    if (isRunMcpPath(path)) {
+      // the gate already turned away a request without a live run key; this stays so that no future gate change lets one fall through to the router
+      if (!runGrant) throw new HttpError(401, 'Unauthorized: missing or invalid run key');
+      if (path !== RUN_ROUTE) throw new HttpError(404, `Not found: ${method} ${path}`);
+      if (method !== 'POST') { res.setHeader('Allow', 'POST'); throw new HttpError(405, 'Method not allowed'); }
+      await handleRunMcp(req, res, await readBody(req), runGrant);
+      return;
+    }
 
     let body: unknown;
     if (method === 'POST' || method === 'PATCH' || method === 'PUT') body = await readBody(req);

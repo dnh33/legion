@@ -108,8 +108,8 @@ test('one question at a time: a second is refused as busy (never answered Cancel
   assert.match(main, /if \(bsvDialogOpen \|\| confirmWindowBusy\(\)\) return \{ ok: false, error: 'A confirmation is already open/);
 });
 
-test('which questions moved: the 8 settings handlers and the BSV paths use the window; the restart and update questions stay with the system', () => {
-  assert.equal((main.match(/makeConfirm\(confirmWindow, \(\) => win\)/g) ?? []).length, 8);
+test('which questions moved: the 9 settings handlers and the BSV paths use the window; the restart and update questions stay with the system', () => {
+  assert.equal((main.match(/makeConfirm\(confirmWindow, \(\) => win\)/g) ?? []).length, 9);
   assert.doesNotMatch(main, /makeConfirm\(dialog/);
   const sys = [...main.matchAll(/dialog\.(showMessageBox|showErrorBox|showOpenDialog)\(/g)].map((m) => m[1]);
   assert.deepEqual(sys, ['showMessageBox', 'showMessageBox', 'showErrorBox'], 'foreign-core question, started-outside notice, restart failure box; the folder picker lives in project-ipc, behind the busy check');

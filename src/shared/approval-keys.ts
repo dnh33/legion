@@ -8,10 +8,19 @@
 import type { ApprovalRequest } from './types.js';
 import { BLENDER_ASSET_TOOL, BLENDER_EXEC_TOOL, GET_BLENDER_TOOL } from './blender.js';
 
-type Card = Pick<ApprovalRequest, 'toolName'>;
+type Card = Pick<ApprovalRequest, 'toolName'> & { acpOptions?: ReadonlyArray<{ kind: string }> };
 
-/** True when the card must be allowed by a click. Every blender_exec card counts, whatever its input looks like. */
-export const clickOnly = (a: Card): boolean => a.toolName === BLENDER_EXEC_TOOL || a.toolName === GET_BLENDER_TOOL || a.toolName === BLENDER_ASSET_TOOL;
+/**
+ * True when the card must be allowed by a click. Every blender_exec card counts, whatever its input looks like. So does a Hermes card unless A can
+ * mean exactly one thing on it: Hermes names its own options, and one key must never choose between several allows (or pick one that lasts) for the
+ * owner. That is a card whose only allow option is allow once.
+ */
+export const clickOnly = (a: Card): boolean => {
+  if (a.toolName === BLENDER_EXEC_TOOL || a.toolName === GET_BLENDER_TOOL || a.toolName === BLENDER_ASSET_TOOL) return true;
+  if (!a.acpOptions) return false;
+  const allows = a.acpOptions.filter((o) => o.kind === 'allow_once' || o.kind === 'allow_always');
+  return !(allows.length === 1 && allows[0]!.kind === 'allow_once');
+};
 
 /**
  * The thread-wide shortcut: A or D answers the first pending card of the open task when focus is not in a field or on a card.

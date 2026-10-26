@@ -5,6 +5,7 @@
  * task is counted once, on the local day it last ran (`updatedAt`). A task that spanned midnight therefore lands wholly on the
  * later day: close enough for a glance, and the panel says so. Tasks from other providers carry no cost and are never given one.
  */
+import { acpLabel } from './runtime.js';
 import { localDay, localDayStart } from './vm-usage.js';
 
 export interface UsageTask { agentId: string; model?: string; provider?: string; costUsd?: number; turns?: number; updatedAt: string }
@@ -33,7 +34,7 @@ function range(tasks: readonly UsageTask[]): UsageRange {
   };
   return {
     costUsd: tasks.reduce((n, t) => n + num(t.costUsd), 0), turns: tasks.reduce((n, t) => n + num(t.turns), 0), tasks: tasks.length,
-    byModel: sum((t) => (t.model ? (t.provider ? `${t.provider}:${t.model}` : t.model) : 'unknown')),
+    byModel: sum((t) => (t.model ? (acpLabel(t.model) ?? (t.provider ? `${t.provider}:${t.model}` : t.model)) : 'unknown')),
     byAgent: sum((t) => t.agentId),
   };
 }

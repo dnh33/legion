@@ -1,0 +1,12 @@
+This update installs from inside Legion.
+
+Run agents on Hermes (optional)
+If you use Hermes, Legion can now run an agent on it. It is off until you turn on Offer Hermes in Settings, Agent hosts; while it is off Legion does not start Hermes or check it. Hermes asks you its own questions and Legion shows them as cards that carry the whole command. Four switches you can turn on change that, and a Contained profile gives Hermes its own settings and its own sign-in.
+
+Claude agents follow Claude's own checks
+Ask, Smart, Accept edits and Full now let Claude decide about its own tools, the way Claude Code does. Your Block rules and the stop for disastrous commands still apply.
+
+Smaller changes
+A confirm card inside Legion asks the questions that change a setting or move money. Legion restarts its core if it stops by itself. A tool call with nothing in it no longer ends a run on another provider's model.
+
+Full detail in CHANGELOG.md.

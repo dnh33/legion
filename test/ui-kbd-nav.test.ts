@@ -161,6 +161,21 @@ describe('every focus ring and coloured focus border is behind the setting', () 
   });
 });
 
+describe('R64: rings are off by default whatever kbd-nav says', () => {
+  const app = stripComments(readFileSync(join(process.cwd(), 'ui', 'src', 'styles', 'app.css'), 'utf8'));
+  it('the browser default outline is removed for every :focus-visible while data-focus-rings is absent, outside forced colours, without needing data-kbd-nav', () => {
+    // live check 2026-10-22: a button focused by code after typing (no Tab yet, so no data-kbd-nav) drew the default ring
+    const m = app.match(/@media not all and \(forced-colors: active\)\s*\{\s*([^{]*?:focus-visible)\s*\{\s*outline: none;?\s*\}\s*\}/);
+    assert.ok(m, 'the rule is there');
+    assert.match(m![1]!, /:not\(\[data-focus-rings\]\)/);
+    assert.doesNotMatch(m![1]!, /data-kbd-nav/, 'a programmatic focus before any key press is covered');
+  });
+  it('the opt-in ring and the forced-colours ring stay', () => {
+    assert.match(app, /:where\(:root\[data-kbd-nav\]\[data-focus-rings\]\) :focus-visible \{ outline: 2px solid var\(--accent\)/);
+    assert.match(app, /@media \(forced-colors: active\)\s*\{\s*:root\[data-kbd-nav\] :focus-visible\s*\{[^}]*outline: 2px solid Highlight/);
+  });
+});
+
 describe('the tint shown while rings are off', () => {
   const app = readFileSync(join(process.cwd(), 'ui', 'src', 'styles', 'app.css'), 'utf8');
   const tokens = readFileSync(join(process.cwd(), 'ui', 'src', 'styles', 'tokens.css'), 'utf8');
@@ -218,7 +233,7 @@ describe('the tint shown while rings are off', () => {
     assert.match(rule![1]!, /background-image:\s*linear-gradient\(var\(--focus-tint\),\s*var\(--focus-tint\)\)/);
   });
   it('with rings off the browser default focus outline is suppressed, but not under forced colours (where the fallback must show)', () => {
-    assert.match(stripComments(app), /@media not all and \(forced-colors: active\)\s*\{\s*:root\[data-kbd-nav\]:not\(\[data-focus-rings\]\) :focus-visible\s*\{\s*outline: none;?\s*\}\s*\}/);
+    assert.match(stripComments(app), /@media not all and \(forced-colors: active\)\s*\{\s*:root:not\(\[data-focus-rings\]\) :focus-visible\s*\{\s*outline: none;?\s*\}\s*\}/);
   });
   it('F4: the outline suppression for inputs is narrowed to text-like fields, so a checkbox, radio, range, date or select gets the ring when the setting is on', () => {
     const rule = stripComments(app).match(/([^{};]*textarea:focus-visible[^{};]*)\{\s*outline:\s*none;?\s*\}/);

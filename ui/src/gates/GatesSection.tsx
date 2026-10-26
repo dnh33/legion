@@ -5,7 +5,7 @@ import { dismissGateSuggestion, errText, loadGateSuggestions, rememberGate, save
 import { Icon } from '../components/icons';
 import {
   CONTEXT_CHIPS, GATE_PRESETS, GATES_EMPTY, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
-  consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
+  consequenceLine, gateSentence, gateTestResult, hermesGateResult, hostVerdictText, newGateId, presetRule, ruleHostless, toggleIn,
   type GateTestResult,
 } from './gatesLogic';
 import { GatesBanner, GatesPresets, EVERYTHING } from './GatesPresets';
@@ -16,6 +16,7 @@ import { QaGates, RailsList } from './RailsList';
 import { ActivityView } from './ActivityView';
 import { useGatesAction, useGatesView } from './useGatesView';
 import { AGENT_MODE_HELP, AGENT_MODE_LABEL } from './presetsLogic';
+import { hostNameOf, isAgentHostModel } from '../../../src/shared/acp-copy';
 import './gates.css';
 
 const THEN_BADGE: Record<GateVerdict, { text: string }> = {
@@ -192,11 +193,15 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
   const [text, setText] = useState('');
   const [result, setResult] = useState<GateTestResult | null>(null);
   const agent = agents.find((a) => a.id === agentId);
+  // Legion's modes and its Ask and Allow rules do not decide what a Hermes agent asks, so a dry run of them would say something untrue. Block rules do reach Hermes, in every mode: that is what the tester shows for it.
+  const onHermes = isAgentHostModel(agent?.model);
+  const hostName = hostNameOf(agent?.model);
   const mode: ApprovalMode = agent?.approval ?? 'ask';
   const tool = TEST_TOOLS.find((t) => t.id === toolId) ?? TEST_TOOLS[0];
   const run = () => {
     const input: Record<string, unknown> = tool.kind === 'command' ? { command: text } : tool.kind === 'path' ? { path: text } : {};
-    setResult(gateTestResult(rules, { toolName: tool.toolName, input, agentId, mode }));
+    const call = { toolName: tool.toolName, input, agentId, mode };
+    setResult(onHermes ? hermesGateResult(rules, call) : gateTestResult(rules, call));
   };
   return (
     <div className="set-card gate-tester" aria-label="Try it">
@@ -219,18 +224,20 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
           disabled={tool.kind === 'none'} onChange={(e) => { setText(e.target.value); setResult(null); }} />
         <button type="button" className="btn" onClick={run} disabled={tool.kind !== 'none' && !text.trim()}>Test</button>
       </div>
-      <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
-      {result && <GateTestOut result={result} />}
+      {onHermes
+        ? <span className="set-hint">Only Block rules reach a {hostName} agent: a blocked request is refused with no card. Anything else is for {hostName} to ask you about.</span>
+        : <span className="set-hint">This agent's mode: <b>{AGENT_MODE_LABEL[mode]}</b>. {AGENT_MODE_HELP[mode]}{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>}
+      {result && <GateTestOut result={result} hermes={onHermes} host={hostName} />}
     </div>
   );
 }
 
 /** The tester's readout: the verdict, every rule that matched, and the honest line when nothing decided it. */
-export function GateTestOut({ result }: { result: GateTestResult }) {
+export function GateTestOut({ result, hermes = false, host }: { result: GateTestResult; hermes?: boolean; host?: string }) {
   return (
     <div className={`gate-test-out v-${result.verdict}`} role="status">
-      <b>{VERDICT_TEXT[result.verdict]}</b>
-      <span className="muted-s">{result.matched.length ? `${result.matched.length} matching gate${result.matched.length === 1 ? '' : 's'}` : 'No gate matched. Your mode decides, exactly as without gates.'}</span>
+      <b>{hermes ? hostVerdictText(host)[result.verdict === 'deny' ? 'deny' : 'baseline'] : VERDICT_TEXT[result.verdict]}</b>
+      <span className="muted-s">{result.matched.length ? `${result.matched.length} matching gate${result.matched.length === 1 ? '' : 's'}` : hermes ? 'No Block rule matched.' : 'No gate matched. Your mode decides, exactly as without gates.'}</span>
       <ul>
         {result.matched.map((r) => (
           <li key={r.id}><span className={`gate-then ${r.then}`}>{THEN_BADGE[r.then].text}</span> {r.label}{r.enabled ? '' : ' (off)'}
@@ -286,6 +293,7 @@ export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
  */
 export function GatesSection({ s }: { s: SettingsView }) {
   const agents = useStore((st) => st.agents);
+  const modeMap = useStore((st) => st.settings?.acp?.switches?.modeMap === true);
   const projects = useStore((st) => st.projects);
   const tasks = useStore((st) => st.tasks);
   const { view, loadError, reload, apply } = useGatesView();
@@ -361,7 +369,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
       {view && (
         <>
           <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={reload} />
-          <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} />
+          <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} modeMap={modeMap} />
           {scopeNow === EVERYTHING && <ClaudeChecksCard view={view} busy={gatesBusy} note={claudeAct.note} run={claudeAct.run} />}
           <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
         </>

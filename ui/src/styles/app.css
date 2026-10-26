@@ -7,8 +7,8 @@ code, pre, kbd { font-family: var(--font-mono); }
 ::selection { background: var(--accent-soft); }
 :where(:root[data-kbd-nav][data-focus-rings]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
 input:is(:not([type]), [type=text], [type=search], [type=password], [type=number], [type=email], [type=url], [type=tel]):focus-visible, textarea:focus-visible { outline: none; }
-/* Rings off: no browser default focus outline either (it is a ring too). The tint below is the keyboard cue. Not under forced colours, where the outline below must show. */
-@media not all and (forced-colors: active) { :root[data-kbd-nav]:not([data-focus-rings]) :focus-visible { outline: none; } }
+/* Rings off: no browser default focus outline either (it is a ring too), whether or not a key was pressed (a button focused by code after typing would draw it). The tint below is the keyboard cue. Not under forced colours, where the outline below must show. */
+@media not all and (forced-colors: active) { :root:not([data-focus-rings]) :focus-visible { outline: none; } }
 /* Rings are off by default. Settings > Accessibility ("Show focus rings") sets data-focus-rings on <html>; with it, the rings below show for keyboard focus (ui/src/a11y/kbdNav.ts sets data-kbd-nav). */
 /* Windows high contrast (forced colours) strips the tint, so keyboard focus gets a system-colour outline whatever the setting. The one ring that is not behind it. */
 @media (forced-colors: active) { :root[data-kbd-nav] :focus-visible { outline: 2px solid Highlight; outline-offset: 2px; } }
@@ -130,6 +130,16 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .th-right { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 8px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .th-right > .chip-pill { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .th-cost { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* The two icons wrap as one group, never one by one onto a row of their own. */
+.th-icons { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+/* A Hermes thread has more in its header (badge, mode chip, usage line, icons). The chips may wrap, but the usage line and the icons are one tail that wraps as one piece, and the usage line is the one thing that shrinks: it is cut with an ellipsis (its tooltip has the whole line). The project chip keeps a width of its own. For other agents the tail changes nothing. */
+.th-tail { display: contents; }
+.th-right.is-hermes { justify-content: flex-start; }
+.th-right.is-hermes > .project-pill { max-width: 160px; }
+.th-right.is-hermes .th-tail { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; min-width: 0; }
+.th-right.is-hermes .th-tail > .th-cost { flex: none; }
+.th-right.is-hermes .th-tail > .hermes-usage { flex: 1 1 0; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.th-right.is-hermes .th-tail .th-icons { margin-left: auto; }
 .chip-pill { white-space: nowrap; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--muted); }
 .chip-pill.ap-full { color: var(--warn); border-color: rgba(255, 204, 102, .3); }
 .tasks-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--line); }
@@ -434,7 +444,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .checks { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .check { display: flex; gap: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); }
 .check.skeleton { height: 120px; animation: shimmer 1.4s infinite linear; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; }
-.check p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; } .check p.fix-prose { margin: 6px 0 8px; }
+.check p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; text-wrap: pretty; } .check p.fix-prose { margin: 6px 0 8px; }
 .check > div { min-width: 0; flex: 1; }
 .check-ic { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 50%; margin-top: 1px; }
 .check.ok .check-ic { background: var(--accent-soft); color: var(--accent-text); }
@@ -468,6 +478,15 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @keyframes rise2 { from { opacity: 0; transform: translateY(8px); } }
 
 @media (max-width: 1100px) { .tb-search { flex: none; width: 30px; padding: 0; justify-content: center; } .tb-search span, .tb-search kbd { display: none; } .tb-brand { flex: none; width: 140px; } .tb-ver { display: none; } .app { --rail-w: 208px; --ops-w: 288px; } .hint-long { display: none; } }
+/* A narrow window zooms too: at 1.5x a 1280 px window is 853 CSS px, and the two side rails left the thread 357. The rails give way first (they hold no reading task), so the thread head keeps one row and says what it said before. Below 900 px only: a 960x600 window at 1.5x is 640 px and narrower than any rail can fix. */
+@media (max-width: 900px) {
+  .app { --rail-w: 176px; --ops-w: 252px; }
+  /* In a window this narrow the tail's 200px basis is enough to put it on a row of its own beside the chips, which costs a
+     whole header row (measured at 1280x820 and 1.5x: 109 px of header against 81). Zero basis keeps it on the chips' row: the
+     usage line is cut either way at this width, and its tooltip has the whole line. Above 900 px the 200px basis stands, where
+     it is what lets the line wrap whole and be read (960 at 1x). */
+  .th-right.is-hermes .th-tail { flex: 1 1 0; }
+}
 @media (max-height: 700px) { .screen { aspect-ratio: 16 / 7; } .computer-meta { display: none; } .recent-card { min-height: 84px; } .mascot-stage { padding: 8px 0 8px; } .ops-inner { gap: 8px; padding: 10px 12px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
@@ -841,6 +860,43 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .ft-lines { margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 2px; }
 .ft-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ft-msg { color: var(--danger); font-size: 12.5px; }
+
+/* ---- Hermes: picker note, first-use card, Hermes card, mode line, Agent hosts, Doctor levels ---- */
+.nb { white-space: nowrap; }
+.mp-note { padding: 0 10px 6px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.acp-first { margin: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r); }
+.acp-first b { font-size: 13px; color: var(--text); }
+.acp-first p { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; font-weight: 400; }
+.acp-first-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.form .acp-first { margin: 6px 0 0; }
+.acp-card .approval-actions .btn:not(.sm) { height: auto; min-height: 30px; padding-block: 4px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.acp-card .approval-sum { max-height: clamp(96px, 28vh, 328px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.acp-left { margin-left: auto; font-variant-numeric: tabular-nums; }
+.approval.is-closed { border-color: var(--line-strong); background: var(--surface); }
+.approval.is-closed .approval-head { color: var(--text-2); }
+.approval.is-closed .acp-left { margin-left: 0; }
+.approval.is-closed .approval-actions .btn { margin-left: auto; }
+.acp-left.is-ended { color: var(--warn); }
+.hermes-mode { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
+.hermes-mode .link-btn { align-self: flex-start; font-size: 12px; color: var(--text-2); }
+.chip-pill.hermes-badge { color: var(--text-2); background: var(--surface-2); }
+.hermes-usage { white-space: nowrap; max-width: 100%; }
+.host-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.host-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
+.host-main .set-hint { overflow-wrap: anywhere; text-wrap: pretty; }
+.host-head { display: flex; flex-direction: column; gap: 4px; }
+.host-head > * { margin: 0; }
+.host-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: transparent; border: 1px solid var(--line-strong); }
+.host-dot.ok { background: var(--accent-text); border-color: var(--accent-text); }
+.host-dot.bad { background: var(--danger); border-color: var(--danger); }
+.host-contained { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.host-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.host-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.host-list li { min-width: 0; overflow-wrap: anywhere; }
+.check.warn { border-color: var(--warn-line); background: var(--warn-soft); }
+.check.warn .check-ic { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line); }
+.check.neutral { background: transparent; }
+.check.neutral .check-ic { background: transparent; color: var(--faint); border: 1px solid var(--line-strong); }
 
 /* ---------- core restart: the notice after Legion restarted its core, and the stopped banner (tinted fill + full hairline + icon) ---------- */
 .core-note { display: flex; align-items: center; gap: 10px; margin: 10px 24px 8px; padding: 8px 12px; border-radius: var(--r); border: 1px solid; color: var(--text-2); font-size: 13px; line-height: 1.45; }

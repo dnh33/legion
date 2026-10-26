@@ -10,6 +10,7 @@
  * a new task would start in (`newTaskProject`).
  */
 import type { Project } from '../../../src/shared/projects.js';
+import { runtimeOf } from '../../../src/shared/runtime.js';
 import type { ApprovalRequest, Task } from '../../../src/shared/types.js';
 import { newTaskProjectId } from '../projects/projectsLogic.js';
 
@@ -36,8 +37,8 @@ export function busyIn(st: { tasks: readonly Task[]; approvals: readonly Approva
   return busyReason(agentId, taskId, st.tasks, st.approvals, newTaskProjectId(st.projects, st.projectFilter, agentId, !!taskId));
 }
 
-/** A provider model id ("openai:gpt-4o"); same rule as the core's providerPrefix (an AWS "arn:" id is Claude). */
-export const isProviderModel = (m: string | undefined): boolean => !!m && /^([a-z][a-z0-9-]{1,31}):(.+)$/.test(m) && !m.startsWith('arn:');
+/** A provider model id ("openai:gpt-4o"); the core's rule (an AWS "arn:" id is Claude, an "acp:" agent host is not a provider). */
+export const isProviderModel = (m: string | undefined): boolean => runtimeOf(m) === 'provider';
 
 /**
  * May this message join the thread's running Claude run (read after its current step) instead of waiting for the whole
@@ -46,7 +47,7 @@ export const isProviderModel = (m: string | undefined): boolean => !!m && /^([a-
  * last word: it answers 409 and the message is queued as before.
  */
 export function canJoinRun(why: BusyReason | null, task: Pick<Task, 'status' | 'provider' | 'model'> | undefined, queued: number, text: string): boolean {
-  return why === 'run' && task?.status === 'running' && queued === 0 && !task.provider && !isProviderModel(task.model) && !text.trim().startsWith('/');
+  return why === 'run' && task?.status === 'running' && queued === 0 && !task.provider && runtimeOf(task.model) === 'claude' && !text.trim().startsWith('/');
 }
 
 export const busyLabel = (r: BusyReason | null): string =>

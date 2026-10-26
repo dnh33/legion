@@ -18,7 +18,7 @@ import { AWAY_COPY } from '../shared/away-copy.js';
 import type { BuildSnapshot } from './gates-settings/build-edited.js';
 import { isBuildFile } from '../shared/build-files.js';
 import { liveSecrets } from './kg/index.js';
-import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TOKEN_LIMIT_PREFIX, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit, tokenStopFromError, tokenStopText } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
@@ -45,6 +45,7 @@ import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, nativePath, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, collapsedText, criticalDeleteRead, longCatastrophic, recursiveDeleteSnippet, refuseCatastrophic, unjudgeableCommand, windowsShellTexts, type ShellKind } from './exec/shell-floor.js';
 import { dataFolderRead } from './exec/data-folder-guard.js';
+import { containedRunBlock } from './acp/contained.js';
 import { canonicalLocal, canonicalSet, hitsCanonical, isHardlinkToProtected, isProtected, protectedTargets } from './exec/canonical-path.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
@@ -69,6 +70,22 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { Catalog, McpStatusView, TodoItem } from '../shared/types.js';
+import { parseAcpModel, runtimeOf } from '../shared/runtime.js';
+import { acpCostOf, acpEntry, entryLimits } from '../shared/acp-view.js';
+import type { AcpEntry } from '../shared/acp-view.js';
+import { AcpRefusal, AcpSession } from './acp/session.js';
+import { noteAgentVersion, noteAuthFailure } from './acp/detect.js';
+import type { AcpCallbacks, AcpStdioServer, AcpTurnEnd } from './acp/session.js';
+import { AgentLaunchError, startAgentProcess } from './acp/process.js';
+import type { AgentProcess } from './acp/process.js';
+import { issueRunToken, shimServer } from './acp/run-tokens.js';
+import type { RunToken, RunToolsHost } from './acp/run-tokens.js';
+import { RUN_TOOL_WAIT_MAX_S } from './acp/run-tools.js';
+import { RpcClosed, RpcError } from './acp/rpc.js';
+import type { MappedPermission } from './acp/map.js';
+import { agentModeFor, cardHidden, cardSummary, commandNamesPath, expandRequestPath, hermesHomes, isAdminShare, isRouteTool, permissionWaitOf, plainWindowsPath, requestPaths, stripPaths, toolWaitOf } from './acp/run-helpers.js';
+import { redact as logRedact } from './log/redact.js';
+import { HERMES_BASELINE_TEXT, HERMES_CWD_TEXT, HERMES_MAX_TOKENS_TEXT, HERMES_NOT_ALLOWED_TEXT, HERMES_REFUSED_TEXT, HERMES_SESSION_GONE_TEXT, HERMES_UNTESTED_TEXT, HERMES_WATCHDOG_TEXT, blockedNote, disasterNote, named, refusalText, sessionStateText, toolPolicyText } from './acp/texts.js';
 import { checkerFallbackLine } from '../shared/claude-checks-copy.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
@@ -135,6 +152,33 @@ export interface EngineDeps {
   /** How long a plan-only run waits for the account check before it fails closed. Default 20 s. */
   accountCheckMs?: number;
   background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number };
+  /**
+   * What running an agent host (Hermes) needs from the core. Absent: an agent host agent fails in plain words and nothing is started.
+   * Only the first three are real settings; the rest let a test shorten a wait or watch the run keys.
+   */
+  agentHost?: {
+    /** Legion's data folder: the agent never gets a working folder inside or above it, and its process list is kept there. */
+    dataDir: string;
+    /** The port Legion's own core listens on: the tool shim of a run connects there. */
+    port: number;
+    /** The agent's home folder, when it is not where the agent itself would put it. */
+    hermesHome?: string;
+    /** Overrides the turn watchdog (ms). Default: the Settings value in minutes. */
+    watchdogMs?: number;
+    /**
+     * How long a card for an agent request stays open (ms), or a function that gives it, read at each request. Default 300 s: the agent denies
+     * the request itself then. The agent's own setting for that wait (its approvals timeout) is read by the agent host detection and fed in here.
+     */
+    permissionWaitMs?: number | ((entry: AcpEntry) => number | undefined);
+    /** How long a card raised inside an agent's tool call may stay open (ms), counted from the call, or a function that gives it, read at each run. Default 270 s. The agent's own tool-call timeout is read by the agent host detection and fed in here. */
+    toolWaitMs?: number | ((entry: AcpEntry) => number | undefined);
+    cancelGraceMs?: number;
+    /** Told when a run on an agent host starts, so the core can read the agent's own settings in the background. Never awaited; a throw is ignored. */
+    onRunStart?: (entry: AcpEntry) => void;
+    issueRunToken?: (taskId: string, agentId: string) => RunToken;
+    /** Why a Contained run may not start (plain words), or undefined. Default: the Contained profile read-back (acp/contained.ts, cached for a minute). Tests replace it. */
+    containedGate?: (entry: AcpEntry) => Promise<string | undefined>;
+  };
 }
 
 /**
@@ -238,8 +282,8 @@ const CATALOG_WAIT_MS = 3000;
 const HOOK_DECIDED_MS = 60_000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
 const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
-/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state, the project list and app-settings.json (the desktop's own switches). */
-const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'app-settings.json']);
+/** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state, the project list and app-settings.json (the desktop's own switches) and the agent host's pid list. */
+const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'app-settings.json', 'acp-pids.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
 const WEB_BATCH_MS = 10;
 type Decision = { allow: boolean; message?: string };
@@ -278,14 +322,16 @@ function realish(p: string): string {
 }
 
 /**
- * True when `target` is `dir` or inside it, compared as written and after symlinks are resolved. Always compared
+ * True when `target` is `dir` or inside it, compared as written, after symlinks are resolved and in the canonical Windows spelling. Always compared
  * without case: Windows and macOS file systems usually ignore case, and for a deny guard a false match on Linux only
  * blocks a path that differs from a protected one by case, which is harmless.
  */
 export function pathInside(dir: string, target: string): boolean {
   const fold = (x: string): string => x.toLowerCase();
   const inside = (d: string, t: string): boolean => { const a = fold(resolve(d)); const b = fold(resolve(t)); return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep); };
-  return inside(dir, target) || inside(realish(dir), realish(target));
+  // Windows ignores trailing dots and spaces in a name and accepts long-path, device and admin-share spellings: the canonical form (the one the shell and
+  // file-tool guards compare) folds them, so `gates.\x` is `gates\x` here too. A fold only ever adds a match.
+  return inside(dir, target) || inside(realish(dir), realish(target)) || hitsCanonical(canonicalLocal(target), [canonicalLocal(dir)]);
 }
 
 export class EngineError extends Error {
@@ -471,6 +517,10 @@ interface Active {
   heldBackNoted?: boolean;
   /** The held-back folder settings were written to the activity log (once per run). */
   folderTrustNoted?: boolean;
+  /** An agent host run (Hermes): the session and the process Legion started for it. Cancel ends both. */
+  acp?: { session: AcpSession; proc: AgentProcess };
+  /** The agent's process while its session is still opening, so a cancel in that time can end it. */
+  acpProc?: AgentProcess;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -513,8 +563,10 @@ export class Engine {
   private readonly bgGraceMs: number;
   private readonly bgMaxHeldMs: number;
   private readonly bgNow: () => number;
+  private readonly agentHost?: EngineDeps['agentHost'];
 
   constructor(deps: EngineDeps) {
+    this.agentHost = deps.agentHost;
     this.accountCheckMs = Math.max(1, deps.accountCheckMs ?? 20_000);
     this.bgStallMs = Math.max(1, deps.background?.stallMs ?? BG_STALL_MS);
     this.bgGraceMs = Math.max(1, deps.background?.graceMs ?? BG_GRACE_MS);
@@ -567,8 +619,8 @@ export class Engine {
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
     // A token client (MCP, curl) never moves a run between Claude and a provider, or between providers: that decides where the owner's data goes.
-    if (p.source === 'mcp' && p.model && (providerPrefix(p.model) || providerPrefix(agent.model)) && p.model !== agent.model) {
-      throw new EngineError('Provider models can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
+    if (p.source === 'mcp' && p.model && (runtimeOf(p.model) !== 'claude' || runtimeOf(agent.model) !== 'claude') && p.model !== agent.model) {
+      throw new EngineError('Provider models and agent hosts can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
     }
     const overriding = !!p.modelOverrideBy && !!p.model;
     if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
@@ -794,7 +846,10 @@ export class Engine {
     // the caller's RESOLVED mode for that task (agent mode, preset, project cap), never its stored mode: a caller the resolver holds at Ask hands out Ask
     let ceiling: RunMode = this.runModeOf(p.bridge.fromAgentId, p.bridge.parentTaskId) ?? 'ask';
     if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
-    const tainted = !!callerTask?.origin?.tainted || (!!p.bridge.parentTaskId && this.isTainted(p.bridge.parentTaskId));
+    // An agent host agent acts where Legion cannot see, so what it starts is held at Ask and counts as touched by outside content, whatever mode the agent is set to
+    const fromHost = runtimeOf(callerTask?.model) === 'acp' || runtimeOf(this.store.getAgent(p.bridge.fromAgentId)?.model) === 'acp';
+    if (fromHost) ceiling = stricterMode(ceiling, 'ask');
+    const tainted = fromHost || !!callerTask?.origin?.tainted || (!!p.bridge.parentTaskId && this.isTainted(p.bridge.parentTaskId));
     // the client flag travels down the chain: MCP client -> A -> (ask/tell) -> B is still a client-started chain (strictest wins, never cleared)
     const viaMcpClient = callerTask?.origin?.viaMcpClient === true;
     return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling, ...(tainted ? { tainted: true } : {}), ...(viaMcpClient ? { viaMcpClient: true } : {}) };
@@ -834,6 +889,11 @@ export class Engine {
     try { this.bridge.cancelFor(taskId); } catch { /* ignore */ }
     try { a.ac.abort(); } catch { /* ignore */ }
     try { void a.q?.interrupt?.()?.catch?.(() => undefined); } catch { /* ignore */ }
+    // an agent host run: tell the agent to stop, then end its process (the prompt stays open on the wire otherwise)
+    const host = a.acp;
+    // (one turn of the event loop between: the open requests are answered `cancelled` on the wire first, as the protocol requires)
+    if (host) void host.session.cancel().catch(() => undefined).then(() => new Promise<void>((r) => setImmediate(r))).then(() => host.proc.stop()).catch(() => undefined);
+    else if (a.acpProc) void a.acpProc.stop().catch(() => undefined); // still starting: nothing to cancel on the wire, the process just ends
     return true;
   }
 
@@ -1205,13 +1265,13 @@ export class Engine {
     if (slashNo) throw new EngineError(slashNo, 400);
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
-    const provAgent = providerPrefix(agent.model);
-    if (picked && provAgent && decision.model !== agent.model) {
-      // a bot's pick never moves a provider agent to another model or to Claude (that would send the owner's data somewhere else)
-      decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own provider setting` };
-    } else if (picked && !provAgent && providerPrefix(decision.model)) {
+    const offClaudeAgent = runtimeOf(agent.model) !== 'claude';
+    if (picked && offClaudeAgent && decision.model !== agent.model) {
+      // a bot's pick never moves a provider or agent host agent to another model or to Claude (that would send the owner's data somewhere else)
+      decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own model setting` };
+    } else if (picked && !offClaudeAgent && runtimeOf(decision.model) !== 'claude') {
       const own = rankModel(modelRank(agent.model));
-      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot pick a provider; using ${own}` };
+      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot ${runtimeOf(decision.model) === 'acp' ? 'move it off Claude' : 'pick a provider'}; using ${own}` };
     } else if (picked && modelRank(decision.model) > modelRank(agent.model)) {
       const capped = rankModel(modelRank(agent.model));
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
@@ -1267,16 +1327,22 @@ export class Engine {
       // Read by people (the app) and by callers without a button (MCP clients, other bots), so it names no button.
       // A provider run says how far it got ("Stopped after N model turns ...", providers/tool-loop.ts): the same pause,
       // with that run's own limit; a Claude run's stop carries no text and its limit is claude.maxTurns.
-      const providerStop = /^Stopped after (\d+) model turns/.exec(outcome.errorText ?? '');
+      const providerStop = /^Stopped after (\d+) (model turns|Hermes steps)/.exec(outcome.errorText ?? '');
+      const stopUnit = providerStop?.[2] === 'Hermes steps' ? 'steps' : 'turns';
+      const tokenStop = tokenStopFromError(outcome.errorText);
       const turnLimit = outcome.subtype === 'error_max_turns' && (!outcome.errorText || !!providerStop);
       const limitTurns = providerStop ? Number(providerStop[1]) : this.config.claude.maxTurns;
       // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
-      const budgetLimit = outcome.subtype === 'error_max_budget_usd';
+      // A Hermes token-limit stop has its own words: Hermes reports tokens, never money, so the spend-limit wording would be false for it.
+      const tokenLimit = outcome.subtype === 'error_max_budget_usd' && tokenStop !== undefined;
+      const budgetLimit = outcome.subtype === 'error_max_budget_usd' && tokenStop === undefined;
       // the cap this run really had: a brief's budget when it lowered the owner's (Fascia 3b)
       const cap = this.perRunBudget(job);
       const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
-      const text = turnLimit
-        ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
+      const text = tokenLimit
+        ? `${TOKEN_LIMIT_PREFIX} (${tokenStop!} tokens this task) before finishing. The work so far is kept. To go on, raise the token limit in the config file (the Doctor shows where it is), restart Legion, then continue the task.`
+        : turnLimit
+        ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
         : budgetLimit
           ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
           : outcome.errorText || outcome.subtype;
@@ -1285,9 +1351,10 @@ export class Engine {
       const shown = why ? `${why}\n\nClaude said: ${text}` : text;
       this.patchTask(job.taskId, { status: 'error', error: shown, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
+      this.addMessage(job.taskId, 'system', tokenLimit ? `${TOKEN_LIMIT_PREFIX} (${tokenStop!} tokens this task).` : turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${why ?? text}`);
       // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
+      else if (tokenLimit) this.mascot('idle', 'paused at the token limit');
       else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
       else this.mascot('error', text.slice(0, 120));
     } else {
@@ -1300,7 +1367,7 @@ export class Engine {
   /** Read-only: the MCP servers the latest run saw and their state (Settings -> MCP). */
   mcpStatus(): McpStatusView { return this.mcpTracker.view(this.config); }
 
-  private buildMcpServers(agent: AgentProfile, job: Job, act: Active, runtime: 'claude' | 'provider' = 'claude'): Record<string, McpServerConfig> {
+  private buildMcpServers(agent: AgentProfile, job: Job, act: Active, runtime: 'claude' | 'provider' | 'acp' = 'claude'): Record<string, McpServerConfig> {
     const taskId = job.taskId;
     const project = this.projectOf(taskId, agent.id);
     const pid = project?.id;
@@ -1323,6 +1390,7 @@ export class Engine {
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge, questions: this.questions,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
+      ...(runtime !== 'claude' ? { honourAbort: true } : {}), // a Claude run keeps its behaviour
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
       // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
       // a provider change is handed over to the next Claude run of this conversation (its own list is behind)
@@ -2341,6 +2409,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   runModeOf(agentId: string, taskId?: string): RunMode | undefined {
     const agent = this.store.getAgent(agentId);
     if (!agent) return undefined;
+    // Legion cannot see what an agent host agent does, so the modes it hands on (a room it wakes, an agent it asks) never exceed Ask
+    if (runtimeOf(agent.model) === 'acp') return 'ask';
     // the run's own start project (running, else queued); only a task the engine does not know falls back to its live project
     const src = taskId ? (this.active.get(taskId) ?? this.queue.find((j) => j.taskId === taskId)) : undefined;
     const startProjectId = src ? startProjectOf(src) : taskId ? this.projectOf(taskId, agentId)?.id : undefined;
@@ -2818,7 +2888,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     // A Claude task's real context is Claude Code's own session, not the rows stored here. Legion's summariser would only
     // add a summary row Claude never reads, so this hands the job to Claude Code's built-in /compact in that session.
     const agentModel = this.store.getAgent(task.agentId)?.model;
-    if (!task.provider && !providerPrefix(model) && !providerPrefix(agentModel)) {
+    // An agent host (Hermes) keeps its own context; Legion has no summariser or /compact for it.
+    if (runtimeOf(model) === 'acp' || runtimeOf(agentModel) === 'acp') return { ok: false, detail: 'Compacting is not supported for this agent.' };
+    if (!task.provider && runtimeOf(model) === 'claude' && runtimeOf(agentModel) === 'claude') {
       if (!task.sessionId) return { ok: false, detail: 'There is nothing to compact yet. Send a message first, then compact.' };
       const f = focus?.trim();
       try {
@@ -2861,6 +2933,410 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ok: true,
       detail: `Compacted ${before} to about ${after} estimated tokens.${lost}`,
     };
+  }
+
+  /**
+   * A run on an agent host that cannot start: no host setup in this core, an entry nobody set up, or one switched off. Never falls back to
+   * Claude or a provider.
+   */
+  private runAgentHost(model: string, entry?: AcpEntry): Outcome {
+    const entryId = parseAcpModel(model)?.entryId;
+    // One sentence for "Hermes is off": the entry-missing case used to carry its own copy and drifted into a claim that is false after 0.3.8.
+    const hermesOff = 'Hermes is off. Turn on "Offer Hermes" in Settings, Agent hosts, or choose another model for this agent.';
+    const text = !entry
+      ? entryId === 'hermes'
+        ? hermesOff
+        : `The agent host "${entryId ?? model.slice('acp:'.length)}" is not set up. Choose another model for this agent in Settings.`
+      : !entry.enabled
+        ? (entry.id === 'hermes' ? hermesOff : `${entry.label} is switched off in Settings. Choose another model for this agent.`)
+        : 'This Legion cannot run Hermes agents yet. Update Legion, or choose another model for this agent.';
+    return { subtype: 'error_during_execution', isError: true, errorText: text };
+  }
+
+  // ---------------------------------------------------------------- agent host (ACP) runs
+
+  /** The folder an agent host run works in: the project's folder, else the agent's own, else its default workspace. */
+  private acpFolder(job: Job, agent: AgentProfile): string {
+    return this.projectOf(job.taskId, agent.id)?.folder || agent.cwd || join(this.config.workspaceDir, agent.id);
+  }
+
+  /** The folders an agent host run may never work in or above: Legion's data folder and protected files, and the agent's own home. */
+  private acpOffLimits(entry: AcpEntry): string[] {
+    const host = this.agentHost;
+    return [...this.protectedDirs(), ...(host ? [host.dataDir] : []), ...hermesHomes(entry, host?.hermesHome)];
+  }
+
+  /** The shells a command of an agent host may be written for on this computer. */
+  private acpShellKinds(): ShellKind[] { return process.platform === 'win32' ? ['sh', 'cmd', 'pwsh'] : ['sh']; }
+
+  /** The data folder guard's reading of a command against some targets. One seam for the three checks below, so a reader that fails is one thing to handle. */
+  private acpFolderRead(command: string, kind: ShellKind, targets: string[], folder: string): ReturnType<typeof dataFolderRead>['hit'] {
+    return dataFolderRead(command, kind, targets, { cwd: folder }).hit;
+  }
+
+  /**
+   * What a request names of Legion's protected files and folders, or of the agent's own home, in words ("Legion's own settings: gates"), and
+   * why Legion could not read what it names (`unreadable`). Every path of a request is checked (a multi-file patch holds several), a command is
+   * read by the data folder guard (paths resolved from the agent's folder), never by a word it merely shares with a folder name. A reader that
+   * fails, or a path that cannot be read, is `unreadable`: the caller treats it like a hit, never like a miss.
+   * Display only, except in Bypass, where either turns the answer into a card.
+   */
+  private acpTouches(folder: string, entry: AcpEntry, r: MappedPermission): { settings?: string; unreadable?: string } {
+    const command = typeof r.input.command === 'string' ? r.input.command : '';
+    const readable = command.length > 0 && command.length <= MAX_READABLE;
+    const found = requestPaths(r);
+    let unreadable = found.unreadable;
+    // the agent opens a path from its own folder, and `~` in its home folder: both are expanded here before the compare
+    const opened: string[] = [];
+    for (const p of found.paths) { const x = expandRequestPath(p, folder); if (x === undefined) unreadable ??= "a file in it is named through another user's home folder"; else opened.push(x); }
+    if (r.toolName === 'Bash' && typeof r.input.command !== 'string') unreadable ??= 'its command is not text';
+    const own = new Set(hermesHomes(entry, this.agentHost?.hermesHome));
+    const kinds = this.acpShellKinds();
+    for (const t of this.acpOffLimits(entry)) {
+      const name = basename(t);
+      if (!name) continue;
+      let hit = false;
+      try {
+        hit = opened.some((p) => pathInside(t, p));
+        // the whole path in the text is a cheap, exact test, so it runs on a command of any length; the guard reads only one it can hold
+        if (!hit && command) hit = commandNamesPath(command, t) || (readable && kinds.some((k) => this.acpFolderRead(command, k, [t], folder) === 'names'));
+      } catch { unreadable ??= 'the check itself failed'; }
+      if (hit) return { settings: `${own.has(t) ? `${entry.label}'s` : "Legion's"} own settings: ${name}`, ...(unreadable ? { unreadable } : {}) };
+    }
+    return unreadable ? { unreadable } : {};
+  }
+
+  /** Why a command must never run, when the owner turned the disaster stop on: a whole drive or home folder, hidden code, or Legion's own settings folder. */
+  private acpDisaster(folder: string, entry: AcpEntry, r: MappedPermission): string | undefined {
+    const command = typeof r.input.command === 'string' ? r.input.command : '';
+    if (r.toolName !== 'Bash' || !command || command.length > MAX_READABLE) return undefined;
+    const kinds = this.acpShellKinds();
+    try {
+      for (const kind of kinds) { const refused = refuseCatastrophic(command, kind); if (refused) return refused; }
+      const folders = [...this.protectedDirs(), ...(this.agentHost ? [this.agentHost.dataDir] : [])];
+      for (const kind of kinds) if (this.acpFolderRead(command, kind, folders, folder) === 'names') return "It works on Legion's own settings folder.";
+    } catch { return 'The check itself failed.'; }
+    return undefined;
+  }
+
+  /** Why Legion cannot judge a command (too long, a program or a path only known when it runs), or undefined when it can. The floor above cannot refuse such a command, so Bypass must ask. */
+  private acpUnjudged(folder: string, r: MappedPermission): string | undefined {
+    const command = typeof r.input.command === 'string' ? r.input.command : '';
+    if (r.toolName !== 'Bash' || !command) return undefined;
+    if (command.length > MAX_READABLE) return `it is too long to read safely (${command.length.toLocaleString('en-US')} characters)`;
+    const kinds = this.acpShellKinds();
+    try {
+      for (const kind of kinds) { const why = unjudgeableCommand(command, kind); if (why) return why; }
+      const folders = [...this.protectedDirs(), ...(this.agentHost ? [this.agentHost.dataDir] : [])];
+      for (const kind of kinds) if (this.acpFolderRead(command, kind, folders, folder) === 'hidden') return "a path in it is built when it runs and could point at Legion's own settings folder";
+    } catch { return 'the check itself failed'; }
+    return undefined;
+  }
+
+  /** The mode Legion maps for this entry. An entry that is not tested with Legion never runs Full, so it never gets dont_ask or Bypass. */
+  private acpModeNow(job: Job, agent: AgentProfile, entry: AcpEntry): RunMode {
+    const mode = this.modeNow(job, agent);
+    return mode === 'full' && !entryLimits(entry).fullAllowed ? 'ask' : mode;
+  }
+
+  /** Bypass: the owner's preset turned the tool cards off and nothing caps the run. Full alone is not enough; its commands still card. */
+  private acpBypass(job: Job, agent: AgentProfile, entry: AcpEntry): boolean {
+    return this.acpModeNow(job, agent, entry) === 'full' && !job.origin?.approvalCeiling && this.gates?.gate('tool-cards', startProjectOf(job)) === false;
+  }
+
+  /**
+   * Does the request match one of the owner's Block rules (Settings, Gates)? The request is read as the Claude-style call it maps to, and every file an edit
+   * names (a multi-file patch holds several) is read as a call of its own. Only a Block rule applies: Ask and Allow rules never answer for Hermes.
+   */
+  private acpBlocked(job: Job, agent: AgentProfile, folder: string, r: MappedPermission): boolean {
+    const rules = gatesFor(this.config).rules;
+    if (!rules.some((x) => x.enabled && x.then === 'deny')) return false;
+    const base = { toolName: r.toolName, agentId: agent.id, cwd: folder, tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: startProjectOf(job), ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } };
+    const calls: Array<Record<string, unknown>> = [r.input];
+    if (r.toolName !== 'Bash') {
+      for (const p of requestPaths(r).paths) {
+        calls.push({ ...r.input, file_path: p });
+        const x = expandRequestPath(p, folder); // the file the agent will open: `~` and a relative path are read as the agent reads them
+        if (x !== undefined && x !== p) calls.push({ ...r.input, file_path: x });
+      }
+    }
+    try { return calls.some((input) => decideGate({ ...base, input }, rules, 'full', false).verdict === 'deny'); } catch { return true; } // a rule check that cannot run refuses, it never allows
+  }
+
+  /**
+   * One Hermes permission request. Gating happens here and only here (tool_call updates are display and taint only). Order: the disaster stop
+   * (no card, in every mode), Bypass (allow once, no card, unless the request touches Legion's settings or Legion cannot judge it), then one card
+   * with the agent's own options. A no sends the agent's own reject option; `cancelled` is for Legion's own cancel and for a card that closed with no answer.
+   */
+  private async acpPermission(job: Job, agent: AgentProfile, entry: AcpEntry, folder: string, r: MappedPermission): Promise<{ optionId: string } | { cancelled: true }> {
+    const sw = this.config.acp?.switches;
+    const reject = r.options.find((o) => o.kind === 'reject_once');
+    const no = (): { optionId: string } | { cancelled: true } => (reject ? { optionId: reject.optionId } : { cancelled: true });
+    // The owner's Block rules come first, in every mode and whatever the switches say: they are the owner's own explicit deny list
+    if (this.acpBlocked(job, agent, folder, r)) { this.addMessage(job.taskId, 'system', named(blockedNote(), entry.label)); return no(); }
+    const why = sw?.disasterStop ? this.acpDisaster(folder, entry, r) : undefined;
+    if (why) { this.addMessage(job.taskId, 'system', named(disasterNote(why), entry.label)); return no(); }
+    const { settings, unreadable } = this.acpTouches(folder, entry, r);
+    let unjudged: string | undefined;
+    const bypass = sw?.modeMap === true && this.acpBypass(job, agent, entry);
+    if (bypass) {
+      // Bypass promises no cards except for the owner's settings. A request that touches them, or whose files Legion cannot read, always asks (the
+      // disaster stop switch does not matter). A command Legion cannot judge asks only when the owner turned the disaster stop on.
+      unjudged = !settings && !unreadable && sw.disasterStop ? this.acpUnjudged(folder, r) : undefined;
+      const once = r.options.find((o) => o.kind === 'allow_once');
+      if (once && !settings && !unreadable && !unjudged) return { optionId: once.optionId };
+    }
+    let shown = sw?.answerOnce ? r.options.filter((o) => o.kind !== 'allow_always') : r.options;
+    // The owner is never asked to allow text the card cannot show: past the card's limit only the no options stay, and the card says so.
+    const hidden = cardHidden(r);
+    if (hidden > 0) shown = shown.filter((o) => o.kind !== 'allow_once' && o.kind !== 'allow_always');
+    if (shown.length === 0) return no();
+    const o = job.origin;
+    const projectId = this.projectOf(job.taskId, agent.id)?.id;
+    const lead = [...(settings ? [`This touches ${settings}`] : []), ...(bypass && unreadable ? [`Legion cannot tell which files this touches: ${unreadable}. So it asks you, even in Bypass.`] : []), ...(unjudged ? [`Legion cannot tell what this command will do: ${unjudged}. So it asks you, even in Bypass.`] : []), ...(hidden > 0 ? ['This is too long to show in full, so you can only say no.'] : [])];
+    const answer = await this.approvals.requestAcp(job.taskId, agent.id, {
+      toolName: r.toolName, title: r.title, summary: cardSummary(r, lead), input: r.input, options: shown, label: entry.label,
+      waitMs: permissionWaitOf(this.agentHost?.permissionWaitMs, entry),
+      ...(o ? { origin: { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } } : {}), ...(projectId ? { projectId } : {}),
+    });
+    if (answer.kind === 'option') return { optionId: answer.optionId };
+    return answer.kind === 'denied' ? no() : { cancelled: true };
+  }
+
+  /** Legion's tools for one run, handed to the run key. A tool call waits at most as long as the agent host does, card time included. */
+  private acpRunHost(job: Job, agent: AgentProfile, act: Active, entry: AcpEntry): RunToolsHost {
+    const taskId = job.taskId;
+    const servers: RunToolsHost['servers'] = {};
+    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act, 'acp'))) if (cfg.type === 'sdk') servers[name] = cfg;
+    const decide = this.toolDecider(job, agent);
+    const waitMs = toolWaitOf(this.agentHost?.toolWaitMs, entry);
+    return {
+      servers, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
+      // the deadline is this call's own; a card it raises closes at the deadline, or at once when the agent host cancels this one call
+      authorize: async (name, input, signal) => {
+        const d = await this.approvals.withDeadline(taskId, Date.now() + waitMs, () => decide(name, input), signal);
+        return signal?.aborted ? { allow: false, message: 'The agent cancelled this call, so it was not run.' } : d;
+      },
+      noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
+      onToolCall: (name, id, input) => {
+        let json: string;
+        try { json = JSON.stringify(input ?? {}); } catch { json = '{}'; }
+        if (json.length > 500) json = json.slice(0, 499) + '…';
+        this.addMessage(taskId, 'tool', json, name, undefined, { toolUseId: id });
+        this.mascot('hacking', name);
+      },
+      onToolResult: (id, text) => { if (text.trim()) this.addMessage(taskId, 'tool', clipToolResult(text), undefined, undefined, { resultFor: id }); },
+      onNotice: (text) => { this.addMessage(taskId, 'system', text); },
+    };
+  }
+
+  /** The text of an error with the registered secrets taken out, before it reaches a task, a thread or a log. */
+  private redactText(text: string): string {
+    return redactValues(logRedact(text), [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? []), ...(this.webSearch?.secretValues() ?? [])]);
+  }
+
+  /** The words about Hermes's tool list, when an error says it refused the list Legion sent. */
+  private acpPolicyOf(e: unknown): string | undefined {
+    if (e instanceof AcpRefusal) return toolPolicyText(e.message);
+    const raw = e instanceof Error ? e.message : String(e);
+    return toolPolicyText(`${raw} ${e instanceof RpcError ? JSON.stringify(e.data ?? '') : ''}`);
+  }
+
+  /** What went wrong, in words a person reads. The agent's raw text is not the headline, and it never goes out unredacted or with a local path in it (the task error is read by outside clients). The full text goes to the log. */
+  private acpFailText(e: unknown, proc: AgentProcess | undefined, entry: AcpEntry): string {
+    const N = (t: string): string => named(t, entry.label);
+    const shown = (t: string): string => stripPaths(this.redactText(t));
+    if (!(e instanceof AcpRefusal)) console.error(`[${entry.id}] run failed: ${this.redactText(e instanceof Error ? e.message : String(e)).slice(0, 2000)}${proc?.stderrTail ? ` | stderr: ${this.redactText(proc.stderrTail().trim().split('\n').slice(-3).join(' / ')).slice(0, 600)}` : ''}`);
+    if (e instanceof AcpRefusal) return N(toolPolicyText(e.message) ?? refusalText(e.reason));
+    if (e instanceof AgentLaunchError) return e.code === 'not-found' ? N('Hermes was not found on your computer. Install it, or check its command in Settings, Agent hosts.') : `${N('Hermes could not be started.')} ${shown(e.message)}`.slice(0, 300);
+    const policy = this.acpPolicyOf(e);
+    if (policy) return N(policy);
+    const raw = e instanceof Error ? e.message : String(e);
+    const state = sessionStateText(`${raw} ${e instanceof RpcError ? JSON.stringify(e.data ?? '') : ''}`);
+    if (state) return N(state);
+    if (e instanceof RpcClosed) {
+      const last = (proc?.stderrTail() ?? '').trim().split('\n').pop()?.trim();
+      return `${N('Hermes stopped before it finished.')}${last ? ` It said: ${shown(last).slice(0, 200)}` : ''}`;
+    }
+    // Hermes answers "Internal error" and says the real reason only on stderr: with external logins off it has no credential to use
+    if (/\bauth add\b|ProviderNotConfigured/i.test(proc?.stderrTail() ?? '')) return N('Hermes has no sign-in it can use. Sign in once in a terminal (Settings, Agent hosts shows the command), then try again.');
+    return `${N('Hermes failed.')} ${shown(raw).slice(0, 300)}`;
+  }
+
+  /**
+   * One run on an agent host (Hermes). The run is tainted from the start: the agent reads the web and runs commands where Legion cannot see.
+   * The run key is issued inside the try whose finally revokes it and ends the process, so no exit path leaves either behind.
+   */
+  private async runAcp(job: Job, agent: AgentProfile, entry: AcpEntry, prompt: string, act: Active, modelId?: string): Promise<Outcome> {
+    const host = this.agentHost!;
+    const taskId = job.taskId;
+    const fail = (errorText: string): Outcome => ({ subtype: 'error_during_execution', isError: true, errorText });
+    const say = (text: string): string => named(text, entry.label); // the fixed texts name Hermes; another agent host is named by its entry
+    const sw = this.config.acp?.switches;
+    act.tainted = true;
+    this.patchTask(taskId, { runtime: entry.label, tainted: true });
+    act.progress = { startedAt: nowIso(), turn: 0, maxTurns: 0, tool: null, turnIds: new Set(), thinking: false };
+    this.emitProgress(taskId, act);
+    let token: RunToken | undefined;
+    let proc = undefined as AgentProcess | undefined;
+    try { host.onRunStart?.(entry); } catch { /* a warm-up must never stop a run */ }
+    try {
+      const folder = this.acpFolder(job, agent);
+      const off = this.acpOffLimits(entry);
+      // the long-path, device and NT object spellings name the same folder as the plain one: the rule reads the plain spelling, and a spelling it cannot read is refused
+      const plain = process.platform === 'win32' ? plainWindowsPath(folder) : folder;
+      if (plain === undefined || isAdminShare(plain) || off.some((t) => pathInside(t, plain) || pathInside(plain, t))) return fail(say(HERMES_CWD_TEXT));
+      mkdirSync(folder, { recursive: true });
+      // Continue on a task whose token limit is still reached: another turn would stop at once, so none is started. The card says so, in the same
+      // words every time, with no note per press. It runs before anything that asks the owner or starts a process, so a run that cannot start never shows a card.
+      const used = this.store.getTask(taskId)?.tokenUsage;
+      const spent = (used?.inputTokens ?? 0) + (used?.outputTokens ?? 0);
+      if (entry.maxTokensPerTask !== undefined && spent >= entry.maxTokensPerTask) {
+        // runOnce cleared resumable when this run started, so the guard puts it back: the stored session is what makes
+        // Continue work once the limit is higher. Only the per-press note is gone.
+        this.patchTask(taskId, { resumable: true });
+        return { subtype: 'error_max_budget_usd', isError: true, errorText: tokenStopText(spent) };
+      }
+      // the Contained promise must hold when the run starts, not only when the owner set the profile up
+      if (entry.contained) {
+        const keepNames = this.scrubFor(job).keep ?? [];
+        const block = await (host.containedGate ?? ((e: AcpEntry) => containedRunBlock(e, { envKeep: () => keepNames })))(entry);
+        if (act.cancelled) return { subtype: 'cancelled', isError: false };
+        if (block) return fail(this.redactText(block).slice(0, 700));
+      }
+      // Another agent, a room or an outside app started this run and it is capped or tainted: the owner says yes before Hermes gets it
+      const from = job.origin;
+      if (from && (from.approvalCeiling !== 'full' || from.tainted)) {
+        const allowed = await this.approvals.request(taskId, agent.id, entry.label, { agent: agent.name }, { roomId: from.roomId, fromAgentId: from.fromAgentId, hop: from.hop }, {
+          noRemember: true,
+          summary: `Another agent or app asked ${entry.label} to work for you. ${entry.label} runs commands and changes files on your computer with its own tools, and Legion cannot see most of what it does. Allow it only if you expect this.`,
+        });
+        if (!allowed || act.cancelled) return act.cancelled ? { subtype: 'cancelled', isError: false } : fail(say(HERMES_NOT_ALLOWED_TEXT));
+      }
+      // an entry that is not tested never runs Full or Bypass: said once, here, so the owner knows why it asks
+      if (sw?.modeMap && !entryLimits(entry).fullAllowed && this.modeNow(job, agent) === 'full') this.addMessage(taskId, 'system', say(HERMES_UNTESTED_TEXT));
+      const mcpServers: AcpStdioServer[] = [];
+      if (entryLimits(entry).legionTools) {
+        token = host.issueRunToken ? host.issueRunToken(taskId, agent.id) : issueRunToken(taskId, agent.id);
+        token.bind(this.acpRunHost(job, agent, act, entry));
+        mcpServers.push(shimServer(token.token, host.port));
+      }
+      const stored = this.store.getTask(taskId)?.acp;
+      const watchdogMs = host.watchdogMs ?? (this.config.acp?.watchdogMinutes ?? 10) * 60_000;
+      const scrub = this.scrubFor(job);
+      const start = async (resumeId: string | undefined): Promise<AcpSession> => {
+        proc = startAgentProcess(entry, { cwd: folder, stripSkipFlags: sw?.stripSkipFlags === true, dataDir: host.dataDir, envKeep: scrub.keep ?? [], ...(scrub.scrub === false ? { scrub: false } : {}) });
+        act.acpProc = proc;
+        return AcpSession.open(proc, {
+          cwd: folder, mcpServers, watchdogMs, ...(host.cancelGraceMs !== undefined ? { cancelGraceMs: host.cancelGraceMs } : {}),
+          ...(resumeId !== undefined ? { resumeId, ...(stored?.cumulative ? { usageBaseline: stored.cumulative } : {}) } : {}),
+          ...(modelId ? { modelId } : {}), ...(sw?.modeMap ? { mode: agentModeFor(this.acpModeNow(job, agent, entry)) } : {}),
+        }).catch((err: unknown) => {
+          // the Doctor says what to do about a missing sign-in when it has seen one
+          if (err instanceof AcpRefusal && err.reason === 'auth') noteAuthFailure(entry.id);
+          throw err;
+        });
+      };
+      const resumeId = stored && stored.entryId === entry.id ? stored.sessionId : undefined;
+      let session: AcpSession;
+      let fresh = resumeId === undefined;
+      try {
+        session = await start(resumeId);
+      } catch (e) {
+        if (resumeId === undefined || act.cancelled) throw e;
+        // only a conversation the agent no longer has is let go. A passing failure (a slow start, a crash) and a refused tool list (Hermes needs an update, or is
+        // still holding the earlier list) keep it: the conversation exists and can be continued once that is put right
+        if (!(e instanceof AcpRefusal && e.reason === 'not-found')) throw e;
+        this.patchTask(taskId, { acp: undefined });
+        await proc?.stop();
+        this.addMessage(taskId, 'system', say(HERMES_SESSION_GONE_TEXT));
+        fresh = true;
+        session = await start(undefined);
+      }
+      act.acp = { session, proc: proc! };
+      act.reached = true;
+      noteAgentVersion(entry.id, session.agentVersion); // the Doctor shows the version of the Hermes that ran, and a session means it signed in
+      const sameSession = fresh ? undefined : stored;
+      // set as soon as the session is stored, like a Claude run: a pause at a limit, a stall or a crash after this point can be continued in the same Hermes conversation
+      this.patchTask(taskId, { resumable: true, acp: { entryId: entry.id, sessionId: session.sessionId, ...(sameSession?.cumulative ? { cumulative: sameSession.cumulative } : {}) } });
+      if (act.cancelled) return { subtype: 'cancelled', isError: false };
+
+      let said = '';
+      let steps = 0;
+      let overSteps = false;
+      const resulted = new Set<string>();
+      const cb: AcpCallbacks = {
+        onText: (d) => { said += d; this.bus.emit({ type: 'message.delta', taskId, text: d }); },
+        onThought: () => { if (act.progress && !act.progress.thinking) { act.progress.thinking = true; this.emitProgress(taskId, act); } },
+        onToolStart: (t) => {
+          if (isRouteTool(t.toolName)) return; // the Legion route wrote its own rows for this call
+          this.noteToolUse(job, act, t.toolName, t.toolCallId, t.input);
+          this.addMessage(taskId, 'tool', t.title, t.toolName, undefined, { toolUseId: t.toolCallId });
+          this.mascot('hacking', t.toolName);
+          if (act.progress) { act.progress.tool = t.toolName; act.progress.thinking = false; this.emitProgress(taskId, act); }
+          steps += 1;
+          if (entry.maxSteps !== undefined && steps > entry.maxSteps && !overSteps) { overSteps = true; void session.cancel().catch(() => undefined); }
+        },
+        onToolUpdate: (t) => {
+          if (isRouteTool(t.toolName) || resulted.has(t.toolCallId) || (t.status !== 'completed' && t.status !== 'failed')) return;
+          resulted.add(t.toolCallId);
+          if (t.text?.trim()) this.addMessage(taskId, 'tool', clipToolResult(t.text), undefined, undefined, { resultFor: t.toolCallId });
+        },
+        onPlan: (items) => { if (act.progress) { act.progress.todos = items; this.emitProgress(taskId, act); } },
+        onPermission: (r) => this.acpPermission(job, agent, entry, folder, r),
+        onUsage: () => undefined, // the turn's end carries the same figure
+        onNote: (text) => { this.addMessage(taskId, 'system', say(text)); },
+      };
+      const text = fresh && agent.systemPrompt.trim() ? `${agent.systemPrompt.trim()}\n\n${prompt}` : prompt;
+      let turn: AcpTurnEnd;
+      try { turn = await session.prompt(text, cb); }
+      catch (e) {
+        if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
+        return fail(this.acpFailText(e, proc, entry));
+      } finally {
+        if (act.progress?.thinking) { act.progress.thinking = false; this.emitProgress(taskId, act); }
+      }
+      if (said.trim()) this.addMessage(taskId, 'assistant', said);
+      if (act.cancelled) return { subtype: 'cancelled', isError: false };
+
+      // usage: the agent reports tokens, never a price
+      const cur = this.store.getTask(taskId);
+      const delta = turn.usage;
+      const cost = delta ? acpCostOf(entry, delta) : undefined;
+      const tokens = {
+        ...(delta ? { inputTokens: (cur?.tokenUsage?.inputTokens ?? 0) + delta.input, outputTokens: (cur?.tokenUsage?.outputTokens ?? 0) + delta.output } : (cur?.tokenUsage ?? {})),
+        ...(!delta || cur?.tokenUsage?.unknown ? { unknown: true as const } : {}),
+      };
+      const sid = session.sessionId;
+      this.patchTask(taskId, {
+        tokenUsage: tokens,
+        acp: { entryId: entry.id, sessionId: sid, ...(turn.cumulative ? { cumulative: turn.cumulative } : sameSession?.cumulative ? { cumulative: sameSession.cumulative } : {}) },
+        ...(cost !== undefined ? { costUsd: (cur?.costUsd ?? 0) + cost, costUnknown: undefined } : { costUnknown: true }),
+        ...(turn.stopReason === 'end_turn' && said.trim() ? { result: this.keepResult(taskId, said) } : {}),
+      });
+      if (cost !== undefined) this.noteSpend(taskId, cost);
+      if (turn.baselineUnknown) this.addMessage(taskId, 'system', say(HERMES_BASELINE_TEXT));
+
+      if (overSteps) return { subtype: 'error_max_turns', isError: true, errorText: `Stopped after ${entry.maxSteps} Hermes steps` };
+      const total = (tokens.inputTokens ?? 0) + (tokens.outputTokens ?? 0);
+      if (entry.maxTokensPerTask !== undefined && total >= entry.maxTokensPerTask) return { subtype: 'error_max_budget_usd', isError: true, errorText: tokenStopText(total) };
+      switch (turn.stopReason) {
+        case 'end_turn': return { subtype: 'success', isError: false };
+        case 'max_turn_requests': return { subtype: 'error_max_turns', isError: true, errorText: `Stopped after ${Math.max(1, steps)} Hermes steps` };
+        case 'cancelled': act.cancelled = true; this.markCancelled(taskId); return { subtype: 'cancelled', isError: false };
+        case 'watchdog': return fail(say(HERMES_WATCHDOG_TEXT));
+        case 'max_tokens': return fail(say(HERMES_MAX_TOKENS_TEXT));
+        default: return fail(say(HERMES_REFUSED_TEXT));
+      }
+    } catch (e) {
+      if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
+      return fail(this.acpFailText(e, proc, entry));
+    } finally {
+      act.acp = undefined;
+      act.acpProc = undefined;
+      token?.revoke();
+      try { await proc?.stop(); } catch { /* the process is gone or will be killed with the core */ }
+    }
   }
 
   /** One run on a non-Claude provider (the seam into src/core/providers). Never falls back to Claude: a failure is the task's error. */
@@ -2960,6 +3436,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
+    // An agent host value is never a provider and never Claude: it is decided before either is asked.
+    if (runtimeOf(model) === 'acp') {
+      const parsed = parseAcpModel(model);
+      const entry = parsed ? acpEntry(this.config, parsed.entryId) : undefined;
+      // A core with no agent host cannot start one however the entry is set: name that cause, never the "Offer Hermes" switch (turning it on would not help).
+      if (!this.agentHost) return { subtype: 'error_during_execution', isError: true, errorText: 'This Legion has no agent host to run this model on. Update Legion, or choose another model for this agent.' };
+      if (!parsed || !entry || !entry.enabled) return this.runAgentHost(model, entry);
+      return this.runAcp(job, agent, entry, prompt, act, parsed.modelId);
+    }
     const pr = this.providers?.resolve(model);
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
     // Never the Claude path: a `<id>:<model>` value whose provider resolves to nothing (no provider runtime at all,

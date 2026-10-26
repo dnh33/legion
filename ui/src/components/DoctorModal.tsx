@@ -5,6 +5,7 @@ import { openSettings, runDoctor, useStore, type SettingsSection } from '../stor
 import { copyText } from '../util';
 import { Icon } from './icons';
 import { Modal } from './Modal';
+import { checkKind } from '../doctorLogic';
 
 /** Checks whose fix is a sentence that points at a Settings page: it is shown as text with a button there, not as a command to copy. */
 const SETTINGS_FIX: Record<string, SettingsSection> = { 'provider-keys': 'providers' };
@@ -18,21 +19,22 @@ export function DoctorModal() {
   const boat = useStore((s) => s.boatConfigured);
   const isOptional = (c: { id: string; ok: boolean; detail: string }) => c.id === 'boat' && (!boat || /not configured/i.test(c.detail));
   const bad = checks?.filter((c) => !c.ok && !isOptional(c)).length ?? 0;
+  const warn = checks?.filter((c) => checkKind(c, isOptional(c)) === 'warn').length ?? 0;
   const optional = checks?.filter(isOptional).length ?? 0;
   return (
     <Modal title="Doctor" width={600}
-      footer={<><span className="muted-s">{loading ? 'Checking…' : checks ? (bad ? `${bad} ${bad === 1 ? 'needs' : 'need'} attention` : (optional ? 'All required checks passed' : 'All checks passed')) : ''}</span><span className="spacer" /><button className="btn-ghost" onClick={() => openSettings()}>Open Settings</button><button className="btn" onClick={() => void runDoctor()} disabled={loading}>Re-run checks</button></>}>
+      footer={<><span className="muted-s">{loading ? 'Checking…' : checks ? (bad ? `${bad} ${bad === 1 ? 'needs' : 'need'} attention` : warn ? `${warn} ${warn === 1 ? 'is' : 'are'} worth a look` : (optional ? 'All required checks passed' : 'All checks passed')) : ''}</span><span className="spacer" /><button className="btn-ghost" onClick={() => openSettings()}>Open Settings</button><button className="btn" onClick={() => void runDoctor(true)} disabled={loading}>Re-run checks</button></>}>
       <ul className="checks">
         {!checks && <li className="check skeleton" />}
         {checks?.map((c) => (
-          <li key={c.id} className={`check ${isOptional(c) ? 'opt' : c.ok ? 'ok' : 'bad'}`}>
-            <span className="check-ic">{isOptional(c) ? <Icon name="minus" size={12} /> : c.ok ? <Icon name="check" size={12} /> : <Icon name="x" size={12} />}</span>
+          <li key={c.id} className={`check ${checkKind(c, isOptional(c))}`}>
+            <span className="check-ic">{(() => { const k = checkKind(c, isOptional(c)); return k === 'opt' || k === 'neutral' ? <Icon name="minus" size={12} /> : k === 'warn' ? <Icon name="warn" size={12} /> : k === 'ok' ? <Icon name="check" size={12} /> : <Icon name="x" size={12} />; })()}</span>
             <div>
               <b>{c.label}{isOptional(c) && <span className="opt-tag">Optional {'·'} not set up</span>}</b>
               <p>{isOptional(c) ? 'Agent VMs stay off until you add a boat.dev key. Everything else works without it.' : c.detail}</p>
               {c.id === 'boat' && (!c.ok || isOptional(c)) && <button className="btn sm" style={{ marginTop: 8 }} onClick={() => openSettings('boat')}>Open boat.dev settings</button>}
               {!c.ok && c.fix && c.id in SETTINGS_FIX && <><p className="muted-s fix-prose">{c.fix}</p><button className="btn sm" onClick={() => openSettings(SETTINGS_FIX[c.id])}>{SETTINGS_FIX_LABEL[c.id]}</button></>}
-              {(!c.ok || isOptional(c)) && c.fix && c.id !== 'boat' && !(c.id in SETTINGS_FIX) && <div className="cmd fix"><code>{c.fix}</code><button className="btn-ghost sm" onClick={() => void copyText(c.fix!)}><Icon name="copy" size={12} /> Copy</button></div>}
+              {(!c.ok || c.level === 'warn' || isOptional(c)) && c.fix && c.id !== 'boat' && !(c.id in SETTINGS_FIX) && <div className="cmd fix"><code>{c.fix}</code><button className="btn-ghost sm" onClick={() => void copyText(c.fix!)}><Icon name="copy" size={12} /> Copy</button></div>}
             </div>
           </li>
         ))}

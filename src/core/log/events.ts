@@ -13,12 +13,13 @@ import type { EventBus } from '../bus.js';
 import type { Task } from '../../shared/types.js';
 import type { LogSink } from './logger.js';
 import { providerPrefix } from '../providers/runtime.js';
+import { acpLabel, runtimeOf } from '../../shared/runtime.js';
 
 /**
  * The provider of the run that is starting or ending: read from the model it runs on (`openrouter:…`). The task's own
  * `provider` field is written when a provider run ENDS, so at the start it is missing or names an older run.
  */
-const providerOfRun = (t: Task): string => providerPrefix(t.model) ?? 'claude';
+const providerOfRun = (t: Task): string => (runtimeOf(t.model) === 'acp' ? acpLabel(t.model) ?? 'acp' : providerPrefix(t.model) ?? 'claude');
 
 const TERMINAL = new Set<Task['status']>(['done', 'error', 'cancelled']);
 const OUTCOME: Record<string, string> = { done: 'ok', error: 'error', cancelled: 'cancelled' };

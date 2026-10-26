@@ -67,6 +67,11 @@ export interface AgentToolsCtx {
   vms: VmManager;
   /** Offer the vm_* tools (agent.vm.enabled && boat configured). */
   vmEnabled: boolean;
+  /**
+   * An `ask` ends, and stops the agent it asked, when the call's own signal aborts (an agent host cancelling one tool call). Given to
+   * provider and agent host runs only: a Claude run keeps its behaviour, where only cancelling the whole task cuts a pending ask.
+   */
+  honourAbort?: boolean;
   /** False while Claude is known not to be set up on boat.dev: vm_claude is left out of the tool list (default true). */
   claudeAvailable?: boolean;
   bridge: Bridge;
@@ -131,9 +136,10 @@ function bridgeTools(ctx: AgentToolsCtx) {
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Default 600'),
       model: modelParam,
     },
-    (a) => guard(async () => {
+    (a, extra) => guard(async () => {
       if (!a.message?.trim() && !a.brief) throw new BridgeError(missingTaskText(a));
-      return bridge.ask(taskId, a.agent, a.message ?? '', { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model), brief: a.brief });
+      const signal = ctx.honourAbort ? (extra as { signal?: AbortSignal } | undefined)?.signal : undefined;
+      return bridge.ask(taskId, a.agent, a.message ?? '', { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model), brief: a.brief, ...(signal ? { signal } : {}) });
     }),
   );
   const tell = tool(

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentProfile, ApprovalMode, ModelChoice, VmSize } from '../../../src/shared/types';
-import { AUTO_INFO, groupModels, modelList } from '../models';
+import { AUTO_INFO, groupModels, modelLabel, modelList } from '../models';
 import { closeOverlays, loadCatalog, openSettings, removeAgent, saveAgent, useStore } from '../store';
 import { providerModelGroups, loadProviders, useProviders } from '../providers/providersStore';
 import { Modal } from './Modal';
@@ -16,6 +16,9 @@ import { useArea } from '../github/useArea';
 import { GithubAccess } from '../github/GithubAccess';
 import { APPROVAL_CHOICES, CHOICE_HELP, SEED_TAG, agentProjectLines, approvalPatch, choiceOf, mayRaiseMode, seedWords, type ApprovalChoice } from '../gates/agentFollowLogic';
 import { PENDING_TEXT, useGatesView } from '../gates/useGatesView';
+import { runtimeOf } from '../../../src/shared/runtime';
+import { MATCH_MODE_LINK, agentHostNote, agentHostOwnTools, agentModeControl, firstUseOutcome, folderNote, hostNameOf, hostPromptPlaceholder, isAgentHostModel, needsFirstUse } from '../../../src/shared/acp-copy';
+import { AcpFirstUseView, useFirstUse } from './AcpFirstUse';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
@@ -43,6 +46,11 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [hostTimeout, setHostTimeout] = useState(existing?.host?.timeoutSeconds === undefined ? '' : String(existing.host.timeoutSeconds));
   const [hostEnv, setHostEnv] = useState<'allow' | 'masked' | 'block'>(existing?.host?.envFiles ?? 'masked');
   const [skills, setSkills] = useState(() => valueOf(existing?.skills));
+  // Hermes: the folder it works in (a project's folder wins when the agent is in one), and the first-use card for the first pick
+  const [cwd, setCwd] = useState(existing?.cwd ?? '');
+  const [pendingHost, setPendingHost] = useState<string | null>(null);
+  const firstUse = useFirstUse();
+  const settings = useStore((s) => s.settings);
   // shown as the effective setting; saved only once the owner changes it, so an untouched agent keeps following the default
   const [taskList, setTaskList] = useState(() => nativeTaskListOn(existing ?? { id: '' }));
   const startTaskList = useRef(taskList);
@@ -52,13 +60,15 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, choice, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, choice, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList, cwd]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
-  const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
+  const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string } | { to: 'settings' }>(null);
   const keepBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (leaving) keepBtn.current?.focus(); }, [leaving]);
   const openArmory = (skill: string): void => { revealSkill(skill); openSettings('armory'); };
+  // the link to Settings throws the editor away like the Armory link does, so it asks first when there is anything unsaved
+  const openHostSettings = (): void => { if (dirty) setLeaving({ to: 'settings' }); else openSettings('hosts'); };
   const requestClose = (): void => {
     if (leaving) { setLeaving(null); return; }
     if (dirty) setLeaving({ to: 'close' }); else closeOverlays();
@@ -74,11 +84,24 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   useEffect(() => { if (!catalog) void loadCatalog(); void loadProviders(); }, []);
   const provView = useProviders((x) => x.view);
   const provGroups = providerModelGroups(provView);
-  const onProvider = /^[a-z][a-z0-9-]{1,31}:./.test(model) && !model.startsWith('arn:');
+  const onProvider = runtimeOf(model) === 'provider';
+  const onHost = isAgentHostModel(model);
+  const hosts = catalog?.hosts ?? [];
+  const hermesEntry = settings?.acp.entries.find((e) => e.id === 'hermes');
+  // the words name the host the model points at (an agent host added in the config file is never called Hermes)
+  const hostName = hostNameOf(model, (eid) => settings?.acp.entries.find((e) => e.id === eid)?.label ?? hosts.find((h) => h.entryId === eid)?.label);
+  const modeCtl = agentModeControl({ model, modeMap: settings?.acp.switches.modeMap === true, name: hostName, ...(hermesEntry?.detection.approvalsMode ? { hermesMode: hermesEntry.detection.approvalsMode } : {}) });
+  const inProject = id !== null && projects.some((p) => p.status !== 'archived' && p.members.includes(id));
+  const folderEmptyNote = folderNote(model, cwd);
+  const folderField = (
+    <label>Folder<input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder={`The folder ${hostName} works in`} spellCheck={false} aria-describedby="hm-folder-note" />
+      <span className="field-note" id="hm-folder-note">{inProject ? 'This agent is in a project, so ' + hostName + ' works in the project folder. This folder is used outside it.' : hostName + ' works in this folder. Choose one outside Legion\'s data folder.'}</span>
+      {folderEmptyNote && <span className="field-note" role="status">{folderEmptyNote}</span>}</label>
+  );
   const { models, fallback } = modelList(catalog);
   const grouped = groupModels(catalog);
   const opts = models.some((m) => m.value === model) || model === 'auto' ? models : [...models, { value: model, displayName: model, description: '' }];
-  const known = [...grouped.current, ...grouped.older].some((m) => m.value === model) || model === 'auto' || provGroups.some((g) => g.models.some((m) => `${g.id}:${m}` === model));
+  const known = [...grouped.current, ...grouped.older].some((m) => m.value === model) || model === 'auto' || hosts.some((h) => h.value === model) || provGroups.some((g) => g.models.some((m) => `${g.id}:${m}` === model));
   const desc = model === 'auto' ? AUTO_INFO : opts.find((m) => m.value === model)?.description;
   const trial = useStore((s) => s.boatHealth?.trial.limited === true);
   const sizeNote = size === 'default'
@@ -98,7 +121,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
     const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, ...approvalPatch(existing, choice), ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, ...(onHost && (cwd.trim() || existing?.cwd) ? { cwd: cwd.trim() } : {}), ...approvalPatch(existing, choice), ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
@@ -128,49 +151,66 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <label className="grow">Name<input data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Researcher" /></label>
         </div>
         <label>Description<input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One line: what this agent is for" /></label>
-        <label>System prompt<textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="Appended to Claude Code’s system prompt." /></label>
+        <label>System prompt<textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder={onHost ? hostPromptPlaceholder(hostName) : 'Appended to Claude Code’s system prompt.'} /></label>
         <div className="row">
           <label className="grow">Model
-            <select value={model} onChange={(e) => setModel(e.target.value as ModelChoice)}>
+            <select value={model} onChange={(e) => { const v = e.target.value; if (needsFirstUse(v, firstUse.seen)) setPendingHost(v); else setModel(v as ModelChoice); }}>
               <option value="auto">Auto {'\u00b7'} Sonnet or Opus per task</option>
-              {!known && <option value={model}>{model}</option>}
+              {!known && <option value={model}>{onHost ? modelLabel(catalog, model) : model}</option>}
               <optgroup label={grouped.older.length ? 'Current models' : 'Models'}>{grouped.current.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>
               {grouped.older.length > 0 && <optgroup label="Older models">{grouped.older.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>}
+              {hosts.map((h) => <optgroup key={h.value} label={h.label}><option value={h.value}>{h.label}</option></optgroup>)}
               {provGroups.map((g) => <optgroup key={g.id} label={`${g.label} (not Claude)`}>{g.models.map((m) => <option key={`${g.id}:${m}`} value={`${g.id}:${m}`}>{m}</option>)}</optgroup>)}
             </select>
             {onProvider && <span className="field-note">Runs outside Claude, on {provView?.providers.find((x) => model.startsWith(x.id + ':'))?.label ?? 'a provider'}: Legion's tools and your MCP servers only, no built-in file, shell or web tools. See Settings, Providers.</span>}
+            {onHost && <span className="field-note">{agentHostNote(hostName)}</span>}
+            {pendingHost && (
+              <AcpFirstUseView
+                onUse={() => { const o = firstUseOutcome('use', model, pendingHost); setModel(o.model as ModelChoice); setPendingHost(null); void firstUse.markSeen(); }}
+                onNotNow={() => { const o = firstUseOutcome('notNow', model, pendingHost); setModel(o.model as ModelChoice); setPendingHost(null); void firstUse.markSeen(); }} />
+            )}
             <span className="field-note">{desc}{fallback && catalog?.error ? ' Couldn\u2019t load the full model list from Claude Code.' : ''}</span>
           </label>
-          <label className="grow">Approvals
-            <select value={choice} onChange={(e) => setChoice(e.target.value as ApprovalChoice)}>
-              {APPROVAL_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
-            <span className="field-note">{CHOICE_HELP[choice]}</span>
-            {followLines && <span className="field-note" role="status">{followLines}</span>}
-            {choice === choiceOf(existing) && seedWords(existing) && <span className="field-note seed-note" data-testid="seed-note"><span className="chip-pill">{SEED_TAG}</span> {seedWords(existing).slice(SEED_TAG.length + 2)}</span>}
-            {waiting && <span className="field-note" role="status">{PENDING_TEXT}</span>}
-          </label>
+          {modeCtl.kind === 'fixed' ? (
+            <div className="grow hermes-mode" role="group" aria-label="Approvals">
+              <span className="hm-title">Approvals</span>
+              <span className="field-note" role="status">{modeCtl.line}</span>
+              <button type="button" className="link-btn" onClick={openHostSettings}>{MATCH_MODE_LINK}</button>
+            </div>
+          ) : (
+            <label className="grow">Approvals
+              <select value={choice} onChange={(e) => setChoice(e.target.value as ApprovalChoice)}>
+                {APPROVAL_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+              {!onHost && <span className="field-note">{CHOICE_HELP[choice]}</span>}
+              {modeCtl.line && <span className="field-note">{modeCtl.line}</span>}
+              {followLines && <span className="field-note" role="status">{followLines}</span>}
+              {choice === choiceOf(existing) && seedWords(existing) && <span className="field-note seed-note" data-testid="seed-note"><span className="chip-pill">{SEED_TAG}</span> {seedWords(existing).slice(SEED_TAG.length + 2)}</span>}
+              {waiting && <span className="field-note" role="status">{PENDING_TEXT}</span>}
+            </label>
+          )}
         </div>
-        <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
-          onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />
+        {onHost && folderField}
+        {onHost ? <p className="field-note" data-testid="hermes-own-tools">{agentHostOwnTools(hostName)}</p> : <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
+          onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />}
         {leaving ? (
           <div className="arm-discard" role="alertdialog" aria-label="Unsaved changes">
-            <span>{leaving.to === 'close' ? 'Throw away your changes? They are not saved.' : 'Open the Armory and throw away your Skills choice? It is not saved.'}</span>
-            <button type="button" className="btn sm danger" onClick={() => { if (leaving.to === 'close') closeOverlays(); else openArmory(leaving.skill); }}>Discard</button>
+            <span>{leaving.to === 'close' ? 'Throw away your changes? They are not saved.' : leaving.to === 'settings' ? 'Open Settings and throw away your changes? They are not saved.' : 'Open the Armory and throw away your Skills choice? It is not saved.'}</span>
+            <button type="button" className="btn sm danger" onClick={() => { if (leaving.to === 'close') closeOverlays(); else if (leaving.to === 'settings') openSettings('hosts'); else openArmory(leaving.skill); }}>Discard</button>
             <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
           </div>
         ) : null}
-        <fieldset>
+        {!onHost && <fieldset>
           <legend>Connectors</legend>
           <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} onRetry={retryArea} />
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
-        </fieldset>
-        <fieldset>
+        </fieldset>}
+        {!onHost && <fieldset>
           <legend>Task list</legend>
           <label className="check-row"><input type="checkbox" checked={taskList} onChange={(e) => setTaskList(e.target.checked)} /> Keep a task list on Claude (Claude Code's own task tools)</label>
           <span className="field-note">On by default for the lead. Newer Claude models plan without a written list; turn this on for agents that run long, multi-step work. Runs on other providers always have a task list.</span>
-        </fieldset>
-        <fieldset>
+        </fieldset>}
+        {!onHost && <fieldset>
           <legend>Shell (your computer)</legend>
           <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on your computer</label>
           <span className="field-note">Off by default. When on, the agent gets its own shell inside the scope root below. Its approval mode still decides whether each call asks you, and Gates (Settings, Gates) refine when it asks. This switch decides whether the agent gets the tools at all.</span>
@@ -186,8 +226,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </select>
             <span className="field-note">Masked hides every value from all of this agent's tool output. .env.example and other templates are ordinary files.</span>
           </label>
-        </fieldset>
-        <fieldset>
+        </fieldset>}
+        {!onHost && <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>
           <div className="row" style={{ opacity: vmOn ? 1 : 0.5 }}>
@@ -199,7 +239,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             </label>
             <label className="grow">Stop after idle (min)<input disabled={!vmOn} type="number" min={1} value={idle} onChange={(e) => setIdle(Number(e.target.value))} /></label>
           </div>
-        </fieldset>
+        </fieldset>}
       </form>
     </Modal>
   );

@@ -1,5 +1,6 @@
 // How an agent's approval is chosen and shown (spec 4.2: visible, always). Pure: the agent editor, the project settings and the run header read it.
 import { effectiveMode, presetMode } from '../../../src/core/permission-mode.js';
+import { hostNameOf, isAgentHostModel, notAppliedTo } from '../../../src/shared/acp-copy.js';
 import type { AgentProfile, ApprovalMode, RunMode, Task } from '../../../src/shared/types.js';
 import type { Project } from '../../../src/shared/projects.js';
 import type { Preset } from '../../../src/shared/gates-registry.js';
@@ -193,10 +194,14 @@ function nameList(items: readonly string[], shown = 4): string {
  * (`on`), and what the project would let run looser if it were off (`off`). Nothing for a project with no preset. The page shows `on` while the
  * limit is on and `off` while it is off.
  */
-export function limitWords(agents: readonly AgentProfile[], project: Pick<Project, 'id' | 'name' | 'members'>, view: GatesView): { on?: string; off?: string } {
+export function limitWords(agents: readonly AgentProfile[], project: Pick<Project, 'id' | 'name' | 'members'>, view: GatesView, hermes: { modeMap: boolean } = { modeMap: true }): { on?: string; off?: string } {
   const set = view.projects[project.id];
   if (!set?.preset) return {};
-  const inProject = agents.filter((a) => project.members.includes(a.id));
+  const members = agents.filter((a) => project.members.includes(a.id));
+  // Hermes sets its own mode unless the owner turned on Match Legion's mode: a project limit does not reach it, and the row says so
+  const apart = hermes.modeMap ? [] : members.filter((a) => isAgentHostModel(a.model));
+  const inProject = members.filter((a) => !apart.includes(a));
+  if (inProject.length === 0 && apart.length > 0) return { on: apart.map((a) => `${a.name}: ${notAppliedTo(hostNameOf(a.model))}.`).join(' ') };
   if (inProject.length === 0) return { on: 'This project has no agents yet.' };
   const followers = inProject.filter((a) => a.approvalSource === 'project');
   const own = inProject.filter((a) => a.approvalSource !== 'project');
@@ -218,6 +223,7 @@ export function limitWords(agents: readonly AgentProfile[], project: Pick<Projec
       ? `This limits ${plural(n, 'agent', 'agents')} here: ${[...groups].map(([m, l]) => clause(m, l)).join('')} in ${project.name}.`
       : `This limits ${plural(n, 'agent', 'agents')} here: in ${project.name}, ${[...groups].map(([m, l]) => clause(m, l)).join('; ')}.`;
   }
+  for (const a of apart) tail.push(`${a.name}: ${notAppliedTo(hostNameOf(a.model))}.`);
   const out: { on?: string; off?: string } = { on: [head, ...tail].join(' ') };
   if (limited.length > 0) {
     const runs = limited.map((a) => `${a.name} runs as ${AGENT_MODE_LABEL[a.approval]}`);

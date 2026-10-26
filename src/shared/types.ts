@@ -7,6 +7,7 @@ import type { BlenderStatusView } from './blender.js';
 import type { Project } from './projects.js';
 import type { CiUpdateSummary } from './ci.js';
 import type { Consequence } from './consequence.js';
+import type { AcpConfig, AcpPatch, AcpView } from './acp-view.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -280,6 +281,12 @@ export interface Task {
   usedConnectors?: boolean;
   /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
   tainted?: boolean;
+  /** The agent host that ran the latest run, as a label ("Hermes"). Absent for a Claude or provider run. */
+  runtime?: string;
+  /** An agent host run whose cost Legion cannot tell: the host reports tokens but no price, and the owner entered none. */
+  costUnknown?: boolean;
+  /** The agent host session of this task (so a follow-up resumes it) and its last cumulative token counts (so only new tokens are counted). */
+  acp?: { entryId: string; sessionId: string; cumulative?: { input: number; output: number } };
   /** Final assistant text of the latest run. */
   result?: string;
   error?: string;
@@ -354,7 +361,7 @@ export type LegionEvent =
   | { type: 'task.deleted'; taskId: string }
   | { type: 'settings.updated'; settings: SettingsView }
   | { type: 'approval.requested'; approval: ApprovalRequest }
-  | { type: 'approval.resolved'; approvalId: string; allowed: boolean }
+  | { type: 'approval.resolved'; approvalId: string; allowed: boolean; /** Set when the card closed without an answer from the owner (an agent host stopped waiting): the words for the card. */ note?: string; /** With `note`: the card ran out of time or the host cancelled its call, and the window keeps it in the thread, closed, until the owner dismisses it. Not set when the card closed because the task ended. */ stays?: boolean }
   | { type: 'question.requested'; question: PendingQuestion }
   | { type: 'question.resolved'; questionId: string; answered: boolean }
   | { type: 'mascot'; mood: MascotMood; note?: string }
@@ -459,6 +466,14 @@ export interface ApprovalRequest {
   projectId?: string;
   /** What saying yes would do, set by the core (src/shared/consequence.ts). Absent on a card from an older core. */
   consequence?: Consequence;
+  /** A card for a request an agent host (Hermes) made: the options shown, as the agent named them. The answer names one of these by `optionId`. */
+  acpOptions?: Array<{ optionId: string; name: string; kind: string }>;
+  /** An agent host card: the agent's own title for the request. */
+  acpTitle?: string;
+  /** An agent host card: the name of the host that asked (its entry's label), so a host added in the config file never reads as Hermes. Absent: Hermes. */
+  acpLabel?: string;
+  /** ISO time at which the card closes itself because the agent stops waiting (an agent host card, or a card raised inside one of its tool calls). Absent: the normal wait. */
+  expiresAt?: string;
 }
 
 /** MCP server entry — same shape as Claude Code's .mcp.json entries. */
@@ -548,6 +563,8 @@ export interface LegionConfig {
    * older config = no rules, exactly today's behaviour (needsApproval stays the floor).
    */
   gates?: GatesConfig;
+  /** Agent hosts reached over the Agent Client Protocol (Hermes is the first). Absent = the defaults: Hermes, every in-between switch off. */
+  acp?: AcpConfig;
 }
 
 /** GET /api/state response */
@@ -557,6 +574,8 @@ export interface StateSnapshot {
   tasks: Task[];              // newest first, max 200
   vms: VmRecord[];
   approvals: ApprovalRequest[];   // pending
+  /** Agent host cards that closed on their own and stay in the thread until dismissed, so a reloaded window draws them again. Admin only. */
+  closedCards?: Array<{ card: ApprovalRequest; note: string; late?: string }>;
   /** Structured questions waiting for the owner's answer (the question card). Admin only; a token-only client never gets this. */
   questions?: PendingQuestion[];
   boatConfigured: boolean;
@@ -582,6 +601,7 @@ export interface DoctorCheck {
   ok: boolean;
   detail: string;
   fix?: string;
+  level?: 'warn' | 'neutral';
 }
 
 /** A slash command Claude Code supports in this setup (built-ins, user/project commands, skills, plugins). */
@@ -604,7 +624,10 @@ export interface CatalogModel {
 }
 
 /** GET /api/catalog: what Claude Code offers on this machine. Probed without a model call, cached. */
+export interface CatalogHost { value: string; label: string; entryId: string }
+
 export interface Catalog {
+  hosts?: CatalogHost[];
   commands: CatalogCommand[];
   models: CatalogModel[];
   fetchedAt: string;     // ISO
@@ -637,6 +660,8 @@ export interface SettingsView {
   compaction: CompactionSettings;
   /** Gate rules, normalized (Settings -> Gates). Always present in a view; an old config reads as no rules. */
   gates: GatesConfig;
+  /** Agent hosts: entries with detection state, the in-between switches, the watchdog. */
+  acp: AcpView;
   port: number;
   configPath: string;
   dataDir: string;
@@ -656,6 +681,8 @@ export interface SettingsPatch {
    * stored — a bad rule must never reach a matcher at run time.
    */
   gates?: { rules: GateRule[]; presetsVersion?: number; learn?: boolean };
+  /** Agent hosts: flip a switch, add or change an entry, set the watchdog. Omitted fields are unchanged. */
+  acp?: AcpPatch;
 }
 
 /** State of one MCP server on the most recent run, as the Claude Code process reported it. */

@@ -87,3 +87,20 @@ test('a board proposal card may take focus on reveal: no key answers it, and the
   const thread = readFileSync(join(process.cwd(), 'ui/src/components/Thread.tsx'), 'utf8');
   assert.match(thread, /closest\('\.approval, \.question, \.modal'\)/, 'the window shortcut skips a focused .approval card');
 });
+
+test('W4 M15: a Hermes card is answered by one key only when A can mean exactly one thing (one allow option, and it is allow once); otherwise the buttons name the choice. D always denies.', () => {
+  const opt = (optionId: string, kind: string) => ({ optionId, name: optionId, kind });
+  const base = { id: 'h1', toolName: 'Bash' };
+  const standard = { ...base, acpOptions: [opt('once', 'allow_once'), opt('session', 'allow_always'), opt('always', 'allow_always'), opt('deny', 'reject_once')] };
+  const single = { ...base, acpOptions: [opt('once', 'allow_once'), opt('deny', 'reject_once')] };
+  const onlyAlways = { ...base, acpOptions: [opt('always', 'allow_always'), opt('deny', 'reject_once')] };
+  const noAllow = { ...base, acpOptions: [opt('deny', 'reject_once')] };
+  assert.equal(clickOnly(standard), true, 'several allow options: A would pick one for the owner');
+  assert.equal(threadKey(standard, 'a', true, true), null);
+  assert.equal(clickOnly(onlyAlways), true, 'the only allow lasts beyond this request: never one key');
+  assert.equal(clickOnly(noAllow), true);
+  assert.equal(clickOnly(single), false);
+  assert.deepEqual(threadKey(single, 'a', true, true), { id: 'h1', allow: true }, 'one allow once option: A means it');
+  for (const c of [standard, onlyAlways, noAllow, single]) assert.deepEqual(threadKey(c, 'd', true, true), { id: 'h1', allow: false }, 'D still denies');
+  assert.equal(clickOnly({ toolName: 'Bash' }), false, 'a Claude card is unchanged');
+});

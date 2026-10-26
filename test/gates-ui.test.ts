@@ -133,7 +133,7 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
         b.onResolve({ filter: /^(\.\.\/)*store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onLoad({ filter: /^store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `
           export const useStore = (sel) => sel(globalThis.__st);
-          export const saveSettings = async (p) => { globalThis.__saved.push(p); };
+          export const saveSettings = async (p) => { globalThis.__saved.push(p); }; export const loadSettings = async () => {}; export const decideOption = async () => {};
           export const errText = (e) => (e && e.message) ? e.message : String(e);
           export const saveAgent = async () => {}; export const removeAgent = async () => {};
           export const loadGateSuggestions = async () => []; export const dismissGateSuggestion = async () => {}; export const rememberGate = async () => {};

@@ -6,11 +6,13 @@
  * provider has them only when its agent shell (host tools) is on; a cloud VM is extra.
  */
 import type { AgentProfile } from '../shared/types.js';
-import { providerPrefix } from './providers/runtime.js';
+import { acpLabel, runtimeOf } from '../shared/runtime.js';
 
 export function toolsOf(a: Pick<AgentProfile, 'model'> & { host?: { enabled?: boolean }; vm?: { enabled?: boolean } }): string {
   const parts: string[] = [];
-  if (!providerPrefix(a.model)) parts.push('shell and file tools (Claude Code)');
+  const runtime = runtimeOf(a.model);
+  if (runtime === 'claude') parts.push('shell and file tools (Claude Code)');
+  else if (runtime === 'acp') parts.push(`its own shell and file tools (${acpLabel(a.model) ?? 'agent host'})`);
   else if (a.host?.enabled === true) parts.push('shell and file tools (agent shell)');
   else parts.push('no shell and no file tools: give it questions, writing and review, not commands or edits');
   if (a.vm?.enabled === true) parts.push('its own cloud VM');

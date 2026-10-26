@@ -6,7 +6,7 @@ Wording note: when this page says a test "proves" something it means Legion's ow
 
 ## 1. What Legion is, in one minute
 
-A local, Claude-only multi-agent desktop app. One Node process (**core**, `src/bin/legion-core.ts`) owns all state and side effects and listens on `127.0.0.1:4747`. An Electron shell (`src/electron/`) starts it and hands it two per-launch secrets over stdin; the React UI (`ui/`) talks to it over HTTP and SSE. Agents are Claude Agent SDK runs (`src/core/engine.ts`). Optional parts plug in as modules (`src/core/modules.ts`): the Lattice/Library knowledge graph (`kg/`), the rooms and bot-to-bot bridge (`comms/`), BSV read-only mode (`bsv/`) and the Blender bridge (`blender/`). Per-agent cloud VMs live on boat.dev (`boat.ts`, `vm-manager.ts`). Full detail: [ARCHITECTURE.md](ARCHITECTURE.md).
+A local multi-agent desktop app. Agents run on Claude, on an OpenAI-compatible provider, or on Hermes, an optional agent host (`src/core/acp/`). One Node process (**core**, `src/bin/legion-core.ts`) owns all state and side effects and listens on `127.0.0.1:4747`. An Electron shell (`src/electron/`) starts it and hands it two per-launch secrets over stdin; the React UI (`ui/`) talks to it over HTTP and SSE. Agents are Claude Agent SDK runs (`src/core/engine.ts`). Optional parts plug in as modules (`src/core/modules.ts`): the Lattice/Library knowledge graph (`kg/`), the rooms and bot-to-bot bridge (`comms/`), BSV read-only mode (`bsv/`) and the Blender bridge (`blender/`). Per-agent cloud VMs live on boat.dev (`boat.ts`, `vm-manager.ts`). Full detail: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ```
 caller --HTTP--> server.ts --gate (admin.ts)--> routes

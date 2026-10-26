@@ -149,3 +149,17 @@ test('seedDefaults keeps the frozen three first and adds the muster roster after
   assert.equal(s.getAgent('assayer')!.requires, 'bsv');
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('recoverInterrupted tells a Hermes task that Hermes may still be working and Legion cannot stop it', () => {
+  const s = new Store(tmp());
+  s.upsertTask({ ...task('h', 'running', '2026-01-01T00:00:00.000Z'), acp: { entryId: 'hermes', sessionId: 'sess_1' }, runtime: 'Hermes' });
+  s.upsertTask({ ...task('o', 'running', '2026-01-01T00:00:00.000Z'), acp: { entryId: 'other', sessionId: 'sess_2' }, runtime: 'Other Agent' });
+  s.upsertTask(task('c', 'running', '2026-01-01T00:00:00.000Z'));
+  assert.equal(s.recoverInterrupted(), 3);
+  assert.match(s.getTask('h')!.error ?? '', /^Legion restarted\. Hermes may still be working/);
+  assert.match(s.getTask('h')!.error ?? '', /cannot stop it/);
+  assert.match(s.getTask('o')!.error ?? '', /Other Agent may still be working/);
+  assert.doesNotMatch(s.getTask('o')!.error ?? '', /Hermes/);
+  assert.equal(s.getTask('c')!.error, 'Legion restarted', 'a Claude task keeps the old words');
+  assert.ok(!/[\u2013\u2014]/.test(s.getTask('h')!.error ?? ''));
+});

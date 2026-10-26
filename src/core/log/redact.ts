@@ -45,6 +45,12 @@ export function registerSecretBytes(bytes: Uint8Array | undefined | null): void 
   }
 }
 
+/** Forgets one value registered with registerSecret (every encoding of it), for a secret that has expired such as a per-run token. */
+export function unregisterSecret(value: string | undefined | null): void {
+  if (typeof value !== 'string' || value.length < MIN_EXACT) return;
+  for (const v of encodings(value)) exactValues.delete(v);
+}
+
 /** Test hook: forgets every registered value. */
 export function clearRegisteredSecrets(): void {
   exactValues.clear();

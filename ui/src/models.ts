@@ -1,6 +1,7 @@
 import type { Catalog, CatalogModel } from '../../src/shared/types';
 import { FALLBACK_MODELS, modelList } from '../../src/shared/model-groups';
 import { providerModelLabel } from './providers/providersStore';
+import { acpModelLabel } from '../../src/shared/acp-copy';
 
 export { FALLBACK_MODELS, groupModels, modelList, providerCreatorGroups, vendorName } from '../../src/shared/model-groups';
 
@@ -12,6 +13,8 @@ const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9.]+/g, '');
 export function modelLabel(c: Catalog | null, value: string | undefined): string {
   if (!value) return '';
   if (value === 'auto') return 'Auto';
+  const viaHost = acpModelLabel(value, (id) => c?.hosts?.find((h) => h.entryId === id)?.label);
+  if (viaHost) return viaHost;
   const viaProvider = providerModelLabel(value);
   if (viaProvider) return viaProvider;
   const v = norm(value);

@@ -8,6 +8,8 @@ import { shortTool } from '../util';
 import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blender/BlenderApproval';
 import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blender';
 import { Icon } from './icons';
+import { AcpCard } from './AcpCard';
+import { cardCountdown } from '../../../src/shared/acp-copy';
 import { clickOnly } from '../../../src/shared/approval-keys';
 import { notices, useArmUi, useCardArm } from '../a11y/keyClock';
 import { liveReady } from '../a11y/keyClockCore';
@@ -35,7 +37,12 @@ function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; 
 const ROOM_REQUEST = /^mcp__legion_comms__room_(create|add_member|remove_member)$/;
 const cardTool = (name: string): string => (ROOM_REQUEST.test(name) ? 'Room request' : name === GET_BLENDER_TOOL ? 'Download Blender' : name === BLENDER_ASSET_TOOL ? 'Download asset' : shortTool(name));
 
+/** A card for a request Hermes made carries Hermes's own options and gets its own card; every other request keeps the Legion card. */
 export function ApprovalCard({ a }: { a: ApprovalRequest }) {
+  return a.acpOptions?.length ? <AcpCard a={a} /> : <LegionApprovalCard a={a} />;
+}
+
+function LegionApprovalCard({ a }: { a: ApprovalRequest }) {
   const inRoomView = useStore((s) => s.view === 'rooms');
   const bl = isBlenderExec(a);
   // a Blender script or a download is allowed by clicking, after reading the card: no one-key approve (the same rule as the thread-wide keys)
@@ -83,11 +90,19 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
         {canRemember(a) && <button type="button" className="btn-ghost sm" aria-expanded={remember} onClick={() => setRemember((v) => !v)}>Remember…</button>}
         {ignored && !armed && <span className="approval-note">Ready in a moment</span>}
         <span className="sr-only" role="status" aria-live="polite">{liveReady(blocks)}</span>
-        <span className="approval-note">Auto-denies after 10 min</span>
+        {a.expiresAt ? <HermesCallLeft at={a.expiresAt} /> : <span className="approval-note">Auto-denies after 10 min</span>}
       </div>
       {remember && canRemember(a) && <RememberChoices a={a} />}
     </div>
   );
+}
+
+/** A Legion card raised inside one of Hermes's tool calls: Hermes cuts the call at a set time, so the card shows the time left (and says when it is over). */
+function HermesCallLeft({ at }: { at: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const left = cardCountdown(at, now);
+  return <span className="approval-note acp-left" role={left?.ended ? 'status' : undefined}>{left?.text ?? 'Auto-denies after 10 min'}</span>;
 }
 
 /** A web card: the four answers. The first yes the owner gives is remembered the way the button says (the site list, this goal, or this one call). */

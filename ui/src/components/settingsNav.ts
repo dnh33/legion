@@ -1,4 +1,4 @@
-export type SettingsSection = 'claude' | 'gates' | 'accessibility' | 'notifications' | 'spending' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
+export type SettingsSection = 'claude' | 'gates' | 'accessibility' | 'notifications' | 'spending' | 'providers' | 'hosts' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
 
 export interface NavItem { id: SettingsSection; label: string; hint: string }
 export interface NavGroup { heading: string | null; ids: SettingsSection[] }
@@ -8,7 +8,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { heading: 'Get started', ids: ['claude'] },
   { heading: 'Your agents', ids: ['gates', 'armory', 'house'] },
   { heading: 'Staying informed', ids: ['spending', 'notifications'] },
-  { heading: 'Connections', ids: ['mcp', 'github', 'providers', 'connections', 'boat', 'blender'] },
+  { heading: 'Connections', ids: ['mcp', 'github', 'providers', 'hosts', 'connections', 'boat', 'blender'] },
   { heading: 'Advanced', ids: ['accessibility', 'logs', 'compaction'] },
   { heading: null, ids: ['about'] },
 ];
@@ -23,6 +23,7 @@ const ITEMS: Record<SettingsSection, Omit<NavItem, 'id'>> = {
   mcp: { label: 'MCP servers', hint: 'Extra tools for agents' },
   github: { label: 'GitHub', hint: 'Connector: read repos and CI' },
   providers: { label: 'Providers', hint: 'Other models, optional' },
+  hosts: { label: 'Agent hosts', hint: 'Hermes and other agents' },
   connections: { label: 'Use from Claude', hint: 'Drive Legion from Claude Code' },
   boat: { label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   blender: { label: 'Blender', hint: 'Build 3D with the Sculptor' },

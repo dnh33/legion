@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import type { ProviderView, ProvidersView } from '../../../src/shared/providers-view';
+import { runtimeOf, splitPrefixed } from '../../../src/shared/runtime';
 
 export interface ProvidersUiState { view: ProvidersView | null; loaded: boolean; busy: string | null; error: string | null; notes: Record<string, string>; /** The picker's background model refresh is in flight. */ refreshing: boolean }
 let state: ProvidersUiState = { view: null, loaded: false, busy: null, error: null, notes: {}, refreshing: false };
@@ -94,10 +95,11 @@ export function providerModelGroups(v: ProvidersView | null): Array<{ id: string
 }
 /** "OpenAI · gpt-x" for a provider model value, or undefined for a Claude one. */
 export function providerModelLabel(value: string | undefined, v: ProvidersView | null = state.view): string | undefined {
-  const m = /^([a-z][a-z0-9-]{1,31}):(.+)$/.exec(value ?? '');
-  if (!m || m[1] === 'arn') return undefined;
-  const p: ProviderView | undefined = v?.providers.find((x) => x.id === m[1]);
-  return p ? `${p.label} · ${m[2]}` : undefined;
+  // only a provider value has a provider label: an agent host value (acp:) and a Claude id (arn:) do not
+  const split = runtimeOf(value) === 'provider' ? splitPrefixed(value) : undefined;
+  if (!split) return undefined;
+  const p: ProviderView | undefined = v?.providers.find((x) => x.id === split.prefix);
+  return p ? `${p.label} · ${split.rest}` : undefined;
 }
 /** Whether the picker's daily refresh has anything to fetch: an on provider with a key (or keyless) whose list is missing or a day old (the core's MODELS_TTL_MS). */
 export function modelsStale(v: ProvidersView | null, now: number = Date.now()): boolean {

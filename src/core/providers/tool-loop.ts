@@ -120,7 +120,7 @@ function repeatStopText(name: string, rawArgs: string, count: number, errors: st
 /** Retry state per thread: the cooldown ladder and the anti-thrash breaker. Process-wide, keyed by task. */
 export const compactionGuard = new CompactionGuard();
 
-interface Offered { client: Client; remote: string }
+export interface Offered { client: Client; remote: string }
 export interface ToolSet { offered: Map<string, Offered>; specs: ChatToolSpec[]; close(): Promise<void> }
 
 type Connectable = { connect(t: unknown): Promise<void>; close?(): Promise<void> };
@@ -433,11 +433,35 @@ const textOf = (r: { content?: unknown }): string => {
  * The marker text names what was dropped, because a truncated result that says nothing about being truncated reads as
  * complete — and a model that trusts an incomplete result draws the wrong conclusion from it.
  */
-const clipText = (s: string, n: number): string => {
+export const clipText = (s: string, n: number): string => {
   if (s.length <= n) return s;
   const tail = s.slice(-n);
   return `[truncated: last ${n} of ${s.length} chars]\n${tail}`;
 };
+
+/**
+ * One tool call, after the caller has found the tool and read its arguments: taint (noteToolUse), the approval decision
+ * (the same one Claude's canUseTool uses), then the tool. A refusal is a result the model reads, never a throw. `cancelled`
+ * is set when the run was cancelled while this call waited (on the decision or on the tool); the caller then ends the run.
+ * The provider loop and the per-run tool route of an agent host both call this, so a call is judged the same way on both.
+ * `authorize` may throw; the loop lets that end the run, the route turns it into a refusal.
+ */
+export async function callWithEnforcement(
+  host: Pick<ProviderHost, 'noteToolUse' | 'authorize' | 'cancelled' | 'signal'>,
+  entry: Offered, name: string, callId: string, input: Record<string, unknown>,
+): Promise<{ text: string; isError: boolean; cancelled?: true }> {
+  host.noteToolUse(name, callId, input);
+  const decision = await host.authorize(name, input);
+  if (host.cancelled()) return { text: '', isError: true, cancelled: true };
+  if (!decision.allow) return { text: decision.message || 'The user denied this action.', isError: true };
+  try {
+    const r = await entry.client.callTool({ name: entry.remote, arguments: input }, undefined, { signal: host.signal, timeout: 3_600_000 });
+    return { text: textOf(r as { content?: unknown }), isError: (r as { isError?: boolean }).isError === true };
+  } catch (e) {
+    if (host.cancelled()) return { text: '', isError: true, cancelled: true };
+    return { text: `Error: ${e instanceof Error ? e.message.slice(0, 300) : 'the tool failed'}`, isError: true };
+  }
+}
 
 export interface LoopOptions {
   maxTurns: number;
@@ -951,19 +975,9 @@ ${call.function.arguments}`;
         else if (!entry) out = { text: `Error: ${name.slice(0, 80)} is not a tool you have. Your tools are: ${[...tools.offered.keys()].slice(0, 40).join(', ') || 'none'}.`, isError: true };
         else if (problem) out = { text: `Error: the arguments for ${name} were not a JSON object: ${problem}. Send it as one JSON object, for example {"path": "a.txt"}. The tool was not run.`, isError: true };
         else {
-          host.noteToolUse(name, call.id, input);
-          const decision = await host.authorize(name, input);
-          if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
-          if (!decision.allow) out = { text: decision.message || 'The user denied this action.', isError: true };
-          else {
-            try {
-              const r = await entry.client.callTool({ name: entry.remote, arguments: input }, undefined, { signal: host.signal, timeout: 3_600_000 });
-              out = { text: textOf(r as { content?: unknown }), isError: (r as { isError?: boolean }).isError === true };
-            } catch (e) {
-              if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
-              out = { text: `Error: ${e instanceof Error ? e.message.slice(0, 300) : 'the tool failed'}`, isError: true };
-            }
-          }
+          const done = await callWithEnforcement(host, entry, name, call.id, input);
+          if (done.cancelled) return { ...res, subtype: 'cancelled', usage };
+          out = done;
         }
         const shown = redact(clipText(out.text, MAX_TOOL_RESULT_CHARS));
         // Clipping each result is not enough: sixteen results at the cap is ~190k chars added by ONE turn, which is the
