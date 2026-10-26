@@ -1340,7 +1340,7 @@ export class Engine {
       const cap = this.perRunBudget(job);
       const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
       const text = tokenLimit
-        ? `${TOKEN_LIMIT_PREFIX} (${tokenStop!} tokens this task) before finishing. The work so far is kept. To go on, raise the token limit in the config file (the Doctor shows where it is), then continue the task.`
+        ? `${TOKEN_LIMIT_PREFIX} (${tokenStop!} tokens this task) before finishing. The work so far is kept. To go on, raise the token limit in the config file (the Doctor shows where it is), restart Legion, then continue the task.`
         : turnLimit
         ? `${TURN_LIMIT_PREFIX} (${limitTurns} ${stopUnit} this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
         : budgetLimit
