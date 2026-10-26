@@ -37,6 +37,8 @@ export interface RunState {
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'unknown'; progressAt?: number; error?: string;
   /** An approval card or a question waits on the owner: the run is paused on a person, not stalled. */
   waitingOnOwner?: boolean;
+  /** The run read outside text. Absent means the engine could not say, which counts as marked. */
+  tainted?: boolean;
 }
 
 /**
@@ -310,7 +312,7 @@ export class Marshal {
         this.ports.cancelRun(live.taskId);
         // the item's run is over: end it on the board too (the same call the module makes when the engine
         // reports the cancel), so the stale activeRun never keeps it out of the next wave
-        this.ports.board.endRun(this.project.id, live.taskId, { status: 'cancelled', isError: true, text: 'The Marshal stopped this run: it stalled without progress.', tainted: false });
+        this.ports.board.endRun(this.project.id, live.taskId, { status: 'cancelled', isError: true, text: 'The Marshal stopped this run: it stalled without progress.', tainted: state.tainted !== false });
         this.live.delete(itemId);
         this.ledger.runEnded(itemId, 'stalled');
         this.persist(itemId);

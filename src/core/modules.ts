@@ -19,6 +19,8 @@ export interface ModuleJob {
   ceiling?: RunMode;
   /** True once the run touched outside content (WebFetch, WebSearch, Bash, an external tool) or was woken by a tainted chain. Sticky. */
   taint(): boolean;
+  /** Why the run was marked, as a fixed short phrase (never command text). Present once taint() is true. */
+  taintedBy?(): string | undefined;
   /** Flags the run as tainted from now on (a tool just handed it text a tainted bot wrote, e.g. room_read). Sticky. */
   markTainted?(): void;
   /** Marks the task as having read connector data (sticky): withheld from MCP-client readers. Called by the connector gateway. */

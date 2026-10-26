@@ -133,7 +133,7 @@ test('A: taint is sticky, covers Bash / external MCP tools but not legion tools,
     yield toolUse('mcp__legion_comms__bot_list');
     yield toolUse('mcp__legion__agents');
     yield toolUse('mcp__legion_kg__kg_recall');
-    yield toolUse('Read');
+    yield toolUse('Read', 'r0', { file_path: 'notes.txt' });
     out.clean = (await kg(c.options, 'kg_upsert_node', { title: 'Clean fact one', scope: 'shared' })).text;
     yield toolUse('mcp__github__create_issue');
     out.afterMcp = (await kg(c.options, 'kg_upsert_node', { title: 'After external tool', scope: 'shared' })).text;

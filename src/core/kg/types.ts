@@ -17,6 +17,8 @@ export interface RunContext {
   ceiling?: RunMode;
   /** True once the run touched outside content. Sticky; read at every write. */
   taint?: () => boolean;
+  /** Why the run was marked (a fixed short phrase), for the message a refused write shows. */
+  taintedBy?: () => string | undefined;
   quota?: TaskQuota;
   /** The project this run belongs to (engine-resolved): lets it see and write that project's notes and no other project's. */
   projectId?: string;
@@ -34,9 +36,11 @@ export const HUMAN: Actor = { kind: 'human' };
 export const SYSTEM: Actor = { kind: 'system' };
 export const agentActor = (id: string, run: RunContext = {}): Actor => ({ kind: 'agent', id, ...run });
 export const actorName = (a: Actor): string => (a.kind === 'agent' ? a.id : a.kind);
-/** True when this agent's run is tainted (engine-observed) or was woken by a tainted chain. */
 /** A run whose approval ceiling is `ask` because an MCP client started it or woke it (not a person in the app). Nothing it writes may steer a later run. */
 export const isAskCapped = (a: Actor | undefined): boolean => !!a && a.kind === 'agent' && a.origin !== undefined && (a.ceiling ?? a.origin.approvalCeiling) === 'ask';
+/** " (marked by: ...)" for a refusal message, or nothing when the cause is not known. */
+export const taintNote = (a: Actor): string => { const w = a.kind === 'agent' ? a.taintedBy?.() : undefined; return w ? ` (marked by: ${w})` : ''; };
+/** True when this agent's run is tainted (engine-observed) or was woken by a tainted chain. */
 export const isTainted = (a: Actor): boolean => a.kind === 'agent' && (a.taint?.() === true || a.origin?.tainted === true);
 
 /**

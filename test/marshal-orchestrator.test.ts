@@ -85,6 +85,19 @@ test('a wave is a batch: the cap bounds one pass, and one bot owns one item at a
   assert.equal(r.board.view(P).items.filter((i) => i.status === 'doing').length, 3, 'three items, three runs, none shared');
 });
 
+test('a stalled run that had read outside text keeps that mark on the item; one the engine cannot tell about counts as marked', async () => {
+  for (const [state, expected] of [[{ tainted: true }, true], [{ tainted: false }, false], [{}, true]] as const) {
+    const r = rig(matchFirst('builder'));
+    const item = r.board.create(P, { title: 'the rabbit hole' });
+    const m = r.marshal();
+    m.writeDoneWhen(item.id, ['done']);
+    const d = (await m.step(T0)).dispatched[0]!;
+    r.states.set(d.taskId, { status: 'running', progressAt: T0, ...state });
+    assert.deepEqual(m.monitor(T0 + 9 * MIN).stalled, [item.id]);
+    assert.equal(r.board.get(PID, item.id)!.lastRun?.tainted, expected, JSON.stringify(state));
+  }
+});
+
 test('budget steering: a stalled run is stopped and the item goes forward; a second stall ends the ladder', async () => {
   const r = rig(matchFirst('builder'));
   const item = r.board.create(P, { title: 'the rabbit hole' });

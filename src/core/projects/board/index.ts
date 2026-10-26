@@ -125,7 +125,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
         let waiting = false;
         try { waiting = deps.engine.waitingOnOwner?.(taskId) === true; } catch { /* not waiting */ }
         const at = runProgressAt(t, last);
-        return { status: t.status, ...(Number.isFinite(at) ? { progressAt: at } : {}), ...(t.error ? { error: t.error } : {}), ...(waiting ? { waitingOnOwner: true } : {}) };
+        return { status: t.status, ...(Number.isFinite(at) ? { progressAt: at } : {}), ...(t.error ? { error: t.error } : {}), ...(waiting ? { waitingOnOwner: true } : {}), tainted: t.tainted === true || deps.engine.isTainted?.(taskId) === true };
       } catch {
         // an unreadable task store counts as live, exactly like the board's own run lookup: never end a run on a guess
         return { status: 'running', progressAt: Date.now() };

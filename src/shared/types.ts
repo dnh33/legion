@@ -281,6 +281,8 @@ export interface Task {
   usedConnectors?: boolean;
   /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
   tainted?: boolean;
+  /** Why: the first thing that marked the task, in a fixed short phrase ("a command that reaches the network"). Never holds command text. */
+  taintedBy?: string;
   /** The agent host that ran the latest run, as a label ("Hermes"). Absent for a Claude or provider run. */
   runtime?: string;
   /** An agent host run whose cost Legion cannot tell: the host reports tokens but no price, and the owner entered none. */
@@ -489,6 +491,14 @@ export type McpServerEntry =
  * Set in Settings -> Compaction and stored under `compaction` in config.json. Only affects runs on a provider
  * model; Claude runs use Claude Code's own compaction and never read these.
  */
+/**
+ * What marks a run as having read outside text (Settings, Outside text). `shell`: "local" judges each shell command (a local command in the
+ * project does not mark the run; the web, GitHub text, other tools and any command Legion cannot check still do); "strict" marks the run on
+ * every shell command, as 0.3.8 did. `outsideFiles`: a file read outside the project, in third-party code or in a cloned repository marks the run.
+ * `noticeSeen`: the one-time notice about the new default was shown.
+ */
+export interface TaintConfig { shell: 'local' | 'strict'; outsideFiles: boolean; noticeSeen: boolean }
+
 export interface CompactionSettings {
   /**
    * Off switch. Only an explicit false turns compaction off; true is the default.
@@ -558,6 +568,8 @@ export interface LegionConfig {
   mcpServers: Record<string, McpServerEntry>;
   /** Context-compaction tuning for provider runs. Stored under "compaction"; absent means the shipped defaults. */
   compaction: CompactionSettings;
+  /** What marks a run as having read outside text (Settings, Outside text). Stored under "taint"; absent means the shipped defaults. */
+  taint?: TaintConfig;
   /**
    * Gate rules (Settings -> Gates): the owner's refinements on top of each agent's approval mode. Absent in an
    * older config = no rules, exactly today's behaviour (needsApproval stays the floor).
@@ -658,6 +670,8 @@ export interface SettingsView {
   mcpServers: Record<string, McpServerEntry>;
   /** Context-compaction tuning for provider runs. */
   compaction: CompactionSettings;
+  /** What marks a run as having read outside text, normalised. */
+  taint: TaintConfig;
   /** Gate rules, normalized (Settings -> Gates). Always present in a view; an old config reads as no rules. */
   gates: GatesConfig;
   /** Agent hosts: entries with detection state, the in-between switches, the watchdog. */
@@ -676,6 +690,8 @@ export interface SettingsPatch {
   mcpServers?: Record<string, McpServerEntry>;
   /** Omitted fields are unchanged; contextWindowOverride: null means "derive the window per model". */
   compaction?: Partial<CompactionSettings>;
+  /** Omitted fields are unchanged. */
+  taint?: Partial<TaintConfig>;
   /**
    * Replaces the gate rule list (and optionally the preset stamp). A malformed rule is a 400 and nothing is
    * stored — a bad rule must never reach a matcher at run time.

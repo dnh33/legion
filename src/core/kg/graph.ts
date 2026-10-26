@@ -24,7 +24,7 @@ import {
   clipCp, effectiveTrust, guarded, isInactive, makeSnippet, oneLine, rankFactor, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode,
   DATA_LINE, isUntrusted,
 } from './text.js';
-import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isAskCapped, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
+import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isAskCapped, isNodeType, isTainted, KgError, SYSTEM, taintNote, WM_PREFIX, wmId } from './types.js';
 import type {
   Actor, BriefingParts, CaptureInput, CaptureResult, GraphStats, LinkInput, LinkResult, MergeResult, NeighborsResult, NodeInput, PathResult,
   RecallResult, SupersedeResult, SweepItem, SweepResult, UpsertResult,
@@ -736,7 +736,7 @@ export class Graph {
       : undefined;
     const notes: string[] = [];
     if (askWoken && !tainted && !isSharedLike(scope)) notes.push('This run was started by an MCP client or another bot under "ask" approvals, so what you write here is stored as untrusted and is not shown in the next run\'s briefing.');
-    if (tainted) notes.push('This run touched outside content (web, shell or external tools), so what you write is stored as untrusted' + (hold ? ' and shared notes wait for the human to accept them.' : '.'));
+    if (tainted) notes.push('This run touched outside content' + (agent ? taintNote(agent) : '') + ', so what you write is stored as untrusted' + (hold ? ' and shared notes wait for the human to accept them.' : '.'));
     else if (hold && askWoken) notes.push('This run was started by another bot under "ask" approvals, so shared notes wait for the human to accept them.');
     else if (hold) notes.push('You are the Archivist: you flag and propose, you never decide. Shared notes you write wait for the human to accept them.');
     return { agent, tainted, trust, hold, origin, notes };
@@ -808,7 +808,7 @@ export class Graph {
   /** A run that touched outside content may not plant trigger tags (standing rules for other runs). */
   private guardTriggerTags(actor: Actor, tags: string[] | undefined): void {
     if (actor.kind === 'agent' && isTainted(actor) && tags?.some((t) => t.startsWith('trigger:'))) {
-      throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may not write trigger tags. Nothing was saved.');
+      throw new KgError('forbidden', 'This run touched outside content' + taintNote(actor) + ', so it may not write trigger tags. Nothing was saved.');
     }
   }
 
@@ -1083,7 +1083,7 @@ export class Graph {
       // a tainted run may only wire up what it wrote itself, so it cannot hijack hubs or plant text on trusted links
       const mine = (n: KgNode) => !!actor.taskId && n.origin?.taskId === actor.taskId;
       if (!mine(fromNode) && !mine(toNode)) {
-        throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may link only notes it wrote itself in this run.');
+        throw new KgError('forbidden', 'This run touched outside content' + taintNote(actor) + ', so it may link only notes it wrote itself in this run.');
       }
       if (note !== undefined) { note = undefined; notes.push('Link note dropped: this run touched outside content.'); }
     }
@@ -1137,7 +1137,7 @@ export class Graph {
       throw new KgError('forbidden', 'The Archivist flags and proposes, it never removes links it did not make.');
     }
     if (actor.kind === 'agent' && e.createdBy !== actor.id) {
-      if (isTainted(actor)) throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may remove only links it created itself.');
+      if (isTainted(actor)) throw new KgError('forbidden', 'This run touched outside content' + taintNote(actor) + ', so it may remove only links it created itself.');
       const f = this.nodes.get(e.from)!;
       const t = this.nodes.get(e.to)!;
       if (!this.canWrite(actor, f.scope) || !this.canWrite(actor, t.scope)) throw new KgError('forbidden', 'This link touches read-only (bsv) content and was not created by you.');
@@ -1477,7 +1477,7 @@ export class Graph {
   setWorkingMemory(actor: Actor, input: { active: string; archiveAppend?: string }): { node: KgNode; created: boolean; changed: boolean; archiveTrimmed: boolean; redacted?: number } {
     if (actor.kind !== 'agent') throw new KgError('forbidden', 'Working memory belongs to a bot.');
     if (isTainted(actor)) {
-      throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may not write working memory: the next run would read it as its own. Nothing was saved. Put findings in a note (they go to the human inbox) and keep your working memory for clean runs.');
+      throw new KgError('forbidden', 'This run touched outside content' + taintNote(actor) + ', so it may not write working memory: the next run would read it as its own. Nothing was saved. Put findings in a note (they go to the human inbox) and keep your working memory for clean runs.');
     }
     if (isAskCapped(actor)) {
       throw new KgError('forbidden', 'This run was started by an MCP client or another bot under "ask" approvals, so it may not write working memory: the next run you start for the human would read it as its own. Nothing was saved. Put what matters in a note (shared notes go to the human inbox).');
