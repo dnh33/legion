@@ -7,10 +7,10 @@ export const OUTSIDE_TEXT_COPY = {
   useStrict: 'Use strict',
   shellLabel: 'Shell commands',
   shell: {
-    local: { name: 'By source (recommended). ', help: 'Local commands in your project do not mark a run. A command that reaches the network, or that Legion cannot read with certainty, does.' },
-    strict: { name: 'Strict. ', help: 'Every shell command marks the run. Use it in a repository you do not trust: a test or build script there can fetch a web page, and Legion judges the command you typed, not what the script does inside.' },
+    local: { name: 'By source (recommended)', help: 'Local commands in your project do not mark a run. A command that reaches the network, or that Legion cannot read with certainty, does.' },
+    strict: { name: 'Strict', help: 'Every shell command marks the run. Use it in a repository you do not trust: a test or build script there can fetch a web page, and Legion judges the command you typed, not what the script does inside.' },
   },
-  filesName: 'Files outside the project count. ',
+  filesName: 'Files outside the project count',
   filesHelp: 'Reading a file outside your project, in node_modules or vendor, or inside a cloned repository marks the run.',
   limits: 'Not covered: a file that a marked run wrote with a shell command (not with the file tools), and text a project script fetches by itself.',
 } as const;
