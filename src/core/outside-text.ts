@@ -228,10 +228,14 @@ const REBASE_RUNS = /^-(?!-)[A-Za-z]*[xi]/;
 const LOCAL_GIT = /^git\s+(checkout|switch|stash|restore|reset|rebase|cherry-pick|tag|worktree|rev-parse|ls-files|merge-base|show-ref|describe|reflog)(\s|$)/;
 /** gh calls that make or finish our own work: what they print is an address, a status or names we chose, not text another person wrote. */
 const LOCAL_GH = /^gh\s+(pr\s+(create|ready|checks)|run\s+(watch|rerun))(\s|$)/;
+/** Programs that are asked for their version or help all the time; the bare name only (a path to a program is not this). */
+const VERSION_PROGRAMS = new Set(['git', 'node', 'nodejs', 'npm', 'pnpm', 'yarn', 'python', 'python3', 'py', 'gh', 'rg', 'fd', 'cargo', 'go', 'tsc', 'java', 'deno', 'bun', 'ruby', 'php', 'perl', 'dotnet', 'rustc', 'pwsh']);
+const VERSION_FLAGS = new Set(['--version', '-v', '-V', 'version', '--help', '-h', '-version']);
 function knownLocal(command: string): boolean {
   const c = command.trim();
   if (!PLAIN.test(c)) return false;
   const words = c.split(/\s+/);
+  if (words.length === 2 && VERSION_PROGRAMS.has(words[0]!) && VERSION_FLAGS.has(words[1]!)) return true;
   if (words.some((w) => GIT_RUNS_OTHERS.test(w))) return false;
   if (/^git\s+rebase(\s|$)/.test(c) && words.slice(2).some((w) => REBASE_RUNS.test(w))) return false;
   return LOCAL_GIT.test(c) || LOCAL_GH.test(c);

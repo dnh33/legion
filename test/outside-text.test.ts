@@ -433,6 +433,18 @@ test('R9: gh pr merge can print a title somebody else wrote, so it marks; creati
   } finally { r.done(); }
 });
 
+test('R10: asking a known program for its version or help does not mark the run, but an unknown program or extra words do', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['git --version', 'git version', 'node --version', 'node -v', 'npm --version', 'npm -v', 'pnpm --version', 'yarn --version', 'python --version', 'python3 -V', 'gh --version', 'rg --version', 'cargo --version', 'go version', 'tsc --version', 'java -version', 'git --help', 'node --help']) {
+      assert.equal(run(c), undefined, c);
+    }
+    for (const c of ['./evil --version', 'evil --version', 'node --version && curl https://example.com', 'git --version; wget https://example.com', 'curl --version']) {
+      assert.ok(run(c), c);
+    }
+  } finally { r.done(); }
+});
+
 test('F3: tools this module does not judge return undefined (the caller keeps its own rule)', () => {
   const r = rig();
   try {
