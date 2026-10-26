@@ -20,7 +20,7 @@ import { classifySafe } from '../shared/consequence.js';
 export type TaintShellMode = 'local' | 'strict';
 
 /** Folders that hold other people's code, whatever the project says. */
-const THIRD_PARTY = new Set(['node_modules', 'vendor', 'third_party', 'third-party', 'bower_components', 'site-packages', 'pods', '.git']);
+const THIRD_PARTY = new Set(['node_modules', 'vendor', 'third_party', 'third-party', 'bower_components', 'site-packages', 'dist-packages', 'pods', 'carthage', '.yarn', '.terraform', '.pnpm-store', '.git']);
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'Monitor', 'mcp__host__shell']);
 const FILE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   Read: ['file_path'], Grep: ['path'], Glob: ['path'], LS: ['path'], mcp__host__read_file: ['path'],
@@ -193,7 +193,7 @@ function pathWordReason(command: string, ctx: PathCtx): string | undefined {
     if (!w || w.startsWith('-') || w.includes('://') || w.includes('$') || /[*?[{]/.test(w)) continue;
     if (/^\/dev\/(null|stdin|stdout|stderr)$/.test(w)) continue;
     if (!/[\\/]/.test(w) && !existsSync(resolve(ctx.cwd, w))) continue;
-    if (++checked > 80) return 'a command with more paths than Legion checks';
+    if (++checked > 600) return 'a command with more paths than Legion checks';
     const r = outsidePathReason(w, ctx);
     if (r) return r;
   }
@@ -219,7 +219,9 @@ function runsInlineCode(command: string): boolean {
 /** A single plain command with nothing that chains, redirects or substitutes. */
 const PLAIN = /^[^;&|<>`$()\n\r]+$/;
 /** Flags (any spelling, including shortened ones) that make a git call run another program or reach another place. */
-const GIT_RUNS_OTHERS = /^--(exe|int|upload|receive|config|recurse)/i;
+const GIT_RUNS_OTHERS_LONG = ['exec', 'interactive', 'upload-pack', 'receive-pack', 'config', 'config-env', 'recurse-submodules', 'recursive'];
+/** git takes any unique start of a long option (`--ex` is `--exec`), so every start of a dangerous one counts, as well as the whole word. */
+const GIT_RUNS_OTHERS = { test: (w: string): boolean => { const m = /^--([a-z-]+)/i.exec(w); if (!m) return false; const n = m[1]!.toLowerCase(); return GIT_RUNS_OTHERS_LONG.some((d) => d.startsWith(n)); } };
 /** Short flags of `git rebase` that run a command (-x) or open an editor (-i), also clustered or with the value attached. */
 const REBASE_RUNS = /^-(?!-)[A-Za-z]*[xi]/;
 /** Git calls that work on this repository only and bring no text in (no fetch, pull, clone, submodule update, remote reads). */
@@ -259,13 +261,13 @@ function packageRunnerReason(command: string, roots: readonly string[]): string 
 }
 
 /** A command that names code somebody else wrote (a dependency folder, a submodule's git data). */
-const NAMES_THIRD_PARTY = /(^|[\s"'=/\\])(node_modules|vendor|third_party|third-party|bower_components|site-packages|pods)([\s"'/\\]|$)|\.git[\\/]/i;
+const NAMES_THIRD_PARTY = /(^|[\s"'=/\\])(node_modules|vendor|third_party|third-party|bower_components|site-packages|dist-packages|pods|carthage|\.yarn|\.terraform|\.pnpm-store)([\s"'/\\]|$)|\.git[\\/]/i;
 
 /** ripgrep with its ignore rules off searches the dependency folders too. */
 function searchesEverything(command: string): boolean {
   const words = command.split(/\s+/);
   const i = words.findIndex((w) => /^rg(\.exe)?$/i.test(w));
-  return i >= 0 && words.slice(i + 1).some((w) => /^-(?!-)[A-Za-z]*u/.test(w) || /^--(no-ignore|unrestricted|hidden)/i.test(w));
+  return i >= 0 && words.slice(i + 1).some((w) => /^-(?!-)[A-Za-z]*u+$/.test(w) || /^--(no-ignore|unrestricted|hidden)/i.test(w));
 }
 
 /** Programs that run a project's files: while a marked run has left files in the project they are not trusted. */

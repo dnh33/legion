@@ -25,7 +25,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - **Project scripts are trusted.** Legion judges the command you typed, not what a script does inside. A test or `npm run` script that fetches a web page does not mark the run. In a repository you do not trust, choose Strict.
 - **A file that a marked run wrote with a shell command is not tracked.** Only files written with the file tools are. This was already true.
-- **`gh` commands that read what other people wrote mark the run, and so does any command Legion does not know**, for example `make`, `go test` or `sed -i`.
+- **`gh` commands that read what other people wrote mark the run, and so does any command Legion does not know**, for example `make`, `go test` or `sed -i`. `gh pr merge` marks the run too, because it prints a title. `gh pr create`, `ready`, `checks` and `gh run watch` do not.
 - **Text that arrives through git is your project's text once it is in your folder.** `git log`, `git show`, a merge or a checkout of someone else's branch do not mark the run (the `git pull` or `git fetch` that brought it in does). Strict marks all of them.
 - **Builds that fetch dependencies** (`cargo build`, `go build`, `npm run build`) are trusted like any project script.
 

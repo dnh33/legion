@@ -340,6 +340,39 @@ test('R3: git flags that run another program mark the run, in any spelling; bran
   } finally { r.done(); }
 });
 
+test('R3b: git accepts any unique start of a long option, so every start of a dangerous one marks the run', () => {
+  const { r, run } = rr();
+  try {
+    for (const c of ['git rebase --ex id main', 'git rebase --e id main', 'git rebase --in main', 'git rebase --inter main', 'git checkout --rec main', 'git switch --rec main', 'git checkout --recurse main', 'git stash --upl=x', 'git rebase --exec=id main']) {
+      assert.ok(run(c), c);
+    }
+    for (const c of ['git rebase --continue', 'git rebase --abort', 'git rebase --skip', 'git reset --hard HEAD~1', 'git checkout --detach main', 'git stash --include-untracked', 'git tag --annotate v1 -m x', 'git worktree add --detach ../w main']) {
+      assert.equal(run(c), undefined, c);
+    }
+  } finally { r.done(); }
+});
+
+test('R3c: a command with many paths is checked, not given up on; ripgrep type flags are not the ignore flag', () => {
+  const { r, run } = rr();
+  try {
+    const many = Array.from({ length: 300 }, (_, i) => `src/file${i}.ts`).join(' ');
+    assert.equal(run(`git add ${many}`), undefined);
+    assert.ok(run(`git add ${many} jn/x.md`), 'one path that leads out among 300 still marks');
+    assert.equal(run('rg -tus foo src'), undefined);
+    assert.equal(run('rg -nH foo src'), undefined);
+    assert.ok(run('rg -nuu foo'));
+  } finally { r.done(); }
+});
+
+test('R5b: more dependency and tool folders count as third-party code', () => {
+  const { r } = rr();
+  try {
+    for (const p of ['dist-packages/x.py', 'Carthage/Checkouts/x/README.md', '.yarn/cache/x.zip', '.terraform/modules/x/main.tf', '.pnpm-store/v3/x']) {
+      assert.match(outsidePathReason(p, ctx(r.proj)) ?? '', /third-party/, p);
+    }
+  } finally { r.done(); }
+});
+
 test('R4: a bare word that names a shortcut or a cloned repository in the project folder is judged like a path', () => {
   const { r, run } = rr();
   try {
