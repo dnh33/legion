@@ -902,6 +902,9 @@ export class Engine {
     });
   }
 
+  /** Strict is the only mode that locks a marked run; the default mode labels it. Read live from the config. */
+  private locksOnMark(): boolean { return normalizeTaint(this.config.taint).shell === 'strict'; }
+
   cancel(taskId: string): boolean {
     const qi = this.queue.findIndex((j) => j.taskId === taskId);
     if (qi >= 0) {
@@ -1451,7 +1454,7 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       taintedBy: () => act.taintedBy ?? (job.origin?.tainted ? 'a run that read outside text started this one' : undefined),
-      locks: () => normalizeTaint(this.config.taint).shell === 'strict',
+      locks: () => this.locksOnMark(),
       markTainted: () => this.taintRun(taskId, act, 'a tool that read outside text'),
       markConnectorData: () => { this.patchTask(taskId, { usedConnectors: true }); },
       runtime,
@@ -3243,7 +3246,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }
       // Another agent, a room or an outside app started this run and it is capped or tainted: the owner says yes before Hermes gets it
       const from = job.origin;
-      if (from && (from.approvalCeiling !== 'full' || from.tainted)) {
+      if (from && (from.approvalCeiling !== 'full' || (from.tainted && this.locksOnMark()))) {
         const allowed = await this.approvals.request(taskId, agent.id, entry.label, { agent: agent.name }, { roomId: from.roomId, fromAgentId: from.fromAgentId, hop: from.hop }, {
           noRemember: true,
           summary: `Another agent or app asked ${entry.label} to work for you. ${entry.label} runs commands and changes files on your computer with its own tools, and Legion cannot see most of what it does. Allow it only if you expect this.`,

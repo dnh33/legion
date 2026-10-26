@@ -44,6 +44,8 @@ const CMD = (id: string, command: string, extra: Step = {}): Step => ({ op: 'per
 const END = (usage?: { inputTokens: number; outputTokens: number }, stopReason = 'end_turn'): Step => ({ op: 'end', stopReason, ...(usage ? { usage } : {}) });
 
 interface RigOpts {
+  /** Strict outside-text mode: a tainted caller still gets the hand-off card (the 0.3.9 rule). The default mode labels it. */
+  strict?: boolean;
   steps?: Step[];
   switches?: Partial<AcpSwitches>;
   approval?: ApprovalMode;
@@ -75,6 +77,7 @@ function rig(o: RigOpts = {}) {
   const broker = new ApprovalBroker(bus);
   const config = defaultConfig();
   config.workspaceDir = join(root, 'workspaces');
+  if (o.strict) config.taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   const entry: AcpEntry = { id: 'hermes', label: 'Hermes', command: process.execPath, args: [FAKE, '--mode', 'script', '--script', scriptFile, '--log', logFile, '--report', reportFile, ...(o.fakeArgs ?? [])], tested: true, enabled: true, ...o.entry };
   config.acp = { ...config.acp, entries: [entry], switches: { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false, ...o.switches } };
   const hermes: AgentProfile = {
@@ -1024,14 +1027,14 @@ test('R46: a resume that Hermes refuses for its tool list (unavailable or confli
   assert.equal(end.status, 'done', 'a conversation that is gone starts a new one');
 });
 
-test('F13: Bypass never answers for a run another agent or app started with a cap or a taint', async () => {
+test('F13: in Strict, Bypass never answers for a run another agent or app started with a cap or a taint', async () => {
   const cases: Array<[string, Record<string, unknown>]> = [
     ['capped (ask)', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask' }],
     ['tainted but uncapped (full)', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'full', tainted: true }],
     ['capped and tainted', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true }],
   ];
   for (const [name, origin] of cases) {
-    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()], strict: true });
     const t = await r.run('hi', { origin });
     const first = await r.nextCard();
     assert.match(first.summary, /Another agent or app asked Hermes/, `${name}: the hand-off card comes first`);
@@ -1046,6 +1049,22 @@ test('F13: Bypass never answers for a run another agent or app started with a ca
   const owner = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
   assert.equal((await owner.done(await owner.run())).status, 'done');
   assert.deepEqual(outcomeOf(owner.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'control: the owner\'s own Bypass run is answered without a card');
+});
+
+test('F13b (0.3.10): in the default mode a tainted caller alone gets no hand-off card, but a capped caller still does', async () => {
+  const tainted = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+  const t = await tainted.run('hi', { origin: { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'full', tainted: true } });
+  const first = await tainted.nextCard();
+  assert.doesNotMatch(first.summary, /Another agent or app asked Hermes/, 'a labelled caller at full gets no hand-off card; the first card is the command itself (a run another agent started is never auto-answered)');
+  assert.match(first.summary, /ls/);
+  tainted.broker.resolve(first.id, true);
+  assert.equal((await tainted.done(t)).status, 'done');
+  const capped = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+  const ct = await capped.run('hi', { origin: { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true } });
+  const hand = await capped.nextCard();
+  assert.match(hand.summary, /Another agent or app asked Hermes/, 'a capped caller still gets the card');
+  capped.broker.resolve(hand.id, false);
+  await capped.done(ct);
 });
 
 // ---------------------------------------------------------------- final wave W1

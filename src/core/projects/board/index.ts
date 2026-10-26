@@ -117,7 +117,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     visible: (id) => agentIdVisible({ bsvEnabled: deps.bsvEnabled, store: deps.store }, id),
     matcher,
     locks: () => locksOn(),
-    startRun: ({ agentId, prompt }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid, trigger: 'marshal' }).id }),
+    startRun: ({ agentId, prompt, itemId }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid, trigger: 'marshal', ...(board.get(pid, itemId)?.trust !== 'human' ? { tainted: true } : {}) }).id }),
     runState: (taskId): RunState => {
       try {
         const t = deps.store.getTask(taskId);

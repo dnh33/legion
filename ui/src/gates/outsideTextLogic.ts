@@ -1,7 +1,7 @@
 /** The words on Settings, Gates, Outside text. Plain, no em dashes; the doc in docs/ and SECURITY.md say the same things. */
 export const OUTSIDE_TEXT_COPY = {
   title: 'Outside text',
-  lead: 'Legion labels a run that read text someone else wrote: the web, GitHub issues and comments, other tools, or files from outside your project. A labelled run works as normal. What it creates carries the label, and the next run is told when its working memory came from a labelled run. Money confirmations, GitHub write cards and trigger tags (which wait for your OK) still apply.',
+  lead: 'Legion labels a run that read text someone else wrote: the web, GitHub issues and comments, other tools, or files from outside your project. A labelled run works as normal. What it creates carries the label, and the next run is told when its working memory came from a labelled run. Money confirmations, GitHub write cards and trigger tags (which only take effect once you accept them) still apply.',
   notice: 'New in this update: a run that read outside text is labelled, not locked. It can use the board, write memory and share notes as usual, and running a program no longer marks a run at all. In a repository you do not trust, choose Strict.',
   keep: 'Keep this',
   useStrict: 'Use strict',

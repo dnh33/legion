@@ -141,3 +141,13 @@ test('the briefing tells the next run that its working memory was saved by a mar
   g2.setWorkingMemory(agentActor('alpha', { taskId: 't2' }), { active: 'step 5 of 8' });
   assert.doesNotMatch(renderBriefing(g2.briefingParts('alpha')), /outside text/);
 });
+
+import { classifySafe } from '../src/shared/consequence.js';
+
+test('a command that repoints a git remote is one Legion cannot classify, so Smart and Ask ask for it; reading the remotes is certain', () => {
+  const k = (command: string) => classifySafe({ kind: 'approval', toolName: 'Bash', input: { command }, projectFolders: ['/p'], home: '/h' });
+  for (const c of ['git remote set-url origin https://example.com/x.git', 'git remote add up https://example.com/x.git', 'git config remote.origin.url https://example.com/x.git']) {
+    assert.equal(k(c).certain, false, c);
+  }
+  assert.equal(k('git remote -v').certain, true);
+});

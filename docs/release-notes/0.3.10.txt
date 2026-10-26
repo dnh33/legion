@@ -1,7 +1,7 @@
 This update installs from inside Legion.
 
 Your agents are no longer stopped by what they read
-Before, an agent that had read a web page, a GitHub comment or a file from outside your project could not assign or delete board items, write working memory or share notes directly. Now it carries on as normal. What it creates carries a label, and the next run is told when its working memory came from a run that read outside text. Money confirmations, GitHub write cards, the stop for disastrous commands and your Block rules work as before. Trigger tags from such a run wait for your OK.
+Before, an agent that had read a web page, a GitHub comment or a file from outside your project could not assign or delete board items, write working memory or share notes directly. Now it carries on as normal. What it creates carries a label, and the next run is told when its working memory came from a run that read outside text. Money confirmations, GitHub write cards, the stop for disastrous commands and your Block rules work as before. A trigger tag from such a run does not take effect until you accept it.
 
 Running a program never marks a run
 node -e, make, go test, npx, npm install, git pull and programs Legion does not know leave an agent clean. Only text that comes in from outside marks a run: the web, GitHub text you read, other tools and files outside your project.
