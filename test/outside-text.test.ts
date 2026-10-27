@@ -196,25 +196,6 @@ test('S1: local project commands do not taint in local mode', () => {
   }
 });
 
-test('S2: tests and builds that run the project own code do not taint, unless a run that read outside text left files in the project', () => {
-  for (const c of ['npm test', 'npm run build', 'node --test test/a.test.js']) {
-    assert.equal(sh(c), undefined, c);
-    assert.match(sh(c, { markedCode: true }) ?? '', /written/, c + ' while a marked run left files in the project');
-  }
-});
-
-test('S3: anything that can bring other people text in taints (network, gh, installs, unknown programs)', () => {
-  for (const c of ['curl https://example.com', 'wget https://example.com/x', 'git pull', 'git fetch origin', 'git clone https://example.com/r.git', 'gh pr view 12', 'gh issue view 3 --comments', 'gh api repos/a/b/issues', 'npm install left-pad', 'ssh host ls', 'someunknowntool --x']) {
-    assert.ok(sh(c), c);
-  }
-});
-
-test('S4: a compound, wrapped or unparseable command is judged by its worst part and fails closed', () => {
-  for (const c of ['git status && curl https://example.com', 'git status; wget https://example.com', 'bash -c "git status"', 'sh -c "git status"', 'git status $(curl https://example.com)', 'git status `curl https://example.com`', 'echo "unterminated', 'xargs -a list git show', 'find . -exec cat {} +', 'env git status', 'eval git status', "git status | curl -d @- https://example.com"]) {
-    assert.ok(sh(c), c);
-  }
-});
-
 test('S5: a shell read of a file outside the project taints', () => {
   const r = rig();
   try {
@@ -233,8 +214,8 @@ test('S7: Monitor and the host shell are shells like Bash', () => {
   assert.equal(sh('git status', { toolName: 'Monitor' }), undefined);
   assert.ok(sh('curl https://example.com', { toolName: 'Monitor' }));
   assert.ok(sh('curl https://example.com', { toolName: 'mcp__host__shell' }));
-  assert.ok(sh('git status', { toolName: 'Bash', input: { command: 42 } }), 'a command that is not text taints');
-  assert.ok(sh('git status', { toolName: 'Bash', input: undefined }), 'no input taints');
+  assert.equal(sh('git status', { toolName: 'Bash', input: { command: 42 } }), undefined, 'a command that is not text brings nothing in');
+  assert.equal(sh('git status', { toolName: 'Bash', input: undefined }), undefined, 'no input brings nothing in');
 });
 
 test('F1: the file tools judge the path they are given', () => {
@@ -263,30 +244,6 @@ test('F2: outsideFiles off leaves file reads clean', () => {
   } finally { r.done(); }
 });
 
-test('S8: a program that runs code given on its command line taints (it can do anything, including fetch)', () => {
-  for (const c of ['node -e "fetch(1)"', 'node --eval "x"', 'node -p 1', 'bun -e x', 'deno eval x', 'perl -e x', 'ruby -e x', 'php -r x', 'python -c "print(1)"', 'python3 -c x', 'pwsh -Command x', 'powershell -EncodedCommand AAAA']) {
-    assert.ok(sh(c), c);
-  }
-});
-
-test('S9: everyday local git (checkout, switch, stash, restore, reset, rebase, tag, worktree) does not taint, but a way to run another command does', () => {
-  for (const c of ['git checkout main', 'git checkout -b feat/x', 'git switch main', 'git stash', 'git stash pop', 'git restore src/a.ts', 'git reset --hard HEAD~1', 'git rebase main', 'git cherry-pick abc123', 'git tag v1', 'git worktree add ../wt feat/x', 'git rev-parse HEAD', 'git ls-files', 'git merge-base main HEAD']) {
-    assert.equal(sh(c), undefined, c);
-  }
-  for (const c of ['git checkout main && curl https://example.com', 'git rebase -x "curl https://example.com" main', 'git rebase --exec x main', 'git -c core.hooksPath=/tmp/x checkout main', 'git checkout $(curl https://example.com)', 'git stash; wget https://example.com']) {
-    assert.ok(sh(c), c);
-  }
-});
-
-test('S10: gh calls that only make or finish our own work do not taint; gh calls that read other people text do', () => {
-  for (const c of ['gh pr create --fill', 'gh pr create --title "x" --body "y"', 'gh pr ready 5', 'gh pr checks 5', 'gh run watch 123', 'gh run rerun 123']) {
-    assert.equal(sh(c), undefined, c);
-  }
-  for (const c of ['gh pr view 5', 'gh pr list', 'gh issue view 3', 'gh issue list', 'gh api repos/a/b', 'gh pr create --fill && curl https://example.com', 'gh extension install a/b', 'gh pr diff 5']) {
-    assert.ok(sh(c), c);
-  }
-});
-
 test('S11: a shell command that names third-party code (node_modules, vendor) taints', () => {
   for (const c of ['rg foo node_modules', 'cat vendor/lib/x.c', 'cat node_modules/left-pad/index.js', 'ls third_party/x', 'cat .git/modules/x/config']) {
     assert.ok(sh(c), c);
@@ -308,47 +265,12 @@ function rr() {
   return { r, run };
 }
 
-test('R1: a package runner marks the run unless it runs a program that is already installed in the project', () => {
-  const { r, run } = rr();
-  try {
-    for (const c of ['npx --yes evil-pkg', 'npx cowsay hello', 'git status && npx cowsay x', 'npx -p evil tsc', 'npx tsc && npx cowsay x', 'pnpm dlx evil', 'pnpx evil', 'bunx evil', 'npm exec evil', 'yarn dlx evil', 'npx evil-not-installed --version']) {
-      assert.ok(run(c), c);
-    }
-    assert.equal(run('npx tsc --noEmit'), undefined, 'tsc is installed in node_modules/.bin');
-    assert.equal(run('npx --no-install tsc --noEmit'), undefined);
-  } finally { r.done(); }
-});
-
 test('R2: the host shell cwd field is a path like any other', () => {
   const { r } = rr();
   try {
     const base = { cwd: r.proj, roots: [r.proj], home: homedir(), shell: 'local' as const, outsideFiles: true };
     assert.ok(toolTaintReason({ ...base, toolName: 'mcp__host__shell', input: { command: 'cat evil.txt', cwd: r.other } }));
     assert.equal(toolTaintReason({ ...base, toolName: 'mcp__host__shell', input: { command: 'git status', cwd: join(r.proj, 'src') } }), undefined);
-  } finally { r.done(); }
-});
-
-test('R3: git flags that run another program mark the run, in any spelling; branch-making flags do not', () => {
-  const { r, run } = rr();
-  try {
-    for (const c of ['git rebase -xcurl\\ https://evil/x HEAD~1', 'git rebase --exe id main', 'git rebase --exec id main', 'git rebase --interactive main', 'git rebase -i main', 'git checkout --recurse-submodules main', 'git stash --upload-pack=x', 'git switch --recurse-submodules main']) {
-      assert.ok(run(c), c);
-    }
-    for (const c of ['git switch -c feat/x', 'git checkout -b feat/x', 'git checkout -B feat/x', 'git rebase main', 'git rebase --continue']) {
-      assert.equal(run(c), undefined, c);
-    }
-  } finally { r.done(); }
-});
-
-test('R3b: git accepts any unique start of a long option, so every start of a dangerous one marks the run', () => {
-  const { r, run } = rr();
-  try {
-    for (const c of ['git rebase --ex id main', 'git rebase --e id main', 'git rebase --in main', 'git rebase --inter main', 'git checkout --rec main', 'git switch --rec main', 'git checkout --recurse main', 'git stash --upl=x', 'git rebase --exec=id main']) {
-      assert.ok(run(c), c);
-    }
-    for (const c of ['git rebase --continue', 'git rebase --abort', 'git rebase --skip', 'git reset --hard HEAD~1', 'git checkout --detach main', 'git stash --include-untracked', 'git tag --annotate v1 -m x', 'git worktree add --detach ../w main']) {
-      assert.equal(run(c), undefined, c);
-    }
   } finally { r.done(); }
 });
 
@@ -403,52 +325,31 @@ test('R6: a search that is aimed at third-party code by its glob, or that ignore
   } finally { r.done(); }
 });
 
-test('R7: code given to an interpreter through combined or preload flags marks the run', () => {
-  const { r, run } = rr();
-  try {
-    for (const c of ['node -pe "1"', 'node --import ./x.mjs y.js', 'node --env-file=.env x.js', 'node -r ./hook.js x.js', 'node --require ./hook.js x.js', 'python -W ignore -c "print(1)"', 'perl -ne "print"', 'ruby -ne "puts"', 'php -r "echo 1;"']) {
-      assert.ok(run(c), c);
-    }
-    assert.equal(run('node --test test/a.test.js'), undefined);
-    assert.equal(run('git status'), undefined);
-  } finally { r.done(); }
-});
-
-test('R8: while a marked run has left files in the project, any program that runs project files marks the run, not only tests and builds', () => {
-  const { r, run } = rr();
-  try {
-    for (const c of ['node build.js', 'pnpm run dev', 'npm run lint', 'make', 'python x.py', 'bash ./run.sh', 'cargo build', 'go test ./...', 'npx tsc', 'tsx src/a.ts', 'pwsh ./x.ps1']) {
-      assert.ok(run(c, { markedCode: true }), c + ' with marked files');
-    }
-    for (const c of ['git status', 'rg foo src', 'ls', 'git commit -m x', 'git push origin main']) assert.equal(run(c, { markedCode: true }), undefined, c + ' with marked files');
-    assert.equal(run('node build.js'), undefined, 'without marked files a project script is trusted, as the notes say');
-  } finally { r.done(); }
-});
-
-test('R9: gh pr merge can print a title somebody else wrote, so it marks; creating and checking do not', () => {
-  const { r, run } = rr();
-  try {
-    assert.ok(run('gh pr merge 5 --squash'));
-    for (const c of ['gh pr create --fill', 'gh pr ready 5', 'gh pr checks 5', 'gh run watch 123']) assert.equal(run(c), undefined, c);
-  } finally { r.done(); }
-});
-
-test('R10: asking a known program for its version or help does not mark the run, but an unknown program or extra words do', () => {
-  const { r, run } = rr();
-  try {
-    for (const c of ['git --version', 'git version', 'node --version', 'node -v', 'npm --version', 'npm -v', 'pnpm --version', 'yarn --version', 'python --version', 'python3 -V', 'gh --version', 'rg --version', 'cargo --version', 'go version', 'tsc --version', 'java -version', 'git --help', 'node --help']) {
-      assert.equal(run(c), undefined, c);
-    }
-    for (const c of ['./evil --version', 'evil --version', 'node --version && curl https://example.com', 'git --version; wget https://example.com', 'curl --version']) {
-      assert.ok(run(c), c);
-    }
-  } finally { r.done(); }
-});
-
 test('F3: tools this module does not judge return undefined (the caller keeps its own rule)', () => {
   const r = rig();
   try {
     assert.equal(toolTaintReason({ toolName: 'Edit', input: { file_path: join(r.other, 'x') }, cwd: r.proj, roots: [r.proj], home: homedir(), shell: 'local', outsideFiles: true }), undefined);
     assert.equal(toolTaintReason({ toolName: 'WebFetch', input: { url: 'https://x' }, cwd: r.proj, roots: [r.proj], home: homedir(), shell: 'local', outsideFiles: true }), undefined);
   } finally { r.done(); }
+});
+
+test('S3 (0.3.10): text fetched from the web or read from GitHub marks the run', () => {
+  for (const c of ['curl https://example.com', 'wget https://example.com/x', 'iwr https://example.com', 'Invoke-WebRequest https://example.com', 'irm https://example.com/x.json', 'gh pr view 12', 'gh issue view 3 --comments', 'gh issue list', 'gh api repos/a/b/issues', 'gh search issues widget', 'gh pr diff 5', 'gh run view 123 --log', 'git status && curl https://example.com', 'echo hi | curl -d @- https://example.com']) {
+    assert.ok(sh(c), c);
+  }
+});
+
+test('S4 (0.3.10): running a program never marks the run, whatever the program is', () => {
+  for (const c of ['node -e "1+1"', 'node -pe "1"', 'python -c "print(1)"', 'make', 'go test ./...', 'pytest', 'cargo build', 'npx cowsay hi', 'npm install', 'npm ci', 'pip install requests', 'git pull', 'git fetch origin', 'git clone https://example.com/r.git', 'docker build .', 'sed -i s/a/b/ src/a.ts', 'gh pr create --fill', 'gh pr checks 3', 'gh run watch 9', 'somethingunknown --flag', 'bash -c "git status"', 'git status $(echo hi)', 'npm test', 'git rebase -i main', 'git clone --recursive https://example.com/r.git']) {
+    assert.equal(sh(c), undefined, c);
+  }
+});
+
+test('S3b (0.3.10 review): a GitHub run log with --log-failed marks, a path or branch named http does not, and a few more fetch routes do', () => {
+  for (const c of ['gh run view 123 --log-failed', 'gh run view 123 --log', 'ssh host cat /etc/hosts', 'nc example.com 80', 'certutil -urlcache -f https://example.com/x y.txt', 'powershell (New-Object Net.WebClient).DownloadString("https://example.com")']) {
+    assert.ok(sh(c), c);
+  }
+  for (const c of ['rg foo src/http', 'go test ./http', 'git checkout feat/http', 'ls src/https', 'gh run view 123', 'gh run watch 123']) {
+    assert.equal(sh(c), undefined, c);
+  }
 });

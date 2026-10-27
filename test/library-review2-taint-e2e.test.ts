@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HUMAN } from '../src/core/kg/types.js';
-import { setup, init, ok, toolUse, kg, idOf, waitDone } from './library-fakes.js';
+import { setup as baseSetup, init, ok, toolUse, kg, idOf, waitDone } from './library-fakes.js';
+// These tests are about the locks of a marked run, which only Strict applies since 0.3.10 (the default mode labels).
+const setup: typeof baseSetup = (script, opts = {}) => baseSetup(script, { strict: true, ...opts });
 
 test('R2-E1 taint laundering through the workspace: run 1 fetches the web and Writes a file, run 2 (new task, clean) Reads it and writes a LIVE shared note', async () => {
   let live = '';

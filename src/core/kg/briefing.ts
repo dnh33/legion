@@ -41,7 +41,7 @@ export function renderBriefing(p: BriefingParts): string {
     room -= t.length + 1;
     return true;
   };
-  if (p.wm) add(`Your working memory:\n${plain(p.wm, true)}`, 480);
+  if (p.wm) add(`Your working memory${p.wmMarked ? " (saved by a run that had read outside text: check it before you rely on it)" : ""}:\n${plain(p.wm, true)}`, 480);
   if (p.triggers.length && add('Standing notes (from the human):', 40)) {
     for (const t of p.triggers) {
       const k = plain(keyLine(t.body));

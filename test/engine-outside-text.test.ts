@@ -39,7 +39,7 @@ describe('outside text through the engine', () => {
   it('E2: a command that reaches the network marks the run, with the reason stored', async () => {
     const r = await run([{ tool: 'Bash', input: { command: 'curl https://example.com' } }]);
     assert.equal(r.t.tainted, true);
-    assert.match(r.t.taintedBy ?? '', /network/);
+    assert.match(r.t.taintedBy ?? '', /web or GitHub/);
   });
 
   it('E3: a file read outside the agent folder marks the run; inside it does not; the switch turns it off', async () => {
@@ -64,15 +64,13 @@ describe('outside text through the engine', () => {
     assert.equal((await run([{ tool: 'Edit', input: { file_path: 'a.ts' } }])).t.tainted, undefined);
   });
 
-  it('E6: a test run marks the run only when a run that read outside text left files in the project', async () => {
-    const before = await run([{ tool: 'Bash', input: { command: 'npm test' } }]);
-    assert.equal(before.t.tainted, undefined);
+  it('E6: running a test or build never marks the run, even after a marked run left files in the project', async () => {
     const g = session();
     assert.equal((await g.go([{ tool: 'Bash', input: { command: 'npm test' } }])).tainted, undefined, 'nothing written yet');
-    // a run that read the web writes a test file, which marks it
+    // a run that read the web writes a test file, which is a label on that file only
     assert.equal((await g.go([{ tool: 'WebFetch', input: { url: 'https://example.com' } }, { tool: 'Write', input: { file_path: 'a.test.ts', content: 'x' } }])).tainted, true);
-    assert.equal((await g.go([{ tool: 'Bash', input: { command: 'npm test' } }])).tainted, true, 'a clean run now runs code a marked run wrote');
-    assert.equal((await g.go([{ tool: 'Bash', input: { command: 'git status' } }])).tainted, undefined, 'a local command still does not mark');
+    assert.equal((await g.go([{ tool: 'Bash', input: { command: 'npm test' } }])).tainted, undefined, 'running it is not reading outside text');
+    assert.equal((await g.go([{ tool: 'Bash', input: { command: 'git status' } }])).tainted, undefined);
   });
 
   it('E7: files an earlier marked run wrote do not mark a later run that only lists, globs or lists matching files', async () => {
@@ -104,22 +102,34 @@ describe('outside text through the engine', () => {
   });
 });
 
-describe('what a marked run is refused', () => {
-  it('E11: after local commands a run may write working memory; after a network command it is refused and the refusal names the cause', async () => {
+describe('what a marked run may do', () => {
+  /** One run: a shell command, a working-memory write, then a second command and a second write. */
+  async function wm(command: string, taint?: Partial<TaintConfig>) {
     const out: Record<string, { isError: boolean; text: string }> = {};
     const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () {
       yield init('s1');
       yield toolUse('Bash', 'b1', { command: 'git status' });
-      yield toolUse('Bash', 'b2', { command: 'npm test' });
-      out.clean = await kg(c.options, 'kg_wm_set', { active: 'plan: fix the parser' });
-      yield toolUse('Bash', 'b3', { command: 'gh pr view 12' });
-      out.marked = await kg(c.options, 'kg_wm_set', { active: 'plan: something else' });
+      out.first = await kg(c.options, 'kg_wm_set', { active: 'plan: fix the parser' });
+      yield toolUse('Bash', 'b3', { command });
+      out.second = await kg(c.options, 'kg_wm_set', { active: 'plan: next step' });
       yield ok('d', 's1');
     })());
-    await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' }));
-    assert.equal(out.clean!.isError, false, out.clean!.text);
-    assert.equal(out.marked!.isError, true);
-    assert.match(out.marked!.text, /marked by: a command Legion cannot check/);
+    if (taint) s.config.taint = { shell: 'local', outsideFiles: true, noticeSeen: false, ...taint };
+    const t = await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' }));
+    return { out, t };
+  }
+
+  it('E11: by default a run that read GitHub text is labelled and still writes working memory', async () => {
+    const { out, t } = await wm('gh pr view 12');
+    assert.equal(out.first!.isError, false, out.first!.text);
+    assert.equal(out.second!.isError, false, out.second!.text);
+    assert.equal(t.tainted, true, 'the label is kept');
+  });
+
+  it('E12: in Strict the same run is locked, and the refusal names the cause', async () => {
+    const { out } = await wm('gh pr view 12', { shell: 'strict' });
+    assert.equal(out.first!.isError, true);
+    assert.match(out.first!.text, /marked by: a shell command \(strict mode\)/);
   });
 });
 
@@ -136,3 +146,23 @@ function session() {
     go: async (next: Step[]) => { steps = next; return waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' })); },
   };
 }
+
+describe('Never mark', () => {
+  it('E13: with shell set to off, the web, a fetching command and an outside file leave the run clean; the other modes still mark', async () => {
+    const prep = (ws: string) => { mkdirSync(join(ws, 'src'), { recursive: true }); };
+    const outside = (dir: string) => join(dir, 'elsewhere.txt');
+    for (const [name, step] of [['a fetching command', { tool: 'Bash', input: { command: 'curl https://example.com' } }], ['the web', { tool: 'WebFetch', input: { url: 'https://example.com' } }]] as const) {
+      assert.equal((await run([step], { shell: 'off' }, prep)).t.tainted, undefined, `${name}: not marked when off`);
+      assert.equal((await run([step], { shell: 'local' }, prep)).t.tainted, true, `${name}: marked by default`);
+    }
+    const seed = await run([{ tool: 'Bash', input: { command: 'git status' } }], undefined, prep);
+    const file = await run([{ tool: 'Read', input: { file_path: outside(seed.s.dir) } }], { shell: 'off' }, prep);
+    assert.equal(file.t.tainted, undefined, 'an outside file is not marked when off');
+  });
+
+  it('E14: when off, a helper or room that read outside text does not mark a stored task either', async () => {
+    const r = await run([{ tool: 'Bash', input: { command: 'git status' } }], { shell: 'off' });
+    r.s.engine.markTainted(r.t.id);
+    assert.equal(r.s.store.getTask(r.t.id)?.tainted, undefined);
+  });
+});

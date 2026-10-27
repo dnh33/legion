@@ -19,6 +19,8 @@ export interface RunContext {
   taint?: () => boolean;
   /** Why the run was marked (a fixed short phrase), for the message a refused write shows. */
   taintedBy?: () => string | undefined;
+  /** Whether a marked run is locked out of memory, links and shared notes (the owner's Strict choice). Absent means locked, so callers that predate 0.3.10 keep their locks. */
+  locks?: () => boolean;
   quota?: TaskQuota;
   /** The project this run belongs to (engine-resolved): lets it see and write that project's notes and no other project's. */
   projectId?: string;
@@ -42,6 +44,8 @@ export const isAskCapped = (a: Actor | undefined): boolean => !!a && a.kind === 
 export const taintNote = (a: Actor): string => { const w = a.kind === 'agent' ? a.taintedBy?.() : undefined; return w ? ` (marked by: ${w})` : ''; };
 /** True when this agent's run is tainted (engine-observed) or was woken by a tainted chain. */
 export const isTainted = (a: Actor): boolean => a.kind === 'agent' && (a.taint?.() === true || a.origin?.tainted === true);
+/** Marked AND the owner chose Strict: the run may not write working memory, trigger tags or links it does not own, and its shared notes wait in the Inbox. In the default mode a marked run is only labelled. */
+export const isLocked = (a: Actor): boolean => isTainted(a) && (a.kind !== 'agent' || a.locks === undefined || a.locks() === true);
 
 /**
  * The Archivist's agent id (see src/core/roster.ts; a test keeps the two in step). "Flag, never delete" is enforced
@@ -175,6 +179,8 @@ export interface SweepResult {
 export interface BriefingParts {
   /** The ACTIVE section of the bot's own working memory. */
   wm?: string;
+  /** The working memory was written by a run that read outside text: the briefing says so. */
+  wmMarked?: boolean;
   triggers: Array<{ id: string; title: string; body: string }>;
   hits: Array<{ id: string; title: string }>;
   /** The bot's own notes waiting for the human. */

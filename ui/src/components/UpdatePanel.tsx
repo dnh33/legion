@@ -3,7 +3,7 @@ import { request } from '../api';
 import { errText } from '../store';
 import { askApp } from './askStore';
 import { checkoutText, closeAndReopenText, depsNotifyText } from '../updatePanelText';
-import { journeyRows, journeyStarted, journeySummary, type JourneyViewLike } from '../updateJourneyView';
+import { journeyCollapsed, journeyRows, journeyStarted, journeySummary, type JourneyViewLike } from '../updateJourneyView';
 import '../styles/update.css';
 
 /** GET /api/update/status (admin only). Mirrors src/core/updater/index.ts UpdateStatus. */
@@ -61,18 +61,26 @@ function Progress({ p }: { p?: { bytes: number; total: number } }) {
 /** The last update's journey: every step with its state and time, and how it ended. Plain text only. */
 function JourneyList({ v }: { v: JourneyViewLike }) {
   const rows = journeyRows(v);
+  const collapsible = journeyCollapsed(v);
+  const [open, setOpen] = useState(false);
+  const showSteps = !collapsible || open;
   return (
     <div className="upd-journey">
-      <p className={v.result === 'failed' || v.result === 'rolled-back' ? 'upd-warn' : 'upd-muted'}>{journeySummary(v)}</p>
-      <ol aria-label="Steps of the last update">
-        {rows.map((r) => (
-          <li key={r.id} className={`upd-step upd-step-${r.state}`}>
-            <i className="upd-step-mark" aria-hidden="true" />
-            <span>{r.label}</span>
-            <span className="upd-step-when">{r.when}</span>
-          </li>
-        ))}
-      </ol>
+      <p className={v.result === 'failed' || v.result === 'rolled-back' ? 'upd-warn' : 'upd-muted'}>
+        {journeySummary(v)}
+        {collapsible && <>{' '}<button type="button" className="btn-ghost sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Hide steps' : 'Show steps'}</button></>}
+      </p>
+      {showSteps && (
+        <ol aria-label="Steps of the last update">
+          {rows.map((r) => (
+            <li key={r.id} className={`upd-step upd-step-${r.state}`}>
+              <i className="upd-step-mark" aria-hidden="true" />
+              <span>{r.label}</span>
+              <span className="upd-step-when">{r.when}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

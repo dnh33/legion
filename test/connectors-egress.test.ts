@@ -11,7 +11,7 @@ after(async () => { for (const f of fakes) await f.stop(); });
 const URL_ = 'https://example.com/leak?x=1';
 const hookInput = (tool: string, input: Record<string, unknown>) => ({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input, tool_use_id: 'tu' });
 
-async function rig(approval: 'full' | 'ask', readFirst: boolean, then: (c: { s: ReturnType<typeof setup>; options: any }) => Promise<void>) {
+async function rig(approval: 'full' | 'ask', readFirst: boolean, then: (c: { s: ReturnType<typeof setup>; options: any }) => Promise<void>, strict = true) {
   const gh = await signedInGitHub();
   fakes.push(gh.fake);
   let s: ReturnType<typeof setup>;
@@ -27,7 +27,7 @@ async function rig(approval: 'full' | 'ask', readFirst: boolean, then: (c: { s: 
     } catch (e) { failure = e; }
     yield ok('done', 's1');
     finished();
-  })(), { modules: [mod], agents: [{ ...mkAgent('alpha', 'Alpha', approval), connectors: ['github'] }] });
+  })(), { modules: [mod], agents: [{ ...mkAgent('alpha', 'Alpha', approval), connectors: ['github'] }], strict });
   s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' });
   await done;
   if (failure) throw failure;
@@ -97,4 +97,12 @@ test('provider path: the decider every provider call goes through raises the sam
     assert.equal((await decide('WebFetch', { url: URL_ })).allow, true);
     assert.equal(s.approvals.pending().length, 0);
   });
+});
+
+test('default mode: after a connector read a web request raises no egress card (the card is Strict only)', async () => {
+  await rig('full', true, async ({ s, options }) => {
+    const hook = webHooks(options)[0]!.hooks[0]!;
+    assert.deepEqual(await hook(hookInput('WebFetch', { url: URL_ }), 'tu', {}), { continue: true });
+    assert.equal(s.approvals.pending().length, 0);
+  }, false);
 });

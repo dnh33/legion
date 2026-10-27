@@ -4,6 +4,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { BOARD_LIMITS } from '../../../shared/board.js';
+import { normalizeTaint } from '../../../shared/config.js';
 import type { BoardMarshalStatus, WorkItem } from '../../../shared/board.js';
 import type { Project } from '../../../shared/projects.js';
 import type { TaskOrigin } from '../../../shared/comms.js';
@@ -77,6 +78,8 @@ export function runProgressAt(task: { updatedAt: string }, lastMessages: Readonl
 
 export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): BoardModule {
   const { projects, board, notes } = opts;
+  /** Strict is the only mode that locks a marked run or an agent-written item; the default mode labels them. Read live from the config. */
+  const locksOn = (): boolean => normalizeTaint(deps.config.taint).shell === 'strict';
   const wrap = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) {
       if (e instanceof BoardError) throw new HttpError(e.status, e.message);
@@ -113,7 +116,8 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     agents: () => deps.store.listAgents(),
     visible: (id) => agentIdVisible({ bsvEnabled: deps.bsvEnabled, store: deps.store }, id),
     matcher,
-    startRun: ({ agentId, prompt }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid, trigger: 'marshal' }).id }),
+    locks: () => locksOn(),
+    startRun: ({ agentId, prompt, itemId }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid, trigger: 'marshal', ...(board.get(pid, itemId)?.trust !== 'human' ? { tainted: true } : {}) }).id }),
     runState: (taskId): RunState => {
       try {
         const t = deps.store.getTask(taskId);
@@ -264,14 +268,16 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
           if (t && (t.status === 'queued' || t.status === 'running')) throw new HttpError(409, 'This item already has a run in progress.');
         }
         const untrusted = item.trust !== 'human';
-        // the owner's click, through the ordinary project run path: same approvals, same cost; text nobody has read runs under the `ask` ceiling and tainted
+        // the owner's click, through the ordinary project run path: same approvals, same cost. In Strict, text nobody has read runs under the `ask` ceiling and tainted;
+        // in the default mode the run is only labelled, so an agent-written item runs like any other
+        const limited = untrusted && locksOn();
         const task = deps.engine.startTask({
           agentId, prompt: runPrompt(item), source: 'ui', projectId: p.id,
-          ...(untrusted ? { origin: { ...UNTRUSTED_ORIGIN }, tainted: true } : {}),
+          ...(limited ? { origin: { ...UNTRUSTED_ORIGIN }, tainted: true } : untrusted ? { tainted: true } : {}),
         });
         const next = wrap(() => board.beginRun(p, item.id, task.id));
         changed(p.id);
-        return { item: next, task, limited: untrusted };
+        return { item: next, task, limited };
       }, 201);
     },
     // the loop's timers stop with the core; the Marshals and their ledgers are just objects

@@ -15,7 +15,7 @@ test('actionState: busy and archived disable the buttons and say why', () => {
 });
 test('proposalNote: the same safety text the Inbox shows, with the caveat only for a tainted run', () => {
   assert.equal(proposalNote('Forgemaster', false), 'Suggested by Forgemaster. Not reviewed.');
-  assert.equal(proposalNote('Forgemaster', true), 'Suggested by Forgemaster. Not reviewed. Its run had read outside content (web, shell or other tools), so treat the text with extra care.');
+  assert.equal(proposalNote('Forgemaster', true), 'Suggested by Forgemaster. Not reviewed. Its run had read outside content (the web, GitHub text, other tools or files from outside the project), so treat the text with extra care.');
 });
 test('descriptionNeedsMore: a long or many-line description gets a More toggle', () => {
   assert.equal(descriptionNeedsMore(''), false);

@@ -44,6 +44,10 @@ const CMD = (id: string, command: string, extra: Step = {}): Step => ({ op: 'per
 const END = (usage?: { inputTokens: number; outputTokens: number }, stopReason = 'end_turn'): Step => ({ op: 'end', stopReason, ...(usage ? { usage } : {}) });
 
 interface RigOpts {
+  /** Strict outside-text mode: a tainted caller still gets the hand-off card (the 0.3.9 rule). The default mode labels it. */
+  strict?: boolean;
+  /** Never mark: nothing labels a run (the ceilings stay). */
+  neverMark?: boolean;
   steps?: Step[];
   switches?: Partial<AcpSwitches>;
   approval?: ApprovalMode;
@@ -75,6 +79,8 @@ function rig(o: RigOpts = {}) {
   const broker = new ApprovalBroker(bus);
   const config = defaultConfig();
   config.workspaceDir = join(root, 'workspaces');
+  if (o.strict) config.taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
+  if (o.neverMark) config.taint = { shell: 'off', outsideFiles: true, noticeSeen: true };
   const entry: AcpEntry = { id: 'hermes', label: 'Hermes', command: process.execPath, args: [FAKE, '--mode', 'script', '--script', scriptFile, '--log', logFile, '--report', reportFile, ...(o.fakeArgs ?? [])], tested: true, enabled: true, ...o.entry };
   config.acp = { ...config.acp, entries: [entry], switches: { disasterStop: false, modeMap: false, stripSkipFlags: false, answerOnce: false, ...o.switches } };
   const hermes: AgentProfile = {
@@ -600,6 +606,24 @@ test('confused deputy: a Claude task started by a Hermes agent\'s tell gets appr
   await r.engine.waitFor(child.id, 5000);
 });
 
+test('E15: Never mark leaves no label anywhere in a chain: a Hermes run, the task it starts and a board-routed run stay unlabelled, and the ceilings do not move', async () => {
+  const r = rig({ approval: 'full', steps: [END()], neverMark: true });
+  const caller = await r.done(await r.run());
+  assert.equal(caller.tainted, undefined, 'a Hermes run is not marked from its start');
+  const child = r.engine.startTask({ agentId: 'clau', prompt: 'from hermes', source: 'agent', bridge: { fromAgentId: 'herm', parentTaskId: caller.id, hop: 1 } } as any);
+  const stored = r.store.getTask(child.id)!;
+  assert.equal(stored.origin?.approvalCeiling, 'ask', 'a task a Hermes agent starts is still held at ask');
+  assert.equal(stored.origin?.tainted, undefined);
+  assert.equal(stored.tainted, undefined);
+  await r.engine.waitFor(child.id, 5000);
+  const routed = r.engine.startTask({ agentId: 'clau', prompt: 'board item', source: 'ui', tainted: true, origin: { roomId: 'board', fromAgentId: 'board', hop: 0, approvalCeiling: 'ask', tainted: true } } as any);
+  const rs = r.store.getTask(routed.id)!;
+  assert.equal(rs.tainted, undefined, 'a board-routed run is not labelled');
+  assert.equal(rs.origin?.approvalCeiling, 'ask', 'its ceiling stays');
+  assert.equal(rs.origin?.tainted, undefined);
+  await r.engine.waitFor(routed.id, 5000);
+});
+
 test('confused deputy: a capped or tainted caller that tells a Hermes agent raises a card first; denying it means the agent is never started', async () => {
   const r = rig({ steps: [END()] });
   const origin = { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true };
@@ -1024,14 +1048,14 @@ test('R46: a resume that Hermes refuses for its tool list (unavailable or confli
   assert.equal(end.status, 'done', 'a conversation that is gone starts a new one');
 });
 
-test('F13: Bypass never answers for a run another agent or app started with a cap or a taint', async () => {
+test('F13: in Strict, Bypass never answers for a run another agent or app started with a cap or a taint', async () => {
   const cases: Array<[string, Record<string, unknown>]> = [
     ['capped (ask)', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask' }],
     ['tainted but uncapped (full)', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'full', tainted: true }],
     ['capped and tainted', { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true }],
   ];
   for (const [name, origin] of cases) {
-    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()], strict: true });
     const t = await r.run('hi', { origin });
     const first = await r.nextCard();
     assert.match(first.summary, /Another agent or app asked Hermes/, `${name}: the hand-off card comes first`);
@@ -1046,6 +1070,20 @@ test('F13: Bypass never answers for a run another agent or app started with a ca
   const owner = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
   assert.equal((await owner.done(await owner.run())).status, 'done');
   assert.deepEqual(outcomeOf(owner.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'control: the owner\'s own Bypass run is answered without a card');
+});
+
+test('F13b (0.3.10): in the default mode a run another agent started is answered like an owner-started run (a labelled caller at full: no hand-off card, Bypass answers), but a capped caller still gets the card and every command asks', async () => {
+  const tainted = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+  const t = await tainted.run('hi', { origin: { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'full', tainted: true } });
+  assert.equal((await tainted.done(t)).status, 'done', 'no card was needed');
+  assert.deepEqual(outcomeOf(tainted.answersTo(9100)[0]!), { outcome: 'selected', optionId: 'allow_once' }, 'Bypass answered the command, as for a run the owner started');
+
+  const capped = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()] });
+  const ct = await capped.run('hi', { origin: { roomId: 'agent-bridge', fromAgentId: 'clau', hop: 1, approvalCeiling: 'ask', tainted: true } });
+  const hand = await capped.nextCard();
+  assert.match(hand.summary, /Another agent or app asked Hermes/, 'a capped caller still gets the card');
+  capped.broker.resolve(hand.id, false);
+  await capped.done(ct);
 });
 
 // ---------------------------------------------------------------- final wave W1
@@ -1298,4 +1336,22 @@ test('a run that fails with "Internal error" because Hermes has no sign-in says 
   assert.match(text, /Settings, Agent hosts/);
   assert.doesNotMatch(text, /Internal error/);
   assert.match(fail(new Error('Internal error'), { stderrTail: () => 'something else' }), /^Hermes failed\. Internal error/, 'any other failure keeps the plain error');
+});
+
+test('E16: a Block rule scoped to "tainted" reaches a Hermes run in the default mode, and not when Never mark is on', async () => {
+  const taintedBlock = { id: 'gr_t', enabled: true, then: 'deny', when: { contexts: ['tainted'], tools: ['Bash'] }, label: 'Block shell in a labelled run', source: 'user' };
+  for (const [neverMark, want] of [[false, 'deny'], [true, 'allow_once']] as const) {
+    const r = bypassRig({}, { steps: [CMD('perm-check-1', 'ls'), END()], neverMark });
+    (r.config as any).gates = { rules: [taintedBlock], presetsVersion: 1 };
+    const t = await r.run();
+    await r.done(t);
+    assert.deepEqual(outcomeOf(r.answersTo(9100)[0]!), { outcome: 'selected', optionId: want }, `neverMark=${neverMark}`);
+  }
+});
+
+test('E17: a helper whose caller task is gone is held at Ask, not handed the agent\'s own mode', async () => {
+  const r = rig({ approval: 'full', steps: [END()] });
+  const child = r.engine.startTask({ agentId: 'clau', prompt: 'orphan', source: 'agent', bridge: { fromAgentId: 'clau', parentTaskId: 'task_gone', hop: 1 } } as any);
+  assert.equal(r.store.getTask(child.id)?.origin?.approvalCeiling, 'ask');
+  await r.engine.waitFor(child.id, 5000);
 });

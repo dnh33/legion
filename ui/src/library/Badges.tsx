@@ -32,5 +32,5 @@ export function StatusBadge({ status }: { status: KgStatus | undefined }) {
 }
 
 export function TaintBadge() {
-  return <span className="lib-badge tainted" title="The run that wrote this read text that someone else may have written (the web, GitHub text, other tools, or a command Legion could not check).">Read outside text</span>;
+  return <span className="lib-badge tainted" title="The run that wrote this had read text that someone else wrote (the web, GitHub text, other tools, or files from outside the project). Check it before you rely on it.">Read outside text</span>;
 }

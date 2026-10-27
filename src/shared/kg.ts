@@ -17,7 +17,7 @@ export type KgNodeType = (typeof NODE_TYPES)[number];
 /**
  * Who stands behind a node. Engine-derived, never taken from agent input:
  * 'human' = written or accepted by the human, 'agent' = written by a bot in a clean run,
- * 'untrusted' = flagged untrusted or written by a run that touched outside content (web, shell, external tools).
+ * 'untrusted' = flagged untrusted or written by a run that read outside content (the web, GitHub text, external tools, files from outside the project).
  */
 export type KgTrust = 'human' | 'agent' | 'untrusted';
 /** 'pending' waits for the human (invisible to other agents), 'archived' is a tombstone. A missing status means active. */

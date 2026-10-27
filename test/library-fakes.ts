@@ -33,13 +33,14 @@ export const ok = (text: string, sid: string, extra: Record<string, unknown> = {
 export const init = (sid: string) => ({ type: 'system', subtype: 'init', session_id: sid });
 export const toolUse = (name: string, id = `tu_${++sidN}`, input: unknown = {}) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] } });
 
-export function setup(script: Script, opts: { modules?: CoreModule[]; agents?: AgentProfile[]; kg?: KnowledgeModuleOptions } = {}) {
+export function setup(script: Script, opts: { modules?: CoreModule[]; agents?: AgentProfile[]; kg?: KnowledgeModuleOptions; /** Strict outside-text mode: every shell command marks the run and a marked run is locked (the 0.3.9 rules). The default mode only labels. */ strict?: boolean } = {}) {
   const dir = cleanupTemp('legion-libb-');
   const store = new Store(dir);
   for (const a of opts.agents ?? [mkAgent('alpha', 'Alpha'), mkAgent('beta', 'Beta'), mkAgent('archivist', 'Archivist', 'ask'), mkAgent('builder', 'Builder')]) store.upsertAgent(a);
   const bus = new EventBus();
   const config = defaultConfig();
   config.workspaceDir = join(dir, 'ws');
+  if (opts.strict) config.taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   const calls: Call[] = [];
   const queryFn = ((p: any) => {
     const agent = basename(p.options.cwd);

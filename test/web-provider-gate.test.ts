@@ -30,6 +30,7 @@ const ask = (body: (r: GatesRig) => Promise<void>) => using({ preset: 'ask', fol
 /** The run read connector data and holds outside text: web access could carry it out. */
 const markConnectorTaint = (r: GatesRig): void => {
   r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
 };
 const withWs = (cfg: Partial<WebSearchConfig>, keys: Record<string, string> = {}, fetchImpl?: typeof fetch): Opts => ({ webSearch: { cfg, keys, ...(fetchImpl ? { fetchImpl } : {}) } });

@@ -54,6 +54,8 @@ export interface CandidateSetup {
   members: readonly string[];
   visible(id: string): boolean;
   busy(id: string): boolean;
+  /** The default mode routes text an agent wrote; only Strict (or an absent setting) refuses it. */
+  routeAgentText?: boolean;
   busyWhy?(id: string): string | undefined;
   reuse(id: string): { ok: true } | { ok: false; why: string };
 }
@@ -69,7 +71,7 @@ const base = (outcome: MatchOutcome, reason: string, extra: Partial<AssignmentRe
 
 /** One assignment attempt: guards first, matcher second, guards again. Never throws — a failure blocks, visibly. */
 export async function assignItem(s: CandidateSetup, matcher: ProseMatcher): Promise<AssignmentResult> {
-  if (s.item.trust !== 'human') return { ...base('blocked', UNTRUSTED), excluded: [] };
+  if (s.item.trust !== 'human' && !s.routeAgentText) return { ...base('blocked', UNTRUSTED), excluded: [] };
   const verbs = irreversibleVerbsIn(`${s.item.title}\n${s.item.description}`);
   const { candidates, excluded } = eligible(s.catalog, { members: s.members, visible: s.visible, busy: s.busy, ...(s.busyWhy ? { busyWhy: s.busyWhy } : {}), reuse: s.reuse });
   if (!candidates.length) {

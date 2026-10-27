@@ -32,10 +32,11 @@ async function* quick(): AsyncGenerator<any, void> {
   yield { type: 'system', subtype: 'init', session_id: 's1' };
   yield { type: 'result', subtype: 'success', is_error: false, result: 'Finished the work item.', total_cost_usd: 0.01, num_turns: 1, session_id: 's1' };
 }
-function setup() {
+function setup(strict = false) {
   const root = cleanupTemp('legion-board-run-');
   const store = new FakeStore(); store.agents.set('a2', mkAgent('a2'));
   const bus = new EventBus(); const config = defaultConfig(); config.workspaceDir = join(root, 'data', 'ws');
+  if (strict) config.taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   const projects = new ProjectStore(join(root, 'data'), config.workspaceDir);
   const board = new BoardStore(join(root, 'data', 'board'), () => 0);
   const calls: any[] = [];
@@ -64,8 +65,20 @@ test('C8 the owner\'s own item runs as an owner run: a `full` agent keeps its ow
   assert.equal(s.store.getTask(r.task.id)!.tainted, undefined);
 });
 
-test('C8 text an agent wrote runs tainted under the `ask` ceiling until the owner marks it reviewed', async () => {
+test('C8 (default) text an agent wrote runs labelled, with the approvals the owner set: no ask ceiling', async () => {
   const s = setup();
+  const q = s.board.propose({ ...s.proj, members: ['a2'] }, 'a2', { title: 'Agent idea', description: 'Do things.' }, { tainted: false });
+  s.board.accept(s.proj, q.id, { assignee: { kind: 'agent', id: 'a2' } });
+  const r = s.post(q.id);
+  await settle(s, r.task.id);
+  const t = s.store.getTask(r.task.id)!;
+  assert.equal(s.calls[0].options.permissionMode, 'bypassPermissions', 'a `full` agent runs as the owner set it');
+  assert.equal(t.tainted, true, 'the label is kept');
+  assert.equal(t.origin, undefined, 'no ask ceiling');
+});
+
+test('C8 (Strict) text an agent wrote runs tainted under the `ask` ceiling until the owner marks it reviewed', async () => {
+  const s = setup(true);
   const q = s.board.propose({ ...s.proj, members: ['a2'] }, 'a2', { title: 'Agent idea', description: 'Do things.' }, { tainted: false });
   s.board.accept(s.proj, q.id, { assignee: { kind: 'agent', id: 'a2' } });
   const r = s.post(q.id);

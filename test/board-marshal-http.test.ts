@@ -233,3 +233,24 @@ test('every marshal route is admin-only: none is on the token client list', asyn
     assert.equal((await r.call('GET', `/api/projects/${id}/board/status`)).status, 200, 'the app window gets it');
   } finally { await r.close(); }
 });
+
+test('0.3.10: in the default mode the Marshal routes an item an agent wrote, and the run is labelled, not capped', async () => {
+  const r = await boot();
+  try {
+    const P = { id: r.pid, members: ['zealot', 'scout'], status: 'active' as const };
+    const item = r.board.botCreate(P, 'zealot', { title: 'Write the parser tests', priority: 'high' }, { tainted: false });
+    assert.equal(item.trust, 'untrusted');
+    const d = await r.call('PUT', `/api/projects/${r.pid}/board/items/${item.id}/dispatch`, { doneWhen: ['the tests pass'] });
+    assert.equal(d.status, 200);
+    const cfg = await r.call('PUT', `/api/projects/${r.pid}/board/marshal`, { enabled: true, waveSize: 1, stallMinutes: 8 });
+    assert.equal(cfg.status, 200);
+    const pass = r.bmod.marshal.tick(r.pid);
+    const ask = await matcherTask(r);
+    answer(r, ask, 'scout');
+    await pass;
+    const run = dispatchesOf(r);
+    assert.equal(run.length, 1, 'dispatched');
+    assert.equal(run[0]!.p.tainted, true, 'labelled, because an agent wrote the text');
+    assert.equal(run[0]!.p.origin, undefined, 'and not capped');
+  } finally { await r.close(); }
+});

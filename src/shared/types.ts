@@ -279,7 +279,7 @@ export interface Task {
   origin?: TaskOrigin;
   /** Sticky: a connector gateway call reached the connector in this task. Its tool rows, text and result are withheld from bearer-token callers and it cannot be continued from an MCP client. */
   usedConnectors?: boolean;
-  /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
+  /** Engine-observed and sticky: this task read outside content (the web, GitHub text, external tools, files from outside the project) or was woken by a tainted chain. */
   tainted?: boolean;
   /** Why: the first thing that marked the task, in a fixed short phrase ("a command that reaches the network"). Never holds command text. */
   taintedBy?: string;
@@ -497,7 +497,7 @@ export type McpServerEntry =
  * every shell command, as 0.3.8 did. `outsideFiles`: a file read outside the project, in third-party code or in a cloned repository marks the run.
  * `noticeSeen`: the one-time notice about the new default was shown.
  */
-export interface TaintConfig { shell: 'local' | 'strict'; outsideFiles: boolean; noticeSeen: boolean }
+export interface TaintConfig { shell: 'local' | 'strict' | 'off'; outsideFiles: boolean; noticeSeen: boolean }
 
 export interface CompactionSettings {
   /**

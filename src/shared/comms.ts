@@ -93,7 +93,7 @@ export interface TaskOrigin {
   hop: number;
   /** Strictest approval mode along the chain of senders. The receiver can never exceed it. */
   approvalCeiling: RunMode;
-  /** True when anything on the chain of senders touched outside content (web, shell, external tools). ORed along the chain, never cleared. */
+  /** True when anything on the chain of senders read outside content (the web, GitHub text, external tools, files from outside the project). ORed along the chain, never cleared. */
   tainted?: boolean;
   /**
    * True when a bearer-token client (MCP, curl) started this run or any run on the chain that woke it (direct, through the agent bridge, through a

@@ -4,7 +4,7 @@ import { errText, saveSettings } from '../store';
 import { OUTSIDE_TEXT_COPY } from './outsideTextLogic';
 
 /**
- * Settings, Gates: what marks a run as having read outside text. Two controls and a one-time notice. Saves at once, like the rest of the page.
+ * Settings, Gates: what marks a run as having read outside text. Three choices, one switch and a one-time notice. Saves at once, like the rest of the page.
  * The notice tells an updated install that the default changed, with a way back in one click.
  */
 export function OutsideText({ s }: { s: SettingsView }) {
@@ -31,7 +31,7 @@ export function OutsideText({ s }: { s: SettingsView }) {
         </div>
       )}
       <div role="radiogroup" aria-label={C.shellLabel} className="gates-outside-opts">
-        {(['local', 'strict'] as const).map((v) => (
+        {(['local', 'strict', 'off'] as const).map((v) => (
           <label key={v} className="gates-outside-opt">
             <input type="radio" name="taint-shell" checked={t.shell === v} disabled={busy} onChange={() => void save({ shell: v })} />
             <span><b>{C.shell[v].name}</b><span className="muted-s">{C.shell[v].help}</span></span>
@@ -40,7 +40,7 @@ export function OutsideText({ s }: { s: SettingsView }) {
       </div>
       <div className="gates-outside-row">
         <div><b>{C.filesName}</b><span className="muted-s">{C.filesHelp}</span></div>
-        <label className="set-check"><input type="checkbox" checked={t.outsideFiles} disabled={busy} aria-label={C.filesName} onChange={(e) => void save({ outsideFiles: e.target.checked })} /><span>{t.outsideFiles ? 'On' : 'Off'}</span></label>
+        <label className="set-check"><input type="checkbox" checked={t.shell !== 'off' && t.outsideFiles} disabled={busy || t.shell === 'off'} aria-label={C.filesName} onChange={(e) => void save({ outsideFiles: e.target.checked })} /><span>{t.shell !== 'off' && t.outsideFiles ? 'On' : 'Off'}</span></label>
       </div>
       <p className="muted-s">{C.limits}</p>
       {error && <p className="gates-err" role="alert">{error}</p>}

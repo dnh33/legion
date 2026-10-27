@@ -130,6 +130,7 @@ test('an allowed read is noted in the activity log', () => smart(async (r) => {
 
 test('the hook path: after connector data a new site raises the site card, then the connector egress card, and a no on the second denies', () => smart(async (r) => {
   r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
   const hooked = rawHook(r, 'WebFetch', url('https://example.com/'));
   await r.tick(); assert.equal(r.pending().length, 1); assert.ok(r.pending()[0]!.site, 'the site card first');
@@ -155,10 +156,19 @@ test('a search card keeps the query out of the summary (and so out of the log)',
 
 test('the decider: after connector data a gate deny rule for the host wins before the egress card (no card, denied)', () => smart(async (r) => {
   r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.config as { taint?: unknown }).taint = { shell: 'strict', outsideFiles: true, noticeSeen: true };
   (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
   r.setRules([rule('deny', { hosts: ['example.com'] })]);
   const p = r.call('WebFetch', url('https://example.com/'));
   const first = await Promise.race([p, pause(2000).then(() => 'hung' as const)]);
   if (first === 'hung') { for (const c of r.pending()) r.approvals.resolve(c.id, false); await p; }
   assert.notEqual(first, 'hung', 'no card may open: the deny rule decides'); assert.equal((first as { allow: boolean }).allow, false);
+}));
+
+test('default mode: after connector data a web call raises no egress card (only the site card, if one is due); Strict keeps it', () => smart(async (r) => {
+  r.store.tasks.set(r.task.id, { ...(r.store.getTask(r.task.id) as object), usedConnectors: true } as never);
+  (r.engine as unknown as { active: Map<string, { tainted: boolean }> }).active.get(r.task.id)!.tainted = true;
+  const hooked = rawHook(r, 'WebFetch', url('https://docs.python.org/3/'));
+  assert.notEqual(await Promise.race([hooked, pause(500).then(() => 'hung')]), 'hung', 'no card, so the hook answers at once');
+  assert.equal(r.pending().length, 0);
 }));

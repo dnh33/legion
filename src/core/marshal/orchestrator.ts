@@ -56,6 +56,8 @@ export interface MarshalPorts {
   cancelRun(taskId: string): boolean;
   /** A bot already working outside the Marshal (a run the owner or another bot started) is busy too. Optional: absent, only the Marshal's own runs count. */
   botBusy?(id: string): boolean | string;
+  /** Whether text an agent wrote may not be routed (the owner's Strict choice). Absent means locked, as before 0.3.10. In the default mode a board item is routed like any other. */
+  locks?(): boolean;
 }
 
 export interface DispatchedItem {
@@ -195,7 +197,7 @@ export class Marshal {
       if (dispatched.length >= max) break;
       const item = candidate.item;
       // the injection guard comes first: an agent-writable text is never routed, however eligible the roster is
-      const untrusted = untrustedRefusal(item);
+      const untrusted = this.ports.locks?.() === false ? undefined : untrustedRefusal(item);
       if (untrusted) { blocked.push(this.block(item.id, item.title, untrusted)); continue; }
       let record: AssignmentResult;
       if (candidate.assignedTo && ctx.busy(candidate.assignedTo)) {
@@ -219,7 +221,7 @@ export class Marshal {
           continue;
         }
         record = await assignItem(
-          { item, catalog: ctx.catalog, members: this.project.members, visible: ctx.visible, busy: ctx.busy, busyWhy: ctx.busyWhy, reuse },
+          { item, catalog: ctx.catalog, members: this.project.members, visible: ctx.visible, busy: ctx.busy, busyWhy: ctx.busyWhy, reuse, routeAgentText: this.ports.locks?.() === false },
           this.ports.matcher,
         );
       }
