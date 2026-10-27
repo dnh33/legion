@@ -303,7 +303,7 @@ Ten assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json` and its `.si
 and abort without anything being visible. On 2026-10-04 this is exactly what made a rollback possible — the release
 was deleted, its assets 404'd, and `/releases/latest` pointed back at the previous good version within a minute.
 
-### 9a. Prove the release's headline claim on the published prerelease — **before Latest**
+### 9a. Prove the release's headline claim on the published prerelease, **before Latest**
 
 Write the release's headline claim in one line at the start of the release (for 0.3.10: "a lead and helpers can read an issue, change code, commit, push and open a draft PR with no refusals"). Before `gh release edit --latest`, prove that claim end to end on the **published prerelease package**: download `legion-<v>-win-x64.zip` from the prerelease, unpack it, start its core with a throwaway `LEGION_HOME` and port on the owner's Claude login, and run the scenario for real (for a development-cycle release, the dev-cycle script with a throwaway draft PR, closed and deleted afterwards). A one-word run (step 7 of the ladder in the legion-release skill) proves only that Claude runs start; it does not prove the headline. Any change after the proof run, even a late rule change, means the proof is run again on the final package. A failed or skipped proof is a stop: the release does not become Latest. Do not offer the proof to the owner as an optional extra.
 
