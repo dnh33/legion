@@ -8,25 +8,23 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
-- **A run that read outside text is labelled, not locked.** Before, once an agent had read the web, a GitHub comment or a file from outside your project, it could not assign or delete board items, write working memory, or share notes directly. Now it carries on as normal. What it creates carries a label, its working memory is shown to the next run with a note, and its shared notes are saved as usual. By default, your agents are no longer stopped by what they read. Money confirmations, GitHub write cards, the stop for disastrous commands and your Block rules work as before. A trigger tag an agent writes is saved like any note, and it never fires on its own in any mode: a trigger tag fires only from a note you wrote or accepted yourself, because trigger tags steer other runs.
-- **Running a program no longer marks a run.** `node -e`, `python -c`, `make`, `go test`, `npx`, `npm install`, `git pull`, `git fetch`, `git clone` and any program Legion does not know leave the run clean. What marks a run is text that comes in from outside: the web, GitHub text you read (`gh pr view`, `gh issue view`, `gh api`, run logs), other tools, and files outside your project, in `node_modules` or `vendor`, or in a cloned repository.
-- **Agent-written board items run like any other.** Before, an item an agent wrote was never routed by the Marshal, and your Run button ran it under the `ask` ceiling. Now both run it as you set the agent up, and the run is labelled. Strict keeps the old behavior.
-- **Agent chains run like your own runs.** An agent that another agent, a room or a bridge started at full approval is no longer treated as capped: Hermes answers its own questions the way you set Bypass, and Claude's own checks and your switched-off card rules apply as they do for a run you started. A run limited to Ask still asks, and a Hermes run started by a limited caller still gets the hand-off card. Strict keeps the old rule.
-- **New choice: Never mark.** Settings, Gates, Outside text has a third option under By source and Strict. Nothing marks a run, so there are no labels, and the extras that depend on a mark go away too: the extra confirmation on payments and the warning on GitHub write cards. Each call is still judged by your approval setting, your Block rules, the stop for disastrous commands and the confirmation on payments. Runs that were labelled before you switch keep their label.
-- **Strict keeps every lock.** Settings, Gates, Outside text, Strict marks every shell command and locks a marked run exactly as in 0.3.9. It also keeps the approval card for web access after a run read GitHub data, and the old rule for runs another agent started. The Rails list in Gates no longer lists that card as always on. The stored settings are unchanged, so nothing needs migrating.
-- **The update list in Settings, About is one quiet line after a good update.** A finished update shows "Updated from X to Y" with a Show steps button. The steps still open at once for an update that failed, rolled back or is running.
-- **The GitHub area explains who can write.** The repo Write box now says that each agent also needs write access (the project page's "let agents write" button, or the agent's settings, Connectors), and the refusal an agent gets says the same.
+- **Your agents are no longer stopped by what they read.** A run that read outside text is labelled, not locked: it uses the board, memory and notes as normal. Strict keeps the old locks.
+- **Running a program never marks a run.** Only text from outside does: the web, GitHub text, other tools, files outside your project.
+- **Agent chains run like your own runs.** An agent started by another agent at full approval is no longer limited. A run limited to Ask still asks.
+- **Web access no longer asks after a GitHub read,** except in Strict.
+- **Agent-written board items run like any other.**
+- **New setting: Never mark.** Settings, Gates, Outside text. No labels, and no extra payment confirmation or GitHub write warning (they depend on the label). Your approval setting, Block rules and the stop for disastrous commands still apply.
+- **Settings, About shows one line after a good update,** with a Show steps button.
+- **The GitHub area says each agent needs its own write access.**
 
 ### Fixed
 
-- **Working memory a run saved after reading outside text was always filed as clean.** It now carries its label, and the next run is told where it came from.
+- **Working memory saved after reading outside text was filed as clean.** It now carries its label.
 
 ### Known limits
 
-- **Text that a program fetches by itself is not labelled.** A test script that downloads a page reads outside text without a label. In a repository you do not trust, choose Strict.
-- **A labelled run can write working memory and notes that a later run reads.** That is the point of this change. Both carry a label and a note, so the next run can check them. Strict still holds them back.
-- **A helper follows the switches of the project it starts in.** A chain started at full approval is not limited further, so a helper in a project with cards off asks less than a caller in a project with cards on. Its approval mode is still never looser than the caller's, and a run limited to Ask stays at Ask.
-- **Legion does not guard against sending data out in Full.** Full shows no cards, by your own rule. A command that repoints a git remote is one Legion cannot classify, so Smart and Ask ask for it (for Claude agents, Claude's own checker decides).
+- Text a program fetches by itself is not labelled. In a repository you do not trust, choose Strict.
+- An agent's trigger tag never fires on its own; only a note you wrote or accepted can.
 
 ## [0.3.9] - 2026-10-26
 
