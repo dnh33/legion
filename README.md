@@ -26,7 +26,7 @@ Legion is in beta: expect rough edges and the odd bug.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux (experimental):** the one-line installer sets Legion up, and since 0.3.5 that install updates itself. Rehearsed on macOS (Apple silicon and Intel) and Linux (x64 and arm64) in CI; not yet tested by hand on a real Mac. The maintainer uses Windows, so feedback and bug reports from Mac and Linux are very welcome: [report a bug](https://github.com/dnh33/legion/issues/new?template=bug_report.yml).
-- **Hermes (optional):** you can run Hermes as an agent. The automated tests use a stand-in for Hermes, and it has not yet been tried against a real one. Windows first; macOS and Linux are experimental.
+- **Hermes (optional):** you can run Hermes as an agent. Windows first; macOS and Linux are experimental.
 - **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Settings, Providers has ready cards for OpenAI, DeepSeek, Ollama, LM Studio and vLLM. Codex is not offered (see [Later](#later)).
 
 <details><summary>Details</summary>
