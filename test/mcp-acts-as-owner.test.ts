@@ -396,6 +396,12 @@ test('the client folder check holds for links, network and device paths, and fol
   assert.match(clientFolderRefusal(root, undefined, home) ?? '', /contains a folder/, 'a folder above home');
   assert.equal(clientFolderRefusal(join(home, 'games', 'hirtshals'), undefined, home), undefined, 'an ordinary folder is fine');
   assert.match(clientFolderRefusal(join(home, '.SSH', 'keys') + '\\', undefined, home) ?? '', /inside/, 'case and a trailing separator');
+  if (process.platform === 'win32') {
+    for (const trick of [join(home, '.ssh.'), join(home, '.ssh '), join(home, '.ssh::$INDEX_ALLOCATION'), join(home, '.ssh.', 'sub')]) {
+      assert.match(clientFolderRefusal(trick, undefined, home) ?? '', /ends in a dot or a space, or holds a colon/, JSON.stringify(trick));
+    }
+    assert.equal(clientFolderRefusal(join(home, 'v1.2', 'game'), undefined, home), undefined, 'a dot inside a name is fine');
+  }
   assert.doesNotMatch(clientFolderRefusal(join(home, '.ssh'), undefined, home) ?? '', new RegExp(home.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')), 'the message does not echo the path');
 });
 

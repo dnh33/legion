@@ -88,6 +88,11 @@ export function clientFolderRefusal(folder: string, real?: string, home: string 
   const tail = 'Choose it in the Legion app if you mean it.';
   const paths = real === undefined ? [folder] : [folder, real];
   if (paths.some((p) => /^[\\/]{2}/.test(p.trim()))) return `${head}: network and device paths are not allowed. ${tail}`;
+  // Windows drops a trailing dot or space from a folder name and reads `name:stream` as the folder itself, so `.ssh.`, `.ssh ` and
+  // `.ssh::$INDEX_ALLOCATION` all open `.ssh` while looking like another name (and realpath leaves a name it cannot find unchanged)
+  if (process.platform === 'win32' && paths.some((p) => resolvePath(p).split(/[\\/]/).slice(1).some((seg) => /[. ]$/.test(seg) || seg.includes(':')))) {
+    return `${head}: a folder name that ends in a dot or a space, or holds a colon, is not allowed. ${tail}`;
+  }
   const h = resolvePath(home);
   const guarded = [
     ...['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.claude', '.config'].map((d) => joinPath(h, d)),
