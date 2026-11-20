@@ -155,6 +155,11 @@ export class ProjectStore {
     return structuredClone(p);
   }
 
+  /** The folder `setFolder` would store, or the same error it would throw; nothing is saved. `selfId` = the project it is for (none: a new project). */
+  checkFolder(folder: unknown, selfId?: string): string {
+    return folder === null ? '' : validateFolder(folder, { dataDir: this.dataDir, workspaceDir: this.workspaceDir, others: this.list(), ...(selfId ? { selfId } : {}) });
+  }
+
   /** `folder` null = the default folder. */
   setFolder(id: string, folder: unknown): Project {
     const p = this.must(id);

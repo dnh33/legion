@@ -157,6 +157,8 @@ const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
 };
 export const CLAUDE_OWN_ON_LINE = "Claude agents use Claude's own permission checks. Legion's Smart judge and its new-site, protected-file and project-delete cards no longer run for them. Legion's blocks, its safety floor and its own-file guards still apply.";
 export const CLAUDE_OWN_OFF_LINE = "Claude agents follow Legion's own permission cards again.";
+export const MCP_OWNER_ON_LINE = 'MCP clients act as you: an app such as Claude Code that holds your Legion key can start runs inside a project at the agent\'s own approval mode (no "ask" cap), and can create and change projects, their folders and members, and board items, without asking you. Anything that holds your Legion key then acts as you.';
+export const MCP_OWNER_OFF_LINE = 'MCP clients are limited again: new runs they start ask first, outside any project, and they cannot change projects or boards. Runs already going finish as they started.';
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
 const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
 const gateDef = (id: string) => GATES.find((g) => g.id === id);
@@ -205,6 +207,9 @@ function describeChange(before: GateSettings, next: GateSettings, isApp: boolean
   // Claude's own checks replace Legion's cards for Claude agents: on is the looser side (absent means on)
   if (isApp && before.claudeOwnChecks === false && next.claudeOwnChecks !== false) out.loosen.push(CLAUDE_OWN_ON_LINE);
   else if (isApp && before.claudeOwnChecks !== false && next.claudeOwnChecks === false) out.tighten.push(CLAUDE_OWN_OFF_LINE);
+  // MCP clients acting as the owner: on is the looser side (absent means off)
+  if (isApp && before.mcpActsAsOwner !== true && next.mcpActsAsOwner === true) { out.loosen.push(MCP_OWNER_ON_LINE); out.sandbox = true; }
+  else if (isApp && before.mcpActsAsOwner === true && next.mcpActsAsOwner !== true) out.tighten.push(MCP_OWNER_OFF_LINE);
   const added = (a: string[] | undefined, b: string[] | undefined): string[] => (b ?? []).filter((x) => !(a ?? []).includes(x));
   // kept variables first: they can hold a secret, and a long list of sites is cut short in the dialog
   for (const v of added(before.envKeep, next.envKeep)) out.loosen.push(`Commands keep the variable ${v}, which can hold a secret. In API key or cloud mode, Claude's own scrub may still hide it from Claude's commands.`);
@@ -439,8 +444,8 @@ export class GatesStore {
   /** Validates a patch and returns the settings it would give. Throws a 400 for anything wrong; never looks at the key. */
   private build(cur: GateSettings, body: Record<string, unknown>, isApp: boolean): GateSettings {
     if ('shellFloorOff' in body) throw new GatesError(400, "Legion's shell safety floor has no switch.");
-    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen' && k !== 'claudeNoticeSeen' && k !== 'claudeOwnChecks')) {
-      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, claudeOwnChecks, firstRunChoice, noticeSeen and claudeNoticeSeen can be changed here.');
+    if (Object.keys(body).some((k) => k !== 'preset' && k !== 'limit' && k !== 'overrides' && k !== 'allowedHosts' && k !== 'envKeep' && k !== 'trustFolder' && k !== 'untrustFolder' && k !== 'firstRunChoice' && k !== 'noticeSeen' && k !== 'claudeNoticeSeen' && k !== 'claudeOwnChecks' && k !== 'mcpActsAsOwner')) {
+      throw new GatesError(400, 'Only preset, limit, overrides, allowedHosts, envKeep, trustFolder, untrustFolder, claudeOwnChecks, mcpActsAsOwner, firstRunChoice, noticeSeen and claudeNoticeSeen can be changed here.');
     }
     const out: GateSettings = { ...cur, version: 1 };
     if ('limit' in body) {
@@ -508,6 +513,12 @@ export class GatesStore {
       // absent means on: only the off side is written down
       if (body.claudeOwnChecks) delete out.claudeOwnChecks; else out.claudeOwnChecks = false;
     }
+    if ('mcpActsAsOwner' in body) {
+      if (!isApp) throw new GatesError(400, 'Whether MCP clients act as you is set for the whole app, not per project.');
+      if (typeof body.mcpActsAsOwner !== 'boolean') throw new GatesError(400, 'mcpActsAsOwner must be true or false.');
+      // absent means off: only the on side is written down
+      if (body.mcpActsAsOwner) out.mcpActsAsOwner = true; else delete out.mcpActsAsOwner;
+    }
     for (const flag of ['firstRunChoice', 'noticeSeen', 'claudeNoticeSeen'] as const) {
       if (!(flag in body)) continue;
       if (!isApp) throw new GatesError(400, 'That note is kept for the whole app, not per project.');
@@ -552,6 +563,10 @@ export class GatesStore {
       if (raw.claudeOwnChecks !== undefined) {
         if (!isApp || raw.claudeOwnChecks !== false) throw new Error('claudeOwnChecks');
         out.claudeOwnChecks = false;
+      }
+      if (raw.mcpActsAsOwner !== undefined) {
+        if (!isApp || raw.mcpActsAsOwner !== true) throw new Error('mcpActsAsOwner');
+        out.mcpActsAsOwner = true;
       }
       for (const flag of ['firstRunChoice', 'noticeSeen', 'claudeNoticeSeen'] as const) {
         if (raw[flag] === undefined) continue;

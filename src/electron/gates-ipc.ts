@@ -12,7 +12,7 @@ import { CONFIRM_BUSY, orBusy } from './confirm-window-logic.js';
 import { ASKED_BY, dialogLine } from './provider-ipc.js';
 import type { ConfirmRequest, CoreReply } from './provider-ipc.js';
 
-export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; claudeOwnChecks?: boolean; firstRunChoice?: true; noticeSeen?: true; claudeNoticeSeen?: true }
+export interface GatePatch { preset?: Preset | null; limit?: boolean; overrides?: Record<string, GateValue>; allowedHosts?: string[]; envKeep?: string[]; trustFolder?: string; untrustFolder?: string; claudeOwnChecks?: boolean; mcpActsAsOwner?: boolean; firstRunChoice?: true; noticeSeen?: true; claudeNoticeSeen?: true }
 export type GatesChange =
   | { kind: 'app'; patch: GatePatch }
   | { kind: 'project'; id: string; patch: GatePatch }
@@ -66,6 +66,9 @@ function parsePatch(v: unknown, isApp: boolean): GatePatch | undefined {
     } else if (k === 'claudeOwnChecks' && isApp) {
       if (typeof x !== 'boolean') return undefined;
       out.claudeOwnChecks = x;
+    } else if (k === 'mcpActsAsOwner' && isApp) {
+      if (typeof x !== 'boolean') return undefined;
+      out.mcpActsAsOwner = x;
     } else if ((k === 'firstRunChoice' || k === 'noticeSeen' || k === 'claudeNoticeSeen') && isApp) {
       if (x !== true) return undefined;
       out[k] = true;
@@ -119,6 +122,7 @@ function titleFor(ch: GatesChange, lines: string[]): string {
   if (keys[0] === 'allowedHosts') return 'Allow these sites?';
   if (keys[0] === 'envKeep') return 'Keep these variables?';
   if (keys[0] === 'claudeOwnChecks') return "Use Claude's own permission checks?";
+  if (keys[0] === 'mcpActsAsOwner') return 'Let MCP clients act as you?';
   if (keys[0] === 'trustFolder') return 'Let this folder run its own commands?';
   const own = lines.filter((l) => l !== DENY_LINE && l !== NO_SANDBOX_LINE);
   if (keys[0] === 'overrides' && own.length > 0 && own.every((l) => LIMIT_LABELS.some((lb) => l.startsWith(`${lb}:`)))) return 'Raise these limits?';

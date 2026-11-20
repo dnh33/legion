@@ -329,3 +329,16 @@ test('A-M2: through the engine, a quoted home prefix on Legion\'s key files card
     });
   }
 });
+
+// 0.3.11: with "MCP clients act as you" on, config.json holds a key that acts as the owner, so reading it is a secret read; off, it stays free (I1)
+test('I1b: config.json is a key file only while "MCP clients act as you" is on', async () => {
+  await withRig(() => gatesRig({ own: 'ask' }), async (r) => {
+    const off = await ask(r, 'Read', { file_path: `${fwd}/config.json` });
+    assert.equal(off.card, false, 'off: free to read, as in I1');
+    r.core.store.patchApp({ mcpActsAsOwner: true });
+    const on = await ask(r, 'Read', { file_path: `${fwd}/config.json` });
+    assert.equal(on.card, true, 'on: reading the bearer key is a secret read');
+    const state = await ask(r, 'Read', { file_path: `${fwd}/state.json` });
+    assert.equal(state.card, false, 'the rest of the data folder stays free');
+  });
+});

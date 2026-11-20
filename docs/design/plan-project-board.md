@@ -121,7 +121,7 @@ Not built (deliberate): an agent removing a link (only the owner can); a briefin
 | C8 | Run: starts through the project path as the owner, links the task, moves to doing; untrusted text runs tainted + `ask` ceiling | `-run` | drop the ceiling |
 | C9 | Run end: -> review (done), blocked (error/cancel), never done; owner-moved item not overridden; result clipped and taint-flagged | `-run` | move to done |
 | C10 | Prompt wrapper neutralises tags in item text; bot-visible `get` wraps untrusted text as data | `-run` | skip neutralise |
-| C11 | Token client: `legion_board_read` read-only, no activity text, no Inbox; no write tool anywhere | `-http` | register a write tool |
+| C11 | Token client: `legion_board_read` read-only, no activity text, no Inbox; `legion_board_write` refuses unless the owner turned on "MCP clients act as you" (0.3.11) | `-http`, `mcp-acts-as-owner` | let the write tool work with the setting off |
 | C12 | `board.*` events reach only the admin stream, and carry no item text | `-http` | drop the prefix |
 | C13 | Storage: atomic compaction, torn last line skipped, unknown fields and `v:2` lines preserved, corrupt/oversize file backed up, old files load | `-store` | drop field preservation |
 | C14 | Archived project: board read-only | `-store`, `-http` | ignore status |

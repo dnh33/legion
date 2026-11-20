@@ -168,6 +168,7 @@ export function createGatesModule(deps: ModuleDeps, opts: { projects: ProjectSto
     if ('trustFolder' in b) return `Folder trusted: ${plain(b.trustFolder, 200)}`;
     if ('untrustFolder' in b) return `Folder no longer trusted: ${plain(b.untrustFolder, 200)}`;
     if ('limit' in b) return `Agent limit turned ${b.limit === false ? 'off' : 'on'} for ${scope}`;
+    if ('mcpActsAsOwner' in b) return b.mcpActsAsOwner === true ? 'MCP clients now act as you' : 'MCP clients are limited again';
     return `Gate settings changed for ${scope}`;
   };
   /** The presets that decide the mode an agent follows: the app's, and the preset of each project it is in. */

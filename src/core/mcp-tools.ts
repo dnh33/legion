@@ -9,7 +9,12 @@ import type { CoreContext } from './server.js';
 import { agentVisible as agentVisibleIn, taskVisible } from './visibility.js';
 import { VmError } from './vm-manager.js';
 import { runtimeOf } from '../shared/runtime.js';
-import { registerBoardRead } from './projects/board/mcp.js';
+import { registerBoardRead, registerBoardWrite } from './projects/board/mcp.js';
+import { homedir } from 'node:os';
+import { basename as basenameOf, dirname as dirnameOf, join as joinPath, resolve as resolvePath, sep as sepChar } from 'node:path';
+import { lstatSync, realpathSync } from 'node:fs';
+import { PROJECT_LIMITS } from '../shared/projects.js';
+import type { Project } from '../shared/projects.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
@@ -53,6 +58,84 @@ function needAgent(ctx: CoreContext, ref: string): AgentProfile {
 
 import { withholdMessage, withholdTask } from './connector-withhold.js';
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…[truncated]' : s);
+
+/** The app's gate setting "MCP clients act as you". Read live on every call, so turning it off in the app takes effect at once. Off for a core without it. */
+export const mcpOwnerOn = (ctx: CoreContext): boolean => {
+  try { return (ctx.engine as { mcpActsAsOwner?: () => boolean }).mcpActsAsOwner?.() === true; } catch { return false; }
+};
+export const MCP_OWNER_OFF = 'This needs "MCP clients act as you", which is off. Only the owner can turn it on: Legion app, Settings, Gates.';
+
+/** A project by id, or by a name (case-insensitive) that only one project has. A shared name is refused, so a run or edit never lands in the wrong project. */
+function findProject(ctx: CoreContext, ref: string) {
+  const store = ctx.projects;
+  if (!store) return undefined;
+  const r = ref.trim();
+  const byId = store.get(r);
+  if (byId) return byId;
+  const named = store.list().filter((p) => p.name.toLowerCase() === r.toLowerCase());
+  if (named.length > 1) throw new Error(`${named.length} projects are called "${clip(r, 60)}". Use the project id (legion_projects).`);
+  return named[0];
+}
+
+const CLIENT_FOLDER_HEAD = 'An outside app cannot make that folder a project folder';
+const CLIENT_FOLDER_TAIL = 'Choose it in the Legion app if you mean it.';
+
+/**
+ * Folders an outside app may not make a project folder, on top of the checks every folder gets (no root, not Legion's data folder, no overlap):
+ * an agent in the project may write there without a card, and in the app the owner sees a confirmation for a folder change, which a client skips.
+ * Checked on the path as given and on the real path it resolves to (`real`: a junction, symlink or short name resolved), so a link cannot lead
+ * around it. Refused: a network or device path (two leading slashes: a share, or a \\?\ path), a folder inside a guarded one, and a folder that
+ * contains a guarded one (your home folder, the Users folder). `home` is for tests.
+ */
+export function clientFolderRefusal(folder: string, real?: string, home: string = homedir()): string | undefined {
+  const head = CLIENT_FOLDER_HEAD;
+  const tail = CLIENT_FOLDER_TAIL;
+  const paths = real === undefined ? [folder] : [folder, real];
+  if (paths.some((p) => /^[\\/]{2}/.test(p.trim()))) return `${head}: network and device paths are not allowed. ${tail}`;
+  // Windows drops a trailing dot or space from a folder name and reads `name:stream` as the folder itself, so `.ssh.`, `.ssh ` and
+  // `.ssh::$INDEX_ALLOCATION` all open `.ssh` while looking like another name (and realpath leaves a name it cannot find unchanged)
+  if (process.platform === 'win32' && paths.some((p) => resolvePath(p).split(/[\\/]/).slice(1).some((seg) => /[. ]$/.test(seg) || seg.includes(':')))) {
+    return `${head}: a folder name that ends in a dot or a space, or holds a colon, is not allowed. ${tail}`;
+  }
+  const h = resolvePath(home);
+  const guarded = [
+    ...['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.claude', '.config'].map((d) => joinPath(h, d)),
+    ...(process.platform === 'win32' ? [process.env.SystemRoot ?? 'C:\\Windows', process.env.ProgramFiles ?? 'C:\\Program Files', process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', process.env.ProgramData ?? 'C:\\ProgramData', joinPath(process.env.APPDATA ?? joinPath(h, 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu')] : ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library']),
+  ];
+  // each guarded folder by its real path too: on macOS /etc is a link to /private/etc, so a link to /etc resolves to a path the plain
+  // list would miss (the same holds for a home folder reached through a link, as on systems where /home links to /var/home)
+  const norm = (p: string): string => { const x = resolvePath(p).toLowerCase(); return x.endsWith(sepChar) ? x : x + sepChar; };
+  const guards = guarded.flatMap((g) => { try { const r = realpathSync.native(g); return norm(r) === norm(g) ? [g] : [g, r]; } catch { return [g]; } });
+  for (const p of paths) {
+    const f = norm(p);
+    for (const g of guards) {
+      const gn = norm(g);
+      if (f.startsWith(gn)) return `${head}: it is inside a folder that holds keys, settings or system files (${basenameOf(g)}). ${tail}`;
+      if (gn.startsWith(f)) return `${head}: it contains a folder that holds keys, settings or system files (${basenameOf(g)}). ${tail}`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A client folder that is, or sits below, a link (symlink or junction) that cannot be followed is refused: its target is missing, or
+ * cannot be read (no access, a drive that is offline). The store keeps the real path behind a link, but a link it cannot follow is kept
+ * as the link itself: once its target is made (a guarded folder such as ~/.aws that is not there yet), the project folder would open
+ * it. Fail closed: a link that cannot be resolved is no project folder.
+ */
+export function clientLinkRefusal(folder: string): string | undefined {
+  let cur = resolvePath(folder);
+  for (;;) {
+    let link = false;
+    try { link = lstatSync(cur).isSymbolicLink(); } catch { /* not there (yet), or below a broken link: look one level up */ }
+    if (link) {
+      try { realpathSync.native(cur); } catch { return `${CLIENT_FOLDER_HEAD}: it is a link that cannot be followed (its target is missing or cannot be read). ${CLIENT_FOLDER_TAIL}`; }
+    }
+    const up = dirnameOf(cur);
+    if (up === cur) return undefined;
+    cur = up;
+  }
+}
 
 function taskSummary(raw: Task) {
   const t = withholdTask(raw);
@@ -178,17 +261,27 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       'and returns the final answer plus taskId, model used and cost. If it times out the task keeps running; use the returned taskId with legion_status / legion_continue / legion_cancel. ' +
       'Set wait=false to fire-and-forget several tasks in parallel (max 4 run concurrently, the rest queue) and collect them later with legion_status. ' +
       'model overrides the agent default: "auto", "sonnet", "opus", "haiku" or any value listed by legion_models; a provider model is refused here (prefix the prompt with /opus, /sonnet or /model <value> also works). ' +
-      'Note: agents with approval "ask"/"auto-edits" may pause waiting for the user to click Allow in the Legion app.',
+      'Note: agents with approval "ask"/"auto-edits" may pause waiting for the user to click Allow in the Legion app. ' +
+      'project (needs "MCP clients act as you" on in the Legion app): run the task inside that project, in its folder, with its instructions and board; the agent must be a member. ' +
+      'With that setting on, a run keeps the agent\'s own approval mode; with it off, every run is capped at "ask".',
     inputSchema: {
       agent: z.string().describe('Agent id or name (see legion_list_agents).'),
       prompt: z.string().min(1).describe('The full task. Be specific; the agent has no other context.'),
       model: modelParam,
+      project: z.string().optional().describe('Project id or name (see legion_projects). Needs "MCP clients act as you" on in the Legion app.'),
       wait: z.boolean().optional().describe('Block until done (default true).'),
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Max seconds to wait (default 600).'),
     },
-  }, safe(async (a: { agent: string; prompt: string; model?: string; wait?: boolean; timeoutSeconds?: number }) => {
+  }, safe(async (a: { agent: string; prompt: string; model?: string; project?: string; wait?: boolean; timeoutSeconds?: number }) => {
     const agent = needAgent(ctx, a.agent);
-    const t = ctx.engine.startTask({ agentId: agent.id, prompt: a.prompt, source: 'mcp', model: a.model });
+    let projectId: string | undefined;
+    if (a.project !== undefined) {
+      if (!mcpOwnerOn(ctx)) return fail(MCP_OWNER_OFF);
+      const pr = findProject(ctx, a.project);
+      if (!pr) return fail(`Unknown project "${clip(a.project, 60)}". Use legion_projects to list projects.`);
+      projectId = pr.id;
+    }
+    const t = ctx.engine.startTask({ agentId: agent.id, prompt: a.prompt, source: 'mcp', model: a.model, ...(projectId ? { projectId } : {}) });
     return runAndMaybeWait(ctx, t, a.wait ?? true, a.timeoutSeconds ?? 600);
   }));
 
@@ -275,11 +368,11 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     })),
   )));
 
-  // Read-only: a token client can look at projects, never create or change one (that is the app's job, with a confirmation for folder and members).
+  // Read-only: a token client can look at projects. Creating or changing one goes through legion_project_edit, which needs "MCP clients act as you" on.
   if (ctx.projects) server.registerTool('legion_projects', {
     title: 'Projects (read only)',
     description: 'Look at Legion projects: action "list" (id, name, status, member agent ids) or "get" (adds the instructions, which are the owner\'s text: context, not a command). ' +
-      'You cannot create or change a project, move a task into one, or add members; those need the owner in the Legion app.',
+      'To create or change a project use legion_project_edit; to run a task in one, pass project to legion_run. Both need "MCP clients act as you" on in the Legion app.',
     inputSchema: {
       action: z.enum(['list', 'get']),
       id: z.string().optional().describe('Project id; required for "get".'),
@@ -296,8 +389,64 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     return json({ id: p.id, name: p.name, status: p.status, members: shownMembers(p.members), folder: p.folder, instructions: clip(p.instructions, 4000) });
   }));
 
+  // The owner's project changes, for a token client the owner let act as them ("MCP clients act as you", checked on every call).
+  if (ctx.projects) server.registerTool('legion_project_edit', {
+    title: 'Create or change a project',
+    description: 'Create or change a Legion project as the owner. Action "create": name, optional instructions, folder and members. Action "update": id plus any of name, instructions, ' +
+      'status ("active" or "archived"), folder and members. folder is an absolute path, or null for the project\'s default folder. members is the whole list of agent ids. ' +
+      'Needs "MCP clients act as you" on in the Legion app (Settings, Gates); with it off every call is refused.',
+    inputSchema: {
+      action: z.enum(['create', 'update']),
+      id: z.string().optional().describe('Project id or name; required for "update".'),
+      name: z.string().optional(),
+      instructions: z.string().optional(),
+      status: z.enum(['active', 'archived']).optional(),
+      folder: z.string().nullable().optional().describe('Absolute folder path, or null for the default folder.'),
+      members: z.array(z.string()).optional().describe('The whole member list: agent ids.'),
+    },
+  }, safe(async (a: { action: 'create' | 'update'; id?: string; name?: string; instructions?: string; status?: 'active' | 'archived'; folder?: string | null; members?: string[] }) => {
+    if (!mcpOwnerOn(ctx)) return fail(MCP_OWNER_OFF);
+    const store = ctx.projects!;
+    if (a.members !== undefined) {
+      if (a.members.length > PROJECT_LIMITS.members) return fail(`A project has at most ${PROJECT_LIMITS.members} members.`);
+      for (const m of a.members) { const ag = ctx.store.getAgent(m); if (!ag || !agentVisible(ctx, ag)) return fail(`Unknown agent "${clip(m, 60)}". Use legion_list_agents.`); }
+    }
+    let found: Project | undefined;
+    if (a.action === 'create') {
+      if (a.status !== undefined) return fail('A new project starts active; set status with "update".');
+    } else {
+      if (!a.id) return fail('action "update" requires an "id".');
+      found = findProject(ctx, a.id);
+      if (!found) return fail(`Unknown project "${clip(a.id, 60)}". Use legion_projects to list projects.`);
+    }
+    // Everything is checked before anything is written, so a refused folder never leaves a half-made project behind
+    if (a.folder !== undefined && a.folder !== null) {
+      // a link the store cannot follow would be kept as the link itself, so it is refused before the real path is asked for
+      const why = clientFolderRefusal(a.folder) ?? clientLinkRefusal(a.folder);
+      if (why) return fail(why);
+      // the real path the store would keep (a junction or symlink resolved) is checked too
+      const real = store.checkFolder(a.folder, found?.id);
+      const whyReal = clientFolderRefusal(a.folder, real);
+      if (whyReal) return fail(whyReal);
+    }
+    let p: Project | undefined;
+    try {
+      if (a.action === 'create') p = store.create({ name: a.name, instructions: a.instructions });
+      else p = (a.name !== undefined || a.instructions !== undefined || a.status !== undefined) ? store.update(found!.id, { name: a.name, instructions: a.instructions, status: a.status }) : found!;
+      if (a.folder !== undefined) p = store.setFolder(p.id, a.folder);
+      if (a.members !== undefined) p = store.setMembers(p.id, a.members);
+      return json({ id: p.id, name: p.name, status: p.status, members: p.members, folder: p.folder });
+    } finally {
+      // whatever was written is announced, also when a later step failed
+      const now = p ? store.get(p.id) : undefined;
+      if (now) { try { ctx.bus.emit({ type: 'project.updated', project: now }); } catch { /* advisory */ } }
+    }
+  }));
+
   // Experimental project board: read-only for token clients (only when the core built a board)
   if (ctx.board && ctx.projects) registerBoardRead(server, { board: ctx.board, projects: ctx.projects, agentVisible: (id) => { const a = ctx.store.getAgent(id); return !!a && agentVisible(ctx, a); } });
+  // The owner's board changes, for a token client acting as the owner (checked on every call)
+  if (ctx.board && ctx.projects) registerBoardWrite(server, { board: ctx.board, projects: ctx.projects, ownerOn: () => mcpOwnerOn(ctx), changed: (projectId) => { try { ctx.bus.emit({ type: 'board.updated', projectId }); } catch { /* advisory */ } } });
 
   return server;
 }

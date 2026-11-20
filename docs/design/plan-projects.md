@@ -86,7 +86,7 @@ Private and tainted rules are unchanged.
 | `PATCH /api/rooms/:id` `{projectId}`, `POST /api/rooms` `{projectId}` | owner (admin); members must be project members |
 | `POST /api/tasks` `{projectId}` | admin only (above) |
 
-Events `project.updated` / `project.deleted-free` (only `project.updated`) go to the admin stream only. MCP: read-only `legion_projects` (`action: list | get`), no write tool.
+Events `project.updated` / `project.deleted-free` (only `project.updated`) go to the admin stream only. MCP: read-only `legion_projects` (`action: list | get`). Since 0.3.11, `legion_project_edit` (create, update, folder, members) exists but refuses every call unless the owner turned on "MCP clients act as you" in the app (gate setting `mcpActsAsOwner`, app file only, off by default).
 
 Folder validation (C8): absolute; not a filesystem root; not the Legion data dir or inside it or an ancestor of it; no overlap (equal, inside, or containing) with another project's folder; resolved with `realpath` when it exists.
 
@@ -120,7 +120,7 @@ Native flow: a new `src/electron/project-ipc.ts` (modelled on `provider-ipc.ts`)
 | C11 | A run writes only its own project's scope; tainted or ask-capped writes there are held or untrusted | `projects-kg` | treat the scope as private |
 | C12 | Recall prefers the project's notes over equal shared notes, never returns another project's (clock pinned) | `projects-kg` | remove the boost / the visibility rule |
 | C13 | Old files load unchanged; unknown fields survive on projects, tasks, rooms; the scope string passes the pre-change scope regex and cannot equal an agent id | `projects-store` | encode the scope as `project:<id>` |
-| C14 | MCP: `legion_projects` list/get only; the server registers no project write tool | `projects-http` | register a create tool |
+| C14 | MCP: `legion_projects` list/get only; `legion_project_edit` refuses unless the owner turned on "MCP clients act as you" (0.3.11) | `projects-http`, `mcp-acts-as-owner` | let the edit tool work with the setting off |
 | C15 | `project.*` events reach only the admin stream | `projects-http` | drop the prefix from the admin-only list |
 | C16 | Project room members must be project members (owner and bot paths) | `projects-rooms` | skip the check in `updateMembers` |
 | C17 | Archived: no new task, no continue, no context | `projects-engine` | ignore status |

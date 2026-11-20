@@ -60,7 +60,7 @@ const GATE_LIST = [
   { id: 'qa-fresh-reviewer', family: 'qa', scope: 'project', label: 'A separate reviewer', protects: 'A fresh reviewer judges the work from the diff and the evidence, not from the worker report.', ifOff: 'No second look.', defaults: all(true), ships: 'goals' },
   { id: 'qa-goal-checks', family: 'qa', scope: 'project', label: 'The goal checks run on the finished work', protects: 'The goal\'s own checks run on the merged result before it reaches you.', ifOff: 'Only the step checks run.', defaults: all(true), ships: 'goals' },
   { id: 'rail-injection-guard', family: 'rail', scope: 'global', label: 'Text an agent read cannot start work', protects: 'Words in a web page, a file or an issue never start a run.', ifOff: '', defaults: 'always' },
-  { id: 'rail-ceiling', family: 'rail', scope: 'global', label: 'An outside app or another bot cannot borrow an agent\'s rights', protects: 'A run started by an outside app or another bot never gets a looser approval mode than the one that started it.', ifOff: '', defaults: 'always' },
+  { id: 'rail-ceiling', family: 'rail', scope: 'global', label: 'Another bot cannot borrow an agent\'s rights, and an outside app only when you let MCP clients act as you', protects: 'A run started by another bot never gets a looser approval mode than the one that started it. A run an outside app starts asks first, unless you turned on MCP clients act as you.', ifOff: '', defaults: 'always' },
   { id: 'rail-mcp-no-connectors', family: 'rail', scope: 'global', label: 'Runs started by an outside app cannot use GitHub', protects: 'Only runs you start can reach GitHub.', ifOff: '', defaults: 'always' },
   { id: 'rail-loopback', family: 'rail', scope: 'global', label: 'Other programs on your network cannot drive Legion', protects: 'Legion only answers your own computer.', ifOff: '', defaults: 'always' },
   { id: 'rail-signed-updates', family: 'rail', scope: 'global', label: 'Only signed updates install', protects: 'An update installs only when Legion\'s release key signed it.', ifOff: '', defaults: 'always' },
@@ -100,6 +100,12 @@ export interface GateSettings {
    * Absent means on. `false` is the old way: Legion's own cards and Smart classifier judge Claude's tools. Turning it on is a loosening (Legion asks less).
    */
   claudeOwnChecks?: boolean;
+  /**
+   * App file only. MCP clients act as the owner: a token client (Claude Code, Cowork) may start a run inside a project, its runs keep the agent's own
+   * approval mode instead of the "ask" cap, and it may create and change projects (folder and members too) and board items. Absent means off.
+   * Turning it on is a loosening; only the owner's save in the app turns it on, never a token client. An app file Legion cannot trust reads as off.
+   */
+  mcpActsAsOwner?: true;
   /** App file only: the owner answered the first-run screen "How should your agents ask?". Not a gate; written only by the core when the owner answers, signed with the rest. */
   firstRunChoice?: true;
   /** App file only: the owner dismissed the one-time notice that projects can now set how agents ask. Not a gate; signed with the rest. */

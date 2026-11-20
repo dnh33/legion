@@ -4,6 +4,20 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-11-20
+
+### Added
+
+- **New setting: MCP clients act as you.** Settings, Gates. Off by default; only you can turn it on, and the app asks first.
+- **With it on, an app such as Claude Code can run a task inside a project.** The task gets the project's folder, instructions and board, and shows under the project.
+- **Those runs use the agent's own approval mode.** Before, every run an MCP client started had to ask you first, even for an agent you set to full approval.
+- **With it on, MCP clients can create and change projects** (name, instructions, folder, members, archive) **and board items** (create, change, move).
+
+### Known limits
+
+- With it off, nothing changes: client runs ask first, outside any project, and project and board changes are refused.
+- An agent set to Ask still asks, whoever starts it.
+
 ## [0.3.10] - 2026-10-27
 
 ### Changed

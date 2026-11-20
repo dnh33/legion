@@ -76,7 +76,8 @@ export function gateOffFor(view: GatesView | null, id: string, projectId: string
 export function runsAsChip(a: { effective: RunMode; agentMode: ApprovalMode; source: 'own' | 'project'; projectName?: string; projectPreset?: Preset; limit: boolean; ceiling?: RunMode; lease?: boolean }): { text: string; reason?: string } {
   // an agent that is Full on its own is Full; Bypass is the project preset that gives the same mode
   const text = `Runs as ${a.source === 'own' && a.effective === 'full' ? AGENT_MODE_LABEL.full : MODE_LABEL[a.effective]}`;
-  if (a.ceiling !== undefined && a.ceiling !== a.agentMode) return { text, reason: 'Started by an outside app: asks' };
+  // a ceiling of full is no cap ("MCP clients act as you" on): the run follows the agent's own mode, so nothing extra to say
+  if (a.ceiling !== undefined && a.ceiling !== 'full' && a.ceiling !== a.agentMode) return { text, reason: 'Started by an outside app: asks' };
   if (a.lease) return { text, reason: 'Goal lease: no cards for this goal' };
   const project = a.projectName ?? 'this project';
   // a follower whose project has no preset follows the app default, not the project

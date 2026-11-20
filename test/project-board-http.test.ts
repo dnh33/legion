@@ -141,7 +141,7 @@ test('C8/C9 Run this item: through the ordinary project path; links the task; un
   } finally { await x.close(); }
 });
 
-test('C11 token client: legion_board_read is read-only, hides Inbox and activity, and no write tool exists', async () => {
+test('C11 token client: legion_board_read is read-only, hides Inbox and activity, and the write tool refuses while "MCP clients act as you" is off', async () => {
   const x = await boot(true);
   const client = new Client({ name: 't', version: '0' });
   try {
@@ -152,7 +152,12 @@ test('C11 token client: legion_board_read is read-only, hides Inbox and activity
     const tools = (await client.listTools()).tools;
     const names = tools.map((t) => t.name);
     assert.ok(names.includes('legion_board_read'));
-    assert.ok(!names.some((n) => /board/.test(n) && n !== 'legion_board_read'), 'no other board tool');
+    // 0.3.11: the owner's write tool exists, and refuses everything unless the owner turned "MCP clients act as you" on in the app (off here)
+    assert.ok(!names.some((n) => /board/.test(n) && n !== 'legion_board_read' && n !== 'legion_board_write'), 'no other board tool');
+    const refused: any = await client.callTool({ name: 'legion_board_write', arguments: { action: 'create', project: x.p.id, title: 'From a client' } });
+    assert.equal(refused.isError, true);
+    assert.match(refused.content[0].text, /MCP clients act as you/);
+    assert.ok(!x.board.view(x.p).items.some((it: any) => it.title === 'From a client'), 'nothing was written');
     assert.equal(tools.find((t) => t.name === 'legion_board_read')!.annotations?.readOnlyHint, true);
     const l: any = await client.callTool({ name: 'legion_board_read', arguments: { action: 'list', project: x.p.id } });
     const lj = JSON.parse(l.content[0].text);

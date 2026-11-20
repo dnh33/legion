@@ -122,7 +122,7 @@ function explainRun(a: { name?: string; agentMode: ApprovalMode; source: 'own' |
     const where = a.projectPreset ? `project ${a.projectName ?? 'this project'}, which is set to ${PRESET_LABEL[a.projectPreset]}` : `the app default, which is ${PRESET_LABEL[a.appPreset]}`;
     parts.push(`${who} follows ${where}.`, `Its own setting (${AGENT_MODE_LABEL[a.agentMode]}) is kept for when it stops following.`);
   }
-  if (a.ceiling !== undefined && a.ceiling !== a.agentMode) parts.push('An outside app started this run, so it asks.');
+  if (a.ceiling !== undefined && a.ceiling !== 'full' && a.ceiling !== a.agentMode) parts.push('An outside app started this run, so it asks.');
   parts.push(`Result: this run ${RESULT_WORDS[a.effective]}.`);
   return parts.join(' ');
 }

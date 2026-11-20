@@ -436,7 +436,7 @@ export class BoardStore {
 
   // ------------------------------------------------------------------ owner writes
 
-  create(proj: ProjectRef, input: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown }, by: BoardActor = { kind: 'owner' }): WorkItem {
+  create(proj: ProjectRef, input: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown }, by: BoardActor = { kind: 'owner' }, opts: { untrusted?: boolean } = {}): WorkItem {
     const b = this.writable(proj);
     if (b.items.size >= BOARD_LIMITS.itemsPerProject) throw new BoardError(409, `A board holds at most ${BOARD_LIMITS.itemsPerProject} items. Delete finished ones.`);
     const status = input.status === undefined ? 'backlog' : cleanStatus(input.status);
@@ -448,7 +448,7 @@ export class BoardStore {
       id, projectId: proj.id, title: cleanTitle(input.title), description: input.description === undefined ? '' : cleanDescription(input.description),
       status, assignee: input.assignee === undefined ? null : cleanAssignee(input.assignee, proj), ...(due ? { due } : {}),
       priority: input.priority === undefined ? 'normal' : cleanPriority(input.priority), labels: input.labels === undefined ? [] : cleanLabels(input.labels),
-      order: this.atEnd(b, status), createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'human', taskIds: [], roomIds: [], noteIds: [], activity: [],
+      order: this.atEnd(b, status), createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: opts.untrusted ? 'untrusted' : 'human', taskIds: [], roomIds: [], noteIds: [], activity: [],
     };
     this.note(item, by, 'created', 'Created');
     b.items.set(id, item);
@@ -457,7 +457,8 @@ export class BoardStore {
   }
 
   /** The owner's edits. `trust: 'human'` is "I have read this text". */
-  patch(proj: ProjectRef, id: string, p: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown; trust?: unknown; roomIds?: unknown; noteIds?: unknown; ifUpdatedAt?: unknown }): WorkItem {
+  /** `opts.untrusted`: the text came from an outside app acting as the owner (MCP); a changed title or description is then not "read by the owner". */
+  patch(proj: ProjectRef, id: string, p: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown; trust?: unknown; roomIds?: unknown; noteIds?: unknown; ifUpdatedAt?: unknown }, opts: { untrusted?: boolean } = {}): WorkItem {
     const b = this.writable(proj);
     const i = this.must(b, id);
     // "reviewed" must name the version the owner read: without it, newer agent text could be marked reviewed unseen
@@ -477,6 +478,7 @@ export class BoardStore {
       noteIds: p.noteIds === undefined ? undefined : this.cleanNotes(p.noteIds),
     };
     if (p.trust !== undefined && p.trust !== 'human') throw new BoardError(400, 'trust can only be set to "human" (the owner has reviewed the text)');
+    if (opts.untrusted && p.trust !== undefined) throw new BoardError(400, 'Only the owner, in the app, can mark text as reviewed.');
     if (next.status !== undefined && i.proposal) throw new BoardError(409, 'Accept this proposal before moving it.');
     if (next.title !== undefined && next.title !== i.title) { i.title = next.title; this.note(i, by, 'edit', 'Title changed'); }
     if (next.description !== undefined && next.description !== i.description) { i.description = next.description; this.note(i, by, 'edit', 'Description changed'); }
@@ -486,6 +488,7 @@ export class BoardStore {
     if (next.labels !== undefined) i.labels = next.labels;
     if (next.roomIds !== undefined) i.roomIds = next.roomIds;
     if (next.noteIds !== undefined) i.noteIds = next.noteIds;
+    if (opts.untrusted && ((next.title !== undefined) || (next.description !== undefined)) && i.trust === 'human') { i.trust = 'untrusted'; this.note(i, by, 'edit', 'Text changed by an outside app'); }
     if (p.trust === 'human' && i.trust !== 'human') { i.trust = 'human'; this.note(i, by, 'review', 'The owner reviewed the text'); }
     const moved = next.status !== undefined && next.status !== i.status;
     if (moved) {
