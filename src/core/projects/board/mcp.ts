@@ -43,9 +43,14 @@ export const BOARD_OWNER_OFF = 'This needs "MCP clients act as you", which is of
 
 /** The owner's board edits for a token client acting as the owner. `ownerOn` is read on every call; `changed` tells the window to redraw the board. */
 export function registerBoardWrite(server: McpServer, deps: { board: BoardStore; projects: ProjectStore; ownerOn: () => boolean; changed: (projectId: string) => void }): void {
+  // by id, or by a name that only one project has: a name two projects share is refused, so a write never lands in the wrong project
   const findProject = (ref: string) => {
     const r = ref.trim();
-    return deps.projects.get(r) ?? deps.projects.list().find((p) => p.name.toLowerCase() === r.toLowerCase());
+    const byId = deps.projects.get(r);
+    if (byId) return byId;
+    const named = deps.projects.list().filter((p) => p.name.toLowerCase() === r.toLowerCase());
+    if (named.length > 1) throw new BoardError(409, `${named.length} projects are called "${r.slice(0, 40)}". Use the project id (legion_projects).`);
+    return named[0];
   };
   // "owner", "none" or a member agent's id: a plain string keeps the tool's input schema simple
   const assigneeOf = (v: string): null | { kind: 'owner' } | { kind: 'agent'; id: string } => (v === 'none' ? null : v === 'owner' ? { kind: 'owner' } : { kind: 'agent', id: v });
@@ -83,17 +88,21 @@ export function registerBoardWrite(server: McpServer, deps: { board: BoardStore;
       };
       let item;
       if (a.action === 'create') {
-        item = deps.board.create(p, { ...fields, ...(a.status !== undefined ? { status: a.status } : {}) }, { kind: 'owner' });
+        // text from an outside app is not text the owner read: it is written untrusted, like an agent's (the owner reviews it in the app)
+        item = deps.board.create(p, { ...fields, ...(a.status !== undefined ? { status: a.status } : {}) }, { kind: 'owner' }, { untrusted: true });
       } else {
         if (!a.id) throw new BoardError(400, `action "${a.action}" requires an "id".`);
-        if (a.action === 'update') item = deps.board.patch(p, a.id, { ...fields, ...(a.status !== undefined ? { status: a.status } : {}) });
+        // an Inbox proposal is unknown to a token client, for writing as for reading
+        const cur = deps.board.get(p.id, a.id);
+        if (!cur || cur.proposal) throw new BoardError(404, `Unknown item "${a.id.slice(0, 40)}".`);
+        if (a.action === 'update') item = deps.board.patch(p, a.id, { ...fields, ...(a.status !== undefined ? { status: a.status } : {}) }, { untrusted: true });
         else {
           if (a.status === undefined) throw new BoardError(400, 'action "move" requires a "status".');
           item = deps.board.move(p, a.id, a.status, a.index ?? Number.MAX_SAFE_INTEGER);
         }
       }
       deps.changed(p.id);
-      const shown = { id: item.id, title: item.title, status: item.status, priority: item.priority, labels: item.labels, assignee: item.assignee, ...(item.due ? { due: item.due } : {}) };
+      const shown = { id: item.id, title: item.title, status: item.status, priority: item.priority, labels: item.labels, assignee: item.assignee, trust: item.trust, ...(item.due ? { due: item.due } : {}) };
       return { content: [{ type: 'text' as const, text: JSON.stringify(shown, null, 2) }] };
     } catch (e) { return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], isError: true }; }
   });

@@ -10,6 +10,8 @@ import { agentVisible as agentVisibleIn, taskVisible } from './visibility.js';
 import { VmError } from './vm-manager.js';
 import { runtimeOf } from '../shared/runtime.js';
 import { registerBoardRead, registerBoardWrite } from './projects/board/mcp.js';
+import { homedir } from 'node:os';
+import { join as joinPath, resolve as resolvePath, sep as sepChar } from 'node:path';
 import { PROJECT_LIMITS } from '../shared/projects.js';
 import type { Project } from '../shared/projects.js';
 
@@ -62,12 +64,33 @@ export const mcpOwnerOn = (ctx: CoreContext): boolean => {
 };
 export const MCP_OWNER_OFF = 'This needs "MCP clients act as you", which is off. Only the owner can turn it on: Legion app, Settings, Gates.';
 
-/** A project by id, or by name (case-insensitive). */
+/** A project by id, or by a name (case-insensitive) that only one project has. A shared name is refused, so a run or edit never lands in the wrong project. */
 function findProject(ctx: CoreContext, ref: string) {
   const store = ctx.projects;
   if (!store) return undefined;
   const r = ref.trim();
-  return store.get(r) ?? store.list().find((p) => p.name.toLowerCase() === r.toLowerCase());
+  const byId = store.get(r);
+  if (byId) return byId;
+  const named = store.list().filter((p) => p.name.toLowerCase() === r.toLowerCase());
+  if (named.length > 1) throw new Error(`${named.length} projects are called "${clip(r, 60)}". Use the project id (legion_projects).`);
+  return named[0];
+}
+
+/**
+ * Folders an outside app may not make a project folder, on top of the checks every folder gets (no root, not Legion's data folder, no overlap):
+ * an agent in the project may write there without a card, and in the app the owner sees a confirmation for a folder change, which a client skips.
+ * Your home folder is already refused (it contains Legion's data folder).
+ */
+export function clientFolderRefusal(folder: string): string | undefined {
+  const f = resolvePath(folder);
+  const home = resolvePath(homedir());
+  const inside = (base: string) => { const b = base.toLowerCase(); const x = f.toLowerCase(); return x === b || x.startsWith(b.endsWith(sepChar) ? b : b + sepChar); };
+  const guarded = [
+    ...['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.claude', '.config'].map((d) => joinPath(home, d)),
+    ...(process.platform === 'win32' ? [process.env.SystemRoot ?? 'C:\\Windows', process.env.ProgramFiles ?? 'C:\\Program Files', process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', process.env.ProgramData ?? 'C:\\ProgramData', joinPath(process.env.APPDATA ?? joinPath(home, 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu')] : ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library']),
+  ];
+  const hit = guarded.find((g) => inside(resolvePath(g)));
+  return hit ? `An outside app cannot make "${clip(folder, 120)}" a project folder: it is inside ${hit}, which holds keys, settings or system files. Choose it in the Legion app if you mean it.` : undefined;
 }
 
 function taskSummary(raw: Task) {
@@ -344,20 +367,32 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       if (a.members.length > PROJECT_LIMITS.members) return fail(`A project has at most ${PROJECT_LIMITS.members} members.`);
       for (const m of a.members) { const ag = ctx.store.getAgent(m); if (!ag || !agentVisible(ctx, ag)) return fail(`Unknown agent "${clip(m, 60)}". Use legion_list_agents.`); }
     }
-    let p: Project;
+    let found: Project | undefined;
     if (a.action === 'create') {
       if (a.status !== undefined) return fail('A new project starts active; set status with "update".');
-      p = store.create({ name: a.name, instructions: a.instructions });
     } else {
       if (!a.id) return fail('action "update" requires an "id".');
-      const found = findProject(ctx, a.id);
+      found = findProject(ctx, a.id);
       if (!found) return fail(`Unknown project "${clip(a.id, 60)}". Use legion_projects to list projects.`);
-      p = (a.name !== undefined || a.instructions !== undefined || a.status !== undefined) ? store.update(found.id, { name: a.name, instructions: a.instructions, status: a.status }) : found;
     }
-    if (a.folder !== undefined) p = store.setFolder(p.id, a.folder);
-    if (a.members !== undefined) p = store.setMembers(p.id, a.members);
-    try { ctx.bus.emit({ type: 'project.updated', project: p }); } catch { /* advisory */ }
-    return json({ id: p.id, name: p.name, status: p.status, members: p.members, folder: p.folder });
+    // Everything is checked before anything is written, so a refused folder never leaves a half-made project behind
+    if (a.folder !== undefined && a.folder !== null) {
+      const why = clientFolderRefusal(a.folder);
+      if (why) return fail(why);
+      store.checkFolder(a.folder, found?.id);
+    }
+    let p: Project | undefined;
+    try {
+      if (a.action === 'create') p = store.create({ name: a.name, instructions: a.instructions });
+      else p = (a.name !== undefined || a.instructions !== undefined || a.status !== undefined) ? store.update(found!.id, { name: a.name, instructions: a.instructions, status: a.status }) : found!;
+      if (a.folder !== undefined) p = store.setFolder(p.id, a.folder);
+      if (a.members !== undefined) p = store.setMembers(p.id, a.members);
+      return json({ id: p.id, name: p.name, status: p.status, members: p.members, folder: p.folder });
+    } finally {
+      // whatever was written is announced, also when a later step failed
+      const now = p ? store.get(p.id) : undefined;
+      if (now) { try { ctx.bus.emit({ type: 'project.updated', project: now }); } catch { /* advisory */ } }
+    }
   }));
 
   // Experimental project board: read-only for token clients (only when the core built a board)

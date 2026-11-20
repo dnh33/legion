@@ -261,3 +261,116 @@ test('MCP, on: legion_run passes the project (by id or name); project and board 
     assert.equal(notMember.isError, true); assert.match(notMember.text, /not a member/);
   } finally { await m.close(); }
 });
+
+// ---- review round 1 (PR #218): fixes and their proofs
+
+import { writeFileSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { clientFolderRefusal } from '../src/core/mcp-tools.js';
+import { runsAsChip } from '../ui/src/gates/presetsLogic.js';
+
+test('a hand-edited app file that sets the flag without a valid signature reads as off', async () => {
+  const s = setup();
+  s.gates.store.patchApp({ claudeOwnChecks: true });
+  await s.gates.store.flush();
+  const file = join(s.gates.dir, 'app.json');
+  const raw = JSON.parse(readFileSync(file, 'utf8'));
+  writeFileSync(file, JSON.stringify({ ...raw, mcpActsAsOwner: true }));
+  const reread = new GatesStore(s.gates.dir, { allowed: PRESETS, signer: makeSigner(Buffer.alloc(32, 7)), keyState: 'new' });
+  const v = reread.view([]);
+  assert.ok(v.changedOutside.includes('app') || v.unreadable.includes('app') || reread.app().mcpActsAsOwner !== true, 'not trusted as on');
+  const e2 = new Engine({ store: s.store as any, bus: new EventBus(), vms: { touch() {}, ensureRunning: async () => ({}) } as any, approvals: new ApprovalBroker(new EventBus()), config: defaultConfig(), queryFn: (() => quick()) as any, boatConfigured: () => false, gates: { gate: () => undefined, switchedOff: () => false, store: reread } as any });
+  assert.equal(e2.mcpActsAsOwner(), false);
+});
+
+test('the run chip says "asks" only for a real cap: a ceiling of full (the setting on) adds nothing', () => {
+  assert.equal(runsAsChip({ effective: 'ask', agentMode: 'ask', source: 'own', limit: true, ceiling: 'full' } as any).reason, undefined);
+  assert.equal(runsAsChip({ effective: 'ask', agentMode: 'full', source: 'own', limit: true, ceiling: 'ask' } as any).reason, 'Started by an outside app: asks');
+});
+
+test('an outside app cannot make a key, settings or system folder a project folder', () => {
+  assert.match(clientFolderRefusal(join(homedir(), '.ssh')) ?? '', /cannot make/);
+  assert.match(clientFolderRefusal(join(homedir(), '.claude', 'skills')) ?? '', /cannot make/);
+  if (process.platform === 'win32') assert.match(clientFolderRefusal(join(process.env.SystemRoot ?? 'C:/Windows', 'System32')) ?? '', /cannot make/);
+  assert.equal(clientFolderRefusal(join(homedir(), 'games', 'hirtshals')), undefined);
+});
+
+test('MCP, on: a refused folder leaves no half-made project; a shared name is refused; client text is untrusted; Inbox items are unknown', async () => {
+  const m = await mcpWith(true);
+  try {
+    const before = m.projects.list().length;
+    const bad = await m.call('legion_project_edit', { action: 'create', name: 'Keys', folder: join(homedir(), '.ssh') });
+    assert.equal(bad.isError, true); assert.match(bad.text, /cannot make/);
+    assert.equal(m.projects.list().length, before, 'nothing was created');
+    const a = m.projects.create({ name: 'Twin' }); const b = m.projects.create({ name: 'twin' });
+    m.projects.setMembers(a.id, ['scout']); m.projects.setMembers(b.id, ['scout']);
+    for (const r of [
+      await m.call('legion_run', { agent: 'scout', prompt: 'x', project: 'Twin', wait: false }),
+      await m.call('legion_project_edit', { action: 'update', id: 'TWIN', instructions: 'x' }),
+      await m.call('legion_board_write', { action: 'create', project: 'twin', title: 'x' }),
+    ]) { assert.equal(r.isError, true); assert.match(r.text, /2 projects are called/); }
+    const byId = await m.call('legion_run', { agent: 'scout', prompt: 'x', project: a.id, wait: false });
+    assert.equal(byId.isError, false, 'the id still works');
+    const p = m.projects.get(a.id)!;
+    const made = await m.call('legion_board_write', { action: 'create', project: p.id, title: 'From Claude Code' });
+    assert.equal(JSON.parse(made.text).trust, 'untrusted', 'text from an outside app is not text the owner read');
+    const owners = m.board.create(p, { title: 'Owner wrote this' });
+    assert.equal(owners.trust, 'human');
+    const edited = await m.call('legion_board_write', { action: 'update', project: p.id, id: owners.id, description: 'changed by a client' });
+    assert.equal(JSON.parse(edited.text).trust, 'untrusted', 'a client text edit drops "reviewed"');
+    const moved = await m.call('legion_board_write', { action: 'move', project: p.id, id: JSON.parse(made.text).id, status: 'doing' });
+    assert.equal(moved.isError, false);
+    const prop = m.board.propose(p, 'scout', { title: 'A proposal' }, { tainted: false });
+    const hidden = await m.call('legion_board_write', { action: 'update', project: p.id, id: prop.id, title: 'x' });
+    assert.equal(hidden.isError, true); assert.match(hidden.text, /Unknown item/);
+  } finally { await m.close(); }
+});
+
+// ---- the card, rendered: off (default), on, and no signing key
+
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { MCP_OWNER_LABEL, MCP_OWNER_NO_KEY, MCP_OWNER_OFF_TEXT, MCP_OWNER_ON_TEXT } from '../ui/src/gates/mcpOwnerCopy.js';
+
+test('render: the MCP clients card shows off by default, on when set, and cannot be turned on without the key', async () => {
+  const REPO = fileURLToPath(new URL('../../', import.meta.url));
+  const out = await build({
+    stdin: {
+      resolveDir: REPO, sourcefile: 'entry.ts', loader: 'ts',
+      contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
+        import { McpOwnerCardView } from ${JSON.stringify(join(REPO, 'ui/src/gates/McpOwner.tsx'))};
+        export const card = (p) => renderToStaticMarkup(createElement(McpOwnerCardView, { onToggle: () => {}, busy: false, note: null, ...p }));`,
+    },
+    bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', logLevel: 'silent', loader: { '.css': 'empty' },
+    plugins: [{
+      name: 'ui-stubs',
+      setup(b) {
+        b.onResolve({ filter: /\/store$/ }, () => ({ path: 'app-store', namespace: 'stub' }));
+        b.onLoad({ filter: /^app-store$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: 'export const toast = () => {}; export const useStore = () => []; export const openSettings = () => {};' }));
+        b.onResolve({ filter: /useGatesView$/ }, () => ({ path: 'use-gates-view', namespace: 'stub' }));
+        b.onLoad({ filter: /^use-gates-view$/, namespace: 'stub' }, () => ({ resolveDir: REPO, loader: 'js', contents: `export const useGatesView = () => ({}); export const useGatesAction = () => ({ pending: false, note: null, run: async () => true }); export const reloadGatesFromDisk = async () => {}; export const PENDING_TEXT = 'Waiting';` }));
+      },
+    }],
+  });
+  const d = cleanupTemp('mcp-owner-ui-');
+  const file = join(d, 'ui.cjs');
+  writeFileSync(file, out.outputFiles[0]!.text);
+  const r = createRequire(file)(file) as { card: (p: unknown) => string };
+  const view = (app: Record<string, unknown> = {}, o: Record<string, unknown> = {}) => ({ app: { version: 1, ...app }, projects: {}, unreadable: [], changedOutside: [], canSign: true, ...o });
+  const unesc = (h: string) => h.replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+  const off = unesc(r.card({ view: view() }));
+  assert.ok(off.includes(MCP_OWNER_LABEL));
+  assert.ok(off.includes(MCP_OWNER_OFF_TEXT));
+  assert.doesNotMatch(off, /checked=""/, 'off by default');
+  assert.doesNotMatch(off, /disabled=""/, 'and it can be turned on');
+  const on = unesc(r.card({ view: view({ mcpActsAsOwner: true }) }));
+  assert.match(on, /checked=""/);
+  assert.ok(on.includes(MCP_OWNER_ON_TEXT));
+  const noKey = unesc(r.card({ view: view({}, { canSign: false }) }));
+  assert.match(noKey, /disabled=""/, 'without the key it cannot be turned on');
+  assert.ok(noKey.includes(MCP_OWNER_NO_KEY));
+  const onNoKey = unesc(r.card({ view: view({ mcpActsAsOwner: true }, { canSign: false }) }));
+  assert.doesNotMatch(onNoKey, /disabled=""/, 'turning it off never needs the key');
+  for (const t of [MCP_OWNER_LABEL, MCP_OWNER_ON_TEXT, MCP_OWNER_OFF_TEXT, MCP_OWNER_NO_KEY, MCP_OWNER_ON_LINE, MCP_OWNER_OFF_LINE]) assert.doesNotMatch(t, /—|–|this (computer|machine)/i, 'plain words');
+});

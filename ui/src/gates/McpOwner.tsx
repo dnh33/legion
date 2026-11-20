@@ -1,13 +1,12 @@
 // Settings, Gates: the switch "MCP clients act as you". Off by default; turning it on goes through the app's native confirmation like every loosening.
 // The view takes everything as props (a test draws every state); the wired card sends the change.
 import { GatesNote } from './GatesPresets';
-import { KEYSTORE_LINE, type GatesView } from './presetsLogic';
+import type { GatesView } from './presetsLogic';
 import type { GatesChangeRequest, GatesNote as Note } from './gatesAction';
 import './gates.css';
+import { MCP_OWNER_LABEL, MCP_OWNER_NO_KEY, MCP_OWNER_OFF_TEXT, MCP_OWNER_ON_TEXT } from './mcpOwnerCopy';
 
-export const MCP_OWNER_LABEL = 'MCP clients act as you';
-export const MCP_OWNER_ON_TEXT = 'On. An app that holds your Legion key (such as Claude Code) can start runs inside a project at the agent\'s own approval mode, and can create and change projects, their folders and members, and board items, without asking you.';
-export const MCP_OWNER_OFF_TEXT = 'Off. MCP clients can look and start runs, but their runs ask you first, outside any project, and they cannot change projects or boards.';
+export { MCP_OWNER_LABEL, MCP_OWNER_NO_KEY, MCP_OWNER_OFF_TEXT, MCP_OWNER_ON_TEXT };
 
 export const mcpOwnerOn = (view: GatesView): boolean => view.app.mcpActsAsOwner === true;
 
@@ -22,7 +21,7 @@ export function McpOwnerCardView({ view, busy, note, onToggle }: { view: GatesVi
         <input type="checkbox" role="switch" checked={on} disabled={busy || noKey} onChange={(e) => onToggle(e.target.checked)} />
         <span><b>{MCP_OWNER_LABEL}</b>
           <span className="field-note">{on ? MCP_OWNER_ON_TEXT : MCP_OWNER_OFF_TEXT}</span>
-          {noKey && <span className="field-note">{KEYSTORE_LINE}</span>}
+          {noKey && <span className="field-note">{MCP_OWNER_NO_KEY}</span>}
         </span>
       </label>
       <GatesNote note={note} pending={busy} />

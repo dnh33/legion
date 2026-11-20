@@ -282,6 +282,8 @@ const CATALOG_WAIT_MS = 3000;
 const HOOK_DECIDED_MS = 60_000;
 /** The data-folder entries whose contents are secrets to read: provider keys, connector tokens and data keys, the gate settings and the gates key. */
 const SECRET_DATA_NAMES: ReadonlySet<string> = new Set(['providers', 'connectors', 'gates', 'gates-key.bin']);
+/** With "MCP clients act as you" on, config.json is a key file too: it holds the bearer key, and that key then acts as the owner. */
+const SECRET_DATA_NAMES_OWNER: ReadonlySet<string> = new Set([...SECRET_DATA_NAMES, 'config.json']);
 /** The data-folder entries a shell write or delete still asks about in Full (Bypass): the gate settings, the gates key, config, state, the project list and app-settings.json (the desktop's own switches) and the agent host's pid list. */
 const FULL_CARD_NAMES: ReadonlySet<string> = new Set(['gates', 'gates-key.bin', 'gates-key.unconfirmed', 'config.json', 'state.json', 'projects.json', 'app-settings.json', 'acp-pids.json']);
 /** New sites raised by one run within this long go out as one card (the first call opens the window). */
@@ -1992,14 +1994,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
 
   /**
    * Legion's own key files count as secret files by where they are: the providers and connectors folders (API keys, tokens, their data keys),
-   * the gates folder and the gates key, taken from the same protected set the file tools use for writes. A path is resolved against the call's
-   * folder (a leading `~` or `$HOME` means the home folder). The rest of the data folder (config, state, projects, workspaces) is not secret.
+   * the gates folder and the gates key, taken from the same protected set the file tools use for writes (and config.json while "MCP clients act as you" is on).
+   * A path is resolved against the call's folder (a leading `~` or `$HOME` means the home folder). The rest of the data folder (config, state, projects, workspaces) is not secret.
    * A search that starts at the data folder, a folder above it or a folder between it and a key folder also counts (it reaches the key files),
    * as long as its glob can match a key file name. A `cd` earlier in the same command changes the folder its words mean (see secret-paths.ts).
    * Gap: a `cd` in an earlier call of the run, or a path built when the command runs, is not seen.
    */
   private dataSecretLocation(agent: AgentProfile, toolName: string, input: Record<string, unknown>): SecretLocation | undefined {
-    const roots = this.protectedDirs().filter((t) => SECRET_DATA_NAMES.has(basename(t).toLowerCase()));
+    const secretNames = this.mcpActsAsOwner() ? SECRET_DATA_NAMES_OWNER : SECRET_DATA_NAMES;
+    const roots = this.protectedDirs().filter((t) => secretNames.has(basename(t).toLowerCase()));
     if (!roots.length) return undefined;
     const base = this.gateCwd(agent, toolName, input);
     let canon: string[] | undefined; // worked out on the first path that is asked about: most tool calls never ask

@@ -157,8 +157,8 @@ const PRESET_LOOSEN: Record<Exclude<Preset, 'ask'>, string> = {
 };
 export const CLAUDE_OWN_ON_LINE = "Claude agents use Claude's own permission checks. Legion's Smart judge and its new-site, protected-file and project-delete cards no longer run for them. Legion's blocks, its safety floor and its own-file guards still apply.";
 export const CLAUDE_OWN_OFF_LINE = "Claude agents follow Legion's own permission cards again.";
-export const MCP_OWNER_ON_LINE = 'MCP clients act as you: an app such as Claude Code that holds your Legion key can start runs inside a project at the agent\'s own approval mode (no "ask" cap), and can create and change projects, their folders and members, and board items, without asking you.';
-export const MCP_OWNER_OFF_LINE = 'MCP clients are limited again: their runs ask, and they cannot pick a project or change projects or boards.';
+export const MCP_OWNER_ON_LINE = 'MCP clients act as you: an app such as Claude Code that holds your Legion key can start runs inside a project at the agent\'s own approval mode (no "ask" cap), and can create and change projects, their folders and members, and board items, without asking you. Anything that holds your Legion key then acts as you.';
+export const MCP_OWNER_OFF_LINE = 'MCP clients are limited again: new runs they start ask first, outside any project, and they cannot change projects or boards. Runs already going finish as they started.';
 const PER_AGENT_LINE = "Each agent's own mode applies, Bypass included.";
 const LIMIT_OFF_LINE = "Agents with their own mode can go beyond this project's setting.";
 const gateDef = (id: string) => GATES.find((g) => g.id === id);
