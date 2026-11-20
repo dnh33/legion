@@ -289,7 +289,7 @@ test('the run chip says "asks" only for a real cap: a ceiling of full (the setti
 });
 
 test('an outside app cannot make a key, settings or system folder a project folder', () => {
-  assert.match(clientFolderRefusal(join(homedir(), '.ssh')) ?? '', /cannot make/);
+  assert.match(clientFolderRefusal(join(homedir(), '.ssh')) ?? '', /cannot make that folder/);
   assert.match(clientFolderRefusal(join(homedir(), '.claude', 'skills')) ?? '', /cannot make/);
   if (process.platform === 'win32') assert.match(clientFolderRefusal(join(process.env.SystemRoot ?? 'C:/Windows', 'System32')) ?? '', /cannot make/);
   assert.equal(clientFolderRefusal(join(homedir(), 'games', 'hirtshals')), undefined);
@@ -373,4 +373,41 @@ test('render: the MCP clients card shows off by default, on when set, and cannot
   const onNoKey = unesc(r.card({ view: view({ mcpActsAsOwner: true }, { canSign: false }) }));
   assert.doesNotMatch(onNoKey, /disabled=""/, 'turning it off never needs the key');
   for (const t of [MCP_OWNER_LABEL, MCP_OWNER_ON_TEXT, MCP_OWNER_OFF_TEXT, MCP_OWNER_NO_KEY, MCP_OWNER_ON_LINE, MCP_OWNER_OFF_LINE]) assert.doesNotMatch(t, /—|–|this (computer|machine)/i, 'plain words');
+});
+
+// ---- review round 2 (PR #218): the client folder check cannot be led around
+
+import { realpathSync, symlinkSync } from 'node:fs';
+
+test('the client folder check holds for links, network and device paths, and folders that contain a guarded one', () => {
+  const root = cleanupTemp('legion-mcp-owner-folders-');
+  const home = join(root, 'home');
+  mkdirSync(join(home, '.ssh'), { recursive: true });
+  mkdirSync(join(home, 'games', 'hirtshals'), { recursive: true });
+  const link = join(root, 'innocent');
+  symlinkSync(join(home, '.ssh'), link, 'junction');
+  const real = realpathSync(link);
+  assert.equal(clientFolderRefusal(link, undefined, home), undefined, 'the raw path alone looks harmless');
+  assert.match(clientFolderRefusal(link, real, home) ?? '', /inside a folder that holds keys/, 'the real path behind the link is refused');
+  assert.match(clientFolderRefusal('\\\\localhost\\C$\\Users\\x\\.ssh', undefined, home) ?? '', /network and device paths/);
+  assert.match(clientFolderRefusal('\\\\?\\C:\\Users\\x\\games', undefined, home) ?? '', /network and device paths/);
+  assert.match(clientFolderRefusal('//server/share/x', undefined, home) ?? '', /network and device paths/);
+  assert.match(clientFolderRefusal(home, undefined, home) ?? '', /contains a folder that holds keys/, 'home itself, whatever LEGION_HOME is');
+  assert.match(clientFolderRefusal(root, undefined, home) ?? '', /contains a folder/, 'a folder above home');
+  assert.equal(clientFolderRefusal(join(home, 'games', 'hirtshals'), undefined, home), undefined, 'an ordinary folder is fine');
+  assert.match(clientFolderRefusal(join(home, '.SSH', 'keys') + '\\', undefined, home) ?? '', /inside/, 'case and a trailing separator');
+  assert.doesNotMatch(clientFolderRefusal(join(home, '.ssh'), undefined, home) ?? '', new RegExp(home.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')), 'the message does not echo the path');
+});
+
+test('MCP, on: a link to a guarded folder is refused through the tool, and nothing is created', async () => {
+  const m = await mcpWith(true);
+  try {
+    const target = join(homedir(), '.claude');
+    const link = join(m.root, 'looks-fine');
+    try { symlinkSync(target, link, 'junction'); } catch { return; } // no ~/.claude on this machine: the unit test above covers the rule
+    const before = m.projects.list().length;
+    const r = await m.call('legion_project_edit', { action: 'create', name: 'Linked', folder: link });
+    assert.equal(r.isError, true, r.text); assert.match(r.text, /cannot make that folder a project folder/);
+    assert.equal(m.projects.list().length, before);
+  } finally { await m.close(); }
 });

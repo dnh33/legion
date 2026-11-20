@@ -11,7 +11,7 @@ import { VmError } from './vm-manager.js';
 import { runtimeOf } from '../shared/runtime.js';
 import { registerBoardRead, registerBoardWrite } from './projects/board/mcp.js';
 import { homedir } from 'node:os';
-import { join as joinPath, resolve as resolvePath, sep as sepChar } from 'node:path';
+import { basename as basenameOf, join as joinPath, resolve as resolvePath, sep as sepChar } from 'node:path';
 import { PROJECT_LIMITS } from '../shared/projects.js';
 import type { Project } from '../shared/projects.js';
 
@@ -79,18 +79,30 @@ function findProject(ctx: CoreContext, ref: string) {
 /**
  * Folders an outside app may not make a project folder, on top of the checks every folder gets (no root, not Legion's data folder, no overlap):
  * an agent in the project may write there without a card, and in the app the owner sees a confirmation for a folder change, which a client skips.
- * Your home folder is already refused (it contains Legion's data folder).
+ * Checked on the path as given and on the real path it resolves to (`real`: a junction, symlink or short name resolved), so a link cannot lead
+ * around it. Refused: a network or device path (two leading slashes: a share, or a \\?\ path), a folder inside a guarded one, and a folder that
+ * contains a guarded one (your home folder, the Users folder). `home` is for tests.
  */
-export function clientFolderRefusal(folder: string): string | undefined {
-  const f = resolvePath(folder);
-  const home = resolvePath(homedir());
-  const inside = (base: string) => { const b = base.toLowerCase(); const x = f.toLowerCase(); return x === b || x.startsWith(b.endsWith(sepChar) ? b : b + sepChar); };
+export function clientFolderRefusal(folder: string, real?: string, home: string = homedir()): string | undefined {
+  const head = 'An outside app cannot make that folder a project folder';
+  const tail = 'Choose it in the Legion app if you mean it.';
+  const paths = real === undefined ? [folder] : [folder, real];
+  if (paths.some((p) => /^[\\/]{2}/.test(p.trim()))) return `${head}: network and device paths are not allowed. ${tail}`;
+  const h = resolvePath(home);
   const guarded = [
-    ...['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.claude', '.config'].map((d) => joinPath(home, d)),
-    ...(process.platform === 'win32' ? [process.env.SystemRoot ?? 'C:\\Windows', process.env.ProgramFiles ?? 'C:\\Program Files', process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', process.env.ProgramData ?? 'C:\\ProgramData', joinPath(process.env.APPDATA ?? joinPath(home, 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu')] : ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library']),
+    ...['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.claude', '.config'].map((d) => joinPath(h, d)),
+    ...(process.platform === 'win32' ? [process.env.SystemRoot ?? 'C:\\Windows', process.env.ProgramFiles ?? 'C:\\Program Files', process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', process.env.ProgramData ?? 'C:\\ProgramData', joinPath(process.env.APPDATA ?? joinPath(h, 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu')] : ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library']),
   ];
-  const hit = guarded.find((g) => inside(resolvePath(g)));
-  return hit ? `An outside app cannot make "${clip(folder, 120)}" a project folder: it is inside ${hit}, which holds keys, settings or system files. Choose it in the Legion app if you mean it.` : undefined;
+  const norm = (p: string): string => { const x = resolvePath(p).toLowerCase(); return x.endsWith(sepChar) ? x : x + sepChar; };
+  for (const p of paths) {
+    const f = norm(p);
+    for (const g of guarded) {
+      const gn = norm(g);
+      if (f.startsWith(gn)) return `${head}: it is inside a folder that holds keys, settings or system files (${basenameOf(g)}). ${tail}`;
+      if (gn.startsWith(f)) return `${head}: it contains a folder that holds keys, settings or system files (${basenameOf(g)}). ${tail}`;
+    }
+  }
+  return undefined;
 }
 
 function taskSummary(raw: Task) {
@@ -379,7 +391,10 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     if (a.folder !== undefined && a.folder !== null) {
       const why = clientFolderRefusal(a.folder);
       if (why) return fail(why);
-      store.checkFolder(a.folder, found?.id);
+      // the real path the store would keep (a junction or symlink resolved) is checked too
+      const real = store.checkFolder(a.folder, found?.id);
+      const whyReal = clientFolderRefusal(a.folder, real);
+      if (whyReal) return fail(whyReal);
     }
     let p: Project | undefined;
     try {
