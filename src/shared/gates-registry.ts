@@ -100,6 +100,12 @@ export interface GateSettings {
    * Absent means on. `false` is the old way: Legion's own cards and Smart classifier judge Claude's tools. Turning it on is a loosening (Legion asks less).
    */
   claudeOwnChecks?: boolean;
+  /**
+   * App file only. MCP clients act as the owner: a token client (Claude Code, Cowork) may start a run inside a project, its runs keep the agent's own
+   * approval mode instead of the "ask" cap, and it may create and change projects (folder and members too) and board items. Absent means off.
+   * Turning it on is a loosening; only the owner's save in the app turns it on, never a token client. An app file Legion cannot trust reads as off.
+   */
+  mcpActsAsOwner?: true;
   /** App file only: the owner answered the first-run screen "How should your agents ask?". Not a gate; written only by the core when the owner answers, signed with the rest. */
   firstRunChoice?: true;
   /** App file only: the owner dismissed the one-time notice that projects can now set how agents ask. Not a gate; signed with the rest. */

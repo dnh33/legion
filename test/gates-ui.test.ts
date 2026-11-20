@@ -283,9 +283,12 @@ test('render: the Gates page shows the presets, the notes, fine tuning, QA, rail
     assert.match(html, /New in this update: a run that read outside text is labelled/, 'a config that never saw the notice shows it once');
     assert.match(html, /Fine tuning/);
     assert.match(html, /class="gates-value">On, limit 4</, 'at the app default the gates read as plain values, not switches');
-    // the one switch on the page at the app default is the app-wide Claude one; the gate rows have none
-    assert.equal((html.match(/role="switch"/g) ?? []).length, 1);
-    assert.match(html, /class="set-card gates-claude"[^>]*>[\s\S]*?role="switch"/, 'and it sits in the Claude card');
+    // the switches on the page at the app default are the two app-wide ones (Claude's own checks; MCP clients act as you, 0.3.11); the gate rows have none
+    assert.equal((html.match(/role="switch"/g) ?? []).length, 2);
+    assert.match(html, /class="set-card gates-claude"[^>]*>[\s\S]*?role="switch"/, 'one sits in the Claude card');
+    assert.match(html, /class="set-card gates-mcp-owner"[^>]*>[\s\S]*?role="switch"/, 'one sits in the MCP clients card');
+    assert.ok(html.includes('MCP clients act as you'));
+    assert.match(html, /Off\. MCP clients can look and start runs, but their runs ask you first/, 'off by default, and it says what off means');
     assert.ok(html.includes("Claude agents follow Claude&#x27;s own permission checks"));
     assert.ok(html.includes("Legion&#x27;s Allow rules do not answer Claude&#x27;s own prompts for Claude agents."), 'the Allow rules line sits with the rules');
     assert.match(html, /Check which websites agents read/, 'the new web gate has a row');

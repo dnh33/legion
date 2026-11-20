@@ -11,6 +11,7 @@ import {
 import { GatesBanner, GatesPresets, EVERYTHING } from './GatesPresets';
 import { PermissionGates } from './PermissionGates';
 import { AllowRulesNote, ClaudeChecksCard } from './ClaudeChecks';
+import { McpOwnerCard } from './McpOwner';
 import { claudeChecksOn } from './claudeChecksLogic';
 import { QaGates, RailsList } from './RailsList';
 import { OutsideText } from './OutsideText';
@@ -302,7 +303,8 @@ export function GatesSection({ s }: { s: SettingsView }) {
   const presetsAct = useGatesAction(apply);
   const fineAct = useGatesAction(apply);
   const claudeAct = useGatesAction(apply);
-  const gatesBusy = presetsAct.pending || fineAct.pending || claudeAct.pending;
+  const mcpAct = useGatesAction(apply);
+  const gatesBusy = presetsAct.pending || fineAct.pending || claudeAct.pending || mcpAct.pending;
   // A project that was removed while it was chosen: back to the app default.
   const scopeNow = scope === EVERYTHING || projects.some((p) => p.id === scope) ? scope : EVERYTHING;
   const gates: GatesConfig = s.gates ?? { rules: [], presetsVersion: 0 };
@@ -372,6 +374,7 @@ export function GatesSection({ s }: { s: SettingsView }) {
           <GatesBanner view={view} projects={projects} busy={gatesBusy} run={presetsAct.run} onReloaded={reload} />
           <GatesPresets view={view} scope={scopeNow} setScope={setScope} projects={projects} agents={agents} busy={gatesBusy} note={presetsAct.note} run={presetsAct.run} modeMap={modeMap} />
           {scopeNow === EVERYTHING && <ClaudeChecksCard view={view} busy={gatesBusy} note={claudeAct.note} run={claudeAct.run} />}
+          {scopeNow === EVERYTHING && <McpOwnerCard view={view} busy={gatesBusy} note={mcpAct.note} run={mcpAct.run} />}
           <PermissionGates view={view} scope={scopeNow} busy={gatesBusy} note={fineAct.note} run={fineAct.run} />
         </>
       )}

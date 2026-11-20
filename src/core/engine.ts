@@ -740,7 +740,9 @@ export class Engine {
     let named = false;
     // a delegation (ask/tell) belongs to its CALLER's project, before any older thread's (BUG-5)
     const delegated = !!p.bridge && !p.bridge.reply && !!p.bridge.parentTaskId;
-    if ((p.source === 'ui' || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
+    // an MCP client names a project only while "MCP clients act as you" is on; then a bad pick is an error, as it is for the app
+    const ownerLike = p.source === 'ui' || (p.source === 'mcp' && this.mcpActsAsOwner());
+    if ((ownerLike || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
     else if (delegated) {
       const caller = this.store.getTask(p.bridge!.parentTaskId!);
       want = caller?.projectId;
@@ -759,11 +761,11 @@ export class Engine {
       if (p.bridge?.reply) return {};
       // a live run of an archived project may still hand work on: the helper works from outside it, and both threads say so
       if (delegated) return { outside: { project: pr, why: 'the project is archived' } };
-      if (p.source === 'ui' || (prev && !named)) throw new EngineError(`Project "${pr.name}" is archived. Unarchive it to start or continue a task in it.`, 409);
+      if (ownerLike || (prev && !named)) throw new EngineError(`Project "${pr.name}" is archived. Unarchive it to start or continue a task in it.`, 409);
       return {};
     }
     if (pr && pr.members.includes(agent.id)) return { id: want };
-    if (p.source === 'ui' && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
+    if (ownerLike && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
     // A non-member helps from outside (decision 2026-10-13): no folder, notes or board, the project's deny rules still bind it,
     // and both threads say so (the caller is never left unaware, council A3).
     if (delegated && pr) return { outside: { project: pr, why: `${agent.name} is not a member` } };
@@ -838,9 +840,12 @@ export class Engine {
    */
   private mcpOrigin(p: BridgeStartParams, prev?: Task): TaskOrigin | undefined {
     if (p.source !== 'mcp') return undefined;
+    // With "MCP clients act as you" on, a client's run is capped at nothing ('full' is no cap: the agent's own mode applies). A continue still keeps
+    // the stricter of the task's earlier ceiling, so a task started while the setting was off (or by a capped room or agent) stays capped.
+    const cap: RunMode = this.mcpActsAsOwner() ? 'full' : 'ask';
     // viaMcpClient is set in both branches: a continue of a room-woken task by a client still came from a client (connector reads are refused for it).
-    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, 'ask'), viaMcpClient: true };
-    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: 'ask', viaMcpClient: true };
+    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, cap), viaMcpClient: true };
+    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: cap, viaMcpClient: true };
   }
 
   /** Origin (approval ceiling) for a task started by `ask`/`tell`. Replies go back to the caller's own task and add none. */
@@ -1861,6 +1866,21 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const v = store.view([]);
       if (v.changedOutside.includes('app') || v.unreadable.includes('app') || v.keyUnreadable) return false;
       return app.claudeOwnChecks !== false;
+    } catch { return false; }
+  }
+
+  /**
+   * MCP clients act as the owner (the app's gate setting `mcpActsAsOwner`, off unless the owner turned it on in the app). Off with no gates core,
+   * and off when the app file cannot be trusted (unreadable, damaged, changed outside Legion, or its key lost): fail closed, like `claudeOwnChecks`.
+   */
+  mcpActsAsOwner(): boolean {
+    try {
+      const store = this.gates?.store;
+      const app = store?.app();
+      if (!store || !app) return false;
+      const v = store.view([]);
+      if (v.changedOutside.includes('app') || v.unreadable.includes('app') || v.keyUnreadable) return false;
+      return app.mcpActsAsOwner === true;
     } catch { return false; }
   }
 

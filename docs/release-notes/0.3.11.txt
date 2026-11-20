@@ -1,0 +1,11 @@
+This update installs from inside Legion.
+
+New setting: MCP clients act as you
+Settings, Gates. It is off until you turn it on, and the app asks you first.
+
+With it on, an app that holds your Legion key, such as Claude Code, can:
+- run a task inside a project, with the project's folder, instructions and board, so the task shows under that project;
+- run it at the agent's own approval mode, so an agent you set to full approval no longer asks for every file;
+- create and change projects, their folders and members, and board items.
+
+With it off, nothing changes. An agent set to Ask still asks, whoever starts it.

@@ -37,7 +37,7 @@ What agents may not do:
 
 Text an agent writes is marked "not reviewed" until you press "Mark as reviewed". An agent editing the text of an item you already reviewed clears your review. A run on unreviewed text starts tainted with the stricter "ask" approvals. Item text that other agents read is wrapped as data: it carries no approval.
 
-Token clients (MCP, curl) get read-only `legion_board_read`.
+Token clients (MCP, curl) get read-only `legion_board_read`. With "MCP clients act as you" on (Settings, Gates; off by default) they also get working `legion_board_write` (create, change, move items as the owner), `legion_project_edit`, and a `project` field on `legion_run`. With it off those refuse.
 
 Legion's own code makes these checks. The board does not limit what an allowed agent tool does during a run, and a compromised app window holds the admin key, so it can edit the board; it still goes through the approval cards for runs and agent deletes.
 

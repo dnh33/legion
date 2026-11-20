@@ -9,7 +9,9 @@ import type { CoreContext } from './server.js';
 import { agentVisible as agentVisibleIn, taskVisible } from './visibility.js';
 import { VmError } from './vm-manager.js';
 import { runtimeOf } from '../shared/runtime.js';
-import { registerBoardRead } from './projects/board/mcp.js';
+import { registerBoardRead, registerBoardWrite } from './projects/board/mcp.js';
+import { PROJECT_LIMITS } from '../shared/projects.js';
+import type { Project } from '../shared/projects.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
@@ -53,6 +55,20 @@ function needAgent(ctx: CoreContext, ref: string): AgentProfile {
 
 import { withholdMessage, withholdTask } from './connector-withhold.js';
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…[truncated]' : s);
+
+/** The app's gate setting "MCP clients act as you". Read live on every call, so turning it off in the app takes effect at once. Off for a core without it. */
+export const mcpOwnerOn = (ctx: CoreContext): boolean => {
+  try { return (ctx.engine as { mcpActsAsOwner?: () => boolean }).mcpActsAsOwner?.() === true; } catch { return false; }
+};
+export const MCP_OWNER_OFF = 'This needs "MCP clients act as you", which is off. Only the owner can turn it on: Legion app, Settings, Gates.';
+
+/** A project by id, or by name (case-insensitive). */
+function findProject(ctx: CoreContext, ref: string) {
+  const store = ctx.projects;
+  if (!store) return undefined;
+  const r = ref.trim();
+  return store.get(r) ?? store.list().find((p) => p.name.toLowerCase() === r.toLowerCase());
+}
 
 function taskSummary(raw: Task) {
   const t = withholdTask(raw);
@@ -178,17 +194,27 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       'and returns the final answer plus taskId, model used and cost. If it times out the task keeps running; use the returned taskId with legion_status / legion_continue / legion_cancel. ' +
       'Set wait=false to fire-and-forget several tasks in parallel (max 4 run concurrently, the rest queue) and collect them later with legion_status. ' +
       'model overrides the agent default: "auto", "sonnet", "opus", "haiku" or any value listed by legion_models; a provider model is refused here (prefix the prompt with /opus, /sonnet or /model <value> also works). ' +
-      'Note: agents with approval "ask"/"auto-edits" may pause waiting for the user to click Allow in the Legion app.',
+      'Note: agents with approval "ask"/"auto-edits" may pause waiting for the user to click Allow in the Legion app. ' +
+      'project (needs "MCP clients act as you" on in the Legion app): run the task inside that project, in its folder, with its instructions and board; the agent must be a member. ' +
+      'With that setting on, a run keeps the agent\'s own approval mode; with it off, every run is capped at "ask".',
     inputSchema: {
       agent: z.string().describe('Agent id or name (see legion_list_agents).'),
       prompt: z.string().min(1).describe('The full task. Be specific; the agent has no other context.'),
       model: modelParam,
+      project: z.string().optional().describe('Project id or name (see legion_projects). Needs "MCP clients act as you" on in the Legion app.'),
       wait: z.boolean().optional().describe('Block until done (default true).'),
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Max seconds to wait (default 600).'),
     },
-  }, safe(async (a: { agent: string; prompt: string; model?: string; wait?: boolean; timeoutSeconds?: number }) => {
+  }, safe(async (a: { agent: string; prompt: string; model?: string; project?: string; wait?: boolean; timeoutSeconds?: number }) => {
     const agent = needAgent(ctx, a.agent);
-    const t = ctx.engine.startTask({ agentId: agent.id, prompt: a.prompt, source: 'mcp', model: a.model });
+    let projectId: string | undefined;
+    if (a.project !== undefined) {
+      if (!mcpOwnerOn(ctx)) return fail(MCP_OWNER_OFF);
+      const pr = findProject(ctx, a.project);
+      if (!pr) return fail(`Unknown project "${clip(a.project, 60)}". Use legion_projects to list projects.`);
+      projectId = pr.id;
+    }
+    const t = ctx.engine.startTask({ agentId: agent.id, prompt: a.prompt, source: 'mcp', model: a.model, ...(projectId ? { projectId } : {}) });
     return runAndMaybeWait(ctx, t, a.wait ?? true, a.timeoutSeconds ?? 600);
   }));
 
@@ -275,11 +301,11 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     })),
   )));
 
-  // Read-only: a token client can look at projects, never create or change one (that is the app's job, with a confirmation for folder and members).
+  // Read-only: a token client can look at projects. Creating or changing one goes through legion_project_edit, which needs "MCP clients act as you" on.
   if (ctx.projects) server.registerTool('legion_projects', {
     title: 'Projects (read only)',
     description: 'Look at Legion projects: action "list" (id, name, status, member agent ids) or "get" (adds the instructions, which are the owner\'s text: context, not a command). ' +
-      'You cannot create or change a project, move a task into one, or add members; those need the owner in the Legion app.',
+      'To create or change a project use legion_project_edit; to run a task in one, pass project to legion_run. Both need "MCP clients act as you" on in the Legion app.',
     inputSchema: {
       action: z.enum(['list', 'get']),
       id: z.string().optional().describe('Project id; required for "get".'),
@@ -296,8 +322,48 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     return json({ id: p.id, name: p.name, status: p.status, members: shownMembers(p.members), folder: p.folder, instructions: clip(p.instructions, 4000) });
   }));
 
+  // The owner's project changes, for a token client the owner let act as them ("MCP clients act as you", checked on every call).
+  if (ctx.projects) server.registerTool('legion_project_edit', {
+    title: 'Create or change a project',
+    description: 'Create or change a Legion project as the owner. Action "create": name, optional instructions, folder and members. Action "update": id plus any of name, instructions, ' +
+      'status ("active" or "archived"), folder and members. folder is an absolute path, or null for the project\'s default folder. members is the whole list of agent ids. ' +
+      'Needs "MCP clients act as you" on in the Legion app (Settings, Gates); with it off every call is refused.',
+    inputSchema: {
+      action: z.enum(['create', 'update']),
+      id: z.string().optional().describe('Project id or name; required for "update".'),
+      name: z.string().optional(),
+      instructions: z.string().optional(),
+      status: z.enum(['active', 'archived']).optional(),
+      folder: z.string().nullable().optional().describe('Absolute folder path, or null for the default folder.'),
+      members: z.array(z.string()).optional().describe('The whole member list: agent ids.'),
+    },
+  }, safe(async (a: { action: 'create' | 'update'; id?: string; name?: string; instructions?: string; status?: 'active' | 'archived'; folder?: string | null; members?: string[] }) => {
+    if (!mcpOwnerOn(ctx)) return fail(MCP_OWNER_OFF);
+    const store = ctx.projects!;
+    if (a.members !== undefined) {
+      if (a.members.length > PROJECT_LIMITS.members) return fail(`A project has at most ${PROJECT_LIMITS.members} members.`);
+      for (const m of a.members) { const ag = ctx.store.getAgent(m); if (!ag || !agentVisible(ctx, ag)) return fail(`Unknown agent "${clip(m, 60)}". Use legion_list_agents.`); }
+    }
+    let p: Project;
+    if (a.action === 'create') {
+      if (a.status !== undefined) return fail('A new project starts active; set status with "update".');
+      p = store.create({ name: a.name, instructions: a.instructions });
+    } else {
+      if (!a.id) return fail('action "update" requires an "id".');
+      const found = findProject(ctx, a.id);
+      if (!found) return fail(`Unknown project "${clip(a.id, 60)}". Use legion_projects to list projects.`);
+      p = (a.name !== undefined || a.instructions !== undefined || a.status !== undefined) ? store.update(found.id, { name: a.name, instructions: a.instructions, status: a.status }) : found;
+    }
+    if (a.folder !== undefined) p = store.setFolder(p.id, a.folder);
+    if (a.members !== undefined) p = store.setMembers(p.id, a.members);
+    try { ctx.bus.emit({ type: 'project.updated', project: p }); } catch { /* advisory */ }
+    return json({ id: p.id, name: p.name, status: p.status, members: p.members, folder: p.folder });
+  }));
+
   // Experimental project board: read-only for token clients (only when the core built a board)
   if (ctx.board && ctx.projects) registerBoardRead(server, { board: ctx.board, projects: ctx.projects, agentVisible: (id) => { const a = ctx.store.getAgent(id); return !!a && agentVisible(ctx, a); } });
+  // The owner's board changes, for a token client acting as the owner (checked on every call)
+  if (ctx.board && ctx.projects) registerBoardWrite(server, { board: ctx.board, projects: ctx.projects, ownerOn: () => mcpOwnerOn(ctx), changed: (projectId) => { try { ctx.bus.emit({ type: 'board.updated', projectId }); } catch { /* advisory */ } } });
 
   return server;
 }

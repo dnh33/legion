@@ -89,13 +89,18 @@ test('C2 members and folder need the native secret as well as admin; wrong or mi
   assert.throws(() => routes['PUT /api/projects/:id/folder']!({ req: { headers: { 'x-legion-native': NATIVE } }, params: [p.id], body: { folder: null } }), /native_unavailable/);
 });
 
-test('C14 MCP: legion_projects lists and gets, and the server has no project write tool', async () => {
+test('C14 MCP: legion_projects lists and gets; the project write tool refuses while "MCP clients act as you" is off', async () => {
   const p: any = await (await call('POST', '/api/projects', { name: 'Readable', instructions: 'Instructions for readers.' })).json();
   await call('PUT', `/api/projects/${p.id}/members`, { members: ['scout'] }, NATIVE_H);
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ['legion_cancel', 'legion_continue', 'legion_create_agent', 'legion_list_agents', 'legion_models', 'legion_projects', 'legion_recent_tasks', 'legion_run', 'legion_status', 'legion_vm'], 'one new tool, read only');
-  assert.ok(!names.some((n) => /project/.test(n) && n !== 'legion_projects'));
+  assert.deepEqual(names, ['legion_cancel', 'legion_continue', 'legion_create_agent', 'legion_list_agents', 'legion_models', 'legion_project_edit', 'legion_projects', 'legion_recent_tasks', 'legion_run', 'legion_status', 'legion_vm'], 'the read tool, and (0.3.11) the owner\'s edit tool');
+  assert.ok(!names.some((n) => /project/.test(n) && n !== 'legion_projects' && n !== 'legion_project_edit'));
+  const refused: any = await client.callTool({ name: 'legion_project_edit', arguments: { action: 'update', id: p.id, instructions: 'From a client' } });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /MCP clients act as you/);
+  const still: any = await (await call('GET', `/api/projects/${p.id}`)).json();
+  assert.equal(still.instructions, 'Instructions for readers.', 'nothing was changed');
   const t = tools.find((x) => x.name === 'legion_projects')!;
   assert.equal(t.annotations?.readOnlyHint, true);
   assert.deepEqual(Object.keys((t.inputSchema as any).properties).sort(), ['action', 'id']);
