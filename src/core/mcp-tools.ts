@@ -11,7 +11,8 @@ import { VmError } from './vm-manager.js';
 import { runtimeOf } from '../shared/runtime.js';
 import { registerBoardRead, registerBoardWrite } from './projects/board/mcp.js';
 import { homedir } from 'node:os';
-import { basename as basenameOf, join as joinPath, resolve as resolvePath, sep as sepChar } from 'node:path';
+import { basename as basenameOf, dirname as dirnameOf, join as joinPath, resolve as resolvePath, sep as sepChar } from 'node:path';
+import { lstatSync, realpathSync } from 'node:fs';
 import { PROJECT_LIMITS } from '../shared/projects.js';
 import type { Project } from '../shared/projects.js';
 
@@ -83,9 +84,12 @@ function findProject(ctx: CoreContext, ref: string) {
  * around it. Refused: a network or device path (two leading slashes: a share, or a \\?\ path), a folder inside a guarded one, and a folder that
  * contains a guarded one (your home folder, the Users folder). `home` is for tests.
  */
+const CLIENT_FOLDER_HEAD = 'An outside app cannot make that folder a project folder';
+const CLIENT_FOLDER_TAIL = 'Choose it in the Legion app if you mean it.';
+
 export function clientFolderRefusal(folder: string, real?: string, home: string = homedir()): string | undefined {
-  const head = 'An outside app cannot make that folder a project folder';
-  const tail = 'Choose it in the Legion app if you mean it.';
+  const head = CLIENT_FOLDER_HEAD;
+  const tail = CLIENT_FOLDER_TAIL;
   const paths = real === undefined ? [folder] : [folder, real];
   if (paths.some((p) => /^[\\/]{2}/.test(p.trim()))) return `${head}: network and device paths are not allowed. ${tail}`;
   // Windows drops a trailing dot or space from a folder name and reads `name:stream` as the folder itself, so `.ssh.`, `.ssh ` and
@@ -108,6 +112,25 @@ export function clientFolderRefusal(folder: string, real?: string, home: string 
     }
   }
   return undefined;
+}
+
+/**
+ * A client folder that is, or sits below, a link (symlink or junction) whose target does not exist is refused. The store keeps the
+ * real path behind a link, but a link it cannot follow is kept as the link itself: once its target is made (a guarded folder such as
+ * ~/.aws that is not there yet), the project folder would open it. Fail closed: a link that cannot be resolved is no project folder.
+ */
+export function clientLinkRefusal(folder: string): string | undefined {
+  let cur = resolvePath(folder);
+  for (;;) {
+    let link = false;
+    try { link = lstatSync(cur).isSymbolicLink(); } catch { /* not there (yet), or below a broken link: look one level up */ }
+    if (link) {
+      try { realpathSync.native(cur); } catch { return `${CLIENT_FOLDER_HEAD}: it is a link whose target does not exist. ${CLIENT_FOLDER_TAIL}`; }
+    }
+    const up = dirnameOf(cur);
+    if (up === cur) return undefined;
+    cur = up;
+  }
 }
 
 function taskSummary(raw: Task) {
@@ -394,7 +417,8 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     }
     // Everything is checked before anything is written, so a refused folder never leaves a half-made project behind
     if (a.folder !== undefined && a.folder !== null) {
-      const why = clientFolderRefusal(a.folder);
+      // a link the store cannot follow would be kept as the link itself, so it is refused before the real path is asked for
+      const why = clientFolderRefusal(a.folder) ?? clientLinkRefusal(a.folder);
       if (why) return fail(why);
       // the real path the store would keep (a junction or symlink resolved) is checked too
       const real = store.checkFolder(a.folder, found?.id);
