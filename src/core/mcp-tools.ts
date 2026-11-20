@@ -77,6 +77,9 @@ function findProject(ctx: CoreContext, ref: string) {
   return named[0];
 }
 
+const CLIENT_FOLDER_HEAD = 'An outside app cannot make that folder a project folder';
+const CLIENT_FOLDER_TAIL = 'Choose it in the Legion app if you mean it.';
+
 /**
  * Folders an outside app may not make a project folder, on top of the checks every folder gets (no root, not Legion's data folder, no overlap):
  * an agent in the project may write there without a card, and in the app the owner sees a confirmation for a folder change, which a client skips.
@@ -84,9 +87,6 @@ function findProject(ctx: CoreContext, ref: string) {
  * around it. Refused: a network or device path (two leading slashes: a share, or a \\?\ path), a folder inside a guarded one, and a folder that
  * contains a guarded one (your home folder, the Users folder). `home` is for tests.
  */
-const CLIENT_FOLDER_HEAD = 'An outside app cannot make that folder a project folder';
-const CLIENT_FOLDER_TAIL = 'Choose it in the Legion app if you mean it.';
-
 export function clientFolderRefusal(folder: string, real?: string, home: string = homedir()): string | undefined {
   const head = CLIENT_FOLDER_HEAD;
   const tail = CLIENT_FOLDER_TAIL;
@@ -102,10 +102,13 @@ export function clientFolderRefusal(folder: string, real?: string, home: string 
     ...['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.claude', '.config'].map((d) => joinPath(h, d)),
     ...(process.platform === 'win32' ? [process.env.SystemRoot ?? 'C:\\Windows', process.env.ProgramFiles ?? 'C:\\Program Files', process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', process.env.ProgramData ?? 'C:\\ProgramData', joinPath(process.env.APPDATA ?? joinPath(h, 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu')] : ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library']),
   ];
+  // each guarded folder by its real path too: on macOS /etc is a link to /private/etc, so a link to /etc resolves to a path the plain
+  // list would miss (the same holds for a home folder reached through a link, as on systems where /home links to /var/home)
   const norm = (p: string): string => { const x = resolvePath(p).toLowerCase(); return x.endsWith(sepChar) ? x : x + sepChar; };
+  const guards = guarded.flatMap((g) => { try { const r = realpathSync.native(g); return norm(r) === norm(g) ? [g] : [g, r]; } catch { return [g]; } });
   for (const p of paths) {
     const f = norm(p);
-    for (const g of guarded) {
+    for (const g of guards) {
       const gn = norm(g);
       if (f.startsWith(gn)) return `${head}: it is inside a folder that holds keys, settings or system files (${basenameOf(g)}). ${tail}`;
       if (gn.startsWith(f)) return `${head}: it contains a folder that holds keys, settings or system files (${basenameOf(g)}). ${tail}`;
@@ -115,9 +118,10 @@ export function clientFolderRefusal(folder: string, real?: string, home: string 
 }
 
 /**
- * A client folder that is, or sits below, a link (symlink or junction) whose target does not exist is refused. The store keeps the
- * real path behind a link, but a link it cannot follow is kept as the link itself: once its target is made (a guarded folder such as
- * ~/.aws that is not there yet), the project folder would open it. Fail closed: a link that cannot be resolved is no project folder.
+ * A client folder that is, or sits below, a link (symlink or junction) that cannot be followed is refused: its target is missing, or
+ * cannot be read (no access, a drive that is offline). The store keeps the real path behind a link, but a link it cannot follow is kept
+ * as the link itself: once its target is made (a guarded folder such as ~/.aws that is not there yet), the project folder would open
+ * it. Fail closed: a link that cannot be resolved is no project folder.
  */
 export function clientLinkRefusal(folder: string): string | undefined {
   let cur = resolvePath(folder);
@@ -125,7 +129,7 @@ export function clientLinkRefusal(folder: string): string | undefined {
     let link = false;
     try { link = lstatSync(cur).isSymbolicLink(); } catch { /* not there (yet), or below a broken link: look one level up */ }
     if (link) {
-      try { realpathSync.native(cur); } catch { return `${CLIENT_FOLDER_HEAD}: it is a link whose target does not exist. ${CLIENT_FOLDER_TAIL}`; }
+      try { realpathSync.native(cur); } catch { return `${CLIENT_FOLDER_HEAD}: it is a link that cannot be followed (its target is missing or cannot be read). ${CLIENT_FOLDER_TAIL}`; }
     }
     const up = dirnameOf(cur);
     if (up === cur) return undefined;

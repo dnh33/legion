@@ -411,14 +411,25 @@ test('a link whose target does not exist is refused for a client, at the folder 
   const gone = join(root, 'home', '.aws'); // a guarded folder that does not exist yet: a link to it would open it once it is made
   const dangling = join(root, 'looks-fine');
   symlinkSync(gone, dangling, 'junction');
-  assert.match(clientLinkRefusal(dangling) ?? '', /a link whose target does not exist/, 'the link itself');
-  assert.match(clientLinkRefusal(join(dangling, 'sub', 'deeper')) ?? '', /a link whose target does not exist/, 'a folder below the link');
+  assert.match(clientLinkRefusal(dangling) ?? '', /a link that cannot be followed/, 'the link itself');
+  assert.match(clientLinkRefusal(join(dangling, 'sub', 'deeper')) ?? '', /a link that cannot be followed/, 'a folder below the link');
   assert.match(clientLinkRefusal(dangling) ?? '', /cannot make that folder a project folder/);
   mkdirSync(join(root, 'real'), { recursive: true });
   const working = join(root, 'working');
   symlinkSync(join(root, 'real'), working, 'junction');
   assert.equal(clientLinkRefusal(working), undefined, 'a link that resolves is checked by its real path instead');
   assert.equal(clientLinkRefusal(join(root, 'not-made-yet', 'game')), undefined, 'a folder that does not exist yet and is no link is fine');
+});
+
+test('a guarded folder that is itself a link is guarded by its real path too (macOS: /etc is /private/etc)', () => {
+  const root = cleanupTemp('legion-mcp-owner-guard-real-');
+  const home = join(root, 'home');
+  mkdirSync(join(root, 'keys-live-here', 'sub'), { recursive: true });
+  mkdirSync(home, { recursive: true });
+  symlinkSync(join(root, 'keys-live-here'), join(home, '.ssh'), 'junction');
+  assert.match(clientFolderRefusal(join(root, 'keys-live-here', 'sub'), undefined, home) ?? '', /inside a folder that holds keys/, 'the real folder behind ~/.ssh');
+  assert.match(clientFolderRefusal(root, undefined, home) ?? '', /contains a folder/, 'a folder above the real one');
+  assert.equal(clientFolderRefusal(join(root, 'elsewhere'), undefined, home), undefined, 'a sibling folder is fine');
 });
 
 test('MCP, on: a link to a guarded folder is refused through the tool, and nothing is created', async () => {
@@ -429,16 +440,15 @@ test('MCP, on: a link to a guarded folder is refused through the tool, and nothi
     symlinkSync(join(m.root, 'nowhere', '.claude'), dangling, 'junction');
     const before = m.projects.list().length;
     const r = await m.call('legion_project_edit', { action: 'create', name: 'Linked', folder: dangling });
-    assert.equal(r.isError, true, r.text); assert.match(r.text, /cannot make that folder a project folder/);
+    assert.equal(r.isError, true, r.text); assert.match(r.text, /a link that cannot be followed/);
     assert.equal(m.projects.list().length, before);
-    // a link to the real ~/.claude, where this machine has one: refused by its real path
-    const target = join(homedir(), '.claude');
-    if (existsSync(target)) {
-      const link = join(m.root, 'looks-fine-too');
-      symlinkSync(target, link, 'junction');
-      const r2 = await m.call('legion_project_edit', { action: 'create', name: 'Linked too', folder: link });
-      assert.equal(r2.isError, true, r2.text); assert.match(r2.text, /inside a folder that holds keys/);
-      assert.equal(m.projects.list().length, before);
-    }
+    // a link to a system folder every machine has: the raw path looks harmless, the real path behind it is refused
+    const target = process.platform === 'win32' ? (process.env.SystemRoot ?? 'C:\\Windows') : '/etc';
+    assert.ok(existsSync(target), target);
+    const link = join(m.root, 'looks-fine-too');
+    symlinkSync(target, link, 'junction');
+    const r2 = await m.call('legion_project_edit', { action: 'create', name: 'Linked too', folder: link });
+    assert.equal(r2.isError, true, r2.text); assert.match(r2.text, /inside a folder that holds keys, settings or system files/);
+    assert.equal(m.projects.list().length, before);
   } finally { await m.close(); }
 });
